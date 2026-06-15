@@ -94,7 +94,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     public void ApplyTo(Connection c)
     {
         c.Type = Type;
-        c.Name = string.IsNullOrWhiteSpace(Name) ? "Unnamed" : Name.Trim();
+        c.Name = string.IsNullOrWhiteSpace(Name) ? L("UnnamedConnection") : Name.Trim();
         c.Host = Host.Trim();
         c.Port = Port > 0 ? Port : Connection.DefaultPort(Type);
         c.Username = Username.Trim();

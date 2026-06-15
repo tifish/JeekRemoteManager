@@ -14,4 +14,7 @@ public enum StorageLocation
 public class AppSettings
 {
     public StorageLocation StorageLocation { get; set; } = StorageLocation.UserDirectory;
+
+    /// <summary>UI language code ("en", "zh"). Null = follow system culture.</summary>
+    public string? Language { get; set; }
 }

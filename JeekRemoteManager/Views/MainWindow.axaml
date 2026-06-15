@@ -3,6 +3,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="using:JeekRemoteManager.ViewModels"
+        xmlns:l="using:Jeek.Avalonia.Localization"
         mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
         x:Class="JeekRemoteManager.Views.MainWindow"
         x:Name="Root"
@@ -10,7 +11,7 @@
         Width="960" Height="640"
         MinWidth="640" MinHeight="420"
         Icon="/Assets/icon.ico"
-        Title="Jeek Remote Manager">
+        Title="{l:Localize WindowTitle}">
 
     <Design.DataContext>
         <vm:MainWindowViewModel />
@@ -20,46 +21,71 @@
         <!-- Toolbar -->
         <Border DockPanel.Dock="Top" Padding="8,6" Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
             <StackPanel Orientation="Horizontal" Spacing="6">
-                <Button Command="{Binding NewFolderCommand}" ToolTip.Tip="New folder">
+                <Button Command="{Binding NewFolderCommand}" ToolTip.Tip="{l:Localize NewFolder}">
                     <StackPanel Orientation="Horizontal" Spacing="4">
                         <TextBlock Classes="emoji" Text="&#x1F4C1;" />
-                        <TextBlock Text="Folder" />
+                        <TextBlock Text="{l:Localize Folder}" />
                     </StackPanel>
                 </Button>
-                <Button Command="{Binding NewSshCommand}" ToolTip.Tip="New SSH connection">
+                <Button Command="{Binding NewSshCommand}" ToolTip.Tip="{l:Localize NewSsh}">
                     <StackPanel Orientation="Horizontal" Spacing="4">
                         <TextBlock Classes="emoji" Text="&#x2328;" />
-                        <TextBlock Text="SSH" />
+                        <TextBlock Text="{l:Localize SSH}" />
                     </StackPanel>
                 </Button>
-                <Button Command="{Binding NewRdpCommand}" ToolTip.Tip="New RDP connection">
+                <Button Command="{Binding NewRdpCommand}" ToolTip.Tip="{l:Localize NewRdp}">
                     <StackPanel Orientation="Horizontal" Spacing="4">
                         <TextBlock Classes="emoji" Text="&#x1F5A5;" />
-                        <TextBlock Text="RDP" />
+                        <TextBlock Text="{l:Localize RDP}" />
                     </StackPanel>
                 </Button>
                 <Rectangle Width="1" Fill="{DynamicResource SystemControlForegroundBaseLowBrush}" Margin="4,2" />
-                <Button Command="{Binding ConnectCommand}" ToolTip.Tip="Connect (Enter / double-click)"
+                <Button Command="{Binding ConnectCommand}" ToolTip.Tip="{l:Localize ConnectTooltip}"
                         Classes="accent">
                     <StackPanel Orientation="Horizontal" Spacing="4">
                         <TextBlock Classes="emoji" Text="&#x25B6;" />
-                        <TextBlock Text="Connect" />
+                        <TextBlock Text="{l:Localize Connect}" />
                     </StackPanel>
                 </Button>
                 <Rectangle Width="1" Fill="{DynamicResource SystemControlForegroundBaseLowBrush}" Margin="4,2" />
-                <Button Command="{Binding OpenSettingsCommand}" Content="Settings"
-                        ToolTip.Tip="Choose where connections are stored" />
-                <Button ToolTip.Tip="More actions">
+                <Button Command="{Binding OpenSettingsCommand}" Content="{l:Localize Settings}"
+                        ToolTip.Tip="{l:Localize SettingsTooltip}" />
+                <Button ToolTip.Tip="{l:Localize MoreActions}">
                     <Button.Content>
                         <TextBlock Text="&#x22EE;" FontSize="16" />
                     </Button.Content>
                     <Button.Flyout>
                         <MenuFlyout>
-                            <MenuItem Header="Import from FinalShell…"
+                            <MenuItem Header="{l:Localize ImportFromFinalShell}"
                                       Command="{Binding ImportFinalShellCommand}" />
                             <Separator />
-                            <MenuItem Header="Check for updates…"
+                            <MenuItem Header="{l:Localize CheckForUpdates}"
                                       Command="{Binding CheckForUpdatesCommand}" />
+                            <Separator />
+                            <MenuItem Header="{l:Localize Language}">
+                                <MenuItem Header="{l:Localize FollowSystem}"
+                                          Command="{Binding SetLanguageCommand}"
+                                          CommandParameter="">
+                                    <MenuItem.Icon>
+                                        <TextBlock Text="&#x2713;" IsVisible="{Binding IsLangFollowSystem}" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <Separator />
+                                <MenuItem Header="English"
+                                          Command="{Binding SetLanguageCommand}"
+                                          CommandParameter="en">
+                                    <MenuItem.Icon>
+                                        <TextBlock Text="&#x2713;" IsVisible="{Binding IsLangEn}" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="中文"
+                                          Command="{Binding SetLanguageCommand}"
+                                          CommandParameter="zh">
+                                    <MenuItem.Icon>
+                                        <TextBlock Text="&#x2713;" IsVisible="{Binding IsLangZh}" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                            </MenuItem>
                         </MenuFlyout>
                     </Button.Flyout>
                 </Button>
@@ -104,18 +130,18 @@
                 </TreeView.KeyBindings>
                 <TreeView.ContextMenu>
                     <ContextMenu>
-                        <MenuItem Header="Connect" Command="{Binding ConnectCommand}" />
+                        <MenuItem Header="{l:Localize Connect}" Command="{Binding ConnectCommand}" />
                         <Separator />
-                        <MenuItem Header="New folder" Command="{Binding NewFolderCommand}" />
-                        <MenuItem Header="New SSH" Command="{Binding NewSshCommand}" />
-                        <MenuItem Header="New RDP" Command="{Binding NewRdpCommand}" />
+                        <MenuItem Header="{l:Localize NewFolder}" Command="{Binding NewFolderCommand}" />
+                        <MenuItem Header="{l:Localize NewSsh}" Command="{Binding NewSshCommand}" />
+                        <MenuItem Header="{l:Localize NewRdp}" Command="{Binding NewRdpCommand}" />
                         <Separator />
-                        <MenuItem Header="Copy" Command="{Binding CopyCommand}" InputGesture="Ctrl+C" />
-                        <MenuItem Header="Cut" Command="{Binding CutCommand}" InputGesture="Ctrl+X" />
-                        <MenuItem Header="Paste" Command="{Binding PasteCommand}" InputGesture="Ctrl+V" />
+                        <MenuItem Header="{l:Localize Copy}" Command="{Binding CopyCommand}" InputGesture="Ctrl+C" />
+                        <MenuItem Header="{l:Localize Cut}" Command="{Binding CutCommand}" InputGesture="Ctrl+X" />
+                        <MenuItem Header="{l:Localize Paste}" Command="{Binding PasteCommand}" InputGesture="Ctrl+V" />
                         <Separator />
-                        <MenuItem Header="Rename" Command="{Binding RenameCommand}" InputGesture="F2" />
-                        <MenuItem Header="Delete" Command="{Binding DeleteCommand}" InputGesture="Delete" />
+                        <MenuItem Header="{l:Localize Rename}" Command="{Binding RenameCommand}" InputGesture="F2" />
+                        <MenuItem Header="{l:Localize Delete}" Command="{Binding DeleteCommand}" InputGesture="Delete" />
                     </ContextMenu>
                 </TreeView.ContextMenu>
                 <TreeView.ItemTemplate>
@@ -136,93 +162,93 @@
                     IsVisible="{Binding Editor, Converter={x:Static ObjectConverters.IsNotNull}}">
                 <ScrollViewer>
                     <StackPanel Spacing="10" Margin="6,6,16,6">
-                        <TextBlock Text="Connection" FontSize="18" FontWeight="SemiBold" />
+                        <TextBlock Text="{l:Localize Connection}" FontSize="18" FontWeight="SemiBold" />
 
                         <Grid ColumnDefinitions="120,*" RowDefinitions="Auto" Margin="0,4,0,0">
-                            <TextBlock Grid.Column="0" Text="Type" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="0" Text="{l:Localize Type}" VerticalAlignment="Center" />
                             <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
                                       ItemsSource="{Binding Editor.AvailableTypes}"
                                       SelectedItem="{Binding Editor.Type, Mode=TwoWay}" />
                         </Grid>
 
                         <Grid ColumnDefinitions="120,*">
-                            <TextBlock Grid.Column="0" Text="Name" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="0" Text="{l:Localize Name}" VerticalAlignment="Center" />
                             <TextBox Grid.Column="1" Text="{Binding Editor.Name, Mode=TwoWay}" />
                         </Grid>
 
                         <Grid ColumnDefinitions="120,*,80,90">
-                            <TextBlock Grid.Column="0" Text="Host" VerticalAlignment="Center" />
-                            <TextBox Grid.Column="1" Text="{Binding Editor.Host, Mode=TwoWay}" Watermark="hostname or IP" />
-                            <TextBlock Grid.Column="2" Text="Port" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" />
+                            <TextBlock Grid.Column="0" Text="{l:Localize Host}" VerticalAlignment="Center" />
+                            <TextBox Grid.Column="1" Text="{Binding Editor.Host, Mode=TwoWay}" Watermark="{l:Localize HostWatermark}" />
+                            <TextBlock Grid.Column="2" Text="{l:Localize Port}" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" />
                             <TextBox Grid.Column="3" Text="{Binding Editor.Port, Mode=TwoWay}" />
                         </Grid>
 
                         <Grid ColumnDefinitions="120,*">
-                            <TextBlock Grid.Column="0" Text="Username" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="0" Text="{l:Localize Username}" VerticalAlignment="Center" />
                             <TextBox Grid.Column="1" Text="{Binding Editor.Username, Mode=TwoWay}" />
                         </Grid>
 
                         <Grid ColumnDefinitions="120,*,Auto">
-                            <TextBlock Grid.Column="0" Text="Password" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="0" Text="{l:Localize Password}" VerticalAlignment="Center" />
                             <TextBox Grid.Column="1" x:Name="PasswordBox"
                                      Text="{Binding Editor.Password, Mode=TwoWay}"
                                      PasswordChar="&#x2022;" />
-                            <CheckBox Grid.Column="2" Content="Show" Margin="8,0,0,0"
+                            <CheckBox Grid.Column="2" Content="{l:Localize Show}" Margin="8,0,0,0"
                                       IsChecked="{Binding #PasswordBox.RevealPassword, Mode=TwoWay}" />
                         </Grid>
 
                         <!-- SSH-specific -->
                         <StackPanel Spacing="10" IsVisible="{Binding Editor.IsSsh}">
                             <Separator />
-                            <TextBlock Text="SSH options" FontWeight="SemiBold" />
+                            <TextBlock Text="{l:Localize SshOptions}" FontWeight="SemiBold" />
                             <Grid ColumnDefinitions="120,*,Auto">
-                                <TextBlock Grid.Column="0" Text="Private key" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="0" Text="{l:Localize PrivateKey}" VerticalAlignment="Center" />
                                 <TextBox Grid.Column="1" Text="{Binding Editor.PrivateKeyPath, Mode=TwoWay}"
-                                         Watermark="optional path to key file" />
-                                <Button Grid.Column="2" Content="Browse…" Margin="8,0,0,0"
+                                         Watermark="{l:Localize PrivateKeyWatermark}" />
+                                <Button Grid.Column="2" Content="{l:Localize Browse}" Margin="8,0,0,0"
                                         Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).BrowseKeyCommand}" />
                             </Grid>
                             <Grid ColumnDefinitions="120,*">
-                                <TextBlock Grid.Column="0" Text="Extra args" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="0" Text="{l:Localize ExtraArgs}" VerticalAlignment="Center" />
                                 <TextBox Grid.Column="1" Text="{Binding Editor.ExtraSshArguments, Mode=TwoWay}"
-                                         Watermark="e.g. -X -L 8080:localhost:80" />
+                                         Watermark="{l:Localize ExtraArgsWatermark}" />
                             </Grid>
                         </StackPanel>
 
                         <!-- RDP-specific -->
                         <StackPanel Spacing="10" IsVisible="{Binding Editor.IsRdp}">
                             <Separator />
-                            <TextBlock Text="RDP options" FontWeight="SemiBold" />
-                            <CheckBox Content="Full screen" IsChecked="{Binding Editor.RdpFullScreen, Mode=TwoWay}" />
+                            <TextBlock Text="{l:Localize RdpOptions}" FontWeight="SemiBold" />
+                            <CheckBox Content="{l:Localize FullScreen}" IsChecked="{Binding Editor.RdpFullScreen, Mode=TwoWay}" />
                             <Grid ColumnDefinitions="120,*,80,*" IsVisible="{Binding !Editor.RdpFullScreen}">
-                                <TextBlock Grid.Column="0" Text="Width" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="0" Text="{l:Localize Width}" VerticalAlignment="Center" />
                                 <TextBox Grid.Column="1" Text="{Binding Editor.RdpWidth, Mode=TwoWay}" />
-                                <TextBlock Grid.Column="2" Text="Height" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" />
+                                <TextBlock Grid.Column="2" Text="{l:Localize Height}" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" />
                                 <TextBox Grid.Column="3" Text="{Binding Editor.RdpHeight, Mode=TwoWay}" />
                             </Grid>
-                            <TextBlock Text="Local resources" FontWeight="SemiBold" Margin="0,4,0,0" />
+                            <TextBlock Text="{l:Localize LocalResources}" FontWeight="SemiBold" Margin="0,4,0,0" />
                             <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" >
-                                <CheckBox Grid.Row="0" Grid.Column="0" Content="Share clipboard"
+                                <CheckBox Grid.Row="0" Grid.Column="0" Content="{l:Localize ShareClipboard}"
                                           IsChecked="{Binding Editor.RdpRedirectClipboard, Mode=TwoWay}" />
-                                <CheckBox Grid.Row="0" Grid.Column="1" Content="Share drives"
+                                <CheckBox Grid.Row="0" Grid.Column="1" Content="{l:Localize ShareDrives}"
                                           IsChecked="{Binding Editor.RdpRedirectDrives, Mode=TwoWay}" />
-                                <CheckBox Grid.Row="1" Grid.Column="0" Content="Play remote audio here"
+                                <CheckBox Grid.Row="1" Grid.Column="0" Content="{l:Localize PlayRemoteAudio}"
                                           IsChecked="{Binding Editor.RdpRedirectAudioPlayback, Mode=TwoWay}" />
-                                <CheckBox Grid.Row="1" Grid.Column="1" Content="Share microphone"
+                                <CheckBox Grid.Row="1" Grid.Column="1" Content="{l:Localize ShareMicrophone}"
                                           IsChecked="{Binding Editor.RdpRedirectMicrophone, Mode=TwoWay}" />
                             </Grid>
                         </StackPanel>
 
                         <Separator />
                         <Grid ColumnDefinitions="120,*">
-                            <TextBlock Grid.Column="0" Text="Notes" VerticalAlignment="Top" Margin="0,4,0,0" />
+                            <TextBlock Grid.Column="0" Text="{l:Localize Notes}" VerticalAlignment="Top" Margin="0,4,0,0" />
                             <TextBox Grid.Column="1" Text="{Binding Editor.Notes, Mode=TwoWay}"
                                      AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" />
                         </Grid>
 
                         <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
-                            <Button Content="Connect" Command="{Binding ConnectCommand}" Classes="accent" />
-                            <TextBlock Text="Changes are saved automatically."
+                            <Button Content="{l:Localize Connect}" Command="{Binding ConnectCommand}" Classes="accent" />
+                            <TextBlock Text="{l:Localize AutoSaveHint}"
                                        VerticalAlignment="Center" Opacity="0.6" Margin="6,0,0,0" />
                         </StackPanel>
                     </StackPanel>
@@ -232,7 +258,7 @@
             <!-- Placeholder when nothing is selected -->
             <TextBlock Grid.Column="2"
                        IsVisible="{Binding Editor, Converter={x:Static ObjectConverters.IsNull}}"
-                       Text="Select a connection to edit, or create one from the toolbar."
+                       Text="{l:Localize SelectConnectionHint}"
                        HorizontalAlignment="Center" VerticalAlignment="Center"
                        Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
         </Grid>

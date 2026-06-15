@@ -7,6 +7,7 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Jeek.Avalonia.Localization;
 using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
 using JeekRemoteManager.ViewModels;
@@ -114,7 +115,7 @@ public partial class MainWindow : Window
     {
         var options = new FolderPickerOpenOptions
         {
-            Title = "Select FinalShell conn directory",
+            Title = Localizer.Get("DialogPickFinalShellTitle"),
             AllowMultiple = false,
         };
 
@@ -139,7 +140,7 @@ public partial class MainWindow : Window
     {
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "Select private key",
+            Title = Localizer.Get("DialogPickKeyTitle"),
             AllowMultiple = false,
         });
 
@@ -150,8 +151,8 @@ public partial class MainWindow : Window
     {
         var tcs = new TaskCompletionSource<bool>();
 
-        var yes = new Button { Content = "Yes", MinWidth = 80, IsDefault = true };
-        var no = new Button { Content = "No", MinWidth = 80, IsCancel = true };
+        var yes = new Button { Content = Localizer.Get("DialogYes"), MinWidth = 80, IsDefault = true };
+        var no = new Button { Content = Localizer.Get("DialogNo"), MinWidth = 80, IsCancel = true };
 
         var dialog = new Window
         {
@@ -191,8 +192,8 @@ public partial class MainWindow : Window
         var tcs = new TaskCompletionSource<string?>();
 
         var input = new TextBox { Text = initial };
-        var ok = new Button { Content = "OK", MinWidth = 80, IsDefault = true };
-        var cancel = new Button { Content = "Cancel", MinWidth = 80, IsCancel = true };
+        var ok = new Button { Content = Localizer.Get("DialogOk"), MinWidth = 80, IsDefault = true };
+        var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 80, IsCancel = true };
 
         var dialog = new Window
         {
@@ -239,7 +240,7 @@ public partial class MainWindow : Window
             GroupName = "storage",
             IsChecked = current == StorageLocation.UserDirectory,
             Content = BuildOption(
-                "User directory (roaming)",
+                Localizer.Get("StorageUserOption"),
                 SettingsService.ResolveConnectionsRoot(StorageLocation.UserDirectory)),
         };
 
@@ -248,16 +249,16 @@ public partial class MainWindow : Window
             GroupName = "storage",
             IsChecked = current == StorageLocation.ProgramDirectory,
             Content = BuildOption(
-                "Program directory (portable)",
+                Localizer.Get("StorageProgramOption"),
                 SettingsService.ResolveConnectionsRoot(StorageLocation.ProgramDirectory)),
         };
 
-        var ok = new Button { Content = "OK", MinWidth = 80, IsDefault = true };
-        var cancel = new Button { Content = "Cancel", MinWidth = 80, IsCancel = true };
+        var ok = new Button { Content = Localizer.Get("DialogOk"), MinWidth = 80, IsDefault = true };
+        var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 80, IsCancel = true };
 
         var dialog = new Window
         {
-            Title = "Settings",
+            Title = Localizer.Get("DialogSettingsTitle"),
             Width = 460,
             SizeToContent = SizeToContent.Height,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
@@ -268,7 +269,7 @@ public partial class MainWindow : Window
                 Spacing = 12,
                 Children =
                 {
-                    new TextBlock { Text = "Where should connections be stored?", FontWeight = FontWeight.SemiBold },
+                    new TextBlock { Text = Localizer.Get("DialogStorageQuestion"), FontWeight = FontWeight.SemiBold },
                     userRadio,
                     programRadio,
                     new StackPanel

@@ -1,0 +1,113 @@
+	en	zh
+en	English	英文
+zh	Chinese	中文
+Language	Language	语言
+FollowSystem	Follow system	跟随系统
+WindowTitle	Jeek Remote Manager	Jeek 远程管理器
+NewFolder	New folder	新建文件夹
+NewSsh	New SSH connection	新建 SSH 连接
+NewRdp	New RDP connection	新建 RDP 连接
+Folder	Folder	文件夹
+SSH	SSH	SSH
+RDP	RDP	RDP
+Connect	Connect	连接
+ConnectTooltip	Connect (Enter / double-click)	连接（回车 / 双击）
+Settings	Settings	设置
+SettingsTooltip	Choose where connections are stored	选择连接保存位置
+MoreActions	More actions	更多操作
+ImportFromFinalShell	Import from FinalShell…	从 FinalShell 导入…
+CheckForUpdates	Check for updates…	检查更新…
+Copy	Copy	复制
+Cut	Cut	剪切
+Paste	Paste	粘贴
+Rename	Rename	重命名
+Delete	Delete	删除
+Connection	Connection	连接
+Type	Type	类型
+Name	Name	名称
+Host	Host	主机
+Port	Port	端口
+HostWatermark	hostname or IP	主机名或 IP
+Username	Username	用户名
+Password	Password	密码
+Show	Show	显示
+SshOptions	SSH options	SSH 选项
+PrivateKey	Private key	私钥
+PrivateKeyWatermark	optional path to key file	可选，私钥文件路径
+Browse	Browse…	浏览…
+ExtraArgs	Extra args	额外参数
+ExtraArgsWatermark	e.g. -X -L 8080:localhost:80	例如 -X -L 8080:localhost:80
+RdpOptions	RDP options	RDP 选项
+FullScreen	Full screen	全屏
+Width	Width	宽度
+Height	Height	高度
+LocalResources	Local resources	本地资源
+ShareClipboard	Share clipboard	共享剪贴板
+ShareDrives	Share drives	共享磁盘
+PlayRemoteAudio	Play remote audio here	在本机播放远程音频
+ShareMicrophone	Share microphone	共享麦克风
+Notes	Notes	备注
+AutoSaveHint	Changes are saved automatically.	更改将自动保存。
+SelectConnectionHint	Select a connection to edit, or create one from the toolbar.	选择一个连接进行编辑，或在工具栏新建一个。
+StatusReady	Ready.	就绪。
+StatusTargetRoot	Target: root	目标：根目录
+StatusTarget	Target: {0}	目标：{0}
+StatusBuild	Build {0}	构建 {0}
+StatusDevBuild	Dev build	开发构建
+StatusCreatedFolder	Created folder '{0}'.	已创建文件夹“{0}”。
+StatusCouldNotCreateFolder	Could not create folder: {0}	无法创建文件夹：{0}
+StatusCreatedConnection	Created {0} connection.	已创建 {0} 连接。
+StatusCouldNotCreateConnection	Could not create connection: {0}	无法创建连接：{0}
+StatusLaunchingSshWithClipboard	Launching SSH to {0} — password copied to clipboard (auto-clears in 30s).	正在启动 SSH 到 {0} —— 密码已复制到剪贴板（30 秒后自动清除）。
+StatusLaunchingSsh	Launching SSH to {0}.	正在启动 SSH 到 {0}。
+StatusLaunching	Launching {0} to {1}.	正在启动 {0} 到 {1}。
+StatusFailedToLaunch	Failed to launch: {0}	启动失败：{0}
+StatusCouldNotDelete	Could not delete: {0}	无法删除：{0}
+StatusDeleted	Deleted {0}.	已删除 {0}。
+StatusRenamed	Renamed.	已重命名。
+StatusCouldNotRename	Could not rename: {0}	无法重命名：{0}
+StatusCopied	Copied '{0}'.	已复制“{0}”。
+StatusCut	Cut '{0}'.	已剪切“{0}”。
+StatusPasteIntoSelf	Cannot paste a folder into itself or one of its subfolders.	不能将文件夹粘贴到自身或其子文件夹中。
+StatusAlreadyInFolder	Already in this folder.	已经在此文件夹中。
+StatusMoved	Moved.	已移动。
+StatusPasted	Pasted.	已粘贴。
+StatusPasteFailed	Paste failed: {0}	粘贴失败：{0}
+StatusClipboardGone	Clipboard item no longer exists.	剪贴板项目已不存在。
+StatusAutoSaved	Auto-saved '{0}'.	已自动保存“{0}”。
+StatusAutoSaveFailed	Auto-save failed: {0}	自动保存失败：{0}
+StatusCheckingUpdates	Checking for updates…	正在检查更新…
+StatusUpToDate	You're up to date (build {0}).	已是最新版本（构建 {0}）。
+StatusUpdateFailed	Update check failed: {0}	检查更新失败：{0}
+StatusUpdatePostponed	Update postponed.	更新已推迟。
+StatusUpdateLauncherFail	Could not launch updater.	无法启动更新程序。
+StatusImported	Imported {0} connection(s) into {1} new folder(s). Skipped {2}. Passwords cannot be decrypted from FinalShell — fill them in via the editor.	已导入 {0} 个连接到 {1} 个新文件夹中。已跳过 {2} 个。FinalShell 的密码无法解密 —— 请在编辑器中手动填写。
+StatusImportFailed	Import failed: {0}	导入失败：{0}
+StatusOpenFolderFailed	Cannot open folder: {0}	无法打开文件夹：{0}
+StatusNotWritable	That location is not writable: {0}	该位置不可写：{0}
+StatusStorageLocationOnly	Storage location: {0}. Folder: {1}	存储位置：{0}。文件夹：{1}
+StatusStorageLocationWithData	Storage location: {0}. Showing data at {1}	存储位置：{0}。数据位于 {1}
+StatusStorageNotSaved	Storage location changed, but settings could not be saved to {0}.	存储位置已更改，但设置无法保存到 {0}。
+NewSshDefault	New SSH	新建 SSH
+NewRdpDefault	New RDP	新建 RDP
+NewFolderDefault	New Folder	新建文件夹
+UnnamedConnection	Unnamed	未命名
+DialogYes	Yes	是
+DialogNo	No	否
+DialogOk	OK	确定
+DialogCancel	Cancel	取消
+DialogDeleteTitle	Delete	删除
+DialogDeleteFolderPrompt	Delete folder '{0}' and all its contents?	删除文件夹“{0}”及其所有内容？
+DialogDeleteConnectionPrompt	Delete connection '{0}'?	删除连接“{0}”？
+DialogRenameTitle	Rename	重命名
+DialogRenamePrompt	New name:	新名称：
+DialogUpdateAvailableTitle	Update available	发现新版本
+DialogUpdateAvailableMessage	A newer build is available (current {0}, latest {1}).\n\nDownload and install now? The app will close and relaunch.	发现新版本（当前 {0}，最新 {1}）。\n\n是否立即下载并安装？应用将关闭并重启。
+DialogCopyDataTitle	Copy data	复制数据
+DialogCopyDataMessage	Copy existing connections to the new location?\n\nFrom: {0}\nTo: {1}\n\nThe originals are left in place; remove them yourself afterwards if you no longer need them.	将现有连接复制到新位置？\n\n源：{0}\n目标：{1}\n\n原始文件将保留；如不再需要请自行删除。
+DialogSettingsTitle	Settings	设置
+DialogStorageQuestion	Where should connections be stored?	连接应保存在哪里？
+StorageUserOption	User directory (roaming)	用户目录（漫游）
+StorageProgramOption	Program directory (portable)	程序目录（便携）
+DialogPickKeyTitle	Select private key	选择私钥
+DialogPickFinalShellTitle	Select FinalShell conn directory	选择 FinalShell 连接目录

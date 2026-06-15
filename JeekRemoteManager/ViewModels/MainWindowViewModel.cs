@@ -8,6 +8,7 @@ using Avalonia.Input.Platform;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Jeek.Avalonia.Localization;
 using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
 
@@ -36,6 +37,14 @@ public partial class MainWindowViewModel : ViewModelBase
         _settings = settings;
         _store.SetRoot(_settings.ResolveConnectionsRoot());
         ReloadTree();
+
+        // Refresh language-dependent computed properties when the user switches language.
+        Localizer.LanguageChanged += (_, _) =>
+        {
+            StatusMessage = L("StatusReady");
+            OnPropertyChanged(nameof(TargetDescription));
+            OnPropertyChanged(nameof(VersionDisplay));
+        };
     }
 
     // Parameterless constructor for the XAML designer.
@@ -67,9 +76,9 @@ public partial class MainWindowViewModel : ViewModelBase
                     Path.GetFullPath(_store.RootPath),
                     StringComparison.OrdinalIgnoreCase))
             {
-                return "Target: root";
+                return L("StatusTargetRoot");
             }
-            return "Target: " + Path.GetFileName(folder.TrimEnd(Path.DirectorySeparatorChar));
+            return L("StatusTarget", Path.GetFileName(folder.TrimEnd(Path.DirectorySeparatorChar)));
         }
     }
 
@@ -77,7 +86,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private ConnectionEditorViewModel? _editor;
 
     [ObservableProperty]
-    private string _statusMessage = "Ready.";
+    private string _statusMessage = Localizer.Get("StatusReady");
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(PasteCommand))]
@@ -103,7 +112,7 @@ public partial class MainWindowViewModel : ViewModelBase
         get
         {
             var build = AutoUpdateService.GetLocalCommitCount();
-            return build > 0 ? $"Build {build}" : "Dev build";
+            return build > 0 ? L("StatusBuild", build) : L("StatusDevBuild");
         }
     }
 
@@ -187,11 +196,11 @@ public partial class MainWindowViewModel : ViewModelBase
                 node.Name = node.Connection.Name;
             }
 
-            StatusMessage = $"Auto-saved '{node.Name}'.";
+            StatusMessage = L("StatusAutoSaved", node.Name);
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Auto-save failed: {ex.Message}";
+            StatusMessage = L("StatusAutoSaveFailed", ex.Message);
         }
     }
 
@@ -327,7 +336,7 @@ public partial class MainWindowViewModel : ViewModelBase
         try
         {
             var parent = TargetFolder();
-            var path = _store.CreateFolder(parent, "New Folder");
+            var path = _store.CreateFolder(parent, L("NewFolderDefault"));
 
             // Reload with the new folder as the reveal target — this expands the
             // parent (ancestor of the new folder) so the new entry is visible.
@@ -341,11 +350,11 @@ public partial class MainWindowViewModel : ViewModelBase
             SelectedNode = FindNode(Nodes, parent);
             RequestFocusTree?.Invoke();
 
-            StatusMessage = $"Created folder '{Path.GetFileName(path)}'.";
+            StatusMessage = L("StatusCreatedFolder", Path.GetFileName(path));
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Could not create folder: {ex.Message}";
+            StatusMessage = L("StatusCouldNotCreateFolder", ex.Message);
         }
     }
 
@@ -362,17 +371,17 @@ public partial class MainWindowViewModel : ViewModelBase
             var connection = new Connection
             {
                 Type = type,
-                Name = type == ConnectionType.Rdp ? "New RDP" : "New SSH",
+                Name = type == ConnectionType.Rdp ? L("NewRdpDefault") : L("NewSshDefault"),
                 Port = Connection.DefaultPort(type),
             };
 
             var path = _store.Save(connection, TargetFolder());
             ReloadTree(path);
-            StatusMessage = $"Created {type} connection.";
+            StatusMessage = L("StatusCreatedConnection", type);
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Could not create connection: {ex.Message}";
+            StatusMessage = L("StatusCouldNotCreateConnection", ex.Message);
         }
     }
 
@@ -401,23 +410,23 @@ public partial class MainWindowViewModel : ViewModelBase
                 {
                     await Clipboard.SetTextAsync(password);
                     ScheduleClipboardClear(password);
-                    StatusMessage = $"Launching SSH to {connection.Host} — password copied to clipboard (auto-clears in 30s).";
+                    StatusMessage = L("StatusLaunchingSshWithClipboard", connection.Host);
                 }
                 else
                 {
-                    StatusMessage = $"Launching SSH to {connection.Host}.";
+                    StatusMessage = L("StatusLaunchingSsh", connection.Host);
                 }
             }
             else
             {
-                StatusMessage = $"Launching {connection.Type} to {connection.Host}.";
+                StatusMessage = L("StatusLaunching", connection.Type, connection.Host);
             }
 
             _launcher.Launch(connection);
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Failed to launch: {ex.Message}";
+            StatusMessage = L("StatusFailedToLaunch", ex.Message);
         }
     }
 
@@ -460,10 +469,12 @@ public partial class MainWindowViewModel : ViewModelBase
         if (SelectedNode is not { } node)
             return;
 
-        var what = node.IsFolder ? $"folder '{node.Name}' and all its contents" : $"connection '{node.Name}'";
+        var what = node.IsFolder
+            ? L("DialogDeleteFolderPrompt", node.Name)
+            : L("DialogDeleteConnectionPrompt", node.Name);
         if (ConfirmAsync is not null)
         {
-            var ok = await ConfirmAsync("Delete", $"Delete {what}?");
+            var ok = await ConfirmAsync(L("DialogDeleteTitle"), what);
             if (!ok)
                 return;
         }
@@ -492,7 +503,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Could not delete: {ex.Message}";
+            StatusMessage = L("StatusCouldNotDelete", ex.Message);
             return;
         }
 
@@ -502,7 +513,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         ReloadTree();
         SelectedNode = parent is not null ? FindNode(Nodes, parent) : null;
-        StatusMessage = $"Deleted {what}.";
+        StatusMessage = L("StatusDeleted", node.Name);
     }
 
     [RelayCommand(CanExecute = nameof(CanModifySelection))]
@@ -511,7 +522,7 @@ public partial class MainWindowViewModel : ViewModelBase
         if (SelectedNode is not { } node || PromptAsync is null)
             return;
 
-        var newName = await PromptAsync("Rename", "New name:", node.Name);
+        var newName = await PromptAsync(L("DialogRenameTitle"), L("DialogRenamePrompt"), node.Name);
         if (string.IsNullOrWhiteSpace(newName) || newName == node.Name)
             return;
 
@@ -534,11 +545,11 @@ public partial class MainWindowViewModel : ViewModelBase
             }
 
             ReloadTree(newPath);
-            StatusMessage = "Renamed.";
+            StatusMessage = L("StatusRenamed");
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Could not rename: {ex.Message}";
+            StatusMessage = L("StatusCouldNotRename", ex.Message);
         }
     }
 
@@ -553,7 +564,7 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
 
         SetClipboard(node, isCut: false);
-        StatusMessage = $"Copied '{node.Name}'.";
+        StatusMessage = L("StatusCopied", node.Name);
     }
 
     [RelayCommand(CanExecute = nameof(CanModifySelection))]
@@ -564,7 +575,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         SetClipboard(node, isCut: true);
         node.IsCut = true;
-        StatusMessage = $"Cut '{node.Name}'.";
+        StatusMessage = L("StatusCut", node.Name);
     }
 
     private void SetClipboard(TreeNodeViewModel node, bool isCut)
@@ -589,7 +600,7 @@ public partial class MainWindowViewModel : ViewModelBase
         if (!exists)
         {
             ClearClipboard();
-            StatusMessage = "Clipboard item no longer exists.";
+            StatusMessage = L("StatusClipboardGone");
             return;
         }
 
@@ -602,7 +613,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 // its own subfolders would recurse forever.
                 if (ConnectionStore.IsSameOrInside(source, target))
                 {
-                    StatusMessage = "Cannot paste a folder into itself or one of its subfolders.";
+                    StatusMessage = L("StatusPasteIntoSelf");
                     return;
                 }
 
@@ -623,23 +634,23 @@ public partial class MainWindowViewModel : ViewModelBase
                 // (pasting back into the same folder). Keep the cut pending in that case.
                 if (PathEquals(newPath, source))
                 {
-                    StatusMessage = "Already in this folder.";
+                    StatusMessage = L("StatusAlreadyInFolder");
                     return;
                 }
 
                 ClearClipboard(); // a real move consumes the cut
                 ReloadTree(newPath);
-                StatusMessage = "Moved.";
+                StatusMessage = L("StatusMoved");
             }
             else
             {
                 ReloadTree(newPath);
-                StatusMessage = "Pasted.";
+                StatusMessage = L("StatusPasted");
             }
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Paste failed: {ex.Message}";
+            StatusMessage = L("StatusPasteFailed", ex.Message);
         }
     }
 
@@ -704,7 +715,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Cannot open folder: {ex.Message}";
+            StatusMessage = L("StatusOpenFolderFailed", ex.Message);
         }
     }
 
@@ -736,9 +747,45 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async Task CheckForUpdates()
     {
-        StatusMessage = "Checking for updates…";
+        StatusMessage = L("StatusCheckingUpdates");
         var outcome = await AutoUpdateService.HasUpdateAsync();
         await PromptUpdateAsync(silentIfUpToDate: false, outcome);
+    }
+
+    public bool IsLangFollowSystem => string.IsNullOrEmpty(_settings.Settings.Language);
+    public bool IsLangEn => _settings.Settings.Language == "en";
+    public bool IsLangZh => _settings.Settings.Language == "zh";
+
+    private void NotifyLanguageSelectionChanged()
+    {
+        OnPropertyChanged(nameof(IsLangFollowSystem));
+        OnPropertyChanged(nameof(IsLangEn));
+        OnPropertyChanged(nameof(IsLangZh));
+    }
+
+    [RelayCommand]
+    private void SetLanguage(string? language)
+    {
+        // Empty / null means "follow system": clear the stored preference and
+        // resolve from the current OS culture (falling back to en if unsupported).
+        if (string.IsNullOrEmpty(language))
+        {
+            _settings.Settings.Language = null;
+            _settings.Save();
+
+            var system = System.Globalization.CultureInfo.CurrentCulture.TwoLetterISOLanguageName;
+            Localizer.Language = Localizer.Languages.Contains(system) ? system : "en";
+            NotifyLanguageSelectionChanged();
+            return;
+        }
+
+        if (!Localizer.Languages.Contains(language))
+            return;
+
+        Localizer.Language = language;
+        _settings.Settings.Language = language;
+        _settings.Save();
+        NotifyLanguageSelectionChanged();
     }
 
     private async Task PromptUpdateAsync(bool silentIfUpToDate, UpdateCheckOutcome? known = null)
@@ -750,11 +797,13 @@ public partial class MainWindowViewModel : ViewModelBase
                 if (ConfirmAsync is null)
                     return;
                 var ok = await ConfirmAsync(
-                    "Update available",
-                    $"A newer build is available (current {AutoUpdateService.LocalCommitCount}, latest {AutoUpdateService.RemoteCommitCount}).\n\nDownload and install now? The app will close and relaunch.");
+                    L("DialogUpdateAvailableTitle"),
+                    L("DialogUpdateAvailableMessage",
+                        AutoUpdateService.LocalCommitCount,
+                        AutoUpdateService.RemoteCommitCount));
                 if (!ok)
                 {
-                    StatusMessage = "Update postponed.";
+                    StatusMessage = L("StatusUpdatePostponed");
                     return;
                 }
 
@@ -762,7 +811,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
                 if (!AutoUpdateService.LaunchUpdate())
                 {
-                    StatusMessage = "Could not launch updater.";
+                    StatusMessage = L("StatusUpdateLauncherFail");
                     return;
                 }
 
@@ -777,12 +826,12 @@ public partial class MainWindowViewModel : ViewModelBase
 
             case UpdateCheckOutcome.UpToDate:
                 if (!silentIfUpToDate)
-                    StatusMessage = $"You're up to date (build {AutoUpdateService.LocalCommitCount}).";
+                    StatusMessage = L("StatusUpToDate", AutoUpdateService.LocalCommitCount);
                 break;
 
             case UpdateCheckOutcome.Failed:
                 if (!silentIfUpToDate)
-                    StatusMessage = $"Update check failed: {AutoUpdateService.FailureReason}";
+                    StatusMessage = L("StatusUpdateFailed", AutoUpdateService.FailureReason ?? "");
                 break;
         }
     }
@@ -805,13 +854,11 @@ public partial class MainWindowViewModel : ViewModelBase
             var importer = new FinalShellImporter(_store);
             var result = importer.Import(picked);
             ReloadTree();
-            StatusMessage = $"Imported {result.Imported} connection(s) into {result.Folders} new folder(s). " +
-                            $"Skipped {result.Skipped}. " +
-                            "Passwords cannot be decrypted from FinalShell — fill them in via the editor.";
+            StatusMessage = L("StatusImported", result.Imported, result.Folders, result.Skipped);
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Import failed: {ex.Message}";
+            StatusMessage = L("StatusImportFailed", ex.Message);
         }
     }
 
@@ -836,15 +883,15 @@ public partial class MainWindowViewModel : ViewModelBase
         // %ProgramFiles% is not, for a standard user) before committing.
         if (!TryEnsureWritable(newRoot))
         {
-            StatusMessage = $"That location is not writable: {newRoot}";
+            StatusMessage = L("StatusNotWritable", newRoot);
             return;
         }
 
         if (HasData(oldRoot) && !HasData(newRoot) && ConfirmAsync is not null)
         {
             var copy = await ConfirmAsync(
-                "Copy data",
-                $"Copy existing connections to the new location?\n\nFrom: {oldRoot}\nTo: {newRoot}\n\nThe originals are left in place; remove them yourself afterwards if you no longer need them.");
+                L("DialogCopyDataTitle"),
+                L("DialogCopyDataMessage", oldRoot, newRoot));
             if (copy)
                 _store.CopyTreeContents(oldRoot, newRoot);
         }
@@ -858,11 +905,11 @@ public partial class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(TargetDescription));
 
         if (!saved)
-            StatusMessage = $"Storage location changed, but settings could not be saved to {_settings.SettingsPath}.";
+            StatusMessage = L("StatusStorageNotSaved", _settings.SettingsPath);
         else if (HasData(newRoot))
-            StatusMessage = $"Storage location: {chosen.Value}. Showing data at {newRoot}";
+            StatusMessage = L("StatusStorageLocationWithData", chosen.Value, newRoot);
         else
-            StatusMessage = $"Storage location: {chosen.Value}. Folder: {newRoot}";
+            StatusMessage = L("StatusStorageLocationOnly", chosen.Value, newRoot);
     }
 
     private static bool HasData(string folder) =>
