@@ -9,6 +9,7 @@
         x:DataType="vm:MainWindowViewModel"
         Width="960" Height="640"
         MinWidth="640" MinHeight="420"
+        Icon="/Assets/icon.ico"
         Title="Jeek Remote Manager">
 
     <Design.DataContext>
