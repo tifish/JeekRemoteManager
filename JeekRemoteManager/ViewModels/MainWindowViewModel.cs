@@ -1,0 +1,799 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.IO;
+using System.Threading.Tasks;
+using Avalonia.Input.Platform;
+using Avalonia.Threading;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using JeekRemoteManager.Models;
+using JeekRemoteManager.Services;
+
+namespace JeekRemoteManager.ViewModels;
+
+public partial class MainWindowViewModel : ViewModelBase
+{
+    private readonly ConnectionStore _store;
+    private readonly ConnectionLauncher _launcher;
+    private readonly SettingsService _settings;
+
+    // Internal (in-app) clipboard for copy/cut/paste of nodes.
+    private string? _clipboardPath;
+    private bool _clipboardIsFolder;
+    private bool _clipboardIsCut;
+
+    // Auto-save: which node the current editor is bound to, plus a debounce timer.
+    private TreeNodeViewModel? _editingNode;
+    private DispatcherTimer? _autoSaveTimer;
+    private static readonly TimeSpan AutoSaveDelay = TimeSpan.FromMilliseconds(600);
+
+    public MainWindowViewModel(ConnectionStore store, ConnectionLauncher launcher, SettingsService settings)
+    {
+        _store = store;
+        _launcher = launcher;
+        _settings = settings;
+        _store.SetRoot(_settings.ResolveConnectionsRoot());
+        ReloadTree();
+    }
+
+    // Parameterless constructor for the XAML designer.
+    public MainWindowViewModel() : this(new ConnectionStore(), new ConnectionLauncher(), new SettingsService())
+    {
+    }
+
+    /// <summary>Top-level nodes (the contents of the root connections folder).</summary>
+    public ObservableCollection<TreeNodeViewModel> Nodes { get; } = new();
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DeleteCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RenameCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CopyCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CutCommand))]
+    [NotifyCanExecuteChangedFor(nameof(BrowseKeyCommand))]
+    [NotifyPropertyChangedFor(nameof(TargetDescription))]
+    private TreeNodeViewModel? _selectedNode;
+
+    /// <summary>Human-readable description of where New/Paste will create items.</summary>
+    public string TargetDescription
+    {
+        get
+        {
+            var folder = TargetFolder();
+            if (string.Equals(
+                    Path.GetFullPath(folder),
+                    Path.GetFullPath(_store.RootPath),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return "Target: root";
+            }
+            return "Target: " + Path.GetFileName(folder.TrimEnd(Path.DirectorySeparatorChar));
+        }
+    }
+
+    [ObservableProperty]
+    private ConnectionEditorViewModel? _editor;
+
+    [ObservableProperty]
+    private string _statusMessage = "Ready.";
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(PasteCommand))]
+    private bool _hasClipboard;
+
+    // Wired up by the view so the VM can reach platform services without a
+    // hard dependency on the window.
+    public IClipboard? Clipboard { get; set; }
+    public Func<string, string, Task<bool>>? ConfirmAsync { get; set; }
+    public Func<string, string, string, Task<string?>>? PromptAsync { get; set; }
+    public Func<Task<string?>>? PickKeyFileAsync { get; set; }
+    public Func<StorageLocation, Task<StorageLocation?>>? PickStorageLocationAsync { get; set; }
+    public Func<string, Task<string?>>? PickFolderAsync { get; set; }
+
+    /// <summary>Asks the view to put keyboard focus on the tree so it receives shortcuts.</summary>
+    public Action? RequestFocusTree { get; set; }
+
+    public string RootPath => _store.RootPath;
+
+    partial void OnSelectedNodeChanged(TreeNodeViewModel? value)
+    {
+        // Flush any pending auto-save against the PREVIOUS editing target first,
+        // before we rebind to the new node.
+        FlushPendingAutoSave();
+
+        // Stop watching the old editor.
+        if (Editor != null)
+            Editor.PropertyChanged -= OnEditorPropertyChanged;
+
+        _editingNode = value is { IsConnection: true, Connection: not null } ? value : null;
+        Editor = _editingNode != null
+            ? ConnectionEditorViewModel.FromConnection(_editingNode.Connection!)
+            : null;
+
+        // Watch the new editor for changes → auto-save with debounce.
+        if (Editor != null)
+            Editor.PropertyChanged += OnEditorPropertyChanged;
+
+        BrowseKeyCommand.NotifyCanExecuteChanged();
+    }
+
+    private void OnEditorPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        // Computed properties don't represent user edits.
+        if (e.PropertyName is nameof(ConnectionEditorViewModel.IsSsh)
+                          or nameof(ConnectionEditorViewModel.IsRdp))
+            return;
+
+        ScheduleAutoSave();
+    }
+
+    private void ScheduleAutoSave()
+    {
+        if (_autoSaveTimer == null)
+        {
+            _autoSaveTimer = new DispatcherTimer { Interval = AutoSaveDelay };
+            _autoSaveTimer.Tick += (_, _) =>
+            {
+                _autoSaveTimer!.Stop();
+                FlushPendingAutoSave();
+            };
+        }
+
+        _autoSaveTimer.Stop();
+        _autoSaveTimer.Start();
+    }
+
+    /// <summary>Forces any pending editor changes to be written to disk now.</summary>
+    public void FlushAutoSave() => FlushPendingAutoSave();
+
+    /// <summary>
+    /// Persists any pending editor changes against <see cref="_editingNode"/>.
+    /// Safe to call when nothing is pending. Always call before switching
+    /// SelectedNode away or before performing other operations that depend on
+    /// on-disk state being current.
+    /// </summary>
+    private void FlushPendingAutoSave()
+    {
+        _autoSaveTimer?.Stop();
+
+        var node = _editingNode;
+        var editor = Editor;
+        if (node?.Connection is null || editor is null)
+            return;
+
+        try
+        {
+            editor.ApplyTo(node.Connection);
+
+            var folder = Path.GetDirectoryName(node.FullPath) ?? _store.RootPath;
+            var newPath = _store.Save(node.Connection, folder, node.FullPath);
+
+            if (!PathEquals(newPath, node.FullPath))
+            {
+                // The file was renamed because Name changed.
+                node.FullPath = newPath;
+                node.Name = node.Connection.Name;
+            }
+
+            StatusMessage = $"Auto-saved '{node.Name}'.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Auto-save failed: {ex.Message}";
+        }
+    }
+
+    // --- Tree building ---
+
+    private void ReloadTree(string? pathToSelect = null)
+    {
+        // Preserve expand/collapse state and the selection across the rebuild.
+        var expanded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        CaptureExpanded(Nodes, expanded);
+        var previousSelection = SelectedNode?.FullPath;
+
+        Nodes.Clear();
+        foreach (var child in BuildChildren(_store.RootPath, parent: null))
+            Nodes.Add(child);
+
+        RestoreExpanded(Nodes, expanded);
+
+        // Re-apply the "cut" dimming to the source node so it survives reloads.
+        if (_clipboardIsCut && _clipboardPath != null)
+        {
+            var cutNode = FindNode(Nodes, _clipboardPath);
+            if (cutNode != null)
+                cutNode.IsCut = true;
+        }
+
+        var selectPath = pathToSelect ?? previousSelection;
+        if (selectPath != null)
+        {
+            var node = FindNode(Nodes, selectPath);
+            if (node != null)
+                ExpandAncestors(node); // reveal it
+            SelectedNode = node;
+
+            // When ReloadTree was triggered by a user action (paste, new, rename,
+            // refresh), put keyboard focus on the tree so the new item is ready
+            // to receive Enter/F2/Delete/Ctrl+C etc.
+            if (pathToSelect != null)
+                RequestFocusTree?.Invoke();
+        }
+    }
+
+    private ObservableCollection<TreeNodeViewModel> BuildChildren(string folderPath, TreeNodeViewModel? parent)
+    {
+        var result = new ObservableCollection<TreeNodeViewModel>();
+
+        foreach (var dir in _store.GetSubFolders(folderPath))
+        {
+            var node = new TreeNodeViewModel(dir, isFolder: true) { Parent = parent };
+            foreach (var child in BuildChildren(dir, node))
+                node.Children.Add(child);
+            result.Add(node);
+        }
+
+        foreach (var file in _store.GetConnectionFiles(folderPath))
+        {
+            Connection connection;
+            try
+            {
+                connection = _store.Load(file);
+            }
+            catch
+            {
+                continue; // skip unreadable files
+            }
+
+            result.Add(new TreeNodeViewModel(file, isFolder: false, connection) { Parent = parent });
+        }
+
+        return result;
+    }
+
+    private static void CaptureExpanded(IEnumerable<TreeNodeViewModel> nodes, HashSet<string> expanded)
+    {
+        foreach (var node in nodes)
+        {
+            if (node.IsFolder && node.IsExpanded)
+                expanded.Add(Path.GetFullPath(node.FullPath));
+            CaptureExpanded(node.Children, expanded);
+        }
+    }
+
+    private static void RestoreExpanded(IEnumerable<TreeNodeViewModel> nodes, HashSet<string> expanded)
+    {
+        foreach (var node in nodes)
+        {
+            if (node.IsFolder)
+                node.IsExpanded = expanded.Contains(Path.GetFullPath(node.FullPath));
+            RestoreExpanded(node.Children, expanded);
+        }
+    }
+
+    private static void ExpandAncestors(TreeNodeViewModel node)
+    {
+        for (var p = node.Parent; p != null; p = p.Parent)
+            p.IsExpanded = true;
+    }
+
+    private static TreeNodeViewModel? FindNode(IEnumerable<TreeNodeViewModel> nodes, string fullPath)
+    {
+        foreach (var node in nodes)
+        {
+            if (PathEquals(node.FullPath, fullPath))
+                return node;
+
+            var found = FindNode(node.Children, fullPath);
+            if (found != null)
+                return found;
+        }
+
+        return null;
+    }
+
+    private static bool PathEquals(string a, string b) =>
+        string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Folder that new/pasted items should go into, based on the selection.</summary>
+    private string TargetFolder()
+    {
+        if (SelectedNode is null)
+            return _store.RootPath;
+
+        return SelectedNode.IsFolder
+            ? SelectedNode.FullPath
+            : Path.GetDirectoryName(SelectedNode.FullPath) ?? _store.RootPath;
+    }
+
+    // --- Create commands ---
+
+    [RelayCommand]
+    private void NewFolder()
+    {
+        try
+        {
+            var parent = TargetFolder();
+            var path = _store.CreateFolder(parent, "New Folder");
+
+            // Reload with the new folder as the reveal target — this expands the
+            // parent (ancestor of the new folder) so the new entry is visible.
+            ReloadTree(path);
+
+            // Then move selection back to the parent so successive "New folder"
+            // clicks keep creating siblings at this level instead of nesting
+            // into the just-created (empty) folder. FindNode returns null when
+            // parent == root, which leaves SelectedNode null — correct behavior
+            // for "keep targeting root".
+            SelectedNode = FindNode(Nodes, parent);
+            RequestFocusTree?.Invoke();
+
+            StatusMessage = $"Created folder '{Path.GetFileName(path)}'.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Could not create folder: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private void NewSsh() => CreateConnection(ConnectionType.Ssh);
+
+    [RelayCommand]
+    private void NewRdp() => CreateConnection(ConnectionType.Rdp);
+
+    private void CreateConnection(ConnectionType type)
+    {
+        try
+        {
+            var connection = new Connection
+            {
+                Type = type,
+                Name = type == ConnectionType.Rdp ? "New RDP" : "New SSH",
+                Port = Connection.DefaultPort(type),
+            };
+
+            var path = _store.Save(connection, TargetFolder());
+            ReloadTree(path);
+            StatusMessage = $"Created {type} connection.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Could not create connection: {ex.Message}";
+        }
+    }
+
+    // --- Edit / connect ---
+
+    [RelayCommand(CanExecute = nameof(CanConnect))]
+    private async Task Connect()
+    {
+        // Make sure unsaved edits land on disk before we read the connection.
+        FlushPendingAutoSave();
+
+        if (SelectedNode is not { IsConnection: true, Connection: not null } node)
+            return;
+
+        var connection = node.Connection;
+
+        try
+        {
+            // ssh.exe cannot take a password on the command line, so copy it to
+            // the clipboard as a convenience for pasting at the prompt. The
+            // clipboard is auto-cleared after a short delay to limit exposure.
+            if (connection.Type == ConnectionType.Ssh && Clipboard is not null)
+            {
+                var password = PasswordProtector.Decrypt(connection.EncryptedPassword);
+                if (!string.IsNullOrEmpty(password))
+                {
+                    await Clipboard.SetTextAsync(password);
+                    ScheduleClipboardClear(password);
+                    StatusMessage = $"Launching SSH to {connection.Host} — password copied to clipboard (auto-clears in 30s).";
+                }
+                else
+                {
+                    StatusMessage = $"Launching SSH to {connection.Host}.";
+                }
+            }
+            else
+            {
+                StatusMessage = $"Launching {connection.Type} to {connection.Host}.";
+            }
+
+            _launcher.Launch(connection);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Failed to launch: {ex.Message}";
+        }
+    }
+
+    private bool CanConnect() => SelectedNode is { IsConnection: true };
+
+    /// <summary>Clears the OS clipboard after a delay, but only if it still holds the secret we put there.</summary>
+    private void ScheduleClipboardClear(string secret)
+    {
+        var clipboard = Clipboard;
+        if (clipboard is null)
+            return;
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+            await Dispatcher.UIThread.InvokeAsync(async () =>
+            {
+                try
+                {
+                    var current = await clipboard.TryGetTextAsync();
+                    if (current == secret)
+                        await clipboard.ClearAsync();
+                }
+                catch
+                {
+                    // Best-effort; ignore clipboard failures.
+                }
+            });
+        });
+    }
+
+    // --- Delete / rename ---
+
+    [RelayCommand(CanExecute = nameof(CanModifySelection))]
+    private async Task Delete()
+    {
+        // Drop any pending auto-save for what's about to be deleted.
+        _autoSaveTimer?.Stop();
+
+        if (SelectedNode is not { } node)
+            return;
+
+        var what = node.IsFolder ? $"folder '{node.Name}' and all its contents" : $"connection '{node.Name}'";
+        if (ConfirmAsync is not null)
+        {
+            var ok = await ConfirmAsync("Delete", $"Delete {what}?");
+            if (!ok)
+                return;
+        }
+
+        var deletedPath = node.FullPath;
+        var parent = Path.GetDirectoryName(deletedPath);
+
+        // Drop the editor binding to the doomed node BEFORE we touch disk or
+        // reload the tree — otherwise the selection change triggered by the
+        // reload would flush a stale auto-save and resurrect the deleted file.
+        if (_editingNode != null &&
+            ConnectionStore.IsSameOrInside(deletedPath, _editingNode.FullPath))
+        {
+            if (Editor != null)
+                Editor.PropertyChanged -= OnEditorPropertyChanged;
+            _editingNode = null;
+            Editor = null;
+        }
+
+        try
+        {
+            if (node.IsFolder)
+                _store.DeleteFolder(deletedPath);
+            else
+                _store.DeleteFile(deletedPath);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Could not delete: {ex.Message}";
+            return;
+        }
+
+        // Drop a pending clipboard entry that pointed at the deleted item.
+        if (_clipboardPath != null && ConnectionStore.IsSameOrInside(deletedPath, _clipboardPath))
+            ClearClipboard();
+
+        ReloadTree();
+        SelectedNode = parent is not null ? FindNode(Nodes, parent) : null;
+        StatusMessage = $"Deleted {what}.";
+    }
+
+    [RelayCommand(CanExecute = nameof(CanModifySelection))]
+    private async Task Rename()
+    {
+        if (SelectedNode is not { } node || PromptAsync is null)
+            return;
+
+        var newName = await PromptAsync("Rename", "New name:", node.Name);
+        if (string.IsNullOrWhiteSpace(newName) || newName == node.Name)
+            return;
+
+        try
+        {
+            string newPath;
+            if (node.IsFolder)
+            {
+                newPath = _store.RenameFolder(node.FullPath, newName);
+            }
+            else if (node.Connection is not null)
+            {
+                node.Connection.Name = newName;
+                var folder = Path.GetDirectoryName(node.FullPath) ?? _store.RootPath;
+                newPath = _store.Save(node.Connection, folder, node.FullPath);
+            }
+            else
+            {
+                return;
+            }
+
+            ReloadTree(newPath);
+            StatusMessage = "Renamed.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Could not rename: {ex.Message}";
+        }
+    }
+
+    private bool CanModifySelection() => SelectedNode is not null;
+
+    // --- Copy / cut / paste ---
+
+    [RelayCommand(CanExecute = nameof(CanModifySelection))]
+    private void Copy()
+    {
+        if (SelectedNode is not { } node)
+            return;
+
+        SetClipboard(node, isCut: false);
+        StatusMessage = $"Copied '{node.Name}'.";
+    }
+
+    [RelayCommand(CanExecute = nameof(CanModifySelection))]
+    private void Cut()
+    {
+        if (SelectedNode is not { } node)
+            return;
+
+        SetClipboard(node, isCut: true);
+        node.IsCut = true;
+        StatusMessage = $"Cut '{node.Name}'.";
+    }
+
+    private void SetClipboard(TreeNodeViewModel node, bool isCut)
+    {
+        ClearCutFlags(Nodes);
+        _clipboardPath = node.FullPath;
+        _clipboardIsFolder = node.IsFolder;
+        _clipboardIsCut = isCut;
+        HasClipboard = true;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanPaste))]
+    private void Paste()
+    {
+        if (_clipboardPath is null)
+            return;
+
+        var source = _clipboardPath;
+        var target = TargetFolder();
+
+        var exists = _clipboardIsFolder ? Directory.Exists(source) : File.Exists(source);
+        if (!exists)
+        {
+            ClearClipboard();
+            StatusMessage = "Clipboard item no longer exists.";
+            return;
+        }
+
+        try
+        {
+            string newPath;
+            if (_clipboardIsFolder)
+            {
+                // Guard both copy and move: pasting a folder into itself or one of
+                // its own subfolders would recurse forever.
+                if (ConnectionStore.IsSameOrInside(source, target))
+                {
+                    StatusMessage = "Cannot paste a folder into itself or one of its subfolders.";
+                    return;
+                }
+
+                newPath = _clipboardIsCut
+                    ? _store.MoveFolderInto(source, target)
+                    : _store.CopyFolderInto(source, target);
+            }
+            else
+            {
+                newPath = _clipboardIsCut
+                    ? _store.MoveFileInto(source, target)
+                    : _store.CopyFileInto(source, target);
+            }
+
+            if (_clipboardIsCut)
+            {
+                // MoveXInto returns the original path unchanged when it's a no-op
+                // (pasting back into the same folder). Keep the cut pending in that case.
+                if (PathEquals(newPath, source))
+                {
+                    StatusMessage = "Already in this folder.";
+                    return;
+                }
+
+                ClearClipboard(); // a real move consumes the cut
+                ReloadTree(newPath);
+                StatusMessage = "Moved.";
+            }
+            else
+            {
+                ReloadTree(newPath);
+                StatusMessage = "Pasted.";
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Paste failed: {ex.Message}";
+        }
+    }
+
+    private bool CanPaste() => HasClipboard;
+
+    private void ClearClipboard()
+    {
+        ClearCutFlags(Nodes);
+        _clipboardPath = null;
+        _clipboardIsFolder = false;
+        _clipboardIsCut = false;
+        HasClipboard = false;
+    }
+
+    private static void ClearCutFlags(IEnumerable<TreeNodeViewModel> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            node.IsCut = false;
+            ClearCutFlags(node.Children);
+        }
+    }
+
+    // --- SSH private key picker ---
+
+    [RelayCommand(CanExecute = nameof(CanBrowseKey))]
+    private async Task BrowseKey()
+    {
+        if (Editor is null || PickKeyFileAsync is null)
+            return;
+
+        var path = await PickKeyFileAsync();
+        if (!string.IsNullOrEmpty(path))
+            Editor.PrivateKeyPath = path;
+    }
+
+    // The Browse button is only visible in the SSH section, so gating on a
+    // non-null editor is enough (and avoids a stale-disabled button when the
+    // editor's Type is switched to SSH without re-selecting the node).
+    private bool CanBrowseKey() => Editor is not null;
+
+    // --- Misc ---
+
+    [RelayCommand]
+    private void Refresh() => ReloadTree(SelectedNode?.FullPath);
+
+    /// <summary>Clears the tree selection so subsequent new/paste operations target the root.</summary>
+    [RelayCommand]
+    private void ClearSelection() => SelectedNode = null;
+
+    [RelayCommand]
+    private void OpenStorageFolder()
+    {
+        try
+        {
+            Directory.CreateDirectory(_store.RootPath);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = _store.RootPath,
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Cannot open folder: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private async Task ImportFinalShell()
+    {
+        if (PickFolderAsync is null)
+            return;
+
+        FlushPendingAutoSave();
+
+        var defaultHint = @"C:\Library\Software\Net\RemoteControl\FinalShell\conn";
+        var picked = await PickFolderAsync(defaultHint);
+        if (string.IsNullOrEmpty(picked))
+            return;
+
+        try
+        {
+            var importer = new FinalShellImporter(_store);
+            var result = importer.Import(picked);
+            ReloadTree();
+            StatusMessage = $"Imported {result.Imported} connection(s) into {result.Folders} new folder(s). " +
+                            $"Skipped {result.Skipped}. " +
+                            "Passwords cannot be decrypted from FinalShell — fill them in via the editor.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Import failed: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private async Task OpenSettings()
+    {
+        // Flush in case the user was mid-edit when changing storage location.
+        FlushPendingAutoSave();
+
+        if (PickStorageLocationAsync is null)
+            return;
+
+        var current = _settings.Settings.StorageLocation;
+        var chosen = await PickStorageLocationAsync(current);
+        if (chosen is null || chosen.Value == current)
+            return;
+
+        var oldRoot = _store.RootPath;
+        var newRoot = SettingsService.ResolveConnectionsRoot(chosen.Value);
+
+        // Make sure the target is actually writable (e.g. ProgramDirectory under
+        // %ProgramFiles% is not, for a standard user) before committing.
+        if (!TryEnsureWritable(newRoot))
+        {
+            StatusMessage = $"That location is not writable: {newRoot}";
+            return;
+        }
+
+        if (HasData(oldRoot) && !HasData(newRoot) && ConfirmAsync is not null)
+        {
+            var copy = await ConfirmAsync(
+                "Copy data",
+                $"Copy existing connections to the new location?\n\nFrom: {oldRoot}\nTo: {newRoot}\n\nThe originals are left in place; remove them yourself afterwards if you no longer need them.");
+            if (copy)
+                _store.CopyTreeContents(oldRoot, newRoot);
+        }
+
+        _settings.Settings.StorageLocation = chosen.Value;
+        var saved = _settings.Save();
+        _store.SetRoot(newRoot);
+        ClearClipboard();
+        ReloadTree();
+        OnPropertyChanged(nameof(RootPath));
+        OnPropertyChanged(nameof(TargetDescription));
+
+        if (!saved)
+            StatusMessage = $"Storage location changed, but settings could not be saved to {_settings.SettingsPath}.";
+        else if (HasData(newRoot))
+            StatusMessage = $"Storage location: {chosen.Value}. Showing data at {newRoot}";
+        else
+            StatusMessage = $"Storage location: {chosen.Value}. Folder: {newRoot}";
+    }
+
+    private static bool HasData(string folder) =>
+        Directory.Exists(folder) &&
+        (Directory.GetFiles(folder, "*" + ConnectionStore.FileExtension).Length > 0 ||
+         Directory.GetDirectories(folder).Length > 0);
+
+    private static bool TryEnsureWritable(string folder)
+    {
+        try
+        {
+            Directory.CreateDirectory(folder);
+            var probe = Path.Combine(folder, ".write_test_" + Guid.NewGuid().ToString("N"));
+            File.WriteAllText(probe, string.Empty);
+            File.Delete(probe);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+}

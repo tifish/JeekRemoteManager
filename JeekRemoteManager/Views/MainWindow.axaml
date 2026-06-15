@@ -1,0 +1,234 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="using:JeekRemoteManager.ViewModels"
+        mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
+        x:Class="JeekRemoteManager.Views.MainWindow"
+        x:Name="Root"
+        x:DataType="vm:MainWindowViewModel"
+        Width="960" Height="640"
+        MinWidth="640" MinHeight="420"
+        Title="Jeek Remote Manager">
+
+    <Design.DataContext>
+        <vm:MainWindowViewModel />
+    </Design.DataContext>
+
+    <DockPanel>
+        <!-- Toolbar -->
+        <Border DockPanel.Dock="Top" Padding="8,6" Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <Button Command="{Binding NewFolderCommand}" ToolTip.Tip="New folder">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Classes="emoji" Text="&#x1F4C1;" />
+                        <TextBlock Text="Folder" />
+                    </StackPanel>
+                </Button>
+                <Button Command="{Binding NewSshCommand}" ToolTip.Tip="New SSH connection">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Classes="emoji" Text="&#x2328;" />
+                        <TextBlock Text="SSH" />
+                    </StackPanel>
+                </Button>
+                <Button Command="{Binding NewRdpCommand}" ToolTip.Tip="New RDP connection">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Classes="emoji" Text="&#x1F5A5;" />
+                        <TextBlock Text="RDP" />
+                    </StackPanel>
+                </Button>
+                <Rectangle Width="1" Fill="{DynamicResource SystemControlForegroundBaseLowBrush}" Margin="4,2" />
+                <Button Command="{Binding ConnectCommand}" ToolTip.Tip="Connect (Enter / double-click)"
+                        Classes="accent">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Classes="emoji" Text="&#x25B6;" />
+                        <TextBlock Text="Connect" />
+                    </StackPanel>
+                </Button>
+                <Rectangle Width="1" Fill="{DynamicResource SystemControlForegroundBaseLowBrush}" Margin="4,2" />
+                <Button Command="{Binding OpenSettingsCommand}" Content="Settings"
+                        ToolTip.Tip="Choose where connections are stored" />
+                <Button ToolTip.Tip="More actions">
+                    <Button.Content>
+                        <TextBlock Text="&#x22EE;" FontSize="16" />
+                    </Button.Content>
+                    <Button.Flyout>
+                        <MenuFlyout>
+                            <MenuItem Header="Import from FinalShell…"
+                                      Command="{Binding ImportFinalShellCommand}" />
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
+            </StackPanel>
+        </Border>
+
+        <!-- Status bar -->
+        <Border DockPanel.Dock="Bottom" Padding="10,4" Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0" Text="{Binding StatusMessage}" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1" Text="{Binding TargetDescription}" VerticalAlignment="Center"
+                           Opacity="0.7" Margin="12,0,0,0" />
+            </Grid>
+        </Border>
+
+        <!-- Main area: tree | editor -->
+        <Grid ColumnDefinitions="300,Auto,*">
+            <TreeView Grid.Column="0"
+                      x:Name="Tree"
+                      Margin="6"
+                      ItemsSource="{Binding Nodes}"
+                      SelectedItem="{Binding SelectedNode, Mode=TwoWay}"
+                      DoubleTapped="OnTreeDoubleTapped"
+                      PointerPressed="OnTreePointerPressed">
+                <TreeView.Styles>
+                    <!-- Keep each item's expand/collapse state bound to its view model
+                         so it can be preserved across tree reloads. -->
+                    <Style Selector="TreeViewItem" x:DataType="vm:TreeNodeViewModel">
+                        <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                    </Style>
+                </TreeView.Styles>
+                <TreeView.KeyBindings>
+                    <KeyBinding Gesture="Enter" Command="{Binding ConnectCommand}" />
+                    <KeyBinding Gesture="Ctrl+C" Command="{Binding CopyCommand}" />
+                    <KeyBinding Gesture="Ctrl+X" Command="{Binding CutCommand}" />
+                    <KeyBinding Gesture="Ctrl+V" Command="{Binding PasteCommand}" />
+                    <KeyBinding Gesture="F2" Command="{Binding RenameCommand}" />
+                    <KeyBinding Gesture="Delete" Command="{Binding DeleteCommand}" />
+                    <KeyBinding Gesture="Escape" Command="{Binding ClearSelectionCommand}" />
+                </TreeView.KeyBindings>
+                <TreeView.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="Connect" Command="{Binding ConnectCommand}" />
+                        <Separator />
+                        <MenuItem Header="New folder" Command="{Binding NewFolderCommand}" />
+                        <MenuItem Header="New SSH" Command="{Binding NewSshCommand}" />
+                        <MenuItem Header="New RDP" Command="{Binding NewRdpCommand}" />
+                        <Separator />
+                        <MenuItem Header="Copy" Command="{Binding CopyCommand}" InputGesture="Ctrl+C" />
+                        <MenuItem Header="Cut" Command="{Binding CutCommand}" InputGesture="Ctrl+X" />
+                        <MenuItem Header="Paste" Command="{Binding PasteCommand}" InputGesture="Ctrl+V" />
+                        <Separator />
+                        <MenuItem Header="Rename" Command="{Binding RenameCommand}" InputGesture="F2" />
+                        <MenuItem Header="Delete" Command="{Binding DeleteCommand}" InputGesture="Delete" />
+                    </ContextMenu>
+                </TreeView.ContextMenu>
+                <TreeView.ItemTemplate>
+                    <TreeDataTemplate ItemsSource="{Binding Children}" x:DataType="vm:TreeNodeViewModel">
+                        <StackPanel Orientation="Horizontal" Spacing="6" Opacity="{Binding NodeOpacity}">
+                            <TextBlock Classes="emoji" Text="{Binding Glyph}" />
+                            <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </TreeDataTemplate>
+                </TreeView.ItemTemplate>
+            </TreeView>
+
+            <GridSplitter Grid.Column="1" Width="4" ResizeDirection="Columns"
+                          Background="{DynamicResource SystemControlForegroundBaseLowBrush}" />
+
+            <!-- Editor -->
+            <Border Grid.Column="2" Margin="6"
+                    IsVisible="{Binding Editor, Converter={x:Static ObjectConverters.IsNotNull}}">
+                <ScrollViewer>
+                    <StackPanel Spacing="10" Margin="6,6,16,6">
+                        <TextBlock Text="Connection" FontSize="18" FontWeight="SemiBold" />
+
+                        <Grid ColumnDefinitions="120,*" RowDefinitions="Auto" Margin="0,4,0,0">
+                            <TextBlock Grid.Column="0" Text="Type" VerticalAlignment="Center" />
+                            <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                      ItemsSource="{Binding Editor.AvailableTypes}"
+                                      SelectedItem="{Binding Editor.Type, Mode=TwoWay}" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="120,*">
+                            <TextBlock Grid.Column="0" Text="Name" VerticalAlignment="Center" />
+                            <TextBox Grid.Column="1" Text="{Binding Editor.Name, Mode=TwoWay}" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="120,*,80,90">
+                            <TextBlock Grid.Column="0" Text="Host" VerticalAlignment="Center" />
+                            <TextBox Grid.Column="1" Text="{Binding Editor.Host, Mode=TwoWay}" Watermark="hostname or IP" />
+                            <TextBlock Grid.Column="2" Text="Port" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" />
+                            <TextBox Grid.Column="3" Text="{Binding Editor.Port, Mode=TwoWay}" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="120,*">
+                            <TextBlock Grid.Column="0" Text="Username" VerticalAlignment="Center" />
+                            <TextBox Grid.Column="1" Text="{Binding Editor.Username, Mode=TwoWay}" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="120,*,Auto">
+                            <TextBlock Grid.Column="0" Text="Password" VerticalAlignment="Center" />
+                            <TextBox Grid.Column="1" x:Name="PasswordBox"
+                                     Text="{Binding Editor.Password, Mode=TwoWay}"
+                                     PasswordChar="&#x2022;" />
+                            <CheckBox Grid.Column="2" Content="Show" Margin="8,0,0,0"
+                                      IsChecked="{Binding #PasswordBox.RevealPassword, Mode=TwoWay}" />
+                        </Grid>
+
+                        <!-- SSH-specific -->
+                        <StackPanel Spacing="10" IsVisible="{Binding Editor.IsSsh}">
+                            <Separator />
+                            <TextBlock Text="SSH options" FontWeight="SemiBold" />
+                            <Grid ColumnDefinitions="120,*,Auto">
+                                <TextBlock Grid.Column="0" Text="Private key" VerticalAlignment="Center" />
+                                <TextBox Grid.Column="1" Text="{Binding Editor.PrivateKeyPath, Mode=TwoWay}"
+                                         Watermark="optional path to key file" />
+                                <Button Grid.Column="2" Content="Browse…" Margin="8,0,0,0"
+                                        Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).BrowseKeyCommand}" />
+                            </Grid>
+                            <Grid ColumnDefinitions="120,*">
+                                <TextBlock Grid.Column="0" Text="Extra args" VerticalAlignment="Center" />
+                                <TextBox Grid.Column="1" Text="{Binding Editor.ExtraSshArguments, Mode=TwoWay}"
+                                         Watermark="e.g. -X -L 8080:localhost:80" />
+                            </Grid>
+                        </StackPanel>
+
+                        <!-- RDP-specific -->
+                        <StackPanel Spacing="10" IsVisible="{Binding Editor.IsRdp}">
+                            <Separator />
+                            <TextBlock Text="RDP options" FontWeight="SemiBold" />
+                            <CheckBox Content="Full screen" IsChecked="{Binding Editor.RdpFullScreen, Mode=TwoWay}" />
+                            <Grid ColumnDefinitions="120,*,80,*" IsVisible="{Binding !Editor.RdpFullScreen}">
+                                <TextBlock Grid.Column="0" Text="Width" VerticalAlignment="Center" />
+                                <TextBox Grid.Column="1" Text="{Binding Editor.RdpWidth, Mode=TwoWay}" />
+                                <TextBlock Grid.Column="2" Text="Height" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" />
+                                <TextBox Grid.Column="3" Text="{Binding Editor.RdpHeight, Mode=TwoWay}" />
+                            </Grid>
+                            <TextBlock Text="Local resources" FontWeight="SemiBold" Margin="0,4,0,0" />
+                            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" >
+                                <CheckBox Grid.Row="0" Grid.Column="0" Content="Share clipboard"
+                                          IsChecked="{Binding Editor.RdpRedirectClipboard, Mode=TwoWay}" />
+                                <CheckBox Grid.Row="0" Grid.Column="1" Content="Share drives"
+                                          IsChecked="{Binding Editor.RdpRedirectDrives, Mode=TwoWay}" />
+                                <CheckBox Grid.Row="1" Grid.Column="0" Content="Play remote audio here"
+                                          IsChecked="{Binding Editor.RdpRedirectAudioPlayback, Mode=TwoWay}" />
+                                <CheckBox Grid.Row="1" Grid.Column="1" Content="Share microphone"
+                                          IsChecked="{Binding Editor.RdpRedirectMicrophone, Mode=TwoWay}" />
+                            </Grid>
+                        </StackPanel>
+
+                        <Separator />
+                        <Grid ColumnDefinitions="120,*">
+                            <TextBlock Grid.Column="0" Text="Notes" VerticalAlignment="Top" Margin="0,4,0,0" />
+                            <TextBox Grid.Column="1" Text="{Binding Editor.Notes, Mode=TwoWay}"
+                                     AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" />
+                        </Grid>
+
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+                            <Button Content="Connect" Command="{Binding ConnectCommand}" Classes="accent" />
+                            <TextBlock Text="Changes are saved automatically."
+                                       VerticalAlignment="Center" Opacity="0.6" Margin="6,0,0,0" />
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <!-- Placeholder when nothing is selected -->
+            <TextBlock Grid.Column="2"
+                       IsVisible="{Binding Editor, Converter={x:Static ObjectConverters.IsNull}}"
+                       Text="Select a connection to edit, or create one from the toolbar."
+                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+        </Grid>
+    </DockPanel>
+</Window>

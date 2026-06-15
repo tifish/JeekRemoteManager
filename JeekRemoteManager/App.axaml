@@ -1,0 +1,21 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="JeekRemoteManager.App"
+             xmlns:local="using:JeekRemoteManager"
+             RequestedThemeVariant="Default">
+    <!-- "Default" ThemeVariant follows system theme variant. "Dark" or "Light" are other available options. -->
+
+    <Application.DataTemplates>
+        <local:ViewLocator />
+    </Application.DataTemplates>
+
+    <Application.Styles>
+        <FluentTheme />
+        <!-- Color emoji icons: Inter (the default font) is monochrome-only,
+             so route any TextBlock tagged with the "emoji" class through
+             Segoe UI Emoji to get the color glyphs back. -->
+        <Style Selector="TextBlock.emoji">
+            <Setter Property="FontFamily" Value="Segoe UI Emoji" />
+        </Style>
+    </Application.Styles>
+</Application>
