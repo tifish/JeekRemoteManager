@@ -56,6 +56,9 @@
                         <MenuFlyout>
                             <MenuItem Header="Import from FinalShell…"
                                       Command="{Binding ImportFinalShellCommand}" />
+                            <Separator />
+                            <MenuItem Header="Check for updates…"
+                                      Command="{Binding CheckForUpdatesCommand}" />
                         </MenuFlyout>
                     </Button.Flyout>
                 </Button>
@@ -64,9 +67,11 @@
 
         <!-- Status bar -->
         <Border DockPanel.Dock="Bottom" Padding="10,4" Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
-            <Grid ColumnDefinitions="*,Auto">
+            <Grid ColumnDefinitions="*,Auto,Auto">
                 <TextBlock Grid.Column="0" Text="{Binding StatusMessage}" VerticalAlignment="Center" />
                 <TextBlock Grid.Column="1" Text="{Binding TargetDescription}" VerticalAlignment="Center"
+                           Opacity="0.7" Margin="12,0,0,0" />
+                <TextBlock Grid.Column="2" Text="{Binding VersionDisplay}" VerticalAlignment="Center"
                            Opacity="0.7" Margin="12,0,0,0" />
             </Grid>
         </Border>

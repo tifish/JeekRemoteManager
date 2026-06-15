@@ -97,6 +97,16 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public string RootPath => _store.RootPath;
 
+    /// <summary>Build number baked in by CI (commit count). 0 for dev builds.</summary>
+    public string VersionDisplay
+    {
+        get
+        {
+            var build = AutoUpdateService.GetLocalCommitCount();
+            return build > 0 ? $"Build {build}" : "Dev build";
+        }
+    }
+
     partial void OnSelectedNodeChanged(TreeNodeViewModel? value)
     {
         // Flush any pending auto-save against the PREVIOUS editing target first,
@@ -695,6 +705,85 @@ public partial class MainWindowViewModel : ViewModelBase
         catch (Exception ex)
         {
             StatusMessage = $"Cannot open folder: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Runs once shortly after startup: silently asks GitHub Releases whether a
+    /// newer build exists and, if so, prompts the user to install it. Failures
+    /// (offline, GitHub down, dev build) are swallowed.
+    /// </summary>
+    public async Task CheckForUpdatesOnStartupAsync()
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            var outcome = await AutoUpdateService.HasUpdateAsync().ConfigureAwait(false);
+            if (outcome != UpdateCheckOutcome.Available)
+                return;
+
+            await Dispatcher.UIThread.InvokeAsync(async () =>
+            {
+                await PromptUpdateAsync(silentIfUpToDate: true);
+            });
+        }
+        catch
+        {
+            // Best-effort.
+        }
+    }
+
+    [RelayCommand]
+    private async Task CheckForUpdates()
+    {
+        StatusMessage = "Checking for updates…";
+        var outcome = await AutoUpdateService.HasUpdateAsync();
+        await PromptUpdateAsync(silentIfUpToDate: false, outcome);
+    }
+
+    private async Task PromptUpdateAsync(bool silentIfUpToDate, UpdateCheckOutcome? known = null)
+    {
+        var outcome = known ?? await AutoUpdateService.HasUpdateAsync();
+        switch (outcome)
+        {
+            case UpdateCheckOutcome.Available:
+                if (ConfirmAsync is null)
+                    return;
+                var ok = await ConfirmAsync(
+                    "Update available",
+                    $"A newer build is available (current {AutoUpdateService.LocalCommitCount}, latest {AutoUpdateService.RemoteCommitCount}).\n\nDownload and install now? The app will close and relaunch.");
+                if (!ok)
+                {
+                    StatusMessage = "Update postponed.";
+                    return;
+                }
+
+                FlushPendingAutoSave();
+
+                if (!AutoUpdateService.LaunchUpdate())
+                {
+                    StatusMessage = "Could not launch updater.";
+                    return;
+                }
+
+                // Hand off to the PowerShell updater: it waits for our exit,
+                // replaces the install, then relaunches the app.
+                if (Avalonia.Application.Current?.ApplicationLifetime
+                    is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
+                {
+                    desktop.Shutdown();
+                }
+                break;
+
+            case UpdateCheckOutcome.UpToDate:
+                if (!silentIfUpToDate)
+                    StatusMessage = $"You're up to date (build {AutoUpdateService.LocalCommitCount}).";
+                break;
+
+            case UpdateCheckOutcome.Failed:
+                if (!silentIfUpToDate)
+                    StatusMessage = $"Update check failed: {AutoUpdateService.FailureReason}";
+                break;
         }
     }
 

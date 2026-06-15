@@ -27,10 +27,14 @@ public partial class App : Application
             var store = new ConnectionStore();
             var launcher = new ConnectionLauncher();
 
+            var vm = new MainWindowViewModel(store, launcher, settings);
             desktop.MainWindow = new MainWindow
             {
-                DataContext = new MainWindowViewModel(store, launcher, settings),
+                DataContext = vm,
             };
+
+            // Silent background check shortly after startup.
+            _ = vm.CheckForUpdatesOnStartupAsync();
         }
 
         base.OnFrameworkInitializationCompleted();
