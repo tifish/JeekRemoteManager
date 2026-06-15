@@ -1,5 +1,4 @@
 # Build output
-[Bb]in/
 [Oo]bj/
 [Dd]ebug/
 [Rr]elease/
@@ -27,6 +26,6 @@ project.lock.json
 Thumbs.db
 .DS_Store
 
-bin/
+bin/*
 !bin/*.ps1
 !bin/*.cmd
