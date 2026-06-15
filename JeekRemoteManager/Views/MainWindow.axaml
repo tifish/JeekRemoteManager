@@ -48,14 +48,16 @@
                     </StackPanel>
                 </Button>
                 <Rectangle Width="1" Fill="{DynamicResource SystemControlForegroundBaseLowBrush}" Margin="4,2" />
-                <Button Command="{Binding OpenSettingsCommand}" Content="{l:Localize Settings}"
-                        ToolTip.Tip="{l:Localize SettingsTooltip}" />
                 <Button ToolTip.Tip="{l:Localize MoreActions}">
                     <Button.Content>
                         <TextBlock Text="&#x22EE;" FontSize="16" />
                     </Button.Content>
                     <Button.Flyout>
                         <MenuFlyout>
+                            <MenuItem Header="{l:Localize Settings}"
+                                      Command="{Binding OpenSettingsCommand}"
+                                      ToolTip.Tip="{l:Localize SettingsTooltip}" />
+                            <Separator />
                             <MenuItem Header="{l:Localize ImportFromFinalShell}"
                                       Command="{Binding ImportFinalShellCommand}" />
                             <Separator />
