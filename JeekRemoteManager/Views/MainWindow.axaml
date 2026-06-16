@@ -10,6 +10,7 @@
         x:DataType="vm:MainWindowViewModel"
         Width="960" Height="640"
         MinWidth="640" MinHeight="420"
+        WindowStartupLocation="CenterScreen"
         Icon="/Assets/icon.ico"
         Title="{l:Localize WindowTitle}">
 
