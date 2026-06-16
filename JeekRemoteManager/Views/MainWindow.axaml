@@ -134,109 +134,116 @@
                           Background="{DynamicResource SystemControlForegroundBaseLowBrush}" />
 
             <!-- Editor -->
-            <Border Grid.Column="2" Margin="6"
-                    IsVisible="{Binding Editor, Converter={x:Static ObjectConverters.IsNotNull}}">
-                <ScrollViewer>
-                    <StackPanel Spacing="10" Margin="6,6,16,6">
-                        <TextBlock Text="{l:Localize Connection}" FontSize="18" FontWeight="SemiBold" />
+            <ContentControl Grid.Column="2" Margin="6" Content="{Binding Editor}">
+                <ContentControl.DataTemplates>
+                    <DataTemplate DataType="vm:ConnectionEditorViewModel">
+                        <Border>
+                            <ScrollViewer>
+                                <StackPanel Spacing="10" Margin="6,6,16,6">
+                                    <TextBlock Text="{l:Localize Connection}" FontSize="18" FontWeight="SemiBold" />
 
-                        <Grid ColumnDefinitions="120,*" RowDefinitions="Auto" Margin="0,4,0,0">
-                            <TextBlock Grid.Column="0" Text="{l:Localize Type}" VerticalAlignment="Center" />
-                            <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
-                                      ItemsSource="{Binding Editor.AvailableTypes}"
-                                      SelectedItem="{Binding Editor.Type, Mode=TwoWay}" />
-                        </Grid>
+                                    <Grid ColumnDefinitions="120,*" RowDefinitions="Auto" Margin="0,4,0,0">
+                                        <TextBlock Grid.Column="0" Text="{l:Localize Type}" VerticalAlignment="Center" />
+                                        <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                  ItemsSource="{Binding AvailableTypes}"
+                                                  SelectedItem="{Binding Type, Mode=TwoWay}" />
+                                    </Grid>
 
-                        <Grid ColumnDefinitions="120,*">
-                            <TextBlock Grid.Column="0" Text="{l:Localize Name}" VerticalAlignment="Center" />
-                            <TextBox Grid.Column="1" Text="{Binding Editor.Name, Mode=TwoWay}" />
-                        </Grid>
+                                    <Grid ColumnDefinitions="120,*">
+                                        <TextBlock Grid.Column="0" Text="{l:Localize Name}" VerticalAlignment="Center" />
+                                        <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}" />
+                                    </Grid>
 
-                        <Grid ColumnDefinitions="120,*,80,90">
-                            <TextBlock Grid.Column="0" Text="{l:Localize Host}" VerticalAlignment="Center" />
-                            <TextBox Grid.Column="1" Text="{Binding Editor.Host, Mode=TwoWay}" PlaceholderText="{l:Localize HostWatermark}" />
-                            <TextBlock Grid.Column="2" Text="{l:Localize Port}" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" />
-                            <TextBox Grid.Column="3" Text="{Binding Editor.Port, Mode=TwoWay}" />
-                        </Grid>
+                                    <Grid ColumnDefinitions="120,*,80,90">
+                                        <TextBlock Grid.Column="0" Text="{l:Localize Host}" VerticalAlignment="Center" />
+                                        <TextBox Grid.Column="1" Text="{Binding Host, Mode=TwoWay}" PlaceholderText="{l:Localize HostWatermark}" />
+                                        <TextBlock Grid.Column="2" Text="{l:Localize Port}" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" />
+                                        <TextBox Grid.Column="3" Text="{Binding Port, Mode=TwoWay}" />
+                                    </Grid>
 
-                        <Grid ColumnDefinitions="120,*">
-                            <TextBlock Grid.Column="0" Text="{l:Localize Username}" VerticalAlignment="Center" />
-                            <TextBox Grid.Column="1" Text="{Binding Editor.Username, Mode=TwoWay}" />
-                        </Grid>
+                                    <Grid ColumnDefinitions="120,*">
+                                        <TextBlock Grid.Column="0" Text="{l:Localize Username}" VerticalAlignment="Center" />
+                                        <TextBox Grid.Column="1" Text="{Binding Username, Mode=TwoWay}" />
+                                    </Grid>
 
-                        <Grid ColumnDefinitions="120,*,Auto">
-                            <TextBlock Grid.Column="0" Text="{l:Localize Password}" VerticalAlignment="Center" />
-                            <TextBox Grid.Column="1" x:Name="PasswordBox"
-                                     Text="{Binding Editor.Password, Mode=TwoWay}"
-                                     PasswordChar="&#x2022;" />
-                            <CheckBox Grid.Column="2" Content="{l:Localize Show}" Margin="8,0,0,0"
-                                      IsChecked="{Binding #PasswordBox.RevealPassword, Mode=TwoWay}" />
-                        </Grid>
+                                    <Grid ColumnDefinitions="120,*,Auto">
+                                        <TextBlock Grid.Column="0" Text="{l:Localize Password}" VerticalAlignment="Center" />
+                                        <TextBox Grid.Column="1" x:Name="PasswordBox"
+                                                 Text="{Binding Password, Mode=TwoWay}"
+                                                 PasswordChar="&#x2022;" />
+                                        <CheckBox Grid.Column="2" Content="{l:Localize Show}" Margin="8,0,0,0"
+                                                  IsChecked="{Binding #PasswordBox.RevealPassword, Mode=TwoWay}" />
+                                    </Grid>
 
-                        <TextBlock Text="{l:Localize PasswordDecryptFailed}"
-                                   Foreground="IndianRed" TextWrapping="Wrap"
-                                   Margin="120,0,0,0"
-                                   IsVisible="{Binding Editor.PasswordDecryptFailed}" />
+                                    <TextBlock Text="{l:Localize PasswordDecryptFailed}"
+                                               Foreground="IndianRed" TextWrapping="Wrap"
+                                               Margin="120,0,0,0"
+                                               IsVisible="{Binding PasswordDecryptFailed}" />
 
-                        <!-- SSH-specific -->
-                        <StackPanel Spacing="10" IsVisible="{Binding Editor.IsSsh}">
-                            <Separator />
-                            <TextBlock Text="{l:Localize SshOptions}" FontWeight="SemiBold" />
-                            <Grid ColumnDefinitions="120,*,Auto">
-                                <TextBlock Grid.Column="0" Text="{l:Localize PrivateKey}" VerticalAlignment="Center" />
-                                <TextBox Grid.Column="1" Text="{Binding Editor.PrivateKeyPath, Mode=TwoWay}"
-                                         PlaceholderText="{l:Localize PrivateKeyWatermark}" />
-                                <Button Grid.Column="2" Content="{l:Localize Browse}" Margin="8,0,0,0"
-                                        Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).BrowseKeyCommand}" />
-                            </Grid>
-                            <Grid ColumnDefinitions="120,*">
-                                <TextBlock Grid.Column="0" Text="{l:Localize ExtraArgs}" VerticalAlignment="Center" />
-                                <TextBox Grid.Column="1" Text="{Binding Editor.ExtraSshArguments, Mode=TwoWay}"
-                                         PlaceholderText="{l:Localize ExtraArgsWatermark}" />
-                            </Grid>
-                        </StackPanel>
+                                    <!-- SSH-specific -->
+                                    <StackPanel Spacing="10" IsVisible="{Binding IsSsh}">
+                                        <Separator />
+                                        <TextBlock Text="{l:Localize SshOptions}" FontWeight="SemiBold" />
+                                        <Grid ColumnDefinitions="120,*,Auto">
+                                            <TextBlock Grid.Column="0" Text="{l:Localize PrivateKey}" VerticalAlignment="Center" />
+                                            <TextBox Grid.Column="1" Text="{Binding PrivateKeyPath, Mode=TwoWay}"
+                                                     PlaceholderText="{l:Localize PrivateKeyWatermark}" />
+                                            <Button Grid.Column="2" Content="{l:Localize Browse}" Margin="8,0,0,0"
+                                                    Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).BrowseKeyCommand}" />
+                                        </Grid>
+                                        <Grid ColumnDefinitions="120,*">
+                                            <TextBlock Grid.Column="0" Text="{l:Localize ExtraArgs}" VerticalAlignment="Center" />
+                                            <TextBox Grid.Column="1" Text="{Binding ExtraSshArguments, Mode=TwoWay}"
+                                                     PlaceholderText="{l:Localize ExtraArgsWatermark}" />
+                                        </Grid>
+                                    </StackPanel>
 
-                        <!-- RDP-specific -->
-                        <StackPanel Spacing="10" IsVisible="{Binding Editor.IsRdp}">
-                            <Separator />
-                            <TextBlock Text="{l:Localize RdpOptions}" FontWeight="SemiBold" />
-                            <CheckBox Content="{l:Localize FullScreen}" IsChecked="{Binding Editor.RdpFullScreen, Mode=TwoWay}" />
-                            <CheckBox Content="{l:Localize UseAllMonitors}" IsChecked="{Binding Editor.RdpUseAllMonitors, Mode=TwoWay}"
-                                      IsVisible="{Binding Editor.RdpFullScreen}" Margin="20,0,0,0" />
-                            <Grid ColumnDefinitions="120,*,80,*" IsVisible="{Binding !Editor.RdpFullScreen}">
-                                <TextBlock Grid.Column="0" Text="{l:Localize Width}" VerticalAlignment="Center" />
-                                <TextBox Grid.Column="1" Text="{Binding Editor.RdpWidth, Mode=TwoWay}" />
-                                <TextBlock Grid.Column="2" Text="{l:Localize Height}" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" />
-                                <TextBox Grid.Column="3" Text="{Binding Editor.RdpHeight, Mode=TwoWay}" />
-                            </Grid>
-                            <TextBlock Text="{l:Localize LocalResources}" FontWeight="SemiBold" Margin="0,4,0,0" />
-                            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" >
-                                <CheckBox Grid.Row="0" Grid.Column="0" Content="{l:Localize ShareClipboard}"
-                                          IsChecked="{Binding Editor.RdpRedirectClipboard, Mode=TwoWay}" />
-                                <CheckBox Grid.Row="0" Grid.Column="1" Content="{l:Localize ShareDrives}"
-                                          IsChecked="{Binding Editor.RdpRedirectDrives, Mode=TwoWay}" />
-                                <CheckBox Grid.Row="1" Grid.Column="0" Content="{l:Localize PlayRemoteAudio}"
-                                          IsChecked="{Binding Editor.RdpRedirectAudioPlayback, Mode=TwoWay}" />
-                                <CheckBox Grid.Row="1" Grid.Column="1" Content="{l:Localize ShareMicrophone}"
-                                          IsChecked="{Binding Editor.RdpRedirectMicrophone, Mode=TwoWay}" />
-                            </Grid>
-                        </StackPanel>
+                                    <!-- RDP-specific -->
+                                    <StackPanel Spacing="10" IsVisible="{Binding IsRdp}">
+                                        <Separator />
+                                        <TextBlock Text="{l:Localize RdpOptions}" FontWeight="SemiBold" />
+                                        <CheckBox Content="{l:Localize FullScreen}" IsChecked="{Binding RdpFullScreen, Mode=TwoWay}" />
+                                        <CheckBox Content="{l:Localize UseAllMonitors}" IsChecked="{Binding RdpUseAllMonitors, Mode=TwoWay}"
+                                                  IsVisible="{Binding RdpFullScreen}" Margin="20,0,0,0" />
+                                        <Grid ColumnDefinitions="120,*,80,*" IsVisible="{Binding !RdpFullScreen}">
+                                            <TextBlock Grid.Column="0" Text="{l:Localize Width}" VerticalAlignment="Center" />
+                                            <TextBox Grid.Column="1" Text="{Binding RdpWidth, Mode=TwoWay}" />
+                                            <TextBlock Grid.Column="2" Text="{l:Localize Height}" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" />
+                                            <TextBox Grid.Column="3" Text="{Binding RdpHeight, Mode=TwoWay}" />
+                                        </Grid>
+                                        <TextBlock Text="{l:Localize LocalResources}" FontWeight="SemiBold" Margin="0,4,0,0" />
+                                        <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" >
+                                            <CheckBox Grid.Row="0" Grid.Column="0" Content="{l:Localize ShareClipboard}"
+                                                      IsChecked="{Binding RdpRedirectClipboard, Mode=TwoWay}" />
+                                            <CheckBox Grid.Row="0" Grid.Column="1" Content="{l:Localize ShareDrives}"
+                                                      IsChecked="{Binding RdpRedirectDrives, Mode=TwoWay}" />
+                                            <CheckBox Grid.Row="1" Grid.Column="0" Content="{l:Localize PlayRemoteAudio}"
+                                                      IsChecked="{Binding RdpRedirectAudioPlayback, Mode=TwoWay}" />
+                                            <CheckBox Grid.Row="1" Grid.Column="1" Content="{l:Localize ShareMicrophone}"
+                                                      IsChecked="{Binding RdpRedirectMicrophone, Mode=TwoWay}" />
+                                        </Grid>
+                                    </StackPanel>
 
-                        <Separator />
-                        <Grid ColumnDefinitions="120,*">
-                            <TextBlock Grid.Column="0" Text="{l:Localize Notes}" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Column="1" Text="{Binding Editor.Notes, Mode=TwoWay}"
-                                     AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" />
-                        </Grid>
+                                    <Separator />
+                                    <Grid ColumnDefinitions="120,*">
+                                        <TextBlock Grid.Column="0" Text="{l:Localize Notes}" VerticalAlignment="Top" Margin="0,4,0,0" />
+                                        <TextBox Grid.Column="1" Text="{Binding Notes, Mode=TwoWay}"
+                                                 AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" />
+                                    </Grid>
 
-                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
-                            <Button Content="{l:Localize Connect}" Command="{Binding ConnectCommand}" Classes="accent" />
-                            <TextBlock Text="{l:Localize AutoSaveHint}"
-                                       VerticalAlignment="Center" Opacity="0.6" Margin="6,0,0,0" />
-                        </StackPanel>
-                    </StackPanel>
-                </ScrollViewer>
-            </Border>
+                                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+                                        <Button Content="{l:Localize Connect}"
+                                                Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).ConnectCommand}"
+                                                Classes="accent" />
+                                        <TextBlock Text="{l:Localize AutoSaveHint}"
+                                                   VerticalAlignment="Center" Opacity="0.6" Margin="6,0,0,0" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Border>
+                    </DataTemplate>
+                </ContentControl.DataTemplates>
+            </ContentControl>
 
             <!-- Placeholder when nothing is selected -->
             <TextBlock Grid.Column="2"
