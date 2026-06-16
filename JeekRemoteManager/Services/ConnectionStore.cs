@@ -36,11 +36,21 @@ public class ConnectionStore
     /// <summary>Absolute path to the top-level connections folder.</summary>
     public string RootPath { get; private set; }
 
+    /// <summary>
+    /// <see cref="Environment.TickCount64"/> of the last write this store made to
+    /// disk. A file-system watcher can compare against this to tell the app's own
+    /// writes apart from external changes.
+    /// </summary>
+    public long LastWriteTick { get; private set; }
+
+    private void Touch() => LastWriteTick = Environment.TickCount64;
+
     /// <summary>Switches the store to a different root folder, creating it if needed.</summary>
     public void SetRoot(string newRoot)
     {
         RootPath = newRoot;
         Directory.CreateDirectory(RootPath);
+        Touch();
     }
 
     // --- Reading the tree ---
@@ -104,19 +114,26 @@ public class ConnectionStore
             File.Delete(previousFilePath);
         }
 
+        Touch();
         return targetPath;
     }
 
     public void DeleteFile(string filePath)
     {
         if (File.Exists(filePath))
+        {
             File.Delete(filePath);
+            Touch();
+        }
     }
 
     public void DeleteFolder(string folderPath)
     {
         if (Directory.Exists(folderPath))
+        {
             Directory.Delete(folderPath, recursive: true);
+            Touch();
+        }
     }
 
     /// <summary>Creates a new sub-folder with a unique name; returns its path.</summary>
@@ -125,6 +142,7 @@ public class ConnectionStore
         Directory.CreateDirectory(parentPath);
         var path = UniqueFolderPath(parentPath, SanitizeName(desiredName));
         Directory.CreateDirectory(path);
+        Touch();
         return path;
     }
 
@@ -140,6 +158,7 @@ public class ConnectionStore
             target = UniqueFolderPath(parent, SanitizeName(newName));
 
         Directory.Move(folderPath, target);
+        Touch();
         return target;
     }
 
@@ -152,6 +171,7 @@ public class ConnectionStore
         var baseName = Path.GetFileNameWithoutExtension(filePath);
         var target = UniqueFilePath(targetFolder, baseName);
         File.Copy(filePath, target);
+        Touch();
         return target;
     }
 
@@ -170,6 +190,7 @@ public class ConnectionStore
         var baseName = Path.GetFileNameWithoutExtension(filePath);
         var target = UniqueFilePath(targetFolder, baseName);
         File.Move(filePath, target);
+        Touch();
         return target;
     }
 
@@ -180,6 +201,7 @@ public class ConnectionStore
         var name = Path.GetFileName(folderPath.TrimEnd(Path.DirectorySeparatorChar));
         var target = UniqueFolderPath(targetParent, name);
         CopyDirectory(folderPath, target);
+        Touch();
         return target;
     }
 
@@ -197,6 +219,7 @@ public class ConnectionStore
         var name = Path.GetFileName(folderPath.TrimEnd(Path.DirectorySeparatorChar));
         var target = UniqueFolderPath(targetParent, name);
         Directory.Move(folderPath, target);
+        Touch();
         return target;
     }
 

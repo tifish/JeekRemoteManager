@@ -30,6 +30,13 @@ public partial class MainWindowViewModel : ViewModelBase
     private DispatcherTimer? _autoSaveTimer;
     private static readonly TimeSpan AutoSaveDelay = TimeSpan.FromMilliseconds(600);
 
+    // Watches the connections folder so external changes show up live. Reloads
+    // are debounced, and changes the app made itself are ignored.
+    private FileSystemWatcher? _watcher;
+    private DispatcherTimer? _watchReloadTimer;
+    private static readonly TimeSpan WatchReloadDelay = TimeSpan.FromMilliseconds(400);
+    private const long SelfWriteSuppressMs = 1000;
+
     public MainWindowViewModel(ConnectionStore store, ConnectionLauncher launcher, SettingsService settings)
     {
         _store = store;
@@ -37,6 +44,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _settings = settings;
         _store.SetRoot(_settings.ResolveConnectionsRoot());
         ReloadTree();
+        StartWatching(_store.RootPath);
 
         // Refresh language-dependent computed properties when the user switches language.
         Localizer.LanguageChanged += (_, _) =>
@@ -201,6 +209,82 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             StatusMessage = L("StatusAutoSaveFailed", ex.Message);
         }
+    }
+
+    // --- Watching the connections folder ---
+
+    /// <summary>(Re)starts the file-system watcher on the given root folder.</summary>
+    private void StartWatching(string path)
+    {
+        StopWatching();
+
+        if (!Directory.Exists(path))
+            return;
+
+        try
+        {
+            _watcher = new FileSystemWatcher(path)
+            {
+                IncludeSubdirectories = true,
+                NotifyFilter = NotifyFilters.FileName
+                             | NotifyFilters.DirectoryName
+                             | NotifyFilters.LastWrite
+                             | NotifyFilters.Size,
+            };
+            _watcher.Created += OnWatchedChange;
+            _watcher.Deleted += OnWatchedChange;
+            _watcher.Renamed += OnWatchedChange;
+            _watcher.Changed += OnWatchedChange;
+            _watcher.EnableRaisingEvents = true;
+        }
+        catch
+        {
+            // If watching can't be set up (e.g. unsupported path), the app still
+            // works; it just won't pick up external changes automatically.
+            _watcher = null;
+        }
+    }
+
+    private void StopWatching()
+    {
+        if (_watcher is null)
+            return;
+
+        _watcher.EnableRaisingEvents = false;
+        _watcher.Created -= OnWatchedChange;
+        _watcher.Deleted -= OnWatchedChange;
+        _watcher.Renamed -= OnWatchedChange;
+        _watcher.Changed -= OnWatchedChange;
+        _watcher.Dispose();
+        _watcher = null;
+    }
+
+    // Events arrive on a background thread; hop to the UI thread and debounce.
+    private void OnWatchedChange(object? sender, FileSystemEventArgs e) =>
+        Dispatcher.UIThread.Post(ScheduleWatchReload);
+
+    private void ScheduleWatchReload()
+    {
+        if (_watchReloadTimer is null)
+        {
+            _watchReloadTimer = new DispatcherTimer { Interval = WatchReloadDelay };
+            _watchReloadTimer.Tick += (_, _) =>
+            {
+                _watchReloadTimer!.Stop();
+
+                // Ignore the burst of events caused by the app's own writes.
+                if (Environment.TickCount64 - _store.LastWriteTick < SelfWriteSuppressMs)
+                    return;
+
+                // Don't clobber an in-progress edit; flush it first so the reload
+                // reflects the user's latest changes too.
+                FlushPendingAutoSave();
+                ReloadTree();
+            };
+        }
+
+        _watchReloadTimer.Stop();
+        _watchReloadTimer.Start();
     }
 
     // --- Tree building ---
@@ -894,6 +978,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _settings.RelocateSettings(chosen.Value);
         var saved = _settings.Save();
         _store.SetRoot(newRoot);
+        StartWatching(newRoot);
         ClearClipboard();
         ReloadTree();
         OnPropertyChanged(nameof(RootPath));
