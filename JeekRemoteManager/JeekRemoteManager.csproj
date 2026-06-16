@@ -8,8 +8,7 @@
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
-    <AvaloniaUseCompiledBindingsByDefault
-    >true</AvaloniaUseCompiledBindingsByDefault>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <RootNamespace>JeekRemoteManager</RootNamespace>
     <AssemblyName>JeekRemoteManager</AssemblyName>
     <OutDir>..\bin</OutDir>
@@ -23,12 +22,8 @@
     <PropertyGroup>
     <BeautySharedRuntimeMode>False</BeautySharedRuntimeMode>
     <!-- beauty into sub-directory, default is libs, quote with "" if contains space  -->
-    <BeautyLibsDir
-      Condition="$(BeautySharedRuntimeMode) == 'True'"
-    >../Lib</BeautyLibsDir>
-    <BeautyLibsDir
-      Condition="$(BeautySharedRuntimeMode) != 'True'"
-    >./Lib</BeautyLibsDir>
+    <BeautyLibsDir Condition="$(BeautySharedRuntimeMode) == 'True'">../Lib</BeautyLibsDir>
+    <BeautyLibsDir Condition="$(BeautySharedRuntimeMode) != 'True'">./Lib</BeautyLibsDir>
     <!-- dlls that you don't want to be moved or can not be moved -->
     <!-- <BeautyExcludes>dll1.dll;lib*;...</BeautyExcludes> -->
     <!-- dlls that end users never needed, so hide them -->
@@ -73,23 +68,18 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Avalonia" Version="11.3.17" />
-    <PackageReference Include="Avalonia.Desktop" Version="11.3.17" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.17" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.17" />
+    <PackageReference Include="Avalonia" Version="12.0.4" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.0.4" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.4" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.4" />
     <!-- Diagnostics tooling, only referenced in Debug builds -->
     <PackageReference Include="Avalonia.Diagnostics" Version="11.3.17">
-      <IncludeAssets
-        Condition="'$(Configuration)' != 'Debug'"
-      >None</IncludeAssets>
+      <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
       <PrivateAssets>All</PrivateAssets>
     </PackageReference>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
-    <PackageReference Include="Jeek.Avalonia.Localization" Version="1.3.1" />
-    <PackageReference
-      Include="System.Security.Cryptography.ProtectedData"
-      Version="10.0.9"
-    />
+    <PackageReference Include="Jeek.Avalonia.Localization" Version="12.0.2" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.9" />
     <PackageReference Include="nulastudio.NetBeauty" Version="2.1.5" />
   </ItemGroup>
 
