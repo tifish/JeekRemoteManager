@@ -17,12 +17,37 @@ try
 {
     Check(Directory.Exists(root), "Store creates its root folder");
 
-    // --- Password encryption round-trip (DPAPI) ---
+    // --- Master-password setup (envelope: random DEK wrapped by a password key) ---
+    // Redirect the DPAPI key cache into the temp root so we never touch the real one.
+    MasterKeyService.CacheFileOverride = Path.Combine(root, "masterkey.bin");
+    const string masterPassword = "Corr3ct-Horse-密码";
+    var settings = new SettingsService();
+    var master = new MasterKeyService(settings);
+    Check(!master.IsConfigured && !master.IsUnlocked, "Master key starts unconfigured and locked");
+    master.Initialize(masterPassword);
+    Check(master.IsConfigured && master.IsUnlocked, "Initialize configures and unlocks the master key");
+    MasterKeyService.Current = master;
+
+    // --- Password encryption round-trip (AES-GCM under the master key) ---
     const string secret = "S3cr3t!™密码";
     var enc = PasswordProtector.Encrypt(secret);
     Check(enc != secret && enc.Length > 0, "Encrypt produces non-plaintext blob");
+    Check(PasswordProtector.Encrypt(secret) != enc, "AES-GCM uses a fresh nonce each time");
     Check(PasswordProtector.Decrypt(enc) == secret, "Decrypt round-trips the password");
     Check(PasswordProtector.Encrypt("") == "", "Empty password encrypts to empty");
+
+    // --- Unlock a separate service from the same settings (as on another machine) ---
+    var reopened = new MasterKeyService(settings);
+    Check(!reopened.TryUnlock("wrong-password"), "Wrong master password fails to unlock");
+    Check(reopened.TryUnlock(masterPassword), "Correct master password unlocks");
+    Check(reopened.DecryptPassword(enc) == secret, "Re-unlocked key decrypts existing passwords");
+
+    // --- Change master password keeps the same data key (no re-encryption needed) ---
+    master.ChangePassword("a-new-master-密码");
+    Check(PasswordProtector.Decrypt(enc) == secret, "Existing passwords still decrypt after password change");
+    var afterChange = new MasterKeyService(settings);
+    Check(!afterChange.TryUnlock(masterPassword), "Old master password no longer works after change");
+    Check(afterChange.TryUnlock("a-new-master-密码"), "New master password works after change");
 
     // --- RDP password hex format (UTF-16LE + DPAPI + hex) ---
     var rdpHex = PasswordProtector.EncryptForRdpFile(secret);

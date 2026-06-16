@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -43,30 +44,109 @@ public partial class App : Application
             var settings = new SettingsService();
             var store = new ConnectionStore();
             var launcher = new ConnectionLauncher();
+            var master = new MasterKeyService(settings);
+            MasterKeyService.Current = master;
+            store.SetRoot(settings.ResolveConnectionsRoot());
 
             ApplyStoredLanguage(settings);
             ApplyStoredTheme(settings);
 
-            var vm = new MainWindowViewModel(store, launcher, settings);
-            var window = new MainWindow
-            {
-                DataContext = vm,
-            };
-            window.Closing += OnMainWindowClosing;
-            desktop.MainWindow = window;
-
-            _vm = vm;
-            BuildTrayMenu();
-
-            // Rebuild the tray menu on language change so its localized labels
-            // stay current.
-            Localizer.LanguageChanged += (_, _) => BuildTrayMenu();
-
-            // Silent background check shortly after startup.
-            _ = vm.CheckForUpdatesOnStartupAsync();
+            // Gate the main window behind the master-password setup/unlock flow.
+            _ = UnlockThenStartAsync(desktop, settings, store, launcher, master);
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    /// <summary>
+    /// Ensures the master key is unlocked (set up on first run, unlocked silently
+    /// from the local cache, or prompted for), then builds and shows the main window.
+    /// Exits the app if the user cancels the setup/unlock prompt.
+    /// </summary>
+    private async Task UnlockThenStartAsync(
+        IClassicDesktopStyleApplicationLifetime desktop,
+        SettingsService settings,
+        ConnectionStore store,
+        ConnectionLauncher launcher,
+        MasterKeyService master)
+    {
+        bool unlocked;
+        if (master.IsConfigured)
+        {
+            // Silent cache unlock on the same machine; otherwise ask once.
+            unlocked = master.TryUnlockFromCache()
+                || await MasterPasswordDialog.ShowUnlockAsync(null, master.TryUnlock);
+        }
+        else
+        {
+            var password = await MasterPasswordDialog.ShowSetupAsync(null);
+            if (password is null)
+            {
+                unlocked = false;
+            }
+            else
+            {
+                master.Initialize(password);
+                MigrateLegacyPasswords(store);
+                settings.Save();
+                unlocked = true;
+            }
+        }
+
+        if (!unlocked)
+        {
+            desktop.Shutdown();
+            return;
+        }
+
+        var vm = new MainWindowViewModel(store, launcher, settings);
+        var window = new MainWindow
+        {
+            DataContext = vm,
+        };
+        window.Closing += OnMainWindowClosing;
+        desktop.MainWindow = window;
+        window.Show();
+
+        _vm = vm;
+        BuildTrayMenu();
+
+        // Rebuild the tray menu on language change so its localized labels
+        // stay current.
+        Localizer.LanguageChanged += (_, _) => BuildTrayMenu();
+
+        // Silent background check shortly after startup.
+        _ = vm.CheckForUpdatesOnStartupAsync();
+    }
+
+    /// <summary>
+    /// One-time migration when a master password is first adopted: re-encrypts every
+    /// connection password that was previously stored with DPAPI so it is protected
+    /// by the new master key instead. Passwords that cannot be decrypted on this
+    /// machine (e.g. copied from another account) are left untouched.
+    /// </summary>
+    private static void MigrateLegacyPasswords(ConnectionStore store)
+    {
+        foreach (var file in store.AllConnectionFiles())
+        {
+            try
+            {
+                var connection = store.Load(file);
+                if (string.IsNullOrEmpty(connection.EncryptedPassword))
+                    continue;
+
+                var clear = PasswordProtector.DpapiDecryptLegacy(connection.EncryptedPassword);
+                if (clear.Length == 0)
+                    continue;
+
+                connection.EncryptedPassword = PasswordProtector.Encrypt(clear);
+                store.SaveInPlace(connection, file);
+            }
+            catch
+            {
+                // Skip any single file that fails; the rest still migrate.
+            }
+        }
     }
 
     private void OnMainWindowClosing(object? sender, Avalonia.Controls.WindowClosingEventArgs e)

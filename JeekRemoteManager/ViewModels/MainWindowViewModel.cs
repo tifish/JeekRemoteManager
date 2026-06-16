@@ -1000,6 +1000,24 @@ public partial class MainWindowViewModel : ViewModelBase
             StatusMessage = L("StatusStorageLocationOnly", result.StorageLocation, newRoot);
     }
 
+    /// <summary>
+    /// Re-wraps the data key under a new master password and persists it. The saved
+    /// connection passwords are not touched — only the master password changes.
+    /// </summary>
+    public void ChangeMasterPassword(string newPassword)
+    {
+        try
+        {
+            MasterKeyService.Current?.ChangePassword(newPassword);
+            _settings.Save();
+            StatusMessage = L("StatusMasterChanged");
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = L("StatusMasterChangeFailed", ex.Message);
+        }
+    }
+
     private static bool HasData(string folder) =>
         Directory.Exists(folder) &&
         (Directory.GetFiles(folder, "*" + ConnectionStore.FileExtension).Length > 0 ||

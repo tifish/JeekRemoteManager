@@ -284,6 +284,12 @@ public partial class MainWindow : Window
         themeBox.SelectedIndex =
             System.Array.FindIndex(themes, c => c.Code == currentTheme) is var ti && ti >= 0 ? ti : 0;
 
+        var changePassword = new Button
+        {
+            Content = Localizer.Get("ChangeMasterPassword"),
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+
         var ok = new Button { Content = Localizer.Get("DialogOk"), MinWidth = 80, IsDefault = true };
         var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 80, IsCancel = true };
 
@@ -307,6 +313,8 @@ public partial class MainWindow : Window
                     new TextBlock { Text = Localizer.Get("DialogStorageQuestion"), FontWeight = FontWeight.SemiBold },
                     userRadio,
                     programRadio,
+                    new TextBlock { Text = Localizer.Get("Password"), FontWeight = FontWeight.SemiBold },
+                    changePassword,
                     new StackPanel
                     {
                         Orientation = Orientation.Horizontal,
@@ -316,6 +324,13 @@ public partial class MainWindow : Window
                     },
                 },
             },
+        };
+
+        changePassword.Click += async (_, _) =>
+        {
+            var newPassword = await MasterPasswordDialog.ShowChangeAsync(dialog);
+            if (newPassword is not null)
+                (DataContext as MainWindowViewModel)?.ChangeMasterPassword(newPassword);
         };
 
         ok.Click += (_, _) =>

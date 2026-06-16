@@ -71,6 +71,23 @@ public class ConnectionStore
                 .ToList()
             : Array.Empty<string>();
 
+    /// <summary>Returns the full paths of every connection file under the root, recursively.</summary>
+    public IReadOnlyList<string> AllConnectionFiles() =>
+        Directory.Exists(RootPath)
+            ? Directory.GetFiles(RootPath, "*" + FileExtension, SearchOption.AllDirectories)
+            : Array.Empty<string>();
+
+    /// <summary>
+    /// Rewrites a connection back to its existing file without renaming or moving it.
+    /// Used by the password migration, which only changes the encrypted-password field.
+    /// </summary>
+    public void SaveInPlace(Connection connection, string filePath)
+    {
+        var json = JsonSerializer.Serialize(connection, JsonOptions);
+        File.WriteAllText(filePath, json);
+        Touch();
+    }
+
     /// <summary>Loads a connection from a file.</summary>
     public Connection Load(string filePath)
     {
