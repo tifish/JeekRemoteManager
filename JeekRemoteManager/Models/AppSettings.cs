@@ -17,4 +17,7 @@ public class AppSettings
 
     /// <summary>UI language code ("en", "zh"). Null = follow system culture.</summary>
     public string? Language { get; set; }
+
+    /// <summary>UI theme ("Light", "Dark"). Null = follow system theme.</summary>
+    public string? Theme { get; set; }
 }

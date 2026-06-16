@@ -88,6 +88,30 @@
                                     </MenuItem.Icon>
                                 </MenuItem>
                             </MenuItem>
+                            <MenuItem Header="{l:Localize Theme}">
+                                <MenuItem Header="{l:Localize FollowSystem}"
+                                          Command="{Binding SetThemeCommand}"
+                                          CommandParameter="">
+                                    <MenuItem.Icon>
+                                        <TextBlock Text="&#x2713;" IsVisible="{Binding IsThemeFollowSystem}" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <Separator />
+                                <MenuItem Header="{l:Localize ThemeLight}"
+                                          Command="{Binding SetThemeCommand}"
+                                          CommandParameter="Light">
+                                    <MenuItem.Icon>
+                                        <TextBlock Text="&#x2713;" IsVisible="{Binding IsThemeLight}" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="{l:Localize ThemeDark}"
+                                          Command="{Binding SetThemeCommand}"
+                                          CommandParameter="Dark">
+                                    <MenuItem.Icon>
+                                        <TextBlock Text="&#x2713;" IsVisible="{Binding IsThemeDark}" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                            </MenuItem>
                         </MenuFlyout>
                     </Button.Flyout>
                 </Button>

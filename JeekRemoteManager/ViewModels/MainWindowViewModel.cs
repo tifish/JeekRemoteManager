@@ -871,6 +871,31 @@ public partial class MainWindowViewModel : ViewModelBase
         NotifyLanguageSelectionChanged();
     }
 
+    public bool IsThemeFollowSystem => string.IsNullOrEmpty(_settings.Settings.Theme);
+    public bool IsThemeLight => _settings.Settings.Theme == "Light";
+    public bool IsThemeDark => _settings.Settings.Theme == "Dark";
+
+    private void NotifyThemeSelectionChanged()
+    {
+        OnPropertyChanged(nameof(IsThemeFollowSystem));
+        OnPropertyChanged(nameof(IsThemeLight));
+        OnPropertyChanged(nameof(IsThemeDark));
+    }
+
+    [RelayCommand]
+    private void SetTheme(string? theme)
+    {
+        // Empty / null means "follow system": clear the stored preference and
+        // let Avalonia resolve the variant from the OS theme.
+        _settings.Settings.Theme = string.IsNullOrEmpty(theme) ? null : theme;
+        _settings.Save();
+
+        if (Avalonia.Application.Current is { } app)
+            app.RequestedThemeVariant = App.ThemeVariantFor(_settings.Settings.Theme);
+
+        NotifyThemeSelectionChanged();
+    }
+
     private async Task PromptUpdateAsync(bool silentIfUpToDate, UpdateCheckOutcome? known = null)
     {
         var outcome = known ?? await AutoUpdateService.HasUpdateAsync();

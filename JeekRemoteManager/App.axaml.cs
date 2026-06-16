@@ -6,6 +6,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Data.Core.Plugins;
 using Avalonia.Markup.Xaml;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using Jeek.Avalonia.Localization;
 using JeekRemoteManager.Services;
@@ -43,6 +44,7 @@ public partial class App : Application
             var launcher = new ConnectionLauncher();
 
             ApplyStoredLanguage(settings);
+            ApplyStoredTheme(settings);
 
             var vm = new MainWindowViewModel(store, launcher, settings);
             var window = new MainWindow
@@ -160,6 +162,21 @@ public partial class App : Application
         if (Localizer.Languages.Contains(language))
             Localizer.Language = language;
     }
+
+    private void ApplyStoredTheme(SettingsService settings)
+    {
+        RequestedThemeVariant = ThemeVariantFor(settings.Settings.Theme);
+    }
+
+    /// <summary>Maps a stored theme string to an Avalonia <see cref="ThemeVariant"/>.
+    /// Null / empty / unrecognized values fall back to <see cref="ThemeVariant.Default"/>
+    /// (follow system).</summary>
+    public static ThemeVariant ThemeVariantFor(string? theme) => theme switch
+    {
+        "Light" => ThemeVariant.Light,
+        "Dark" => ThemeVariant.Dark,
+        _ => ThemeVariant.Default,
+    };
 
     private static void DisableAvaloniaDataAnnotationValidation()
     {

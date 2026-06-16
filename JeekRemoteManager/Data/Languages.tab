@@ -3,6 +3,9 @@ en	English	英文
 zh	Chinese	中文
 Language	Language	语言
 FollowSystem	Follow system	跟随系统
+Theme	Theme	主题
+ThemeLight	Light	浅色
+ThemeDark	Dark	深色
 WindowTitle	Jeek Remote Manager	Jeek 远程管理器
 NewFolder	New folder	新建文件夹
 NewSsh	New SSH connection	新建 SSH 连接
