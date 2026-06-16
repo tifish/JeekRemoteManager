@@ -58,8 +58,8 @@ public partial class App : Application
             _vm = vm;
             BuildTrayMenu();
 
-            // Keep the tray menu's localized labels and language radio checks in
-            // sync when the language changes from anywhere (main menu or tray).
+            // Rebuild the tray menu on language change so its localized labels
+            // stay current.
             Localizer.LanguageChanged += (_, _) => BuildTrayMenu();
 
             // Silent background check shortly after startup.
@@ -134,9 +134,8 @@ public partial class App : Application
 
     /// <summary>
     /// Builds the tray icon's right-click menu so it mirrors the main window's
-    /// overflow (⋮) menu: Settings, Import, Check for Updates and the Theme
-    /// submenu, bracketed by Show/Exit. Rebuilt on language changes so labels
-    /// and the theme radio checks stay current.
+    /// overflow (⋮) menu: Settings, Import and Check for Updates, bracketed by
+    /// Show/Exit. Rebuilt on language changes so the labels stay current.
     /// </summary>
     private void BuildTrayMenu()
     {
@@ -165,17 +164,6 @@ public partial class App : Application
 
         menu.Items.Add(new NativeMenuItemSeparator());
 
-        var theme = new NativeMenuItem { Header = Localizer.Get("Theme") };
-        var themeMenu = new NativeMenu();
-        themeMenu.Items.Add(ThemeItem(vm, Localizer.Get("FollowSystem"), "", vm.IsThemeFollowSystem));
-        themeMenu.Items.Add(new NativeMenuItemSeparator());
-        themeMenu.Items.Add(ThemeItem(vm, Localizer.Get("ThemeLight"), "Light", vm.IsThemeLight));
-        themeMenu.Items.Add(ThemeItem(vm, Localizer.Get("ThemeDark"), "Dark", vm.IsThemeDark));
-        theme.Menu = themeMenu;
-        menu.Items.Add(theme);
-
-        menu.Items.Add(new NativeMenuItemSeparator());
-
         var exit = new NativeMenuItem { Header = Localizer.Get("TrayExit") };
         exit.Click += OnTrayExitClicked;
         menu.Items.Add(exit);
@@ -191,19 +179,6 @@ public partial class App : Application
             if (command.CanExecute(null))
                 command.Execute(null);
         };
-        return item;
-    }
-
-    private static NativeMenuItem ThemeItem(
-        MainWindowViewModel vm, string header, string theme, bool isChecked)
-    {
-        var item = new NativeMenuItem
-        {
-            Header = header,
-            ToggleType = NativeMenuItemToggleType.Radio,
-            IsChecked = isChecked,
-        };
-        item.Click += (_, _) => vm.SetThemeCommand.Execute(theme);
         return item;
     }
 

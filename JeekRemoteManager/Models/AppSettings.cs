@@ -22,5 +22,6 @@ public class AppSettings
     public string? Theme { get; set; }
 }
 
-/// <summary>Outcome of the Settings dialog. <see cref="Language"/> is null when "follow system" is chosen.</summary>
-public record SettingsDialogResult(StorageLocation StorageLocation, string? Language);
+/// <summary>Outcome of the Settings dialog. <see cref="Language"/> and <see cref="Theme"/>
+/// are null when "follow system" is chosen.</summary>
+public record SettingsDialogResult(StorageLocation StorageLocation, string? Language, string? Theme);

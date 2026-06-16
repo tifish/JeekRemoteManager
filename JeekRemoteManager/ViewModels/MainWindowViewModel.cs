@@ -106,7 +106,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public Func<string, string, Task<bool>>? ConfirmAsync { get; set; }
     public Func<string, string, string, Task<string?>>? PromptAsync { get; set; }
     public Func<Task<string?>>? PickKeyFileAsync { get; set; }
-    public Func<StorageLocation, string?, Task<SettingsDialogResult?>>? PickSettingsAsync { get; set; }
+    public Func<StorageLocation, string?, string?, Task<SettingsDialogResult?>>? PickSettingsAsync { get; set; }
     public Func<string, Task<string?>>? PickFolderAsync { get; set; }
 
     /// <summary>Asks the view to put keyboard focus on the tree so it receives shortcuts.</summary>
@@ -857,19 +857,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _settings.Save();
     }
 
-    public bool IsThemeFollowSystem => string.IsNullOrEmpty(_settings.Settings.Theme);
-    public bool IsThemeLight => _settings.Settings.Theme == "Light";
-    public bool IsThemeDark => _settings.Settings.Theme == "Dark";
-
-    private void NotifyThemeSelectionChanged()
-    {
-        OnPropertyChanged(nameof(IsThemeFollowSystem));
-        OnPropertyChanged(nameof(IsThemeLight));
-        OnPropertyChanged(nameof(IsThemeDark));
-    }
-
-    [RelayCommand]
-    private void SetTheme(string? theme)
+    private void ApplyTheme(string? theme)
     {
         // Empty / null means "follow system": clear the stored preference and
         // let Avalonia resolve the variant from the OS theme.
@@ -878,8 +866,6 @@ public partial class MainWindowViewModel : ViewModelBase
 
         if (Avalonia.Application.Current is { } app)
             app.RequestedThemeVariant = App.ThemeVariantFor(_settings.Settings.Theme);
-
-        NotifyThemeSelectionChanged();
     }
 
     private async Task PromptUpdateAsync(bool silentIfUpToDate, UpdateCheckOutcome? known = null)
@@ -966,13 +952,17 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
 
         var current = _settings.Settings.StorageLocation;
-        var result = await PickSettingsAsync(current, _settings.Settings.Language);
+        var result = await PickSettingsAsync(current, _settings.Settings.Language, _settings.Settings.Theme);
         if (result is null)
             return;
 
         // Apply the language choice (no-op if unchanged); takes effect immediately.
         if (result.Language != _settings.Settings.Language)
             ApplyLanguage(result.Language);
+
+        // Apply the theme choice (no-op if unchanged); takes effect immediately.
+        if (result.Theme != _settings.Settings.Theme)
+            ApplyTheme(result.Theme);
 
         if (result.StorageLocation == current)
             return;

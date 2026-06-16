@@ -231,7 +231,8 @@ public partial class MainWindow : Window
         return tcs.Task;
     }
 
-    private Task<SettingsDialogResult?> PickSettingsAsync(StorageLocation current, string? currentLanguage)
+    private Task<SettingsDialogResult?> PickSettingsAsync(
+        StorageLocation current, string? currentLanguage, string? currentTheme)
     {
         var tcs = new TaskCompletionSource<SettingsDialogResult?>();
 
@@ -268,6 +269,21 @@ public partial class MainWindow : Window
         languageBox.SelectedIndex =
             System.Array.FindIndex(languages, c => c.Code == currentLanguage) is var i && i >= 0 ? i : 0;
 
+        // null code = follow system theme.
+        var themes = new[]
+        {
+            new ThemeChoice(Localizer.Get("FollowSystem"), null),
+            new ThemeChoice(Localizer.Get("ThemeLight"), "Light"),
+            new ThemeChoice(Localizer.Get("ThemeDark"), "Dark"),
+        };
+        var themeBox = new ComboBox
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            ItemsSource = themes,
+        };
+        themeBox.SelectedIndex =
+            System.Array.FindIndex(themes, c => c.Code == currentTheme) is var ti && ti >= 0 ? ti : 0;
+
         var ok = new Button { Content = Localizer.Get("DialogOk"), MinWidth = 80, IsDefault = true };
         var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 80, IsCancel = true };
 
@@ -286,6 +302,8 @@ public partial class MainWindow : Window
                 {
                     new TextBlock { Text = Localizer.Get("Language"), FontWeight = FontWeight.SemiBold },
                     languageBox,
+                    new TextBlock { Text = Localizer.Get("Theme"), FontWeight = FontWeight.SemiBold },
+                    themeBox,
                     new TextBlock { Text = Localizer.Get("DialogStorageQuestion"), FontWeight = FontWeight.SemiBold },
                     userRadio,
                     programRadio,
@@ -306,7 +324,8 @@ public partial class MainWindow : Window
                 ? StorageLocation.UserDirectory
                 : StorageLocation.ProgramDirectory;
             var language = (languageBox.SelectedItem as LanguageChoice)?.Code;
-            tcs.TrySetResult(new SettingsDialogResult(storage, language));
+            var theme = (themeBox.SelectedItem as ThemeChoice)?.Code;
+            tcs.TrySetResult(new SettingsDialogResult(storage, language, theme));
             dialog.Close();
         };
         cancel.Click += (_, _) => { tcs.TrySetResult(null); dialog.Close(); };
@@ -318,6 +337,12 @@ public partial class MainWindow : Window
 
     /// <summary>A selectable UI language; <see cref="Code"/> is null for "follow system".</summary>
     private sealed record LanguageChoice(string Label, string? Code)
+    {
+        public override string ToString() => Label;
+    }
+
+    /// <summary>A selectable UI theme; <see cref="Code"/> is null for "follow system".</summary>
+    private sealed record ThemeChoice(string Label, string? Code)
     {
         public override string ToString() => Label;
     }
