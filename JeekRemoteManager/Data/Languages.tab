@@ -52,8 +52,8 @@ SelectConnectionHint	Select a connection to edit, or create one from the toolbar
 StatusReady	Ready.	就绪。
 StatusTargetRoot	Target: root	目标：根目录
 StatusTarget	Target: {0}	目标：{0}
-StatusBuild	Build {0}	构建 {0}
-StatusDevBuild	Dev build	开发构建
+StatusBuild	Version {0}	版本 {0}
+StatusDevBuild	Dev version	开发版本
 StatusCreatedFolder	Created folder '{0}'.	已创建文件夹“{0}”。
 StatusCouldNotCreateFolder	Could not create folder: {0}	无法创建文件夹：{0}
 StatusCreatedConnection	Created {0} connection.	已创建 {0} 连接。

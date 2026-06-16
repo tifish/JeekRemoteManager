@@ -106,13 +106,12 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public string RootPath => _store.RootPath;
 
-    /// <summary>Build number baked in by CI (commit count). 0 for dev builds.</summary>
     public string VersionDisplay
     {
         get
         {
-            var build = AutoUpdateService.GetLocalCommitCount();
-            return build > 0 ? L("StatusBuild", build) : L("StatusDevBuild");
+            var version = AutoUpdateService.GetLocalCommitCount();
+            return version > 0 ? L("StatusBuild", version) : L("StatusDevBuild");
         }
     }
 
