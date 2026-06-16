@@ -231,6 +231,26 @@ public class ConnectionStore
             CopyFolderInto(dir, destRoot);
     }
 
+    /// <summary>
+    /// Moves every file and sub-folder from one folder into another, then removes
+    /// the now-empty source folder. Used to migrate between storage locations
+    /// without keeping the old location.
+    /// </summary>
+    public void MoveTreeContents(string sourceRoot, string destRoot)
+    {
+        // Refuse to move a tree into itself or its own subtree.
+        if (!Directory.Exists(sourceRoot) || IsSameOrInside(sourceRoot, destRoot))
+            return;
+
+        Directory.CreateDirectory(destRoot);
+
+        foreach (var file in Directory.GetFiles(sourceRoot, "*" + FileExtension))
+            MoveFileInto(file, destRoot);
+
+        foreach (var dir in Directory.GetDirectories(sourceRoot))
+            MoveFolderInto(dir, destRoot);
+    }
+
     private static void CopyDirectory(string sourceDir, string destDir)
     {
         Directory.CreateDirectory(destDir);

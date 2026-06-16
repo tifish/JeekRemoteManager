@@ -886,16 +886,12 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        if (HasData(oldRoot) && !HasData(newRoot) && ConfirmAsync is not null)
-        {
-            var copy = await ConfirmAsync(
-                L("DialogCopyDataTitle"),
-                L("DialogCopyDataMessage", oldRoot, newRoot));
-            if (copy)
-                _store.CopyTreeContents(oldRoot, newRoot);
-        }
+        // Migrate the data to the new location; the old location is not kept.
+        _store.MoveTreeContents(oldRoot, newRoot);
+        _store.DeleteFolder(oldRoot);
 
         _settings.Settings.StorageLocation = chosen.Value;
+        _settings.RelocateSettings(chosen.Value);
         var saved = _settings.Save();
         _store.SetRoot(newRoot);
         ClearClipboard();
