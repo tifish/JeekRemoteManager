@@ -66,11 +66,30 @@ public sealed class MasterKeyService
     /// <summary>Decrypts a Base64 blob produced by <see cref="EncryptPassword"/>. Returns "" on failure.</summary>
     public string DecryptPassword(string? encryptedBase64)
     {
-        if (string.IsNullOrEmpty(encryptedBase64) || _dek is null)
-            return "";
+        TryDecryptPassword(encryptedBase64, out var clear);
+        return clear;
+    }
+
+    /// <summary>
+    /// Attempts to decrypt a password blob. Returns true on success (including an
+    /// empty blob, which yields ""), false when a non-empty blob cannot be decrypted
+    /// — i.e. the key is locked or the blob belongs to a different master password.
+    /// Callers can use the false result to avoid clobbering the stored ciphertext.
+    /// </summary>
+    public bool TryDecryptPassword(string? encryptedBase64, out string clear)
+    {
+        clear = "";
+        if (string.IsNullOrEmpty(encryptedBase64))
+            return true;
+        if (_dek is null)
+            return false;
 
         var data = GcmDecrypt(_dek, encryptedBase64);
-        return data is null ? "" : Encoding.UTF8.GetString(data);
+        if (data is null)
+            return false;
+
+        clear = Encoding.UTF8.GetString(data);
+        return true;
     }
 
     // --- Setup / unlock / change ---

@@ -31,6 +31,21 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     [ObservableProperty]
     private string _password = "";
 
+    /// <summary>
+    /// The password ciphertext exactly as stored on disk. Kept so that a password we
+    /// could not decrypt (e.g. it belongs to a different master password) is never
+    /// silently destroyed on auto-save.
+    /// </summary>
+    private string _originalEncryptedPassword = "";
+
+    /// <summary>
+    /// True when the stored password is non-empty but could not be decrypted with the
+    /// current master key. While true the cleartext box is empty; the original
+    /// ciphertext is preserved unless the user types a new password.
+    /// </summary>
+    [ObservableProperty]
+    private bool _passwordDecryptFailed;
+
     // SSH
     [ObservableProperty]
     private string _privateKeyPath = "";
@@ -73,26 +88,36 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     /// <summary>Connection types offered in the editor's Type selector.</summary>
     public static ConnectionType[] AvailableTypes { get; } = System.Enum.GetValues<ConnectionType>();
 
-    public static ConnectionEditorViewModel FromConnection(Connection c) => new()
+    public static ConnectionEditorViewModel FromConnection(Connection c)
     {
-        Type = c.Type,
-        Name = c.Name,
-        Host = c.Host,
-        Port = c.Port,
-        Username = c.Username,
-        Password = PasswordProtector.Decrypt(c.EncryptedPassword),
-        PrivateKeyPath = c.PrivateKeyPath,
-        ExtraSshArguments = c.ExtraSshArguments,
-        RdpFullScreen = c.RdpFullScreen,
-        RdpUseAllMonitors = c.RdpUseAllMonitors,
-        RdpWidth = c.RdpWidth,
-        RdpHeight = c.RdpHeight,
-        RdpRedirectClipboard = c.RdpRedirectClipboard,
-        RdpRedirectDrives = c.RdpRedirectDrives,
-        RdpRedirectAudioPlayback = c.RdpRedirectAudioPlayback,
-        RdpRedirectMicrophone = c.RdpRedirectMicrophone,
-        Notes = c.Notes,
-    };
+        var vm = new ConnectionEditorViewModel
+        {
+            Type = c.Type,
+            Name = c.Name,
+            Host = c.Host,
+            Port = c.Port,
+            Username = c.Username,
+            PrivateKeyPath = c.PrivateKeyPath,
+            ExtraSshArguments = c.ExtraSshArguments,
+            RdpFullScreen = c.RdpFullScreen,
+            RdpUseAllMonitors = c.RdpUseAllMonitors,
+            RdpWidth = c.RdpWidth,
+            RdpHeight = c.RdpHeight,
+            RdpRedirectClipboard = c.RdpRedirectClipboard,
+            RdpRedirectDrives = c.RdpRedirectDrives,
+            RdpRedirectAudioPlayback = c.RdpRedirectAudioPlayback,
+            RdpRedirectMicrophone = c.RdpRedirectMicrophone,
+            Notes = c.Notes,
+        };
+
+        // Decrypt the password, but remember the original ciphertext so we never
+        // overwrite a password we could not read (see ApplyTo).
+        vm._originalEncryptedPassword = c.EncryptedPassword;
+        var decrypted = PasswordProtector.TryDecrypt(c.EncryptedPassword, out var clear);
+        vm.PasswordDecryptFailed = !decrypted;
+        vm.Password = decrypted ? clear : "";
+        return vm;
+    }
 
     /// <summary>Writes the edited values back into the given connection.</summary>
     public void ApplyTo(Connection c)
@@ -102,7 +127,12 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         c.Host = Host.Trim();
         c.Port = Port > 0 ? Port : Connection.DefaultPort(Type);
         c.Username = Username.Trim();
-        c.EncryptedPassword = PasswordProtector.Encrypt(Password);
+        // If we could not decrypt the stored password and the user has not typed a
+        // replacement, keep the original ciphertext intact instead of clobbering it
+        // with an encryption of the (empty) box.
+        c.EncryptedPassword = PasswordDecryptFailed && Password.Length == 0
+            ? _originalEncryptedPassword
+            : PasswordProtector.Encrypt(Password);
         c.PrivateKeyPath = PrivateKeyPath.Trim();
         c.ExtraSshArguments = ExtraSshArguments.Trim();
         c.RdpFullScreen = RdpFullScreen;

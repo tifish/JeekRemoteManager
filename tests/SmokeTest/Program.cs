@@ -49,6 +49,16 @@ try
     Check(!afterChange.TryUnlock(masterPassword), "Old master password no longer works after change");
     Check(afterChange.TryUnlock("a-new-master-密码"), "New master password works after change");
 
+    // --- A password from a different vault is reported undecryptable, not emptied ---
+    // (so the editor can preserve the original ciphertext instead of overwriting it)
+    var otherMaster = new MasterKeyService(new SettingsService());
+    otherMaster.Initialize("a-totally-different-master");
+    MasterKeyService.Current = otherMaster;
+    Check(!PasswordProtector.TryDecrypt(enc, out var failClear) && failClear == "",
+          "Foreign password reports decrypt failure (TryDecrypt=false)");
+    Check(PasswordProtector.Decrypt(enc) == "", "Foreign password decrypts to empty string");
+    MasterKeyService.Current = master; // restore so the rest of the test can decrypt
+
     // --- RDP password hex format (UTF-16LE + DPAPI + hex) ---
     var rdpHex = PasswordProtector.EncryptForRdpFile(secret);
     Check(rdpHex.Length > 0 && rdpHex.All(Uri.IsHexDigit), "RDP password field is uppercase hex");

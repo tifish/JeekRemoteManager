@@ -30,6 +30,21 @@ public static class PasswordProtector
         MasterKeyService.Current?.DecryptPassword(encryptedBase64) ?? "";
 
     /// <summary>
+    /// Attempts to decrypt a password blob. Returns true on success (an empty blob
+    /// counts as success, yielding ""), false when a non-empty blob cannot be
+    /// decrypted with the current master key. Use the false result to preserve the
+    /// stored ciphertext rather than overwriting it.
+    /// </summary>
+    public static bool TryDecrypt(string? encryptedBase64, out string clear)
+    {
+        if (MasterKeyService.Current is { } master)
+            return master.TryDecryptPassword(encryptedBase64, out clear);
+
+        clear = "";
+        return string.IsNullOrEmpty(encryptedBase64);
+    }
+
+    /// <summary>
     /// Decrypts a password stored by an older version using DPAPI (current user).
     /// Used only during the one-time migration to master-password encryption.
     /// Returns "" if the blob was not produced on this machine/account.

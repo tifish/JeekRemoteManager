@@ -130,5 +130,6 @@ MasterErrorEmpty	Password cannot be empty.	密码不能为空。
 MasterErrorMismatch	The two passwords do not match.	两次输入的密码不一致。
 MasterErrorWrong	Incorrect master password.	主密码不正确。
 ChangeMasterPassword	Change master password…	修改主密码…
+PasswordDecryptFailed	This password was saved with a different master password and cannot be shown. Leave it blank to keep it unchanged, or type a new one to replace it.	此密码是用另一个主密码保存的，无法显示。留空将保持不变，或输入新密码以替换。
 StatusMasterChanged	Master password changed.	主密码已修改。
 StatusMasterChangeFailed	Could not change the master password: {0}	无法修改主密码：{0}
