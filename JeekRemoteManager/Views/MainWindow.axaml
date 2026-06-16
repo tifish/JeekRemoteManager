@@ -86,9 +86,7 @@
                       x:Name="Tree"
                       Margin="6"
                       ItemsSource="{Binding Nodes}"
-                      SelectedItem="{Binding SelectedNode, Mode=TwoWay}"
-                      DoubleTapped="OnTreeDoubleTapped"
-                      PointerPressed="OnTreePointerPressed">
+                      SelectedItem="{Binding SelectedNode, Mode=TwoWay}">
                 <TreeView.Styles>
                     <!-- Keep each item's expand/collapse state bound to its view model
                          so it can be preserved across tree reloads. -->

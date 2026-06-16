@@ -2,6 +2,7 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
@@ -16,9 +17,22 @@ namespace JeekRemoteManager.Views;
 
 public partial class MainWindow : Window
 {
+    private TreeNodeViewModel? _lastToggledFolder;
+    private bool _lastToggledFolderExpanded;
+
     public MainWindow()
     {
         InitializeComponent();
+        Tree.AddHandler(
+            InputElement.PointerPressedEvent,
+            OnTreePointerPressed,
+            RoutingStrategies.Tunnel,
+            handledEventsToo: true);
+        Tree.AddHandler(
+            InputElement.DoubleTappedEvent,
+            OnTreeDoubleTapped,
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
         DataContextChanged += (_, _) => WireUp();
         Opened += (_, _) => WireUp();
         Closing += (_, _) =>
@@ -81,8 +95,31 @@ public partial class MainWindow : Window
         if (DataContext is not MainWindowViewModel vm)
             return;
 
+        var hitItem = e.Source is Visual source
+            ? source.FindAncestorOfType<TreeViewItem>(includeSelf: true)
+            : null;
+
+        if (hitItem?.DataContext is TreeNodeViewModel { IsFolder: true } folder)
+        {
+            if (ReferenceEquals(folder, _lastToggledFolder))
+            {
+                Dispatcher.UIThread.Post(
+                    () => folder.IsExpanded = _lastToggledFolderExpanded,
+                    DispatcherPriority.Background);
+            }
+
+            e.Handled = true;
+            return;
+        }
+
+        if (hitItem?.DataContext is TreeNodeViewModel { IsConnection: true } node)
+            vm.SelectedNode = node;
+
         if (vm.SelectedNode is { IsConnection: true } && vm.ConnectCommand.CanExecute(null))
+        {
             vm.ConnectCommand.Execute(null);
+            e.Handled = true;
+        }
     }
 
     // - Right-clicking on a node selects it so the context menu acts on it.
@@ -92,6 +129,14 @@ public partial class MainWindow : Window
     {
         if (DataContext is not MainWindowViewModel vm)
             return;
+
+        if (TryToggleFolderFromSource(e, out var toggledNode) && toggledNode is not null)
+        {
+            RememberFolderToggle(toggledNode);
+            vm.SelectedNode = toggledNode;
+            e.Handled = true;
+            return;
+        }
 
         var hitItem = e.Source is Visual source
             ? source.FindAncestorOfType<TreeViewItem>(includeSelf: true)
@@ -109,6 +154,33 @@ public partial class MainWindow : Window
             // Empty area → clear selection so the next New/Paste targets root.
             vm.SelectedNode = null;
         }
+    }
+
+    private static bool TryToggleFolderFromSource(
+        PointerPressedEventArgs e,
+        out TreeNodeViewModel? toggledNode)
+    {
+        toggledNode = null;
+
+        if (!e.GetCurrentPoint(null).Properties.IsLeftButtonPressed)
+            return false;
+
+        var item = e.Source is Visual source
+            ? source.FindAncestorOfType<TreeViewItem>(includeSelf: true)
+            : null;
+
+        if (item?.DataContext is not TreeNodeViewModel { IsFolder: true } node)
+            return false;
+
+        node.IsExpanded = !node.IsExpanded;
+        toggledNode = node;
+        return true;
+    }
+
+    private void RememberFolderToggle(TreeNodeViewModel node)
+    {
+        _lastToggledFolder = node;
+        _lastToggledFolderExpanded = node.IsExpanded;
     }
 
     private async Task<string?> PickFolderAsync(string suggestedPath)
