@@ -24,6 +24,13 @@ public partial class TreeNodeViewModel : ViewModelBase
 
     public bool IsConnection => !IsFolder;
 
+    /// <summary>
+    /// True for the synthetic "Recent" group and the connection nodes it contains.
+    /// Recent connection nodes are shortcuts: selecting one redirects to the real
+    /// tree node; structural operations are gated off on the group itself.
+    /// </summary>
+    public bool IsRecent { get; init; }
+
     /// <summary>Parent folder node, or null for top-level nodes. Set while building the tree.</summary>
     public TreeNodeViewModel? Parent { get; set; }
 
@@ -51,9 +58,11 @@ public partial class TreeNodeViewModel : ViewModelBase
     public ObservableCollection<TreeNodeViewModel> Children { get; } = new();
 
     /// <summary>Icon glyph shown in the tree for this node.</summary>
-    public string Glyph => IsFolder
-        ? "\U0001F4C1"                                   // folder
-        : Connection?.Type == ConnectionType.Rdp
-            ? "\U0001F5A5"                               // desktop computer (RDP)
-            : "⌨";                                  // keyboard (SSH)
+    public string Glyph => IsRecent && IsFolder
+        ? "\U0001F551"                                   // clock face (recent group)
+        : IsFolder
+            ? "\U0001F4C1"                               // folder
+            : Connection?.Type == ConnectionType.Rdp
+                ? "\U0001F5A5"                           // desktop computer (RDP)
+                : "⌨";                              // keyboard (SSH)
 }

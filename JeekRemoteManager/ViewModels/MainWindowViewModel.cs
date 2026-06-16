@@ -37,6 +37,11 @@ public partial class MainWindowViewModel : ViewModelBase
     private static readonly TimeSpan WatchReloadDelay = TimeSpan.FromMilliseconds(400);
     private const long SelfWriteSuppressMs = 1000;
 
+    // Synthetic node showing the last-used connections at the top of the tree.
+    private const int RecentMax = 10;
+    private const string RecentSentinelPath = "<recent>";
+    private TreeNodeViewModel? _recentGroup;
+
     public MainWindowViewModel(ConnectionStore store, ConnectionLauncher launcher, SettingsService settings)
     {
         _store = store;
@@ -52,6 +57,8 @@ public partial class MainWindowViewModel : ViewModelBase
             StatusMessage = L("StatusReady");
             OnPropertyChanged(nameof(TargetDescription));
             OnPropertyChanged(nameof(VersionDisplay));
+            if (_recentGroup != null)
+                _recentGroup.Name = L("RecentGroup");
         };
     }
 
@@ -125,6 +132,22 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnSelectedNodeChanged(TreeNodeViewModel? value)
     {
+        // Selecting a "Recent" connection is a one-click shortcut: launch it
+        // immediately, then clear the (now-stale) selection — RecordRecent
+        // rebuilds the group so the just-clicked VM instance is gone anyway, and
+        // clearing lets a subsequent click on the same entry re-fire this path.
+        if (value is { IsRecent: true, IsConnection: true, Connection: not null })
+        {
+            var node = value;
+            Dispatcher.UIThread.Post(async () =>
+            {
+                await LaunchAsync(node);
+                if (ReferenceEquals(SelectedNode, node))
+                    SelectedNode = null;
+            });
+            return;
+        }
+
         // Flush any pending auto-save against the PREVIOUS editing target first,
         // before we rebind to the new node.
         FlushPendingAutoSave();
@@ -297,6 +320,15 @@ public partial class MainWindowViewModel : ViewModelBase
         var previousSelection = SelectedNode?.FullPath;
 
         Nodes.Clear();
+        _recentGroup = null;
+
+        var recentGroup = BuildRecentGroup();
+        if (recentGroup != null)
+        {
+            _recentGroup = recentGroup;
+            Nodes.Add(recentGroup);
+        }
+
         foreach (var child in BuildChildren(_store.RootPath, parent: null))
             Nodes.Add(child);
 
@@ -324,6 +356,79 @@ public partial class MainWindowViewModel : ViewModelBase
             if (pathToSelect != null)
                 RequestFocusTree?.Invoke();
         }
+    }
+
+    /// <summary>
+    /// Builds the synthetic "Recent" group from <see cref="AppSettings.RecentConnectionPaths"/>,
+    /// pruning entries whose files no longer exist. Returns null when no usable
+    /// entries remain (so the group doesn't appear empty).
+    /// </summary>
+    private TreeNodeViewModel? BuildRecentGroup()
+    {
+        var paths = _settings.Settings.RecentConnectionPaths;
+        if (paths.Count == 0)
+            return null;
+
+        var children = new List<TreeNodeViewModel>();
+        var pruned = false;
+
+        foreach (var path in paths.ToArray())
+        {
+            if (!File.Exists(path))
+            {
+                paths.RemoveAll(p => PathEquals(p, path));
+                pruned = true;
+                continue;
+            }
+
+            Connection connection;
+            try
+            {
+                connection = _store.Load(path);
+            }
+            catch
+            {
+                paths.RemoveAll(p => PathEquals(p, path));
+                pruned = true;
+                continue;
+            }
+
+            children.Add(new TreeNodeViewModel(path, isFolder: false, connection)
+            {
+                IsRecent = true,
+            });
+        }
+
+        if (pruned)
+            _settings.Save();
+
+        if (children.Count == 0)
+            return null;
+
+        var group = new TreeNodeViewModel(RecentSentinelPath, isFolder: true)
+        {
+            IsRecent = true,
+            Name = L("RecentGroup"),
+        };
+        group.IsExpanded = _settings.Settings.RecentExpanded;
+        foreach (var c in children)
+        {
+            c.Parent = group;
+            group.Children.Add(c);
+        }
+
+        // Persist the user's open/closed preference for the group.
+        group.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName != nameof(TreeNodeViewModel.IsExpanded))
+                return;
+            if (_settings.Settings.RecentExpanded == group.IsExpanded)
+                return;
+            _settings.Settings.RecentExpanded = group.IsExpanded;
+            _settings.Save();
+        };
+
+        return group;
     }
 
     private ObservableCollection<TreeNodeViewModel> BuildChildren(string folderPath, TreeNodeViewModel? parent)
@@ -360,6 +465,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         foreach (var node in nodes)
         {
+            if (node.IsRecent) continue; // tracked via AppSettings.RecentExpanded
             if (node.IsFolder && node.IsExpanded)
                 expanded.Add(Path.GetFullPath(node.FullPath));
             CaptureExpanded(node.Children, expanded);
@@ -370,6 +476,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         foreach (var node in nodes)
         {
+            if (node.IsRecent) continue;
             if (node.IsFolder)
                 node.IsExpanded = expanded.Contains(Path.GetFullPath(node.FullPath));
             RestoreExpanded(node.Children, expanded);
@@ -386,6 +493,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         foreach (var node in nodes)
         {
+            if (node.IsRecent) continue; // shadow entries; never the canonical hit
             if (PathEquals(node.FullPath, fullPath))
                 return node;
 
@@ -403,7 +511,9 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>Folder that new/pasted items should go into, based on the selection.</summary>
     private string TargetFolder()
     {
-        if (SelectedNode is null)
+        // The "Recent" group is a synthetic shadow and has no on-disk folder; fall
+        // back to the root so new/paste don't try to write into a sentinel path.
+        if (SelectedNode is null || SelectedNode.IsRecent)
             return _store.RootPath;
 
         return SelectedNode.IsFolder
@@ -471,12 +581,27 @@ public partial class MainWindowViewModel : ViewModelBase
     // --- Edit / connect ---
 
     [RelayCommand(CanExecute = nameof(CanConnect))]
-    private async Task Connect()
+    private Task Connect()
     {
         // Make sure unsaved edits land on disk before we read the connection.
         FlushPendingAutoSave();
 
         if (SelectedNode is not { IsConnection: true, Connection: not null } node)
+            return Task.CompletedTask;
+
+        return LaunchAsync(node);
+    }
+
+    private bool CanConnect() => SelectedNode is { IsConnection: true, IsRecent: false };
+
+    /// <summary>
+    /// Launches the given connection and records it at the head of the recent list.
+    /// Shared by the Connect command (on real nodes) and the "Recent" group's
+    /// one-click shortcut (on shadow nodes).
+    /// </summary>
+    private async Task LaunchAsync(TreeNodeViewModel node)
+    {
+        if (node.Connection is null)
             return;
 
         var connection = node.Connection;
@@ -506,6 +631,7 @@ public partial class MainWindowViewModel : ViewModelBase
             }
 
             _launcher.Launch(connection);
+            RecordRecent(node.FullPath);
         }
         catch (Exception ex)
         {
@@ -513,7 +639,32 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private bool CanConnect() => SelectedNode is { IsConnection: true };
+    /// <summary>
+    /// Moves <paramref name="path"/> to the front of the most-recently-used list,
+    /// trims to <see cref="RecentMax"/>, and refreshes the synthetic group.
+    /// </summary>
+    private void RecordRecent(string path)
+    {
+        var list = _settings.Settings.RecentConnectionPaths;
+        list.RemoveAll(p => PathEquals(p, path));
+        list.Insert(0, path);
+        if (list.Count > RecentMax)
+            list.RemoveRange(RecentMax, list.Count - RecentMax);
+        _settings.Save();
+
+        // Rebuild just the recent group in place so the user's tree selection
+        // (typically the just-launched node) survives untouched.
+        var newGroup = BuildRecentGroup();
+        if (_recentGroup != null)
+        {
+            var oldIndex = Nodes.IndexOf(_recentGroup);
+            if (oldIndex >= 0)
+                Nodes.RemoveAt(oldIndex);
+        }
+        _recentGroup = newGroup;
+        if (newGroup != null)
+            Nodes.Insert(0, newGroup);
+    }
 
     /// <summary>Clears the OS clipboard after a delay, but only if it still holds the secret we put there.</summary>
     private void ScheduleClipboardClear(string secret)
@@ -636,7 +787,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private bool CanModifySelection() => SelectedNode is not null;
+    private bool CanModifySelection() => SelectedNode is { IsRecent: false };
 
     // --- Copy / cut / paste ---
 

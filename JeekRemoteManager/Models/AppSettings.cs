@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace JeekRemoteManager.Models;
 
 /// <summary>Where connection files are stored.</summary>
@@ -20,6 +22,12 @@ public class AppSettings
 
     /// <summary>UI theme ("Light", "Dark"). Null = follow system theme.</summary>
     public string? Theme { get; set; }
+
+    /// <summary>Recently-used connection file paths, most-recent first.</summary>
+    public List<string> RecentConnectionPaths { get; set; } = new();
+
+    /// <summary>Whether the "Recent" group at the top of the tree is expanded.</summary>
+    public bool RecentExpanded { get; set; } = true;
 
     // The master-password vault (salt + wrapped data key) is NOT stored here. It
     // lives in a fixed per-user local folder managed by MasterKeyService, so these

@@ -7,6 +7,7 @@ Theme	Theme	主题
 ThemeLight	Light	浅色
 ThemeDark	Dark	深色
 WindowTitle	Jeek Remote Manager	Jeek 远程管理器
+RecentGroup	Recent	最近使用
 NewFolder	New folder	新建文件夹
 NewSsh	New SSH connection	新建 SSH 连接
 NewRdp	New RDP connection	新建 RDP 连接
