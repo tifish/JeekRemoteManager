@@ -10,11 +10,17 @@ namespace JeekRemoteManager.Services;
 /// Loads and saves <see cref="AppSettings"/> as a small JSON file, and resolves
 /// the connections root folder for a storage location.
 ///
+/// Within a storage location two sibling folders sit under the base: "Config"
+/// (holding settings.json, including the master-password envelope) and
+/// "Connections" (the data). Keeping them together means moving or copying the
+/// base folder carries both — the settings needed to decrypt the connections
+/// travel with the connections themselves.
+///
 /// Portability is decided purely by whether a "Connections" folder sits next to
-/// the executable: if it does, the app runs portable (settings and data live
-/// next to the exe); otherwise both live under the per-user roaming folder.
-/// Switching storage location moves the data and removes the old location, so
-/// the folder-presence rule keeps matching the chosen mode on the next launch.
+/// the executable: if it does, the app runs portable (config and data live next
+/// to the exe); otherwise both live under the per-user roaming folder. Switching
+/// storage location moves the data and removes the old location, so the
+/// folder-presence rule keeps matching the chosen mode on the next launch.
 /// </summary>
 public class SettingsService
 {
@@ -41,6 +47,7 @@ public class SettingsService
     {
         var location = IsPortable ? StorageLocation.ProgramDirectory : StorageLocation.UserDirectory;
         SettingsPath = SettingsPathFor(location);
+        MigrateLegacySettingsFile(location);
         Settings = Load();
         // The folder-presence rule is authoritative for which mode we're in.
         Settings.StorageLocation = location;
@@ -50,10 +57,34 @@ public class SettingsService
 
     public AppSettings Settings { get; private set; }
 
+    /// <summary>The base folder for a storage location; its Config and Connections live here.</summary>
+    private static string BaseDirFor(StorageLocation location) =>
+        location == StorageLocation.ProgramDirectory ? ProgramDir : UserDir;
+
     private static string SettingsPathFor(StorageLocation location) =>
-        location == StorageLocation.ProgramDirectory
-            ? Path.Combine(ProgramDir, "settings.json")
-            : Path.Combine(UserDir, "settings.json");
+        Path.Combine(BaseDirFor(location), "Config", "settings.json");
+
+    /// <summary>
+    /// Moves a settings.json written by an older version (directly in the base
+    /// folder) into the new Config subfolder, so existing settings — including the
+    /// master-password configuration — are preserved across the upgrade.
+    /// </summary>
+    private void MigrateLegacySettingsFile(StorageLocation location)
+    {
+        try
+        {
+            var legacyPath = Path.Combine(BaseDirFor(location), "settings.json");
+            if (File.Exists(legacyPath) && !File.Exists(SettingsPath))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
+                File.Move(legacyPath, SettingsPath);
+            }
+        }
+        catch
+        {
+            // If the move fails we just load whatever exists (or fall back to defaults).
+        }
+    }
 
     private AppSettings Load()
     {
@@ -92,10 +123,16 @@ public class SettingsService
         {
             if (File.Exists(oldPath))
                 File.Delete(oldPath);
+
+            // Remove the now-empty old Config folder so the old location is left clean.
+            var oldDir = Path.GetDirectoryName(oldPath);
+            if (oldDir != null && Directory.Exists(oldDir)
+                && Directory.GetFileSystemEntries(oldDir).Length == 0)
+                Directory.Delete(oldDir);
         }
         catch
         {
-            // Leaving a stale settings file behind is harmless.
+            // Leaving a stale settings file or folder behind is harmless.
         }
     }
 

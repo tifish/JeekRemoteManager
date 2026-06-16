@@ -1001,15 +1001,44 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Re-wraps the data key under a new master password and persists it. The saved
-    /// connection passwords are not touched — only the master password changes.
+    /// Switches the master password by re-encrypting every connection file: each
+    /// password is decrypted with the current session key and re-encrypted under
+    /// the key derived from <paramref name="newPassword"/>. Connections we cannot
+    /// decrypt (e.g. stored under an older, lost key) are left untouched. The new
+    /// key replaces the cached one only after the sweep, so an interruption never
+    /// leaves us with files that no key in memory can read.
     /// </summary>
     public void ChangeMasterPassword(string newPassword)
     {
         try
         {
-            MasterKeyService.Current?.ChangePassword(newPassword);
-            _settings.Save();
+            FlushPendingAutoSave();
+
+            var current = MasterKeyService.Current
+                          ?? throw new InvalidOperationException("Master key not initialised.");
+            var newKey = MasterKeyService.DeriveKey(newPassword);
+
+            foreach (var file in _store.AllConnectionFiles())
+            {
+                try
+                {
+                    var c = _store.Load(file);
+                    if (string.IsNullOrEmpty(c.EncryptedPassword))
+                        continue;
+
+                    if (!current.TryDecryptPassword(c.EncryptedPassword, out var clear))
+                        continue; // can't read under current key; leave as-is
+
+                    c.EncryptedPassword = MasterKeyService.EncryptWithKey(newKey, clear);
+                    _store.SaveInPlace(c, file);
+                }
+                catch
+                {
+                    // Skip the offending file; the rest of the sweep continues.
+                }
+            }
+
+            current.SetKey(newKey);
             StatusMessage = L("StatusMasterChanged");
         }
         catch (Exception ex)

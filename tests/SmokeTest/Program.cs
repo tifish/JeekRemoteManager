@@ -17,15 +17,14 @@ try
 {
     Check(Directory.Exists(root), "Store creates its root folder");
 
-    // --- Master-password setup (envelope: random DEK wrapped by a password key) ---
-    // Redirect the DPAPI key cache into the temp root so we never touch the real one.
-    MasterKeyService.CacheFileOverride = Path.Combine(root, "masterkey.bin");
+    // --- Master-password setup (fixed-salt PBKDF2, key cached via DPAPI) ---
+    // Point the DPAPI cache at the temp root so we never touch the real one.
+    MasterKeyService.CachePath = Path.Combine(root, "key.bin");
     const string masterPassword = "Corr3ct-Horse-密码";
-    var settings = new SettingsService();
-    var master = new MasterKeyService(settings);
-    Check(!master.IsConfigured && !master.IsUnlocked, "Master key starts unconfigured and locked");
-    master.Initialize(masterPassword);
-    Check(master.IsConfigured && master.IsUnlocked, "Initialize configures and unlocks the master key");
+    var master = new MasterKeyService();
+    Check(!master.IsUnlocked, "Master key starts locked");
+    master.SetKey(MasterKeyService.DeriveKey(masterPassword));
+    Check(master.IsUnlocked, "SetKey unlocks the master key");
     MasterKeyService.Current = master;
 
     // --- Password encryption round-trip (AES-GCM under the master key) ---
@@ -36,28 +35,43 @@ try
     Check(PasswordProtector.Decrypt(enc) == secret, "Decrypt round-trips the password");
     Check(PasswordProtector.Encrypt("") == "", "Empty password encrypts to empty");
 
-    // --- Unlock a separate service from the same settings (as on another machine) ---
-    var reopened = new MasterKeyService(settings);
-    Check(!reopened.TryUnlock("wrong-password"), "Wrong master password fails to unlock");
-    Check(reopened.TryUnlock(masterPassword), "Correct master password unlocks");
-    Check(reopened.DecryptPassword(enc) == secret, "Re-unlocked key decrypts existing passwords");
+    // --- Fixed salt: deriving the same password gives the same key everywhere ---
+    var sameKey = MasterKeyService.DeriveKey(masterPassword);
+    Check(MasterKeyService.DecryptWithKey(sameKey, enc) == secret,
+          "Derived key from the same password decrypts what the active key encrypted");
 
-    // --- Change master password keeps the same data key (no re-encryption needed) ---
-    master.ChangePassword("a-new-master-密码");
-    Check(PasswordProtector.Decrypt(enc) == secret, "Existing passwords still decrypt after password change");
-    var afterChange = new MasterKeyService(settings);
-    Check(!afterChange.TryUnlock(masterPassword), "Old master password no longer works after change");
-    Check(afterChange.TryUnlock("a-new-master-密码"), "New master password works after change");
+    // --- Wrong password derives a different key that fails to decrypt ---
+    var wrongKey = MasterKeyService.DeriveKey("not-the-master");
+    Check(MasterKeyService.DecryptWithKey(wrongKey, enc) is null,
+          "Different password derives a key that cannot decrypt the blob");
 
-    // --- A password from a different vault is reported undecryptable, not emptied ---
-    // (so the editor can preserve the original ciphertext instead of overwriting it)
-    var otherMaster = new MasterKeyService(new SettingsService());
-    otherMaster.Initialize("a-totally-different-master");
-    MasterKeyService.Current = otherMaster;
+    // --- A foreign key reports decrypt failure, not silent emptiness ---
+    // Use a separate cache path so the foreign SetKey doesn't clobber the real cache.
+    var primaryCachePath = MasterKeyService.CachePath;
+    MasterKeyService.CachePath = Path.Combine(root, "foreign-key.bin");
+    var otherSession = new MasterKeyService();
+    otherSession.SetKey(MasterKeyService.DeriveKey("totally-different"));
+    MasterKeyService.Current = otherSession;
     Check(!PasswordProtector.TryDecrypt(enc, out var failClear) && failClear == "",
-          "Foreign password reports decrypt failure (TryDecrypt=false)");
-    Check(PasswordProtector.Decrypt(enc) == "", "Foreign password decrypts to empty string");
-    MasterKeyService.Current = master; // restore so the rest of the test can decrypt
+          "Foreign key reports decrypt failure (TryDecrypt=false)");
+    Check(PasswordProtector.Decrypt(enc) == "", "Foreign key decrypts to empty string");
+    MasterKeyService.Current = master;
+    MasterKeyService.CachePath = primaryCachePath; // restore
+
+    // --- Cache round-trip via DPAPI ---
+    var fromCache = new MasterKeyService();
+    Check(fromCache.TryUnlockFromCache(), "DPAPI cache reloads the master key");
+    Check(fromCache.DecryptPassword(enc) == secret, "Cached key decrypts existing passwords");
+
+    // --- Portability: a connection file alone (no vault, no cache) suffices ---
+    // Carry just the EncryptedPassword to a fresh "machine" and decrypt with the
+    // master password — the whole point of the fixed-salt scheme.
+    MasterKeyService.CachePath = Path.Combine(root, "fresh-machine-key.bin"); // no cache here
+    var portable = new MasterKeyService();
+    Check(!portable.TryUnlockFromCache(), "Fresh machine has no DPAPI cache yet");
+    portable.SetKey(MasterKeyService.DeriveKey(masterPassword));
+    Check(portable.DecryptPassword(enc) == secret,
+          "An encrypted connection decrypts on a fresh machine with the master password alone");
 
     // --- RDP password hex format (UTF-16LE + DPAPI + hex) ---
     var rdpHex = PasswordProtector.EncryptForRdpFile(secret);

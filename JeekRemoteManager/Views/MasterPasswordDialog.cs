@@ -8,31 +8,25 @@ using Jeek.Avalonia.Localization;
 namespace JeekRemoteManager.Views;
 
 /// <summary>
-/// Modal windows for setting, entering and changing the master password. Built in
-/// code so they match the project's other dialogs (see <see cref="MainWindow"/>).
+/// A single password-entry dialog used for every master-password interaction
+/// (first-time setup, day-to-day unlock, and changing). Two password boxes are
+/// shown and must match before <paramref name="submit"/> is consulted — typing
+/// the password twice is intentionally required everywhere, since the cost of a
+/// silent typo (locking yourself out, or corrupting stored secrets by re-saving
+/// under a slightly-wrong key) outweighs the small cost of re-typing.
 /// </summary>
 public static class MasterPasswordDialog
 {
-    private const char Mask = '●'; // ●
+    private const char Mask = '●';
 
     /// <summary>
-    /// Prompts the user to choose a new master password (with confirmation). Returns
-    /// the chosen password, or null if cancelled. <paramref name="owner"/> may be null
-    /// at startup, in which case the window is shown standalone.
+    /// Shows the dialog. <paramref name="submit"/> validates/acts on the entered
+    /// password and returns whether it was accepted. Returns true once accepted,
+    /// false if the user cancelled. <paramref name="owner"/> may be null at startup.
     /// </summary>
-    public static Task<string?> ShowSetupAsync(Window? owner) =>
-        ShowNewPasswordAsync(owner, Localizer.Get("MasterSetupTitle"), Localizer.Get("MasterSetupPrompt"));
-
-    /// <summary>
-    /// Prompts for a new master password to replace the current one. Returns the new
-    /// password, or null if cancelled.
-    /// </summary>
-    public static Task<string?> ShowChangeAsync(Window owner) =>
-        ShowNewPasswordAsync(owner, Localizer.Get("MasterChangeTitle"), Localizer.Get("MasterChangePrompt"));
-
-    private static Task<string?> ShowNewPasswordAsync(Window? owner, string title, string prompt)
+    public static Task<bool> ShowAsync(Window? owner, string title, string prompt, Func<string, bool> submit)
     {
-        var tcs = new TaskCompletionSource<string?>();
+        var tcs = new TaskCompletionSource<bool>();
 
         var newBox = new TextBox { PasswordChar = Mask };
         var confirmBox = new TextBox { PasswordChar = Mask };
@@ -101,74 +95,7 @@ public static class MasterPasswordDialog
                 return;
             }
 
-            tcs.TrySetResult(pw);
-            dialog.Close();
-        };
-        cancel.Click += (_, _) => { tcs.TrySetResult(null); dialog.Close(); };
-        dialog.Closed += (_, _) => tcs.TrySetResult(null);
-        dialog.Opened += (_, _) => newBox.Focus();
-
-        Show(dialog, owner);
-        return tcs.Task;
-    }
-
-    /// <summary>
-    /// Prompts for the master password, validating each attempt via
-    /// <paramref name="validate"/> (which should unlock on success). The window only
-    /// closes on a correct password or cancellation. Returns true once unlocked,
-    /// false if the user cancelled.
-    /// </summary>
-    public static Task<bool> ShowUnlockAsync(Window? owner, Func<string, bool> validate)
-    {
-        var tcs = new TaskCompletionSource<bool>();
-
-        var box = new TextBox { PasswordChar = Mask };
-        var reveal = new CheckBox { Content = Localizer.Get("MasterShowPassword") };
-        reveal.IsCheckedChanged += (_, _) => box.RevealPassword = reveal.IsChecked == true;
-
-        var error = new TextBlock
-        {
-            Foreground = Brushes.IndianRed,
-            TextWrapping = TextWrapping.Wrap,
-            IsVisible = false,
-        };
-
-        var ok = new Button { Content = Localizer.Get("DialogOk"), MinWidth = 80, IsDefault = true };
-        var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 80, IsCancel = true };
-
-        var dialog = new Window
-        {
-            Title = Localizer.Get("MasterUnlockTitle"),
-            Width = 420,
-            SizeToContent = SizeToContent.Height,
-            WindowStartupLocation = owner is null
-                ? WindowStartupLocation.CenterScreen
-                : WindowStartupLocation.CenterOwner,
-            CanResize = false,
-            Content = new StackPanel
-            {
-                Margin = new Avalonia.Thickness(16),
-                Spacing = 10,
-                Children =
-                {
-                    new TextBlock { Text = Localizer.Get("MasterUnlockPrompt"), TextWrapping = TextWrapping.Wrap },
-                    box,
-                    reveal,
-                    error,
-                    new StackPanel
-                    {
-                        Orientation = Orientation.Horizontal,
-                        HorizontalAlignment = HorizontalAlignment.Right,
-                        Spacing = 8,
-                        Children = { ok, cancel },
-                    },
-                },
-            },
-        };
-
-        ok.Click += (_, _) =>
-        {
-            if (validate(box.Text ?? ""))
+            if (submit(pw))
             {
                 tcs.TrySetResult(true);
                 dialog.Close();
@@ -176,15 +103,20 @@ public static class MasterPasswordDialog
             else
             {
                 Fail(error, Localizer.Get("MasterErrorWrong"));
-                box.Text = "";
-                box.Focus();
+                newBox.Text = "";
+                confirmBox.Text = "";
+                newBox.Focus();
             }
         };
         cancel.Click += (_, _) => { tcs.TrySetResult(false); dialog.Close(); };
         dialog.Closed += (_, _) => tcs.TrySetResult(false);
-        dialog.Opened += (_, _) => box.Focus();
+        dialog.Opened += (_, _) => newBox.Focus();
 
-        Show(dialog, owner);
+        if (owner is null)
+            dialog.Show();
+        else
+            dialog.ShowDialog(owner);
+
         return tcs.Task;
     }
 
@@ -192,13 +124,5 @@ public static class MasterPasswordDialog
     {
         error.Text = message;
         error.IsVisible = true;
-    }
-
-    private static void Show(Window dialog, Window? owner)
-    {
-        if (owner is null)
-            dialog.Show();
-        else
-            dialog.ShowDialog(owner);
     }
 }

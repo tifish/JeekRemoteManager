@@ -6,61 +6,100 @@ using System.Text;
 namespace JeekRemoteManager.Services;
 
 /// <summary>
-/// Holds the unlocked data-encryption key (DEK) for the session and manages the
-/// master-password envelope: a random DEK encrypts every connection password,
-/// while the DEK itself is wrapped by a key derived from the user's master
-/// password (PBKDF2). Only the wrapped DEK and salt are persisted (in settings,
-/// hence portable), so changing the master password re-wraps the DEK without
-/// rewriting any connection file.
+/// Holds the unlocked encryption key for the session. The key is derived
+/// directly from the user's master password via PBKDF2 with a fixed app-wide
+/// salt — no separate vault file is needed, so portability is unconditional:
+/// any single connection .json can be carried to another machine and decrypted
+/// with the master password alone. For day-to-day startup on the same machine
+/// the derived key is cached via DPAPI to skip the password prompt.
 ///
-/// For convenience the unlocked DEK is also cached machine-locally via DPAPI, so
-/// day-to-day startup on the same Windows account needs no password. The cache is
-/// stored under LocalApplicationData (never roams, never travels with a portable
-/// folder); on a new machine the cache is absent and the user enters the master
-/// password once to rebuild it.
+/// (A random per-install salt would only matter against an attacker doing a
+/// rainbow-table attack across many installs of this app; in a single-user
+/// personal tool that scenario does not apply, so the simpler fixed-salt design
+/// is what actually fits the threat model.)
 /// </summary>
 public sealed class MasterKeyService
 {
     private const int Iterations = 210_000;
-    private const int SaltSize = 16;
     private const int KeySize = 32;   // AES-256
     private const int NonceSize = 12; // AES-GCM standard
     private const int TagSize = 16;
 
-    // Marker encrypted with the DEK so a candidate DEK (from cache or unwrap) can
-    // be validated against the current vault.
-    private static readonly byte[] CheckMarker = Encoding.UTF8.GetBytes("JeekRemoteManager.dek.v1");
+    // Fixed app-wide salt. See class summary for the rationale.
+    private static readonly byte[] FixedSalt = Encoding.UTF8.GetBytes("JeekRemoteManager.master.v2");
 
     // Extra entropy binding the DPAPI cache to this application.
-    private static readonly byte[] CacheEntropy = Encoding.UTF8.GetBytes("JeekRemoteManager.masterkey.v1");
+    private static readonly byte[] CacheEntropy = Encoding.UTF8.GetBytes("JeekRemoteManager.masterkey.v2");
 
-    private readonly SettingsService _settings;
-    private byte[]? _dek;
+    private byte[]? _key;
 
     /// <summary>The session-wide instance, used by <see cref="PasswordProtector"/>.</summary>
     public static MasterKeyService? Current { get; set; }
 
-    public MasterKeyService(SettingsService settings) => _settings = settings;
+    /// <summary>
+    /// Full path to the DPAPI key cache. Always under per-user LocalApplicationData
+    /// because it is machine-/account-bound. Never carried with portable data.
+    /// Settable for tests.
+    /// </summary>
+    public static string CachePath { get; set; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "JeekRemoteManager", "key.bin");
 
-    /// <summary>True once a master password has been set up (wrapped DEK exists).</summary>
-    public bool IsConfigured =>
-        !string.IsNullOrEmpty(_settings.Settings.MasterSalt)
-        && !string.IsNullOrEmpty(_settings.Settings.WrappedKey);
+    /// <summary>True once the master key has been unlocked and is held in memory.</summary>
+    public bool IsUnlocked => _key != null;
 
-    /// <summary>True once the DEK has been unlocked and is held in memory.</summary>
-    public bool IsUnlocked => _dek != null;
+    /// <summary>True when a local DPAPI cache file is present.</summary>
+    public static bool HasCache => File.Exists(CachePath);
+
+    /// <summary>Derives a key from a master password using the fixed app salt. Pure function.</summary>
+    public static byte[] DeriveKey(string password) =>
+        Rfc2898DeriveBytes.Pbkdf2(
+            Encoding.UTF8.GetBytes(password), FixedSalt, Iterations,
+            HashAlgorithmName.SHA256, KeySize);
+
+    /// <summary>
+    /// Accepts a derived key as the active session key and refreshes the local
+    /// cache. Used by the unlock flow once a password has been validated.
+    /// </summary>
+    public void SetKey(byte[] key)
+    {
+        _key = key;
+        CacheKey(key);
+    }
+
+    /// <summary>
+    /// Loads the previously cached key (DPAPI, machine-bound). Returns false if no
+    /// usable cache exists; the caller then prompts for the master password.
+    /// </summary>
+    public bool TryUnlockFromCache()
+    {
+        try
+        {
+            if (!File.Exists(CachePath))
+                return false;
+
+            _key = ProtectedData.Unprotect(
+                File.ReadAllBytes(CachePath), CacheEntropy, DataProtectionScope.CurrentUser);
+            return _key.Length == KeySize;
+        }
+        catch
+        {
+            _key = null;
+            return false;
+        }
+    }
 
     // --- Password encryption (used by PasswordProtector) ---
 
-    /// <summary>Encrypts a clear-text password with the unlocked DEK; returns Base64.</summary>
+    /// <summary>Encrypts a clear-text password with the active key; returns Base64.</summary>
     public string EncryptPassword(string? clearText)
     {
         if (string.IsNullOrEmpty(clearText))
             return "";
-        if (_dek is null)
+        if (_key is null)
             throw new InvalidOperationException("Master key is locked.");
 
-        return GcmEncrypt(_dek, Encoding.UTF8.GetBytes(clearText));
+        return EncryptWithKey(_key, clearText);
     }
 
     /// <summary>Decrypts a Base64 blob produced by <see cref="EncryptPassword"/>. Returns "" on failure.</summary>
@@ -71,20 +110,20 @@ public sealed class MasterKeyService
     }
 
     /// <summary>
-    /// Attempts to decrypt a password blob. Returns true on success (including an
-    /// empty blob, which yields ""), false when a non-empty blob cannot be decrypted
-    /// — i.e. the key is locked or the blob belongs to a different master password.
-    /// Callers can use the false result to avoid clobbering the stored ciphertext.
+    /// Attempts to decrypt a password blob. Returns true on success (an empty blob
+    /// yields ""), false when a non-empty blob cannot be decrypted with the active
+    /// key. Callers use the false result to preserve the original ciphertext rather
+    /// than overwriting it.
     /// </summary>
     public bool TryDecryptPassword(string? encryptedBase64, out string clear)
     {
         clear = "";
         if (string.IsNullOrEmpty(encryptedBase64))
             return true;
-        if (_dek is null)
+        if (_key is null)
             return false;
 
-        var data = GcmDecrypt(_dek, encryptedBase64);
+        var data = GcmDecrypt(_key, encryptedBase64);
         if (data is null)
             return false;
 
@@ -92,129 +131,34 @@ public sealed class MasterKeyService
         return true;
     }
 
-    // --- Setup / unlock / change ---
+    // --- Static crypto helpers (used by re-encryption sweeps) ---
+
+    /// <summary>Encrypts a clear-text password under an arbitrary key; returns Base64.</summary>
+    public static string EncryptWithKey(byte[] key, string clearText) =>
+        GcmEncrypt(key, Encoding.UTF8.GetBytes(clearText));
 
     /// <summary>
-    /// Creates a fresh master password: generates a new random DEK, wraps it with a
-    /// key derived from <paramref name="password"/>, records the salt/wrapped DEK/
-    /// check blob into settings (caller is responsible for saving) and caches the
-    /// DEK locally. The DEK is held unlocked afterwards.
+    /// Decrypts a Base64 blob under an arbitrary key. Returns null on failure (wrong
+    /// key, corrupted blob, or bad Base64). An empty input is a successful no-op.
     /// </summary>
-    public void Initialize(string password)
+    public static string? DecryptWithKey(byte[] key, string? encryptedBase64)
     {
-        var dek = RandomNumberGenerator.GetBytes(KeySize);
-        WrapAndStore(dek, password);
-        _dek = dek;
-        CacheDek(dek);
+        if (string.IsNullOrEmpty(encryptedBase64))
+            return "";
+
+        var data = GcmDecrypt(key, encryptedBase64);
+        return data is null ? null : Encoding.UTF8.GetString(data);
     }
 
-    /// <summary>
-    /// Derives the key from <paramref name="password"/>, unwraps the stored DEK and,
-    /// on success, holds it and refreshes the local cache. Returns false if the
-    /// password is wrong or no master password is configured.
-    /// </summary>
-    public bool TryUnlock(string password)
-    {
-        var s = _settings.Settings;
-        if (string.IsNullOrEmpty(s.MasterSalt) || string.IsNullOrEmpty(s.WrappedKey))
-            return false;
+    // --- Cache ---
 
-        var salt = Convert.FromBase64String(s.MasterSalt);
-        var kek = DeriveKey(password, salt, s.MasterIterations);
-        var dek = GcmDecrypt(kek, s.WrappedKey);
-        if (dek is null)
-            return false;
-
-        _dek = dek;
-        CacheDek(dek);
-        return true;
-    }
-
-    /// <summary>
-    /// Attempts a silent unlock from the DPAPI-protected local cache. The cached DEK
-    /// is validated against the current vault's check blob, so a stale cache (e.g.
-    /// settings replaced from another machine) is ignored. Returns false if there is
-    /// no usable cache.
-    /// </summary>
-    public bool TryUnlockFromCache()
+    private static void CacheKey(byte[] key)
     {
         try
         {
-            var path = CachePath;
-            if (!File.Exists(path))
-                return false;
-
-            var dek = ProtectedData.Unprotect(
-                File.ReadAllBytes(path), CacheEntropy, DataProtectionScope.CurrentUser);
-
-            if (!DekMatchesVault(dek))
-                return false;
-
-            _dek = dek;
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Re-wraps the (already unlocked) DEK with a key derived from a new master
-    /// password and refreshes the cache. Caller saves settings. Throws if locked.
-    /// </summary>
-    public void ChangePassword(string newPassword)
-    {
-        if (_dek is null)
-            throw new InvalidOperationException("Master key is locked.");
-
-        WrapAndStore(_dek, newPassword);
-        CacheDek(_dek);
-    }
-
-    // --- Internals ---
-
-    private void WrapAndStore(byte[] dek, string password)
-    {
-        var salt = RandomNumberGenerator.GetBytes(SaltSize);
-        var kek = DeriveKey(password, salt, Iterations);
-
-        var s = _settings.Settings;
-        s.MasterSalt = Convert.ToBase64String(salt);
-        s.MasterIterations = Iterations;
-        s.WrappedKey = GcmEncrypt(kek, dek);
-        s.KeyCheck = GcmEncrypt(dek, CheckMarker);
-    }
-
-    private bool DekMatchesVault(byte[] dek)
-    {
-        var check = _settings.Settings.KeyCheck;
-        if (string.IsNullOrEmpty(check))
-            return false;
-
-        var marker = GcmDecrypt(dek, check);
-        return marker is not null && marker.AsSpan().SequenceEqual(CheckMarker);
-    }
-
-    /// <summary>
-    /// Overrides the DPAPI cache file location. Intended for tests so they don't
-    /// touch (or overwrite) the real per-user cache. Null = default location.
-    /// </summary>
-    public static string? CacheFileOverride { get; set; }
-
-    private static string CachePath => CacheFileOverride ?? Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "JeekRemoteManager",
-        "masterkey.bin");
-
-    private static void CacheDek(byte[] dek)
-    {
-        try
-        {
-            var path = CachePath;
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            var protectedDek = ProtectedData.Protect(dek, CacheEntropy, DataProtectionScope.CurrentUser);
-            File.WriteAllBytes(path, protectedDek);
+            Directory.CreateDirectory(Path.GetDirectoryName(CachePath)!);
+            var protectedKey = ProtectedData.Protect(key, CacheEntropy, DataProtectionScope.CurrentUser);
+            File.WriteAllBytes(CachePath, protectedKey);
         }
         catch
         {
@@ -222,9 +166,21 @@ public sealed class MasterKeyService
         }
     }
 
-    private static byte[] DeriveKey(string password, byte[] salt, int iterations) =>
-        Rfc2898DeriveBytes.Pbkdf2(
-            Encoding.UTF8.GetBytes(password), salt, iterations, HashAlgorithmName.SHA256, KeySize);
+    /// <summary>Deletes the local DPAPI cache, so the next start asks for the password.</summary>
+    public static void ClearCache()
+    {
+        try
+        {
+            if (File.Exists(CachePath))
+                File.Delete(CachePath);
+        }
+        catch
+        {
+            // Best-effort.
+        }
+    }
+
+    // --- AES-GCM primitives ---
 
     private static string GcmEncrypt(byte[] key, byte[] plain)
     {

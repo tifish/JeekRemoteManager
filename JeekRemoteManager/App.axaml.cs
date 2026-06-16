@@ -44,7 +44,7 @@ public partial class App : Application
             var settings = new SettingsService();
             var store = new ConnectionStore();
             var launcher = new ConnectionLauncher();
-            var master = new MasterKeyService(settings);
+            var master = new MasterKeyService();
             MasterKeyService.Current = master;
             store.SetRoot(settings.ResolveConnectionsRoot());
 
@@ -59,9 +59,11 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Ensures the master key is unlocked (set up on first run, unlocked silently
-    /// from the local cache, or prompted for), then builds and shows the main window.
-    /// Exits the app if the user cancels the setup/unlock prompt.
+    /// Ensures the master key is unlocked, then builds and shows the main window.
+    /// Tries a silent unlock from the local DPAPI cache first; otherwise asks for
+    /// the master password (always with confirmation) and derives the key. If an
+    /// older vault.json is present, attempts a one-time migration of every
+    /// connection it can decrypt. Exits the app if the user cancels.
     /// </summary>
     private async Task UnlockThenStartAsync(
         IClassicDesktopStyleApplicationLifetime desktop,
@@ -70,27 +72,24 @@ public partial class App : Application
         ConnectionLauncher launcher,
         MasterKeyService master)
     {
-        bool unlocked;
-        if (master.IsConfigured)
+        var unlocked = master.TryUnlockFromCache();
+        if (!unlocked)
         {
-            // Silent cache unlock on the same machine; otherwise ask once.
-            unlocked = master.TryUnlockFromCache()
-                || await MasterPasswordDialog.ShowUnlockAsync(null, master.TryUnlock);
-        }
-        else
-        {
-            var password = await MasterPasswordDialog.ShowSetupAsync(null);
-            if (password is null)
+            // The dialog has a single mode (password + confirmation); the title is
+            // just a hint. We call it "unlock" when connection files already exist,
+            // "setup" otherwise. A wrong password is not rejected here — it surfaces
+            // afterwards as the per-connection red "can't decrypt" warning, and the
+            // two-field confirmation already guards against typos.
+            var firstRun = store.AllConnectionFiles().Count == 0;
+            var (title, prompt) = firstRun
+                ? (Localizer.Get("MasterSetupTitle"), Localizer.Get("MasterSetupPrompt"))
+                : (Localizer.Get("MasterUnlockTitle"), Localizer.Get("MasterUnlockPrompt"));
+
+            unlocked = await MasterPasswordDialog.ShowAsync(null, title, prompt, password =>
             {
-                unlocked = false;
-            }
-            else
-            {
-                master.Initialize(password);
-                MigrateLegacyPasswords(store);
-                settings.Save();
-                unlocked = true;
-            }
+                master.SetKey(MasterKeyService.DeriveKey(password));
+                return true;
+            });
         }
 
         if (!unlocked)
@@ -119,35 +118,6 @@ public partial class App : Application
         _ = vm.CheckForUpdatesOnStartupAsync();
     }
 
-    /// <summary>
-    /// One-time migration when a master password is first adopted: re-encrypts every
-    /// connection password that was previously stored with DPAPI so it is protected
-    /// by the new master key instead. Passwords that cannot be decrypted on this
-    /// machine (e.g. copied from another account) are left untouched.
-    /// </summary>
-    private static void MigrateLegacyPasswords(ConnectionStore store)
-    {
-        foreach (var file in store.AllConnectionFiles())
-        {
-            try
-            {
-                var connection = store.Load(file);
-                if (string.IsNullOrEmpty(connection.EncryptedPassword))
-                    continue;
-
-                var clear = PasswordProtector.DpapiDecryptLegacy(connection.EncryptedPassword);
-                if (clear.Length == 0)
-                    continue;
-
-                connection.EncryptedPassword = PasswordProtector.Encrypt(clear);
-                store.SaveInPlace(connection, file);
-            }
-            catch
-            {
-                // Skip any single file that fails; the rest still migrate.
-            }
-        }
-    }
 
     private void OnMainWindowClosing(object? sender, Avalonia.Controls.WindowClosingEventArgs e)
     {

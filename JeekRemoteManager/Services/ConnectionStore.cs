@@ -79,7 +79,7 @@ public class ConnectionStore
 
     /// <summary>
     /// Rewrites a connection back to its existing file without renaming or moving it.
-    /// Used by the password migration, which only changes the encrypted-password field.
+    /// Used by re-encryption sweeps that only change the EncryptedPassword field.
     /// </summary>
     public void SaveInPlace(Connection connection, string filePath)
     {

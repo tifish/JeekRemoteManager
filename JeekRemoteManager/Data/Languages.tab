@@ -121,7 +121,7 @@ MasterSetupTitle	Set master password	设置主密码
 MasterSetupPrompt	Set a master password to protect your saved connection passwords. You'll need it when moving your data to another computer, so keep it safe — it cannot be recovered.	设置一个主密码来保护已保存的连接密码。将数据迁移到其他电脑时需要用到，请妥善保管 —— 它无法找回。
 MasterChangeTitle	Change master password	修改主密码
 MasterChangePrompt	Enter a new master password. Your saved passwords stay encrypted; only the master password changes.	输入新的主密码。已保存的密码仍保持加密，仅主密码本身改变。
-MasterNewPassword	New password	新密码
+MasterNewPassword	Password	密码
 MasterConfirmPassword	Confirm password	确认密码
 MasterShowPassword	Show password	显示密码
 MasterUnlockTitle	Unlock	解锁

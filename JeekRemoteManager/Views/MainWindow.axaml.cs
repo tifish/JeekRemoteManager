@@ -328,9 +328,15 @@ public partial class MainWindow : Window
 
         changePassword.Click += async (_, _) =>
         {
-            var newPassword = await MasterPasswordDialog.ShowChangeAsync(dialog);
-            if (newPassword is not null)
-                (DataContext as MainWindowViewModel)?.ChangeMasterPassword(newPassword);
+            await MasterPasswordDialog.ShowAsync(
+                dialog,
+                Localizer.Get("MasterChangeTitle"),
+                Localizer.Get("MasterChangePrompt"),
+                newPassword =>
+                {
+                    (DataContext as MainWindowViewModel)?.ChangeMasterPassword(newPassword);
+                    return true;
+                });
         };
 
         ok.Click += (_, _) =>
