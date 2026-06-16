@@ -37,7 +37,7 @@ public partial class MainWindow : Window
         vm.ConfirmAsync = ConfirmAsync;
         vm.PromptAsync = PromptAsync;
         vm.PickKeyFileAsync = PickKeyFileAsync;
-        vm.PickStorageLocationAsync = PickStorageLocationAsync;
+        vm.PickSettingsAsync = PickSettingsAsync;
         vm.PickFolderAsync = PickFolderAsync;
         vm.RequestFocusTree = FocusSelectedTreeItem;
     }
@@ -231,9 +231,9 @@ public partial class MainWindow : Window
         return tcs.Task;
     }
 
-    private Task<StorageLocation?> PickStorageLocationAsync(StorageLocation current)
+    private Task<SettingsDialogResult?> PickSettingsAsync(StorageLocation current, string? currentLanguage)
     {
-        var tcs = new TaskCompletionSource<StorageLocation?>();
+        var tcs = new TaskCompletionSource<SettingsDialogResult?>();
 
         var userRadio = new RadioButton
         {
@@ -253,6 +253,21 @@ public partial class MainWindow : Window
                 SettingsService.ResolveConnectionsRoot(StorageLocation.ProgramDirectory)),
         };
 
+        // null code = follow system. Native names match the in-app language list.
+        var languages = new[]
+        {
+            new LanguageChoice(Localizer.Get("FollowSystem"), null),
+            new LanguageChoice("English", "en"),
+            new LanguageChoice("中文", "zh"),
+        };
+        var languageBox = new ComboBox
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            ItemsSource = languages,
+        };
+        languageBox.SelectedIndex =
+            System.Array.FindIndex(languages, c => c.Code == currentLanguage) is var i && i >= 0 ? i : 0;
+
         var ok = new Button { Content = Localizer.Get("DialogOk"), MinWidth = 80, IsDefault = true };
         var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 80, IsCancel = true };
 
@@ -269,6 +284,8 @@ public partial class MainWindow : Window
                 Spacing = 12,
                 Children =
                 {
+                    new TextBlock { Text = Localizer.Get("Language"), FontWeight = FontWeight.SemiBold },
+                    languageBox,
                     new TextBlock { Text = Localizer.Get("DialogStorageQuestion"), FontWeight = FontWeight.SemiBold },
                     userRadio,
                     programRadio,
@@ -285,9 +302,11 @@ public partial class MainWindow : Window
 
         ok.Click += (_, _) =>
         {
-            tcs.TrySetResult(userRadio.IsChecked == true
+            var storage = userRadio.IsChecked == true
                 ? StorageLocation.UserDirectory
-                : StorageLocation.ProgramDirectory);
+                : StorageLocation.ProgramDirectory;
+            var language = (languageBox.SelectedItem as LanguageChoice)?.Code;
+            tcs.TrySetResult(new SettingsDialogResult(storage, language));
             dialog.Close();
         };
         cancel.Click += (_, _) => { tcs.TrySetResult(null); dialog.Close(); };
@@ -295,6 +314,12 @@ public partial class MainWindow : Window
 
         dialog.ShowDialog(this);
         return tcs.Task;
+    }
+
+    /// <summary>A selectable UI language; <see cref="Code"/> is null for "follow system".</summary>
+    private sealed record LanguageChoice(string Label, string? Code)
+    {
+        public override string ToString() => Label;
     }
 
     private static Control BuildOption(string title, string path) => new StackPanel

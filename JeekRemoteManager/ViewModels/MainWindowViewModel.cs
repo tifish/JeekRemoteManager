@@ -106,7 +106,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public Func<string, string, Task<bool>>? ConfirmAsync { get; set; }
     public Func<string, string, string, Task<string?>>? PromptAsync { get; set; }
     public Func<Task<string?>>? PickKeyFileAsync { get; set; }
-    public Func<StorageLocation, Task<StorageLocation?>>? PickStorageLocationAsync { get; set; }
+    public Func<StorageLocation, string?, Task<SettingsDialogResult?>>? PickSettingsAsync { get; set; }
     public Func<string, Task<string?>>? PickFolderAsync { get; set; }
 
     /// <summary>Asks the view to put keyboard focus on the tree so it receives shortcuts.</summary>
@@ -835,19 +835,7 @@ public partial class MainWindowViewModel : ViewModelBase
         await PromptUpdateAsync(silentIfUpToDate: false, outcome);
     }
 
-    public bool IsLangFollowSystem => string.IsNullOrEmpty(_settings.Settings.Language);
-    public bool IsLangEn => _settings.Settings.Language == "en";
-    public bool IsLangZh => _settings.Settings.Language == "zh";
-
-    private void NotifyLanguageSelectionChanged()
-    {
-        OnPropertyChanged(nameof(IsLangFollowSystem));
-        OnPropertyChanged(nameof(IsLangEn));
-        OnPropertyChanged(nameof(IsLangZh));
-    }
-
-    [RelayCommand]
-    private void SetLanguage(string? language)
+    private void ApplyLanguage(string? language)
     {
         // Empty / null means "follow system": clear the stored preference and
         // resolve from the current OS culture (falling back to en if unsupported).
@@ -858,7 +846,6 @@ public partial class MainWindowViewModel : ViewModelBase
 
             var system = System.Globalization.CultureInfo.CurrentCulture.TwoLetterISOLanguageName;
             Localizer.Language = Localizer.Languages.Contains(system) ? system : "en";
-            NotifyLanguageSelectionChanged();
             return;
         }
 
@@ -868,7 +855,6 @@ public partial class MainWindowViewModel : ViewModelBase
         Localizer.Language = language;
         _settings.Settings.Language = language;
         _settings.Save();
-        NotifyLanguageSelectionChanged();
     }
 
     public bool IsThemeFollowSystem => string.IsNullOrEmpty(_settings.Settings.Theme);
@@ -976,16 +962,23 @@ public partial class MainWindowViewModel : ViewModelBase
         // Flush in case the user was mid-edit when changing storage location.
         FlushPendingAutoSave();
 
-        if (PickStorageLocationAsync is null)
+        if (PickSettingsAsync is null)
             return;
 
         var current = _settings.Settings.StorageLocation;
-        var chosen = await PickStorageLocationAsync(current);
-        if (chosen is null || chosen.Value == current)
+        var result = await PickSettingsAsync(current, _settings.Settings.Language);
+        if (result is null)
+            return;
+
+        // Apply the language choice (no-op if unchanged); takes effect immediately.
+        if (result.Language != _settings.Settings.Language)
+            ApplyLanguage(result.Language);
+
+        if (result.StorageLocation == current)
             return;
 
         var oldRoot = _store.RootPath;
-        var newRoot = SettingsService.ResolveConnectionsRoot(chosen.Value);
+        var newRoot = SettingsService.ResolveConnectionsRoot(result.StorageLocation);
 
         // Make sure the target is actually writable (e.g. ProgramDirectory under
         // %ProgramFiles% is not, for a standard user) before committing.
@@ -999,8 +992,8 @@ public partial class MainWindowViewModel : ViewModelBase
         _store.MoveTreeContents(oldRoot, newRoot);
         _store.DeleteFolder(oldRoot);
 
-        _settings.Settings.StorageLocation = chosen.Value;
-        _settings.RelocateSettings(chosen.Value);
+        _settings.Settings.StorageLocation = result.StorageLocation;
+        _settings.RelocateSettings(result.StorageLocation);
         var saved = _settings.Save();
         _store.SetRoot(newRoot);
         StartWatching(newRoot);
@@ -1012,9 +1005,9 @@ public partial class MainWindowViewModel : ViewModelBase
         if (!saved)
             StatusMessage = L("StatusStorageNotSaved", _settings.SettingsPath);
         else if (HasData(newRoot))
-            StatusMessage = L("StatusStorageLocationWithData", chosen.Value, newRoot);
+            StatusMessage = L("StatusStorageLocationWithData", result.StorageLocation, newRoot);
         else
-            StatusMessage = L("StatusStorageLocationOnly", chosen.Value, newRoot);
+            StatusMessage = L("StatusStorageLocationOnly", result.StorageLocation, newRoot);
     }
 
     private static bool HasData(string folder) =>

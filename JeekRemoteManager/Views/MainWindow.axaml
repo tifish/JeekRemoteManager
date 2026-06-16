@@ -64,30 +64,6 @@
                             <MenuItem Header="{l:Localize CheckForUpdates}"
                                       Command="{Binding CheckForUpdatesCommand}" />
                             <Separator />
-                            <MenuItem Header="{l:Localize Language}">
-                                <MenuItem Header="{l:Localize FollowSystem}"
-                                          Command="{Binding SetLanguageCommand}"
-                                          CommandParameter="">
-                                    <MenuItem.Icon>
-                                        <TextBlock Text="&#x2713;" IsVisible="{Binding IsLangFollowSystem}" />
-                                    </MenuItem.Icon>
-                                </MenuItem>
-                                <Separator />
-                                <MenuItem Header="English"
-                                          Command="{Binding SetLanguageCommand}"
-                                          CommandParameter="en">
-                                    <MenuItem.Icon>
-                                        <TextBlock Text="&#x2713;" IsVisible="{Binding IsLangEn}" />
-                                    </MenuItem.Icon>
-                                </MenuItem>
-                                <MenuItem Header="中文"
-                                          Command="{Binding SetLanguageCommand}"
-                                          CommandParameter="zh">
-                                    <MenuItem.Icon>
-                                        <TextBlock Text="&#x2713;" IsVisible="{Binding IsLangZh}" />
-                                    </MenuItem.Icon>
-                                </MenuItem>
-                            </MenuItem>
                             <MenuItem Header="{l:Localize Theme}">
                                 <MenuItem Header="{l:Localize FollowSystem}"
                                           Command="{Binding SetThemeCommand}"
