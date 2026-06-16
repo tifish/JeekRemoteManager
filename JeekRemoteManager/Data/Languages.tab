@@ -39,6 +39,7 @@ ExtraArgs	Extra args	额外参数
 ExtraArgsWatermark	e.g. -X -L 8080:localhost:80	例如 -X -L 8080:localhost:80
 RdpOptions	RDP options	RDP 选项
 FullScreen	Full screen	全屏
+UseAllMonitors	Use all monitors	使用所有显示器
 Width	Width	宽度
 Height	Height	高度
 LocalResources	Local resources	本地资源

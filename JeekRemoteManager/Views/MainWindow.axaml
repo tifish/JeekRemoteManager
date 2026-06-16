@@ -222,6 +222,8 @@
                             <Separator />
                             <TextBlock Text="{l:Localize RdpOptions}" FontWeight="SemiBold" />
                             <CheckBox Content="{l:Localize FullScreen}" IsChecked="{Binding Editor.RdpFullScreen, Mode=TwoWay}" />
+                            <CheckBox Content="{l:Localize UseAllMonitors}" IsChecked="{Binding Editor.RdpUseAllMonitors, Mode=TwoWay}"
+                                      IsVisible="{Binding Editor.RdpFullScreen}" Margin="20,0,0,0" />
                             <Grid ColumnDefinitions="120,*,80,*" IsVisible="{Binding !Editor.RdpFullScreen}">
                                 <TextBlock Grid.Column="0" Text="{l:Localize Width}" VerticalAlignment="Center" />
                                 <TextBox Grid.Column="1" Text="{Binding Editor.RdpWidth, Mode=TwoWay}" />

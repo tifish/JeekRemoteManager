@@ -107,7 +107,9 @@ public class ConnectionLauncher
             sb.AppendLine($"desktopheight:i:{Math.Max(480, connection.RdpHeight)}");
         }
 
-        sb.AppendLine("use multimon:i:0");
+        // multimon only applies in full screen; mstsc ignores it otherwise.
+        var useMultimon = connection.RdpFullScreen && connection.RdpUseAllMonitors;
+        sb.AppendLine($"use multimon:i:{(useMultimon ? 1 : 0)}");
         sb.AppendLine("authentication level:i:2");
         sb.AppendLine($"redirectclipboard:i:{(connection.RdpRedirectClipboard ? 1 : 0)}");
         sb.AppendLine($"redirectdrives:i:{(connection.RdpRedirectDrives ? 1 : 0)}");

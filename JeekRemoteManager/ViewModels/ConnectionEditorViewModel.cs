@@ -43,6 +43,9 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     private bool _rdpFullScreen = true;
 
     [ObservableProperty]
+    private bool _rdpUseAllMonitors;
+
+    [ObservableProperty]
     private int _rdpWidth = 1280;
 
     [ObservableProperty]
@@ -81,6 +84,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         PrivateKeyPath = c.PrivateKeyPath,
         ExtraSshArguments = c.ExtraSshArguments,
         RdpFullScreen = c.RdpFullScreen,
+        RdpUseAllMonitors = c.RdpUseAllMonitors,
         RdpWidth = c.RdpWidth,
         RdpHeight = c.RdpHeight,
         RdpRedirectClipboard = c.RdpRedirectClipboard,
@@ -102,6 +106,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         c.PrivateKeyPath = PrivateKeyPath.Trim();
         c.ExtraSshArguments = ExtraSshArguments.Trim();
         c.RdpFullScreen = RdpFullScreen;
+        c.RdpUseAllMonitors = RdpUseAllMonitors;
         c.RdpWidth = RdpWidth;
         c.RdpHeight = RdpHeight;
         c.RdpRedirectClipboard = RdpRedirectClipboard;

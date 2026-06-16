@@ -39,6 +39,9 @@ public class Connection
     /// <summary>When true, mstsc launches full screen; otherwise windowed.</summary>
     public bool RdpFullScreen { get; set; } = true;
 
+    /// <summary>When true (and full screen), spans the session across all monitors.</summary>
+    public bool RdpUseAllMonitors { get; set; } = false;
+
     public int RdpWidth { get; set; } = 1280;
 
     public int RdpHeight { get; set; } = 720;
