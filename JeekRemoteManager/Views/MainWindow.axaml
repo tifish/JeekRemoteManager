@@ -154,7 +154,7 @@
 
                         <Grid ColumnDefinitions="120,*,80,90">
                             <TextBlock Grid.Column="0" Text="{l:Localize Host}" VerticalAlignment="Center" />
-                            <TextBox Grid.Column="1" Text="{Binding Editor.Host, Mode=TwoWay}" Watermark="{l:Localize HostWatermark}" />
+                            <TextBox Grid.Column="1" Text="{Binding Editor.Host, Mode=TwoWay}" PlaceholderText="{l:Localize HostWatermark}" />
                             <TextBlock Grid.Column="2" Text="{l:Localize Port}" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" />
                             <TextBox Grid.Column="3" Text="{Binding Editor.Port, Mode=TwoWay}" />
                         </Grid>
@@ -185,14 +185,14 @@
                             <Grid ColumnDefinitions="120,*,Auto">
                                 <TextBlock Grid.Column="0" Text="{l:Localize PrivateKey}" VerticalAlignment="Center" />
                                 <TextBox Grid.Column="1" Text="{Binding Editor.PrivateKeyPath, Mode=TwoWay}"
-                                         Watermark="{l:Localize PrivateKeyWatermark}" />
+                                         PlaceholderText="{l:Localize PrivateKeyWatermark}" />
                                 <Button Grid.Column="2" Content="{l:Localize Browse}" Margin="8,0,0,0"
                                         Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).BrowseKeyCommand}" />
                             </Grid>
                             <Grid ColumnDefinitions="120,*">
                                 <TextBlock Grid.Column="0" Text="{l:Localize ExtraArgs}" VerticalAlignment="Center" />
                                 <TextBox Grid.Column="1" Text="{Binding Editor.ExtraSshArguments, Mode=TwoWay}"
-                                         Watermark="{l:Localize ExtraArgsWatermark}" />
+                                         PlaceholderText="{l:Localize ExtraArgsWatermark}" />
                             </Grid>
                         </StackPanel>
 
