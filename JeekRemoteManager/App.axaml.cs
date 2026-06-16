@@ -18,6 +18,7 @@ namespace JeekRemoteManager;
 public partial class App : Application
 {
     private bool _exitRequested;
+    private MainWindowViewModel? _vm;
 
     public override void Initialize()
     {
@@ -54,7 +55,12 @@ public partial class App : Application
             window.Closing += OnMainWindowClosing;
             desktop.MainWindow = window;
 
-            LocalizeTrayMenu();
+            _vm = vm;
+            BuildTrayMenu();
+
+            // Keep the tray menu's localized labels and language radio checks in
+            // sync when the language changes from anywhere (main menu or tray).
+            Localizer.LanguageChanged += (_, _) => BuildTrayMenu();
 
             // Silent background check shortly after startup.
             _ = vm.CheckForUpdatesOnStartupAsync();
@@ -126,31 +132,79 @@ public partial class App : Application
         });
     }
 
-    private void LocalizeTrayMenu()
+    /// <summary>
+    /// Builds the tray icon's right-click menu so it mirrors the main window's
+    /// overflow (⋮) menu: Settings, Import, Check for Updates and the Theme
+    /// submenu, bracketed by Show/Exit. Rebuilt on language changes so labels
+    /// and the theme radio checks stay current.
+    /// </summary>
+    private void BuildTrayMenu()
     {
-        var icons = TrayIcon.GetIcons(this);
-        if (icons == null)
+        if (_vm is not { } vm)
             return;
 
-        foreach (var icon in icons)
+        var icon = TrayIcon.GetIcons(this)?.FirstOrDefault();
+        if (icon == null)
+            return;
+
+        icon.ToolTipText = Localizer.Get("WindowTitle");
+
+        var menu = new NativeMenu();
+
+        var show = new NativeMenuItem { Header = Localizer.Get("TrayShow") };
+        show.Click += OnTrayShowClicked;
+        menu.Items.Add(show);
+
+        menu.Items.Add(new NativeMenuItemSeparator());
+
+        menu.Items.Add(CommandItem(Localizer.Get("Settings"), vm.OpenSettingsCommand));
+        menu.Items.Add(new NativeMenuItemSeparator());
+        menu.Items.Add(CommandItem(Localizer.Get("ImportFromFinalShell"), vm.ImportFinalShellCommand));
+        menu.Items.Add(new NativeMenuItemSeparator());
+        menu.Items.Add(CommandItem(Localizer.Get("CheckForUpdates"), vm.CheckForUpdatesCommand));
+
+        menu.Items.Add(new NativeMenuItemSeparator());
+
+        var theme = new NativeMenuItem { Header = Localizer.Get("Theme") };
+        var themeMenu = new NativeMenu();
+        themeMenu.Items.Add(ThemeItem(vm, Localizer.Get("FollowSystem"), "", vm.IsThemeFollowSystem));
+        themeMenu.Items.Add(new NativeMenuItemSeparator());
+        themeMenu.Items.Add(ThemeItem(vm, Localizer.Get("ThemeLight"), "Light", vm.IsThemeLight));
+        themeMenu.Items.Add(ThemeItem(vm, Localizer.Get("ThemeDark"), "Dark", vm.IsThemeDark));
+        theme.Menu = themeMenu;
+        menu.Items.Add(theme);
+
+        menu.Items.Add(new NativeMenuItemSeparator());
+
+        var exit = new NativeMenuItem { Header = Localizer.Get("TrayExit") };
+        exit.Click += OnTrayExitClicked;
+        menu.Items.Add(exit);
+
+        icon.Menu = menu;
+    }
+
+    private static NativeMenuItem CommandItem(string header, System.Windows.Input.ICommand command)
+    {
+        var item = new NativeMenuItem { Header = header };
+        item.Click += (_, _) =>
         {
-            icon.ToolTipText = Localizer.Get("WindowTitle");
-            if (icon.Menu is not { } menu)
-                continue;
+            if (command.CanExecute(null))
+                command.Execute(null);
+        };
+        return item;
+    }
 
-            foreach (var item in menu.Items)
-            {
-                if (item is not NativeMenuItem nmi)
-                    continue;
-
-                nmi.Header = nmi.Header switch
-                {
-                    "Show" => Localizer.Get("TrayShow"),
-                    "Exit" => Localizer.Get("TrayExit"),
-                    _ => nmi.Header,
-                };
-            }
-        }
+    private static NativeMenuItem ThemeItem(
+        MainWindowViewModel vm, string header, string theme, bool isChecked)
+    {
+        var item = new NativeMenuItem
+        {
+            Header = header,
+            ToggleType = NativeMenuItemToggleType.Radio,
+            IsChecked = isChecked,
+        };
+        item.Click += (_, _) => vm.SetThemeCommand.Execute(theme);
+        return item;
     }
 
     private static void ApplyStoredLanguage(SettingsService settings)
