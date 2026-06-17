@@ -99,6 +99,7 @@ StatusNotWritable	That location is not writable: {0}	该位置不可写：{0}
 StatusStorageLocationOnly	Storage location: {0}. Folder: {1}	存储位置：{0}。文件夹：{1}
 StatusStorageLocationWithData	Storage location: {0}. Showing data at {1}	存储位置：{0}。数据位于 {1}
 StatusStorageNotSaved	Storage location changed, but settings could not be saved to {0}.	存储位置已更改，但设置无法保存到 {0}。
+StatusStorageCopyFailed	Could not copy data to the new location: {0}	无法复制数据到新位置：{0}
 NewSshDefault	New SSH	新建 SSH
 NewRdpDefault	New RDP	新建 RDP
 NewFolderDefault	New Folder	新建文件夹

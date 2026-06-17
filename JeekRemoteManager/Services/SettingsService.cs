@@ -11,16 +11,13 @@ namespace JeekRemoteManager.Services;
 /// the connections root folder for a storage location.
 ///
 /// Within a storage location two sibling folders sit under the base: "Config"
-/// (holding settings.json, including the master-password envelope) and
-/// "Connections" (the data). Keeping them together means moving or copying the
-/// base folder carries both — the settings needed to decrypt the connections
-/// travel with the connections themselves.
+/// (holding settings.json) and "Connections" (the data). Keeping them together
+/// makes portable installs easy to carry as a folder.
 ///
-/// Portability is decided purely by whether a "Connections" folder sits next to
-/// the executable: if it does, the app runs portable (config and data live next
-/// to the exe); otherwise both live under the per-user roaming folder. Switching
-/// storage location moves the data and removes the old location, so the
-/// folder-presence rule keeps matching the chosen mode on the next launch.
+/// A saved settings.json is authoritative for startup location. The older
+/// "Connections next to the executable means portable" rule is kept only as a
+/// fallback for installs that do not have a Config/settings.json yet; this lets
+/// storage switches copy data while leaving the old Connections folder in place.
 /// </summary>
 public class SettingsService
 {
@@ -36,20 +33,21 @@ public class SettingsService
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "JeekRemoteManager");
 
-    /// <summary>
-    /// True when a "Connections" folder sits next to the executable. Evaluated
-    /// live, so it reflects the current on-disk state after a storage switch.
-    /// </summary>
+    /// <summary>True when startup will use the executable directory.</summary>
     public static bool IsPortable =>
-        Directory.Exists(Path.Combine(ProgramDir, "Connections"));
+        File.Exists(SettingsPathFor(StorageLocation.ProgramDirectory)) ||
+        (!File.Exists(SettingsPathFor(StorageLocation.UserDirectory)) &&
+         Directory.Exists(Path.Combine(ProgramDir, "Connections")));
 
     public SettingsService()
     {
-        var location = IsPortable ? StorageLocation.ProgramDirectory : StorageLocation.UserDirectory;
+        MigrateLegacySettingsFile(StorageLocation.UserDirectory);
+        MigrateLegacySettingsFile(StorageLocation.ProgramDirectory);
+
+        var location = ResolveStartupLocation();
         SettingsPath = SettingsPathFor(location);
-        MigrateLegacySettingsFile(location);
         Settings = Load();
-        // The folder-presence rule is authoritative for which mode we're in.
+        // The resolved startup location is authoritative for this session.
         Settings.StorageLocation = location;
 
         RecentPath = Path.Combine(UserDir, "Config", "recent.json");
@@ -73,20 +71,34 @@ public class SettingsService
     private static string SettingsPathFor(StorageLocation location) =>
         Path.Combine(BaseDirFor(location), "Config", "settings.json");
 
+    private static StorageLocation ResolveStartupLocation()
+    {
+        if (File.Exists(SettingsPathFor(StorageLocation.ProgramDirectory)))
+            return StorageLocation.ProgramDirectory;
+
+        if (File.Exists(SettingsPathFor(StorageLocation.UserDirectory)))
+            return StorageLocation.UserDirectory;
+
+        return Directory.Exists(Path.Combine(ProgramDir, "Connections"))
+            ? StorageLocation.ProgramDirectory
+            : StorageLocation.UserDirectory;
+    }
+
     /// <summary>
     /// Moves a settings.json written by an older version (directly in the base
-    /// folder) into the new Config subfolder, so existing settings — including the
-    /// master-password configuration — are preserved across the upgrade.
+    /// folder) into the new Config subfolder, so existing settings are preserved
+    /// across the upgrade.
     /// </summary>
     private void MigrateLegacySettingsFile(StorageLocation location)
     {
         try
         {
             var legacyPath = Path.Combine(BaseDirFor(location), "settings.json");
-            if (File.Exists(legacyPath) && !File.Exists(SettingsPath))
+            var settingsPath = SettingsPathFor(location);
+            if (File.Exists(legacyPath) && !File.Exists(settingsPath))
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
-                File.Move(legacyPath, SettingsPath);
+                Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);
+                File.Move(legacyPath, settingsPath);
             }
         }
         catch
@@ -115,7 +127,8 @@ public class SettingsService
 
     /// <summary>
     /// Re-points where settings.json lives to match a new storage location and
-    /// removes the settings file at the old location. Call before <see cref="Save"/>.
+    /// removes the settings file at the old location, while leaving connection
+    /// data in place. Call before <see cref="Save"/>.
     /// </summary>
     public void RelocateSettings(StorageLocation location)
     {

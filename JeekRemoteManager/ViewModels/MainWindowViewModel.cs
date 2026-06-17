@@ -1318,9 +1318,24 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        // Migrate the data to the new location; the old location is not kept.
-        _store.MoveTreeContents(oldRoot, newRoot);
-        _store.DeleteFolder(oldRoot);
+        if (ConfirmAsync is not null)
+        {
+            var ok = await ConfirmAsync(
+                L("DialogCopyDataTitle"),
+                L("DialogCopyDataMessage", oldRoot, newRoot));
+            if (!ok)
+                return;
+        }
+
+        try
+        {
+            _store.CopyTreeContents(oldRoot, newRoot);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = L("StatusStorageCopyFailed", ex.Message);
+            return;
+        }
 
         _settings.Settings.StorageLocation = result.StorageLocation;
         _settings.RelocateSettings(result.StorageLocation);
