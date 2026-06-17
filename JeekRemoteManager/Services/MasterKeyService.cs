@@ -48,6 +48,20 @@ public sealed class MasterKeyService
     /// <summary>True once the master key has been unlocked and is held in memory.</summary>
     public bool IsUnlocked => _key != null;
 
+    /// <summary>
+    /// True if <paramref name="password"/> derives to the currently-unlocked key.
+    /// Used to gate reveal-password operations behind a re-entry of the master
+    /// password. Constant-time comparison so the check does not leak timing
+    /// information. Returns false if the key is not yet unlocked.
+    /// </summary>
+    public bool VerifyPassword(string password)
+    {
+        if (_key is null)
+            return false;
+        var derived = DeriveKey(password);
+        return CryptographicOperations.FixedTimeEquals(derived, _key);
+    }
+
     /// <summary>True when a local DPAPI cache file is present.</summary>
     public static bool HasCache => File.Exists(CachePath);
 

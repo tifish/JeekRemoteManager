@@ -392,10 +392,13 @@
                                                 <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="10">
                                                     <TextBox Grid.Column="0" x:Name="PasswordBox"
                                                              Text="{Binding Password, Mode=TwoWay}"
-                                                             PasswordChar="&#x2022;" />
-                                                    <CheckBox Grid.Column="1" Content="{l:Localize Show}"
+                                                             PasswordChar="&#x2022;"
+                                                             RevealPassword="{Binding #Root.((vm:MainWindowViewModel)DataContext).ShowPassword}" />
+                                                    <CheckBox Grid.Column="1" x:Name="ShowPasswordCheckBox"
+                                                              Content="{l:Localize Show}"
                                                               VerticalAlignment="Center"
-                                                              IsChecked="{Binding #PasswordBox.RevealPassword, Mode=TwoWay}" />
+                                                              IsChecked="{Binding #Root.((vm:MainWindowViewModel)DataContext).ShowPassword, Mode=OneWay}"
+                                                              Click="OnShowPasswordClick" />
                                                 </Grid>
 
                                                 <TextBlock Grid.Row="2" Grid.Column="1"

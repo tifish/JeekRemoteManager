@@ -120,6 +120,95 @@ public static class MasterPasswordDialog
         return tcs.Task;
     }
 
+    /// <summary>
+    /// Shows a single-field master-password prompt used for verification
+    /// (e.g. unlocking "Show password" in the editor). <paramref name="verify"/>
+    /// checks the entered password and returns whether it matched. Returns true
+    /// on a successful verify, false if the user cancelled.
+    /// </summary>
+    public static Task<bool> ShowVerifyAsync(Window? owner, string title, string prompt, Func<string, bool> verify)
+    {
+        var tcs = new TaskCompletionSource<bool>();
+
+        var passwordBox = new TextBox { PasswordChar = Mask };
+        var reveal = new CheckBox { Content = Localizer.Get("MasterShowPassword") };
+        reveal.IsCheckedChanged += (_, _) =>
+            passwordBox.RevealPassword = reveal.IsChecked == true;
+
+        var error = new TextBlock
+        {
+            Foreground = Brushes.IndianRed,
+            TextWrapping = TextWrapping.Wrap,
+            IsVisible = false,
+        };
+
+        var ok = new Button { Content = Localizer.Get("DialogOk"), MinWidth = 80, IsDefault = true };
+        var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 80, IsCancel = true };
+
+        var dialog = new Window
+        {
+            Title = title,
+            Width = 420,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = owner is null
+                ? WindowStartupLocation.CenterScreen
+                : WindowStartupLocation.CenterOwner,
+            CanResize = false,
+            Content = new StackPanel
+            {
+                Margin = new Avalonia.Thickness(16),
+                Spacing = 10,
+                Children =
+                {
+                    new TextBlock { Text = prompt, TextWrapping = TextWrapping.Wrap },
+                    new TextBlock { Text = Localizer.Get("MasterNewPassword") },
+                    passwordBox,
+                    reveal,
+                    error,
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Spacing = 8,
+                        Children = { ok, cancel },
+                    },
+                },
+            },
+        };
+
+        ok.Click += (_, _) =>
+        {
+            var pw = passwordBox.Text ?? "";
+            if (pw.Length == 0)
+            {
+                Fail(error, Localizer.Get("MasterErrorEmpty"));
+                return;
+            }
+
+            if (verify(pw))
+            {
+                tcs.TrySetResult(true);
+                dialog.Close();
+            }
+            else
+            {
+                Fail(error, Localizer.Get("MasterErrorWrong"));
+                passwordBox.Text = "";
+                passwordBox.Focus();
+            }
+        };
+        cancel.Click += (_, _) => { tcs.TrySetResult(false); dialog.Close(); };
+        dialog.Closed += (_, _) => tcs.TrySetResult(false);
+        dialog.Opened += (_, _) => passwordBox.Focus();
+
+        if (owner is null)
+            dialog.Show();
+        else
+            dialog.ShowDialog(owner);
+
+        return tcs.Task;
+    }
+
     private static void Fail(TextBlock error, string message)
     {
         error.Text = message;

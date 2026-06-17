@@ -133,6 +133,7 @@ MasterConfirmPassword	Confirm password	确认密码
 MasterShowPassword	Show password	显示密码
 MasterUnlockTitle	Unlock	解锁
 MasterUnlockPrompt	Enter your master password to unlock your saved connection passwords.	输入主密码以解锁已保存的连接密码。
+MasterRevealPrompt	Enter your master password to reveal the saved password.	输入主密码以显示已保存的密码。
 MasterErrorEmpty	Password cannot be empty.	密码不能为空。
 MasterErrorMismatch	The two passwords do not match.	两次输入的密码不一致。
 MasterErrorWrong	Incorrect master password.	主密码不正确。

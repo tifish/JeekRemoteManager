@@ -1,3 +1,4 @@
+using System;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -20,6 +21,12 @@ public partial class MainWindow : Window
     private TreeNodeViewModel? _lastToggledFolder;
     private bool _lastToggledFolderExpanded;
 
+    // Auto-locks "Show password" after a stretch of inactivity in the main
+    // window, so a revealed password isn't left on screen when the user
+    // walks away. Any pointer or key input resets the timer.
+    private static readonly TimeSpan ShowPasswordIdleTimeout = TimeSpan.FromMinutes(1);
+    private DispatcherTimer? _showPasswordIdleTimer;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -32,6 +39,21 @@ public partial class MainWindow : Window
             InputElement.DoubleTappedEvent,
             OnTreeDoubleTapped,
             RoutingStrategies.Bubble,
+            handledEventsToo: true);
+        AddHandler(
+            InputElement.PointerPressedEvent,
+            OnPointerActivity,
+            RoutingStrategies.Tunnel,
+            handledEventsToo: true);
+        AddHandler(
+            InputElement.PointerMovedEvent,
+            OnPointerActivity,
+            RoutingStrategies.Tunnel,
+            handledEventsToo: true);
+        AddHandler(
+            InputElement.KeyDownEvent,
+            OnKeyActivity,
+            RoutingStrategies.Tunnel,
             handledEventsToo: true);
         DataContextChanged += (_, _) => WireUp();
         Opened += (_, _) => WireUp();
@@ -54,6 +76,88 @@ public partial class MainWindow : Window
         vm.PickSettingsAsync = PickSettingsAsync;
         vm.PickFolderAsync = PickFolderAsync;
         vm.RequestFocusTree = FocusSelectedTreeItem;
+        vm.PropertyChanged -= OnViewModelPropertyChanged;
+        vm.PropertyChanged += OnViewModelPropertyChanged;
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainWindowViewModel.ShowPassword))
+            UpdateShowPasswordIdleTimer();
+    }
+
+    /// <summary>
+    /// Toggling "Show password" on requires re-entering the master password;
+    /// toggling off is unconditional. We bind IsChecked one-way to the VM, so
+    /// the visual flip the user just performed has to be reverted manually here
+    /// when we either send them to verification or reject the change.
+    /// </summary>
+    private async void OnShowPasswordClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox box || DataContext is not MainWindowViewModel vm)
+            return;
+
+        var desired = box.IsChecked == true;
+        if (!desired)
+        {
+            vm.ShowPassword = false;
+            return;
+        }
+
+        // Snap the box back to the VM's current (unchecked) state until verified;
+        // the binding can't do this for us because it's OneWay.
+        box.IsChecked = vm.ShowPassword;
+
+        var master = MasterKeyService.Current;
+        if (master is null || !master.IsUnlocked)
+            return;
+
+        var verified = await MasterPasswordDialog.ShowVerifyAsync(
+            this,
+            Localizer.Get("MasterUnlockTitle"),
+            Localizer.Get("MasterRevealPrompt"),
+            master.VerifyPassword);
+
+        if (verified)
+            vm.ShowPassword = true;
+    }
+
+    private void OnPointerActivity(object? sender, PointerEventArgs e) => NoteUserActivity();
+
+    private void OnKeyActivity(object? sender, KeyEventArgs e) => NoteUserActivity();
+
+    private void NoteUserActivity()
+    {
+        if (DataContext is MainWindowViewModel { ShowPassword: true })
+            RestartShowPasswordIdleTimer();
+    }
+
+    private void UpdateShowPasswordIdleTimer()
+    {
+        if (DataContext is MainWindowViewModel { ShowPassword: true })
+            RestartShowPasswordIdleTimer();
+        else
+            StopShowPasswordIdleTimer();
+    }
+
+    private void RestartShowPasswordIdleTimer()
+    {
+        if (_showPasswordIdleTimer is null)
+        {
+            _showPasswordIdleTimer = new DispatcherTimer { Interval = ShowPasswordIdleTimeout };
+            _showPasswordIdleTimer.Tick += OnShowPasswordIdleElapsed;
+        }
+        _showPasswordIdleTimer.Stop();
+        _showPasswordIdleTimer.Start();
+    }
+
+    private void StopShowPasswordIdleTimer() => _showPasswordIdleTimer?.Stop();
+
+    private void OnShowPasswordIdleElapsed(object? sender, System.EventArgs e)
+    {
+        StopShowPasswordIdleTimer();
+        if (DataContext is MainWindowViewModel vm)
+            vm.ShowPassword = false;
     }
 
     /// <summary>

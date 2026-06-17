@@ -126,6 +126,16 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(PasteCommand))]
     private bool _hasClipboard;
 
+    /// <summary>
+    /// Whether the connection editor reveals the saved password in clear text.
+    /// Enabling requires re-entering the master password and auto-disables after
+    /// a short idle period — both handled by the view. Kept on the main VM (not
+    /// the editor) so switching between connections doesn't reset the reveal
+    /// state mid-session.
+    /// </summary>
+    [ObservableProperty]
+    private bool _showPassword;
+
     // Wired up by the view so the VM can reach platform services without a
     // hard dependency on the window.
     public IClipboard? Clipboard { get; set; }
