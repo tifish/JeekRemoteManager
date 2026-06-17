@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -37,28 +38,38 @@ public class ConnectionLauncher
             UseShellExecute = true,
         };
 
+        foreach (var arg in BuildSshArguments(connection))
+            psi.ArgumentList.Add(arg);
+
+        Process.Start(psi);
+    }
+
+    public static IReadOnlyList<string> BuildSshArguments(Connection connection)
+    {
+        var args = new List<string>();
+
         if (!string.IsNullOrWhiteSpace(connection.PrivateKeyPath))
         {
-            psi.ArgumentList.Add("-i");
-            psi.ArgumentList.Add(connection.PrivateKeyPath);
+            args.Add("-i");
+            args.Add(connection.PrivateKeyPath);
         }
 
         var port = connection.Port > 0 ? connection.Port : 22;
         if (port != 22)
         {
-            psi.ArgumentList.Add("-p");
-            psi.ArgumentList.Add(port.ToString());
+            args.Add("-p");
+            args.Add(port.ToString());
         }
+
+        foreach (var extra in SplitArguments(connection.ExtraSshArguments))
+            args.Add(extra);
 
         var target = string.IsNullOrWhiteSpace(connection.Username)
             ? connection.Host
             : $"{connection.Username}@{connection.Host}";
-        psi.ArgumentList.Add(target);
+        args.Add(target);
 
-        foreach (var extra in SplitArguments(connection.ExtraSshArguments))
-            psi.ArgumentList.Add(extra);
-
-        Process.Start(psi);
+        return args;
     }
 
     private static void LaunchRdp(Connection connection)

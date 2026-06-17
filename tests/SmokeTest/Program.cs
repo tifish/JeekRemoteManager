@@ -40,6 +40,25 @@ try
     Check(PasswordProtector.Decrypt(enc) == secret, "Decrypt round-trips the password");
     Check(PasswordProtector.Encrypt("") == "", "Empty password encrypts to empty");
 
+    // --- SSH command-line shape ---
+    var sshArgs = ConnectionLauncher.BuildSshArguments(new Connection
+    {
+        Type = ConnectionType.Ssh,
+        Host = "example.com",
+        Username = "root",
+        Port = 2200,
+        PrivateKeyPath = @"C:\keys\id_rsa",
+        ExtraSshArguments = "-X -L 8080:localhost:80",
+    });
+    Check(sshArgs.SequenceEqual(new[]
+    {
+        "-i", @"C:\keys\id_rsa",
+        "-p", "2200",
+        "-X",
+        "-L", "8080:localhost:80",
+        "root@example.com",
+    }), "SSH options are emitted before the target host");
+
     // --- Fixed salt: deriving the same password gives the same key everywhere ---
     var sameKey = MasterKeyService.DeriveKey(masterPassword);
     Check(MasterKeyService.DecryptWithKey(sameKey, enc) == secret,
