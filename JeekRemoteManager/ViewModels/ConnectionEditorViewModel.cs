@@ -40,7 +40,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
 
     /// <summary>
     /// True when the stored password is non-empty but could not be decrypted with the
-    /// current master key. While true the cleartext box is empty; the original
+    /// current master password. While true the cleartext box is empty; the original
     /// ciphertext is preserved unless the user types a new password.
     /// </summary>
     [ObservableProperty]

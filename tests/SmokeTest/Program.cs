@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
@@ -17,26 +18,29 @@ try
 {
     Check(Directory.Exists(root), "Store creates its root folder");
 
-    // --- Master-password setup (fixed-salt PBKDF2, key cached via DPAPI) ---
+    // --- Master-password setup (password material cached via DPAPI) ---
     // Point the DPAPI cache at the temp root so we never touch the real one.
-    MasterKeyService.CachePath = Path.Combine(root, "key.bin");
+    MasterKeyService.CachePath = Path.Combine(root, "master-password.bin");
     const string masterPassword = "Corr3ct-Horse-密码";
     var master = new MasterKeyService();
-    Check(!master.IsUnlocked, "Master key starts locked");
-    master.SetKey(MasterKeyService.DeriveKey(masterPassword));
-    Check(master.IsUnlocked, "SetKey unlocks the master key");
+    Check(!master.IsUnlocked, "Master password starts locked");
+    master.SetPassword(masterPassword);
+    Check(master.IsUnlocked, "SetPassword unlocks the master password");
     Check(master.VerifyPassword(masterPassword), "VerifyPassword accepts the current master password");
     Check(!master.VerifyPassword("not-the-master"), "VerifyPassword rejects a different password");
     master.Lock();
-    Check(!master.IsUnlocked && !master.VerifyPassword(masterPassword), "Lock forgets the in-memory master key");
-    master.SetKey(MasterKeyService.DeriveKey(masterPassword));
+    Check(!master.IsUnlocked && !master.VerifyPassword(masterPassword), "Lock forgets the in-memory master password");
+    master.SetPassword(masterPassword);
     MasterKeyService.Current = master;
 
-    // --- Password encryption round-trip (AES-GCM under the master key) ---
+    // --- Password encryption round-trip (self-contained jrm1 envelope) ---
     const string secret = "S3cr3t!™密码";
     var enc = PasswordProtector.Encrypt(secret);
-    Check(enc != secret && enc.Length > 0, "Encrypt produces non-plaintext blob");
-    Check(PasswordProtector.Encrypt(secret) != enc, "AES-GCM uses a fresh nonce each time");
+    Check(MasterKeyService.IsPasswordBlob(enc), "Encrypt produces a jrm1 blob");
+    Check(enc != secret && enc.Length > MasterKeyService.BlobPrefix.Length, "Encrypt produces non-plaintext blob");
+    Check(!Encoding.UTF8.GetString(Convert.FromBase64String(enc[MasterKeyService.BlobPrefix.Length..])).Contains(secret),
+          "Plaintext password is not present in the encrypted blob bytes");
+    Check(PasswordProtector.Encrypt(secret) != enc, "jrm1 encryption uses fresh salt/nonce each time");
     Check(PasswordProtector.Decrypt(enc) == secret, "Decrypt round-trips the password");
     Check(PasswordProtector.Encrypt("") == "", "Empty password encrypts to empty");
 
@@ -59,41 +63,50 @@ try
         "root@example.com",
     }), "SSH options are emitted before the target host");
 
-    // --- Fixed salt: deriving the same password gives the same key everywhere ---
-    var sameKey = MasterKeyService.DeriveKey(masterPassword);
-    Check(MasterKeyService.DecryptWithKey(sameKey, enc) == secret,
-          "Derived key from the same password decrypts what the active key encrypted");
+    // --- Portability: a connection file alone (no vault, no cache) suffices ---
+    // Carry just the EncryptedPassword to a fresh "machine" and decrypt with the
+    // master password. The salt needed for PBKDF2 is inside the jrm1 blob.
+    var samePasswordSession = new MasterKeyService();
+    samePasswordSession.SetPassword(masterPassword);
+    Check(samePasswordSession.DecryptPassword(enc) == secret,
+          "A fresh service decrypts a jrm1 blob with the same master password");
+    Check(MasterKeyService.DecryptWithPassword(masterPassword, enc) == secret,
+          "Static decrypt accepts the same master password");
 
-    // --- Wrong password derives a different key that fails to decrypt ---
-    var wrongKey = MasterKeyService.DeriveKey("not-the-master");
-    Check(MasterKeyService.DecryptWithKey(wrongKey, enc) is null,
-          "Different password derives a key that cannot decrypt the blob");
+    // --- Wrong password fails to decrypt ---
+    Check(MasterKeyService.DecryptWithPassword("not-the-master", enc) is null,
+          "Different password cannot decrypt the jrm1 blob");
 
-    // --- A foreign key reports decrypt failure, not silent emptiness ---
-    // Use a separate cache path so the foreign SetKey doesn't clobber the real cache.
+    // --- Legacy/unknown non-empty blobs are rejected by the main runtime ---
+    var legacyLikeBlob = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+    Check(MasterKeyService.DecryptWithPassword(masterPassword, legacyLikeBlob) is null,
+          "Non-jrm1 blob is rejected by static decrypt");
+    Check(!PasswordProtector.TryDecrypt(legacyLikeBlob, out var legacyClear) && legacyClear == "",
+          "Non-jrm1 blob reports decrypt failure");
+
+    // --- A foreign password reports decrypt failure, not silent emptiness ---
+    // Use a separate cache path so the foreign SetPassword doesn't clobber the real cache.
     var primaryCachePath = MasterKeyService.CachePath;
-    MasterKeyService.CachePath = Path.Combine(root, "foreign-key.bin");
+    MasterKeyService.CachePath = Path.Combine(root, "foreign-master-password.bin");
     var otherSession = new MasterKeyService();
-    otherSession.SetKey(MasterKeyService.DeriveKey("totally-different"));
+    otherSession.SetPassword("totally-different");
     MasterKeyService.Current = otherSession;
     Check(!PasswordProtector.TryDecrypt(enc, out var failClear) && failClear == "",
-          "Foreign key reports decrypt failure (TryDecrypt=false)");
-    Check(PasswordProtector.Decrypt(enc) == "", "Foreign key decrypts to empty string");
+          "Foreign password reports decrypt failure (TryDecrypt=false)");
+    Check(PasswordProtector.Decrypt(enc) == "", "Foreign password decrypts to empty string");
     MasterKeyService.Current = master;
     MasterKeyService.CachePath = primaryCachePath; // restore
 
     // --- Cache round-trip via DPAPI ---
     var fromCache = new MasterKeyService();
-    Check(fromCache.TryUnlockFromCache(), "DPAPI cache reloads the master key");
-    Check(fromCache.DecryptPassword(enc) == secret, "Cached key decrypts existing passwords");
+    Check(fromCache.TryUnlockFromCache(), "DPAPI cache reloads the master password material");
+    Check(fromCache.DecryptPassword(enc) == secret, "Cached master password decrypts existing passwords");
 
-    // --- Portability: a connection file alone (no vault, no cache) suffices ---
-    // Carry just the EncryptedPassword to a fresh "machine" and decrypt with the
-    // master password — the whole point of the fixed-salt scheme.
-    MasterKeyService.CachePath = Path.Combine(root, "fresh-machine-key.bin"); // no cache here
+    // --- Fresh machine/cache path still decrypts with the master password alone ---
+    MasterKeyService.CachePath = Path.Combine(root, "fresh-machine-master-password.bin"); // no cache here
     var portable = new MasterKeyService();
     Check(!portable.TryUnlockFromCache(), "Fresh machine has no DPAPI cache yet");
-    portable.SetKey(MasterKeyService.DeriveKey(masterPassword));
+    portable.SetPassword(masterPassword);
     Check(portable.DecryptPassword(enc) == secret,
           "An encrypted connection decrypts on a fresh machine with the master password alone");
 

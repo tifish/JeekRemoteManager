@@ -55,11 +55,11 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Ensures the master key is unlocked, then builds and shows the main window.
-    /// Tries a silent unlock from the local DPAPI cache first; otherwise asks for
-    /// the master password (always with confirmation) and derives the key. If an
-    /// existing encrypted passwords can be read. Exits the app if the user
-    /// cancels.
+    /// Ensures the master password is unlocked, then builds and shows the main
+    /// window. Tries a silent unlock from the local DPAPI cache first; otherwise
+    /// asks for the master password (always with confirmation). When saved
+    /// encrypted passwords exist, the entered password must decrypt at least one
+    /// jrm1 blob. Exits the app if the user cancels.
     /// </summary>
     private async Task UnlockThenStartAsync(
         IClassicDesktopStyleApplicationLifetime desktop,
@@ -78,10 +78,9 @@ public partial class App : Application
 
         if (!unlocked)
         {
-            // The dialog has a single mode (password + confirmation); the title is
-            // just a hint. We call it "unlock" when connection files already exist,
-            // "setup" otherwise. When saved encrypted passwords exist, the entered
-            // password must decrypt at least one of them before we cache it.
+            // The dialog has a single mode (password + confirmation); the title
+            // is just a hint. We call it "unlock" when connection files already
+            // exist, "setup" otherwise.
             var firstRun = store.AllConnectionFiles().Count == 0;
             var (title, prompt) = firstRun
                 ? (Localizer.Get("MasterSetupTitle"), Localizer.Get("MasterSetupPrompt"))
@@ -89,11 +88,10 @@ public partial class App : Application
 
             unlocked = await MasterPasswordDialog.ShowAsync(null, title, prompt, password =>
             {
-                var key = MasterKeyService.DeriveKey(password);
-                if (!KeyCanReadStoredPasswords(store, key))
+                if (!PasswordCanReadStoredPasswords(store, password))
                     return false;
 
-                master.SetKey(key);
+                master.SetPassword(password);
                 return true;
             });
         }
@@ -149,7 +147,7 @@ public partial class App : Application
         return encryptedCount == 0;
     }
 
-    private static bool KeyCanReadStoredPasswords(ConnectionStore store, byte[] key)
+    private static bool PasswordCanReadStoredPasswords(ConnectionStore store, string password)
     {
         var encryptedCount = 0;
         foreach (var file in store.AllConnectionFiles())
@@ -161,12 +159,12 @@ public partial class App : Application
                     continue;
 
                 encryptedCount++;
-                if (MasterKeyService.DecryptWithKey(key, connection.EncryptedPassword) is not null)
+                if (MasterKeyService.DecryptWithPassword(password, connection.EncryptedPassword) is not null)
                     return true;
             }
             catch
             {
-                // Ignore unreadable files here; they cannot validate a master key.
+                // Ignore unreadable files here; they cannot validate a master password.
             }
         }
 

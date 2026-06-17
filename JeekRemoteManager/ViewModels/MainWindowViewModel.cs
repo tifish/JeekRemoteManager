@@ -1357,11 +1357,11 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>
     /// Switches the master password by re-encrypting every connection file: each
-    /// password is decrypted with the current session key and re-encrypted under
-    /// the key derived from <paramref name="newPassword"/>. Connections we cannot
-    /// decrypt (e.g. stored under an older, lost key) are left untouched. The new
-    /// key replaces the cached one only after the sweep, so an interruption never
-    /// leaves us with files that no key in memory can read.
+    /// password is decrypted with the current master password and re-encrypted
+    /// as a fresh self-contained jrm1 blob under <paramref name="newPassword"/>.
+    /// Connections we cannot decrypt are left untouched. The new password
+    /// replaces the cached one only after the sweep, so an interruption never
+    /// leaves us with files that no password in memory can read.
     /// </summary>
     public void ChangeMasterPassword(string newPassword)
     {
@@ -1370,8 +1370,7 @@ public partial class MainWindowViewModel : ViewModelBase
             FlushPendingAutoSave();
 
             var current = MasterKeyService.Current
-                          ?? throw new InvalidOperationException("Master key not initialised.");
-            var newKey = MasterKeyService.DeriveKey(newPassword);
+                          ?? throw new InvalidOperationException("Master password not initialised.");
 
             var pending = new List<(string File, Connection Connection, string ClearPassword)>();
             var unreadable = 0;
@@ -1404,11 +1403,11 @@ public partial class MainWindowViewModel : ViewModelBase
             foreach (var item in pending)
             {
                 item.Connection.EncryptedPassword =
-                    MasterKeyService.EncryptWithKey(newKey, item.ClearPassword);
+                    MasterKeyService.EncryptWithPassword(newPassword, item.ClearPassword);
                 _store.SaveInPlace(item.Connection, item.File);
             }
 
-            current.SetKey(newKey);
+            current.SetPassword(newPassword);
             StatusMessage = L("StatusMasterChanged");
         }
         catch (Exception ex)

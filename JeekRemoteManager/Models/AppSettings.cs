@@ -32,9 +32,9 @@ public class AppSettings
     /// </summary>
     public int UpdateCheckIntervalHours { get; set; } = 24;
 
-    // The master-password vault (salt + wrapped data key) is NOT stored here. It
-    // lives in a fixed per-user local folder managed by MasterKeyService, so these
-    // secrets never travel with portable settings/connection data.
+    // Saved connection passwords are self-contained jrm1 blobs in the connection
+    // files. The DPAPI cache managed by MasterKeyService is machine-local only
+    // and is intentionally not stored here.
     //
     // The recently-used connection list also lives outside this file — it's a
     // per-user preference and stays under %APPDATA% even in portable mode.

@@ -21,8 +21,8 @@ public class Connection
     public string Username { get; set; } = "";
 
     /// <summary>
-    /// DPAPI-encrypted password, Base64 encoded. Never stored in plain text.
-    /// Use <see cref="Services.PasswordProtector"/> to read/write the clear value.
+    /// Master-password-encrypted jrm1 blob. Never stored in plain text. Use
+    /// <see cref="Services.PasswordProtector"/> to read/write the clear value.
     /// </summary>
     public string EncryptedPassword { get; set; } = "";
 
