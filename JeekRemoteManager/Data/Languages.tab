@@ -141,6 +141,7 @@ ChangeMasterPassword	Change master password…	修改主密码…
 PasswordDecryptFailed	This password was saved with a different master password and cannot be shown. Leave it blank to keep it unchanged, or type a new one to replace it.	此密码是用另一个主密码保存的，无法显示。留空将保持不变，或输入新密码以替换。
 StatusMasterChanged	Master password changed.	主密码已修改。
 StatusMasterChangeFailed	Could not change the master password: {0}	无法修改主密码：{0}
+MasterChangeUnreadablePasswords	{0} saved password(s) could not be decrypted. Fix or replace them before changing the master password.	有 {0} 个已保存密码无法解密。请先修复或替换它们，再修改主密码。
 AutoUpdate	Auto-update	自动更新
 CheckUpdateOnStartup	Check for updates on startup	启动时检查更新
 UpdateCheckInterval	Check periodically	定时检查

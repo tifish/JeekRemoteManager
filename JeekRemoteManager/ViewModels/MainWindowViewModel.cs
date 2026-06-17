@@ -1358,6 +1358,9 @@ public partial class MainWindowViewModel : ViewModelBase
                           ?? throw new InvalidOperationException("Master key not initialised.");
             var newKey = MasterKeyService.DeriveKey(newPassword);
 
+            var pending = new List<(string File, Connection Connection, string ClearPassword)>();
+            var unreadable = 0;
+
             foreach (var file in _store.AllConnectionFiles())
             {
                 try
@@ -1367,15 +1370,27 @@ public partial class MainWindowViewModel : ViewModelBase
                         continue;
 
                     if (!current.TryDecryptPassword(c.EncryptedPassword, out var clear))
-                        continue; // can't read under current key; leave as-is
+                    {
+                        unreadable++;
+                        continue;
+                    }
 
-                    c.EncryptedPassword = MasterKeyService.EncryptWithKey(newKey, clear);
-                    _store.SaveInPlace(c, file);
+                    pending.Add((file, c, clear));
                 }
                 catch
                 {
-                    // Skip the offending file; the rest of the sweep continues.
+                    unreadable++;
                 }
+            }
+
+            if (unreadable > 0)
+                throw new InvalidOperationException(L("MasterChangeUnreadablePasswords", unreadable));
+
+            foreach (var item in pending)
+            {
+                item.Connection.EncryptedPassword =
+                    MasterKeyService.EncryptWithKey(newKey, item.ClearPassword);
+                _store.SaveInPlace(item.Connection, item.File);
             }
 
             current.SetKey(newKey);

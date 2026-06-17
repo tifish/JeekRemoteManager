@@ -25,6 +25,11 @@ try
     Check(!master.IsUnlocked, "Master key starts locked");
     master.SetKey(MasterKeyService.DeriveKey(masterPassword));
     Check(master.IsUnlocked, "SetKey unlocks the master key");
+    Check(master.VerifyPassword(masterPassword), "VerifyPassword accepts the current master password");
+    Check(!master.VerifyPassword("not-the-master"), "VerifyPassword rejects a different password");
+    master.Lock();
+    Check(!master.IsUnlocked && !master.VerifyPassword(masterPassword), "Lock forgets the in-memory master key");
+    master.SetKey(MasterKeyService.DeriveKey(masterPassword));
     MasterKeyService.Current = master;
 
     // --- Password encryption round-trip (AES-GCM under the master key) ---

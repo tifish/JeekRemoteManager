@@ -81,6 +81,12 @@ public sealed class MasterKeyService
         CacheKey(key);
     }
 
+    /// <summary>Forgets the in-memory key without touching the on-disk cache.</summary>
+    public void Lock()
+    {
+        _key = null;
+    }
+
     /// <summary>
     /// Loads the previously cached key (DPAPI, machine-bound). Returns false if no
     /// usable cache exists; the caller then prompts for the master password.
