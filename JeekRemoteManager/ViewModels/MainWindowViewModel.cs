@@ -359,13 +359,13 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Builds the synthetic "Recent" group from <see cref="AppSettings.RecentConnectionPaths"/>,
+    /// Builds the synthetic "Recent" group from <see cref="RecentSettings.RecentConnectionPaths"/>,
     /// pruning entries whose files no longer exist. Returns null when no usable
     /// entries remain (so the group doesn't appear empty).
     /// </summary>
     private TreeNodeViewModel? BuildRecentGroup()
     {
-        var paths = _settings.Settings.RecentConnectionPaths;
+        var paths = _settings.Recent.RecentConnectionPaths;
         if (paths.Count == 0)
             return null;
 
@@ -400,7 +400,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         if (pruned)
-            _settings.Save();
+            _settings.SaveRecent();
 
         if (children.Count == 0)
             return null;
@@ -410,7 +410,7 @@ public partial class MainWindowViewModel : ViewModelBase
             IsRecent = true,
             Name = L("RecentGroup"),
         };
-        group.IsExpanded = _settings.Settings.RecentExpanded;
+        group.IsExpanded = _settings.Recent.RecentExpanded;
         foreach (var c in children)
         {
             c.Parent = group;
@@ -422,10 +422,10 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             if (e.PropertyName != nameof(TreeNodeViewModel.IsExpanded))
                 return;
-            if (_settings.Settings.RecentExpanded == group.IsExpanded)
+            if (_settings.Recent.RecentExpanded == group.IsExpanded)
                 return;
-            _settings.Settings.RecentExpanded = group.IsExpanded;
-            _settings.Save();
+            _settings.Recent.RecentExpanded = group.IsExpanded;
+            _settings.SaveRecent();
         };
 
         return group;
@@ -465,7 +465,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         foreach (var node in nodes)
         {
-            if (node.IsRecent) continue; // tracked via AppSettings.RecentExpanded
+            if (node.IsRecent) continue; // tracked via RecentSettings.RecentExpanded
             if (node.IsFolder && node.IsExpanded)
                 expanded.Add(Path.GetFullPath(node.FullPath));
             CaptureExpanded(node.Children, expanded);
@@ -645,12 +645,12 @@ public partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private void RecordRecent(string path)
     {
-        var list = _settings.Settings.RecentConnectionPaths;
+        var list = _settings.Recent.RecentConnectionPaths;
         list.RemoveAll(p => PathEquals(p, path));
         list.Insert(0, path);
         if (list.Count > RecentMax)
             list.RemoveRange(RecentMax, list.Count - RecentMax);
-        _settings.Save();
+        _settings.SaveRecent();
 
         // Rebuild just the recent group in place so the user's tree selection
         // (typically the just-launched node) survives untouched.

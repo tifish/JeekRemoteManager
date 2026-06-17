@@ -23,15 +23,25 @@ public class AppSettings
     /// <summary>UI theme ("Light", "Dark"). Null = follow system theme.</summary>
     public string? Theme { get; set; }
 
+    // The master-password vault (salt + wrapped data key) is NOT stored here. It
+    // lives in a fixed per-user local folder managed by MasterKeyService, so these
+    // secrets never travel with portable settings/connection data.
+    //
+    // The recently-used connection list also lives outside this file — it's a
+    // per-user preference and stays under %APPDATA% even in portable mode.
+}
+
+/// <summary>
+/// Per-user recently-used connections. Always persisted under %APPDATA%, so it
+/// never travels with a portable folder.
+/// </summary>
+public class RecentSettings
+{
     /// <summary>Recently-used connection file paths, most-recent first.</summary>
     public List<string> RecentConnectionPaths { get; set; } = new();
 
     /// <summary>Whether the "Recent" group at the top of the tree is expanded.</summary>
     public bool RecentExpanded { get; set; } = true;
-
-    // The master-password vault (salt + wrapped data key) is NOT stored here. It
-    // lives in a fixed per-user local folder managed by MasterKeyService, so these
-    // secrets never travel with portable settings/connection data.
 }
 
 /// <summary>Outcome of the Settings dialog. <see cref="Language"/> and <see cref="Theme"/>

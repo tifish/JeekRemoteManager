@@ -51,11 +51,20 @@ public class SettingsService
         Settings = Load();
         // The folder-presence rule is authoritative for which mode we're in.
         Settings.StorageLocation = location;
+
+        RecentPath = Path.Combine(UserDir, "Config", "recent.json");
+        Recent = LoadRecent();
+        MigrateLegacyRecentFromSettings();
     }
 
     public string SettingsPath { get; private set; }
 
     public AppSettings Settings { get; private set; }
+
+    /// <summary>Path to the per-user recent-connections file (always under %APPDATA%).</summary>
+    public string RecentPath { get; }
+
+    public RecentSettings Recent { get; private set; }
 
     /// <summary>The base folder for a storage location; its Config and Connections live here.</summary>
     private static string BaseDirFor(StorageLocation location) =>
@@ -144,6 +153,85 @@ public class SettingsService
             Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
             var json = JsonSerializer.Serialize(Settings, JsonOptions);
             File.WriteAllText(SettingsPath, json);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private RecentSettings LoadRecent()
+    {
+        try
+        {
+            if (File.Exists(RecentPath))
+            {
+                var json = File.ReadAllText(RecentPath);
+                return JsonSerializer.Deserialize<RecentSettings>(json, JsonOptions) ?? new RecentSettings();
+            }
+        }
+        catch
+        {
+            // Corrupt or unreadable: fall back to defaults.
+        }
+
+        return new RecentSettings();
+    }
+
+    /// <summary>
+    /// On upgrade from a version that stored the recent list inside settings.json,
+    /// move those values into the new per-user recent.json once.
+    /// </summary>
+    private void MigrateLegacyRecentFromSettings()
+    {
+        if (File.Exists(RecentPath))
+            return;
+
+        try
+        {
+            if (!File.Exists(SettingsPath))
+                return;
+
+            using var doc = JsonDocument.Parse(File.ReadAllText(SettingsPath));
+            var root = doc.RootElement;
+            var migrated = false;
+
+            if (root.TryGetProperty("RecentConnectionPaths", out var pathsEl)
+                && pathsEl.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var p in pathsEl.EnumerateArray())
+                {
+                    if (p.ValueKind == JsonValueKind.String)
+                        Recent.RecentConnectionPaths.Add(p.GetString()!);
+                }
+                migrated = true;
+            }
+
+            if (root.TryGetProperty("RecentExpanded", out var expEl)
+                && (expEl.ValueKind == JsonValueKind.True || expEl.ValueKind == JsonValueKind.False))
+            {
+                Recent.RecentExpanded = expEl.GetBoolean();
+                migrated = true;
+            }
+
+            if (migrated)
+                SaveRecent();
+        }
+        catch
+        {
+            // Best-effort migration; defaults are fine if it fails.
+        }
+    }
+
+    /// <summary>Persists the recent-connections list. Returns false if writing failed.</summary>
+    public bool SaveRecent()
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(RecentPath)!);
+            var json = JsonSerializer.Serialize(Recent, JsonOptions);
+            File.WriteAllText(RecentPath, json);
             return true;
         }
         catch
