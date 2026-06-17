@@ -21,11 +21,19 @@
 
     <Application.Styles>
         <FluentTheme />
+        <Style Selector="Window">
+            <Setter Property="FontFamily" Value="Inter, Segoe UI" />
+        </Style>
         <!-- Color emoji icons: Inter (the default font) is monochrome-only,
              so route any TextBlock tagged with the "emoji" class through
              Segoe UI Emoji to get the color glyphs back. -->
         <Style Selector="TextBlock.emoji">
             <Setter Property="FontFamily" Value="Segoe UI Emoji" />
+        </Style>
+        <Style Selector="TextBlock.icon">
+            <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
     </Application.Styles>
 </Application>

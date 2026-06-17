@@ -4,240 +4,457 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="using:JeekRemoteManager.ViewModels"
         xmlns:l="using:Jeek.Avalonia.Localization"
-        mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
+        mc:Ignorable="d" d:DesignWidth="1040" d:DesignHeight="680"
         x:Class="JeekRemoteManager.Views.MainWindow"
         x:Name="Root"
         x:DataType="vm:MainWindowViewModel"
-        Width="960" Height="640"
-        MinWidth="640" MinHeight="420"
+        Width="1040" Height="680"
+        MinWidth="760" MinHeight="500"
         WindowStartupLocation="CenterScreen"
         Icon="/Assets/icon.ico"
-        Title="{l:Localize WindowTitle}">
+        Title="{l:Localize WindowTitle}"
+        Background="{DynamicResource AppBackgroundBrush}">
 
     <Design.DataContext>
         <vm:MainWindowViewModel />
     </Design.DataContext>
 
-    <DockPanel>
-        <!-- Toolbar -->
-        <Border DockPanel.Dock="Top" Padding="8,6" Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
-            <StackPanel Orientation="Horizontal" Spacing="6">
-                <Button Command="{Binding NewFolderCommand}" ToolTip.Tip="{l:Localize NewFolder}">
-                    <StackPanel Orientation="Horizontal" Spacing="4">
-                        <TextBlock Classes="emoji" Text="&#x1F4C1;" />
-                        <TextBlock Text="{l:Localize Folder}" />
-                    </StackPanel>
-                </Button>
-                <Button Command="{Binding NewSshCommand}" ToolTip.Tip="{l:Localize NewSsh}">
-                    <StackPanel Orientation="Horizontal" Spacing="4">
-                        <TextBlock Classes="emoji" Text="&#x2328;" />
-                        <TextBlock Text="{l:Localize SSH}" />
-                    </StackPanel>
-                </Button>
-                <Button Command="{Binding NewRdpCommand}" ToolTip.Tip="{l:Localize NewRdp}">
-                    <StackPanel Orientation="Horizontal" Spacing="4">
-                        <TextBlock Classes="emoji" Text="&#x1F5A5;" />
-                        <TextBlock Text="{l:Localize RDP}" />
-                    </StackPanel>
-                </Button>
-                <Rectangle Width="1" Fill="{DynamicResource SystemControlForegroundBaseLowBrush}" Margin="4,2" />
-                <Button Command="{Binding ConnectCommand}" ToolTip.Tip="{l:Localize ConnectTooltip}"
-                        Classes="accent">
-                    <StackPanel Orientation="Horizontal" Spacing="4">
-                        <TextBlock Classes="emoji" Text="&#x25B6;" />
-                        <TextBlock Text="{l:Localize Connect}" />
-                    </StackPanel>
-                </Button>
-                <Rectangle Width="1" Fill="{DynamicResource SystemControlForegroundBaseLowBrush}" Margin="4,2" />
-                <Button ToolTip.Tip="{l:Localize MoreActions}">
-                    <Button.Content>
-                        <TextBlock Text="&#x22EE;" FontSize="16" />
-                    </Button.Content>
-                    <Button.Flyout>
-                        <MenuFlyout>
-                            <MenuItem Header="{l:Localize Settings}"
-                                      Command="{Binding OpenSettingsCommand}"
-                                      ToolTip.Tip="{l:Localize SettingsTooltip}" />
-                            <Separator />
-                            <MenuItem Header="{l:Localize ImportFromFinalShell}"
-                                      Command="{Binding ImportFinalShellCommand}" />
-                            <Separator />
-                            <MenuItem Header="{l:Localize CheckForUpdates}"
-                                      Command="{Binding CheckForUpdatesCommand}" />
-                        </MenuFlyout>
-                    </Button.Flyout>
-                </Button>
-            </StackPanel>
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="AppBackgroundBrush" Color="#F5F7FA" />
+                    <SolidColorBrush x:Key="SurfaceBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="SurfaceAltBrush" Color="#F8FAFC" />
+                    <SolidColorBrush x:Key="PopupSurfaceBrush" Color="#FBFCFE" />
+                    <SolidColorBrush x:Key="PopupBorderBrush" Color="#BFC9D6" />
+                    <SolidColorBrush x:Key="BorderBrushSoft" Color="#DDE3EA" />
+                    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#182233" />
+                    <SolidColorBrush x:Key="TextMutedBrush" Color="#687385" />
+                    <SolidColorBrush x:Key="AccentBrush" Color="#2563EB" />
+                    <SolidColorBrush x:Key="AccentHoverBrush" Color="#1D4ED8" />
+                    <SolidColorBrush x:Key="AccentSoftBrush" Color="#E8F0FF" />
+                    <SolidColorBrush x:Key="DangerBrush" Color="#B42318" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="AppBackgroundBrush" Color="#111827" />
+                    <SolidColorBrush x:Key="SurfaceBrush" Color="#1F2937" />
+                    <SolidColorBrush x:Key="SurfaceAltBrush" Color="#253244" />
+                    <SolidColorBrush x:Key="PopupSurfaceBrush" Color="#111827" />
+                    <SolidColorBrush x:Key="PopupBorderBrush" Color="#4B5563" />
+                    <SolidColorBrush x:Key="BorderBrushSoft" Color="#374151" />
+                    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F3F4F6" />
+                    <SolidColorBrush x:Key="TextMutedBrush" Color="#A7B0C0" />
+                    <SolidColorBrush x:Key="AccentBrush" Color="#60A5FA" />
+                    <SolidColorBrush x:Key="AccentHoverBrush" Color="#3B82F6" />
+                    <SolidColorBrush x:Key="AccentSoftBrush" Color="#1E3A5F" />
+                    <SolidColorBrush x:Key="DangerBrush" Color="#F97066" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+            <SolidColorBrush x:Key="AccentForegroundBrush" Color="#FFFFFF" />
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Window.Styles>
+        <Style Selector="TextBlock.page-title">
+            <Setter Property="FontSize" Value="20" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+        </Style>
+        <Style Selector="TextBlock.section-title">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+        </Style>
+        <Style Selector="TextBlock.label">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBlock.hint">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="Border.panel">
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushSoft}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+        </Style>
+        <Style Selector="Button">
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="Padding" Value="12,6" />
+            <Setter Property="CornerRadius" Value="6" />
+        </Style>
+        <Style Selector="Button.toolbar">
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushSoft}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style Selector="Button.icon-button">
+            <Setter Property="MinWidth" Value="36" />
+            <Setter Property="Width" Value="36" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.accent">
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+        </Style>
+        <Style Selector="Button.accent:pointerover">
+            <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentHoverBrush}" />
+        </Style>
+        <Style Selector="TextBox">
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushSoft}" />
+        </Style>
+        <Style Selector="ComboBox">
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushSoft}" />
+        </Style>
+        <Style Selector="TreeView">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="TreeViewItem">
+            <Setter Property="MinHeight" Value="30" />
+            <Setter Property="Padding" Value="2" />
+        </Style>
+        <Style Selector="MenuFlyoutPresenter">
+            <Setter Property="Background" Value="{DynamicResource PopupSurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource PopupBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="7" />
+        </Style>
+        <Style Selector="ContextMenu">
+            <Setter Property="Background" Value="{DynamicResource PopupSurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource PopupBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="7" />
+        </Style>
+        <Style Selector="MenuItem">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+            <Setter Property="MinHeight" Value="32" />
+            <Setter Property="Padding" Value="10,6" />
+        </Style>
+        <Style Selector="MenuItem:pointerover">
+            <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+        </Style>
+    </Window.Styles>
+
+    <DockPanel Background="{DynamicResource AppBackgroundBrush}">
+        <!-- Command bar -->
+        <Border DockPanel.Dock="Top"
+                Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource BorderBrushSoft}"
+                BorderThickness="0,0,0,1"
+                Padding="18,12">
+            <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="16">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <Border Width="34" Height="34" CornerRadius="8">
+                        <Image Source="/Assets/icon.png"
+                               Width="34"
+                               Height="34"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center" />
+                    </Border>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button Command="{Binding NewFolderCommand}" ToolTip.Tip="{l:Localize NewFolder}" Classes="toolbar">
+                        <StackPanel Orientation="Horizontal" Spacing="7">
+                            <TextBlock Classes="icon" Text="&#xE8F4;" />
+                            <TextBlock Text="{l:Localize Folder}" />
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding NewSshCommand}" ToolTip.Tip="{l:Localize NewSsh}" Classes="toolbar">
+                        <StackPanel Orientation="Horizontal" Spacing="7">
+                            <TextBlock Classes="icon" Text="&#xE756;" />
+                            <TextBlock Text="{l:Localize SSH}" />
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding NewRdpCommand}" ToolTip.Tip="{l:Localize NewRdp}" Classes="toolbar">
+                        <StackPanel Orientation="Horizontal" Spacing="7">
+                            <TextBlock Classes="icon" Text="&#xE772;" />
+                            <TextBlock Text="{l:Localize RDP}" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+
+                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button ToolTip.Tip="{l:Localize MoreActions}" Classes="toolbar icon-button">
+                        <Button.Content>
+                            <TextBlock Classes="icon"
+                                       Text="&#xE712;"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       TextAlignment="Center" />
+                        </Button.Content>
+                        <Button.Flyout>
+                            <MenuFlyout>
+                                <MenuItem Header="{l:Localize Settings}"
+                                          Command="{Binding OpenSettingsCommand}"
+                                          ToolTip.Tip="{l:Localize SettingsTooltip}" />
+                                <Separator />
+                                <MenuItem Header="{l:Localize ImportFromFinalShell}"
+                                          Command="{Binding ImportFinalShellCommand}" />
+                                <Separator />
+                                <MenuItem Header="{l:Localize CheckForUpdates}"
+                                          Command="{Binding CheckForUpdatesCommand}" />
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
+                </StackPanel>
+            </Grid>
         </Border>
 
         <!-- Status bar -->
-        <Border DockPanel.Dock="Bottom" Padding="10,4" Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
-            <Grid ColumnDefinitions="*,Auto,Auto">
+        <Border DockPanel.Dock="Bottom"
+                Padding="18,8"
+                Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource BorderBrushSoft}"
+                BorderThickness="0,1,0,0">
+            <Grid ColumnDefinitions="*,Auto">
                 <TextBlock Grid.Column="0" Text="{Binding StatusMessage}" VerticalAlignment="Center" />
-                <TextBlock Grid.Column="1" Text="{Binding TargetDescription}" VerticalAlignment="Center"
-                           Opacity="0.7" Margin="12,0,0,0" />
-                <TextBlock Grid.Column="2" Text="{Binding VersionDisplay}" VerticalAlignment="Center"
-                           Opacity="0.7" Margin="12,0,0,0" />
+                <TextBlock Grid.Column="1" Text="{Binding VersionDisplay}" VerticalAlignment="Center"
+                           Foreground="{DynamicResource TextMutedBrush}" Margin="16,0,0,0" />
             </Grid>
         </Border>
 
         <!-- Main area: tree | editor -->
-        <Grid ColumnDefinitions="300,Auto,*">
-            <TreeView Grid.Column="0"
-                      x:Name="Tree"
-                      Margin="6"
-                      ItemsSource="{Binding Nodes}"
-                      SelectedItem="{Binding SelectedNode, Mode=TwoWay}">
-                <TreeView.Styles>
-                    <!-- Keep each item's expand/collapse state bound to its view model
-                         so it can be preserved across tree reloads. -->
-                    <Style Selector="TreeViewItem" x:DataType="vm:TreeNodeViewModel">
-                        <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
-                    </Style>
-                </TreeView.Styles>
-                <TreeView.KeyBindings>
-                    <KeyBinding Gesture="Enter" Command="{Binding ConnectCommand}" />
-                    <KeyBinding Gesture="Ctrl+C" Command="{Binding CopyCommand}" />
-                    <KeyBinding Gesture="Ctrl+X" Command="{Binding CutCommand}" />
-                    <KeyBinding Gesture="Ctrl+V" Command="{Binding PasteCommand}" />
-                    <KeyBinding Gesture="F2" Command="{Binding RenameCommand}" />
-                    <KeyBinding Gesture="Delete" Command="{Binding DeleteCommand}" />
-                    <KeyBinding Gesture="Escape" Command="{Binding ClearSelectionCommand}" />
-                </TreeView.KeyBindings>
-                <TreeView.ContextMenu>
-                    <ContextMenu>
-                        <MenuItem Header="{l:Localize Connect}" Command="{Binding ConnectCommand}" />
-                        <Separator />
-                        <MenuItem Header="{l:Localize NewFolder}" Command="{Binding NewFolderCommand}" />
-                        <MenuItem Header="{l:Localize NewSsh}" Command="{Binding NewSshCommand}" />
-                        <MenuItem Header="{l:Localize NewRdp}" Command="{Binding NewRdpCommand}" />
-                        <Separator />
-                        <MenuItem Header="{l:Localize Copy}" Command="{Binding CopyCommand}" InputGesture="Ctrl+C" />
-                        <MenuItem Header="{l:Localize Cut}" Command="{Binding CutCommand}" InputGesture="Ctrl+X" />
-                        <MenuItem Header="{l:Localize Paste}" Command="{Binding PasteCommand}" InputGesture="Ctrl+V" />
-                        <Separator />
-                        <MenuItem Header="{l:Localize Rename}" Command="{Binding RenameCommand}" InputGesture="F2" />
-                        <MenuItem Header="{l:Localize Delete}" Command="{Binding DeleteCommand}" InputGesture="Delete" />
-                    </ContextMenu>
-                </TreeView.ContextMenu>
-                <TreeView.ItemTemplate>
-                    <TreeDataTemplate ItemsSource="{Binding Children}" x:DataType="vm:TreeNodeViewModel">
-                        <StackPanel Orientation="Horizontal" Spacing="6" Opacity="{Binding NodeOpacity}">
-                            <TextBlock Classes="emoji" Text="{Binding Glyph}" />
-                            <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+        <Grid ColumnDefinitions="312,Auto,*" Margin="14" ColumnSpacing="12">
+            <Border Grid.Column="0" Classes="panel" Padding="10">
+                <DockPanel>
+                    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="4,2,4,10">
+                        <StackPanel Grid.Column="0" Spacing="1">
+                            <TextBlock Classes="section-title" Text="{l:Localize Connection}" />
                         </StackPanel>
-                    </TreeDataTemplate>
-                </TreeView.ItemTemplate>
-            </TreeView>
+                        <Button Grid.Column="1"
+                                ToolTip.Tip="{l:Localize MoreActions}"
+                                Classes="toolbar icon-button">
+                            <Button.Content>
+                                <TextBlock Classes="icon"
+                                           Text="&#xE712;"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           TextAlignment="Center" />
+                            </Button.Content>
+                            <Button.Flyout>
+                                <MenuFlyout>
+                                    <MenuItem Header="{l:Localize Connect}" Command="{Binding ConnectCommand}" />
+                                    <Separator />
+                                    <MenuItem Header="{l:Localize NewFolder}" Command="{Binding NewFolderCommand}" />
+                                    <MenuItem Header="{l:Localize NewSsh}" Command="{Binding NewSshCommand}" />
+                                    <MenuItem Header="{l:Localize NewRdp}" Command="{Binding NewRdpCommand}" />
+                                    <Separator />
+                                    <MenuItem Header="{l:Localize Copy}" Command="{Binding CopyCommand}" InputGesture="Ctrl+C" />
+                                    <MenuItem Header="{l:Localize Cut}" Command="{Binding CutCommand}" InputGesture="Ctrl+X" />
+                                    <MenuItem Header="{l:Localize Paste}" Command="{Binding PasteCommand}" InputGesture="Ctrl+V" />
+                                    <Separator />
+                                    <MenuItem Header="{l:Localize Rename}" Command="{Binding RenameCommand}" InputGesture="F2" />
+                                    <MenuItem Header="{l:Localize Delete}" Command="{Binding DeleteCommand}" InputGesture="Delete" />
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+                    </Grid>
 
-            <GridSplitter Grid.Column="1" Width="4" ResizeDirection="Columns"
-                          Background="{DynamicResource SystemControlForegroundBaseLowBrush}" />
+                    <TreeView x:Name="Tree"
+                              ItemsSource="{Binding Nodes}"
+                              SelectedItem="{Binding SelectedNode, Mode=TwoWay}">
+                        <TreeView.Styles>
+                            <!-- Keep each item's expand/collapse state bound to its view model
+                                 so it can be preserved across tree reloads. -->
+                            <Style Selector="TreeViewItem" x:DataType="vm:TreeNodeViewModel">
+                                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                            </Style>
+                        </TreeView.Styles>
+                        <TreeView.KeyBindings>
+                            <KeyBinding Gesture="Enter" Command="{Binding ConnectCommand}" />
+                            <KeyBinding Gesture="Ctrl+C" Command="{Binding CopyCommand}" />
+                            <KeyBinding Gesture="Ctrl+X" Command="{Binding CutCommand}" />
+                            <KeyBinding Gesture="Ctrl+V" Command="{Binding PasteCommand}" />
+                            <KeyBinding Gesture="F2" Command="{Binding RenameCommand}" />
+                            <KeyBinding Gesture="Delete" Command="{Binding DeleteCommand}" />
+                            <KeyBinding Gesture="Escape" Command="{Binding ClearSelectionCommand}" />
+                        </TreeView.KeyBindings>
+                        <TreeView.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="{l:Localize Connect}" Command="{Binding ConnectCommand}" />
+                                <Separator />
+                                <MenuItem Header="{l:Localize NewFolder}" Command="{Binding NewFolderCommand}" />
+                                <MenuItem Header="{l:Localize NewSsh}" Command="{Binding NewSshCommand}" />
+                                <MenuItem Header="{l:Localize NewRdp}" Command="{Binding NewRdpCommand}" />
+                                <Separator />
+                                <MenuItem Header="{l:Localize Copy}" Command="{Binding CopyCommand}" InputGesture="Ctrl+C" />
+                                <MenuItem Header="{l:Localize Cut}" Command="{Binding CutCommand}" InputGesture="Ctrl+X" />
+                                <MenuItem Header="{l:Localize Paste}" Command="{Binding PasteCommand}" InputGesture="Ctrl+V" />
+                                <Separator />
+                                <MenuItem Header="{l:Localize Rename}" Command="{Binding RenameCommand}" InputGesture="F2" />
+                                <MenuItem Header="{l:Localize Delete}" Command="{Binding DeleteCommand}" InputGesture="Delete" />
+                            </ContextMenu>
+                        </TreeView.ContextMenu>
+                        <TreeView.ItemTemplate>
+                            <TreeDataTemplate ItemsSource="{Binding Children}" x:DataType="vm:TreeNodeViewModel">
+                                <StackPanel Orientation="Horizontal" Spacing="8" Opacity="{Binding NodeOpacity}">
+                                    <TextBlock Classes="emoji" Text="{Binding Glyph}"
+                                               Width="22"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </TreeDataTemplate>
+                        </TreeView.ItemTemplate>
+                    </TreeView>
+                </DockPanel>
+            </Border>
+
+            <GridSplitter Grid.Column="1" Width="5" ResizeDirection="Columns"
+                          Background="Transparent" />
 
             <!-- Editor -->
-            <ContentControl Grid.Column="2" Margin="6" Content="{Binding Editor}">
+            <ContentControl Grid.Column="2" Content="{Binding Editor}">
                 <ContentControl.DataTemplates>
                     <DataTemplate DataType="vm:ConnectionEditorViewModel">
-                        <Border>
+                        <Border Classes="panel">
                             <ScrollViewer>
-                                <StackPanel Spacing="10" Margin="6,6,16,6">
-                                    <TextBlock Text="{l:Localize Connection}" FontSize="18" FontWeight="SemiBold" />
-
-                                    <Grid ColumnDefinitions="120,*" RowDefinitions="Auto" Margin="0,4,0,0">
-                                        <TextBlock Grid.Column="0" Text="{l:Localize Type}" VerticalAlignment="Center" />
-                                        <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
-                                                  ItemsSource="{Binding AvailableTypes}"
-                                                  SelectedItem="{Binding Type, Mode=TwoWay}" />
+                                <StackPanel Spacing="18" Margin="22,20,26,22">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <StackPanel Spacing="2">
+                                            <TextBlock Classes="page-title" Text="{l:Localize Connection}" />
+                                            <TextBlock Classes="hint" Text="{l:Localize AutoSaveHint}" />
+                                        </StackPanel>
+                                        <Button Grid.Column="1"
+                                                Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).ConnectCommand}"
+                                                Classes="accent">
+                                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                                <TextBlock Classes="icon" Text="&#xE768;" />
+                                                <TextBlock Text="{l:Localize Connect}" />
+                                            </StackPanel>
+                                        </Button>
                                     </Grid>
 
-                                    <Grid ColumnDefinitions="120,*">
-                                        <TextBlock Grid.Column="0" Text="{l:Localize Name}" VerticalAlignment="Center" />
-                                        <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}" />
-                                    </Grid>
+                                    <Border Background="{DynamicResource SurfaceAltBrush}" CornerRadius="8" Padding="16">
+                                        <StackPanel Spacing="12">
+                                            <TextBlock Classes="section-title" Text="{l:Localize Connection}" />
 
-                                    <Grid ColumnDefinitions="120,*,80,90">
-                                        <TextBlock Grid.Column="0" Text="{l:Localize Host}" VerticalAlignment="Center" />
-                                        <TextBox Grid.Column="1" Text="{Binding Host, Mode=TwoWay}" PlaceholderText="{l:Localize HostWatermark}" />
-                                        <TextBlock Grid.Column="2" Text="{l:Localize Port}" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" />
-                                        <TextBox Grid.Column="3" Text="{Binding Port, Mode=TwoWay}" />
-                                    </Grid>
+                                            <Grid ColumnDefinitions="128,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10">
+                                                <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="{l:Localize Type}" />
+                                                <ComboBox Grid.Row="0" Grid.Column="1" HorizontalAlignment="Stretch"
+                                                          ItemsSource="{Binding AvailableTypes}"
+                                                          SelectedItem="{Binding Type, Mode=TwoWay}" />
 
-                                    <Grid ColumnDefinitions="120,*">
-                                        <TextBlock Grid.Column="0" Text="{l:Localize Username}" VerticalAlignment="Center" />
-                                        <TextBox Grid.Column="1" Text="{Binding Username, Mode=TwoWay}" />
-                                    </Grid>
+                                                <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="{l:Localize Name}" />
+                                                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Name, Mode=TwoWay}" />
 
-                                    <Grid ColumnDefinitions="120,*,Auto">
-                                        <TextBlock Grid.Column="0" Text="{l:Localize Password}" VerticalAlignment="Center" />
-                                        <TextBox Grid.Column="1" x:Name="PasswordBox"
-                                                 Text="{Binding Password, Mode=TwoWay}"
-                                                 PasswordChar="&#x2022;" />
-                                        <CheckBox Grid.Column="2" Content="{l:Localize Show}" Margin="8,0,0,0"
-                                                  IsChecked="{Binding #PasswordBox.RevealPassword, Mode=TwoWay}" />
-                                    </Grid>
+                                                <TextBlock Grid.Row="2" Grid.Column="0" Classes="label" Text="{l:Localize Host}" />
+                                                <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,86,96" ColumnSpacing="10">
+                                                    <TextBox Grid.Column="0" Text="{Binding Host, Mode=TwoWay}"
+                                                             PlaceholderText="{l:Localize HostWatermark}" />
+                                                    <TextBlock Grid.Column="1" Classes="label" Text="{l:Localize Port}"
+                                                               HorizontalAlignment="Right" />
+                                                    <TextBox Grid.Column="2" Text="{Binding Port, Mode=TwoWay}" />
+                                                </Grid>
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
 
-                                    <TextBlock Text="{l:Localize PasswordDecryptFailed}"
-                                               Foreground="IndianRed" TextWrapping="Wrap"
-                                               Margin="120,0,0,0"
-                                               IsVisible="{Binding PasswordDecryptFailed}" />
+                                    <Border Background="{DynamicResource SurfaceAltBrush}" CornerRadius="8" Padding="16">
+                                        <StackPanel Spacing="12">
+                                            <TextBlock Classes="section-title" Text="{l:Localize Username}" />
+
+                                            <Grid ColumnDefinitions="128,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10">
+                                                <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="{l:Localize Username}" />
+                                                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Username, Mode=TwoWay}" />
+
+                                                <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="{l:Localize Password}" />
+                                                <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                                    <TextBox Grid.Column="0" x:Name="PasswordBox"
+                                                             Text="{Binding Password, Mode=TwoWay}"
+                                                             PasswordChar="&#x2022;" />
+                                                    <CheckBox Grid.Column="1" Content="{l:Localize Show}"
+                                                              VerticalAlignment="Center"
+                                                              IsChecked="{Binding #PasswordBox.RevealPassword, Mode=TwoWay}" />
+                                                </Grid>
+
+                                                <TextBlock Grid.Row="2" Grid.Column="1"
+                                                           Text="{l:Localize PasswordDecryptFailed}"
+                                                           Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap"
+                                                           IsVisible="{Binding PasswordDecryptFailed}" />
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
 
                                     <!-- SSH-specific -->
-                                    <StackPanel Spacing="10" IsVisible="{Binding IsSsh}">
-                                        <Separator />
-                                        <TextBlock Text="{l:Localize SshOptions}" FontWeight="SemiBold" />
-                                        <Grid ColumnDefinitions="120,*,Auto">
-                                            <TextBlock Grid.Column="0" Text="{l:Localize PrivateKey}" VerticalAlignment="Center" />
-                                            <TextBox Grid.Column="1" Text="{Binding PrivateKeyPath, Mode=TwoWay}"
-                                                     PlaceholderText="{l:Localize PrivateKeyWatermark}" />
-                                            <Button Grid.Column="2" Content="{l:Localize Browse}" Margin="8,0,0,0"
-                                                    Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).BrowseKeyCommand}" />
-                                        </Grid>
-                                        <Grid ColumnDefinitions="120,*">
-                                            <TextBlock Grid.Column="0" Text="{l:Localize ExtraArgs}" VerticalAlignment="Center" />
-                                            <TextBox Grid.Column="1" Text="{Binding ExtraSshArguments, Mode=TwoWay}"
-                                                     PlaceholderText="{l:Localize ExtraArgsWatermark}" />
-                                        </Grid>
-                                    </StackPanel>
+                                    <Border Background="{DynamicResource SurfaceAltBrush}" CornerRadius="8" Padding="16"
+                                            IsVisible="{Binding IsSsh}">
+                                        <StackPanel Spacing="12">
+                                            <TextBlock Classes="section-title" Text="{l:Localize SshOptions}" />
+                                            <Grid ColumnDefinitions="128,*,Auto" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                                                <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="{l:Localize PrivateKey}" />
+                                                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding PrivateKeyPath, Mode=TwoWay}"
+                                                         PlaceholderText="{l:Localize PrivateKeyWatermark}" />
+                                                <Button Grid.Row="0" Grid.Column="2" Content="{l:Localize Browse}"
+                                                        Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).BrowseKeyCommand}" />
+
+                                                <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="{l:Localize ExtraArgs}" />
+                                                <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2"
+                                                         Text="{Binding ExtraSshArguments, Mode=TwoWay}"
+                                                         PlaceholderText="{l:Localize ExtraArgsWatermark}" />
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
 
                                     <!-- RDP-specific -->
-                                    <StackPanel Spacing="10" IsVisible="{Binding IsRdp}">
-                                        <Separator />
-                                        <TextBlock Text="{l:Localize RdpOptions}" FontWeight="SemiBold" />
-                                        <CheckBox Content="{l:Localize FullScreen}" IsChecked="{Binding RdpFullScreen, Mode=TwoWay}" />
-                                        <CheckBox Content="{l:Localize UseAllMonitors}" IsChecked="{Binding RdpUseAllMonitors, Mode=TwoWay}"
-                                                  IsVisible="{Binding RdpFullScreen}" Margin="20,0,0,0" />
-                                        <Grid ColumnDefinitions="120,*,80,*" IsVisible="{Binding !RdpFullScreen}">
-                                            <TextBlock Grid.Column="0" Text="{l:Localize Width}" VerticalAlignment="Center" />
-                                            <TextBox Grid.Column="1" Text="{Binding RdpWidth, Mode=TwoWay}" />
-                                            <TextBlock Grid.Column="2" Text="{l:Localize Height}" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" />
-                                            <TextBox Grid.Column="3" Text="{Binding RdpHeight, Mode=TwoWay}" />
-                                        </Grid>
-                                        <TextBlock Text="{l:Localize LocalResources}" FontWeight="SemiBold" Margin="0,4,0,0" />
-                                        <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" >
-                                            <CheckBox Grid.Row="0" Grid.Column="0" Content="{l:Localize ShareClipboard}"
-                                                      IsChecked="{Binding RdpRedirectClipboard, Mode=TwoWay}" />
-                                            <CheckBox Grid.Row="0" Grid.Column="1" Content="{l:Localize ShareDrives}"
-                                                      IsChecked="{Binding RdpRedirectDrives, Mode=TwoWay}" />
-                                            <CheckBox Grid.Row="1" Grid.Column="0" Content="{l:Localize PlayRemoteAudio}"
-                                                      IsChecked="{Binding RdpRedirectAudioPlayback, Mode=TwoWay}" />
-                                            <CheckBox Grid.Row="1" Grid.Column="1" Content="{l:Localize ShareMicrophone}"
-                                                      IsChecked="{Binding RdpRedirectMicrophone, Mode=TwoWay}" />
-                                        </Grid>
-                                    </StackPanel>
+                                    <Border Background="{DynamicResource SurfaceAltBrush}" CornerRadius="8" Padding="16"
+                                            IsVisible="{Binding IsRdp}">
+                                        <StackPanel Spacing="12">
+                                            <TextBlock Classes="section-title" Text="{l:Localize RdpOptions}" />
+                                            <StackPanel Orientation="Horizontal" Spacing="18">
+                                                <CheckBox Content="{l:Localize FullScreen}"
+                                                          IsChecked="{Binding RdpFullScreen, Mode=TwoWay}" />
+                                                <CheckBox Content="{l:Localize UseAllMonitors}"
+                                                          IsChecked="{Binding RdpUseAllMonitors, Mode=TwoWay}"
+                                                          IsVisible="{Binding RdpFullScreen}" />
+                                            </StackPanel>
 
-                                    <Separator />
-                                    <Grid ColumnDefinitions="120,*">
-                                        <TextBlock Grid.Column="0" Text="{l:Localize Notes}" VerticalAlignment="Top" Margin="0,4,0,0" />
-                                        <TextBox Grid.Column="1" Text="{Binding Notes, Mode=TwoWay}"
-                                                 AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" />
-                                    </Grid>
+                                            <Grid ColumnDefinitions="128,*,80,*" ColumnSpacing="10"
+                                                  IsVisible="{Binding !RdpFullScreen}">
+                                                <TextBlock Grid.Column="0" Classes="label" Text="{l:Localize Width}" />
+                                                <TextBox Grid.Column="1" Text="{Binding RdpWidth, Mode=TwoWay}" />
+                                                <TextBlock Grid.Column="2" Classes="label" Text="{l:Localize Height}"
+                                                           HorizontalAlignment="Right" />
+                                                <TextBox Grid.Column="3" Text="{Binding RdpHeight, Mode=TwoWay}" />
+                                            </Grid>
 
-                                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
-                                        <Button Content="{l:Localize Connect}"
-                                                Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).ConnectCommand}"
-                                                Classes="accent" />
-                                        <TextBlock Text="{l:Localize AutoSaveHint}"
-                                                   VerticalAlignment="Center" Opacity="0.6" Margin="6,0,0,0" />
-                                    </StackPanel>
+                                            <TextBlock Classes="section-title" Text="{l:Localize LocalResources}" Margin="0,4,0,0" />
+                                            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" RowSpacing="8" ColumnSpacing="14">
+                                                <CheckBox Grid.Row="0" Grid.Column="0" Content="{l:Localize ShareClipboard}"
+                                                          IsChecked="{Binding RdpRedirectClipboard, Mode=TwoWay}" />
+                                                <CheckBox Grid.Row="0" Grid.Column="1" Content="{l:Localize ShareDrives}"
+                                                          IsChecked="{Binding RdpRedirectDrives, Mode=TwoWay}" />
+                                                <CheckBox Grid.Row="1" Grid.Column="0" Content="{l:Localize PlayRemoteAudio}"
+                                                          IsChecked="{Binding RdpRedirectAudioPlayback, Mode=TwoWay}" />
+                                                <CheckBox Grid.Row="1" Grid.Column="1" Content="{l:Localize ShareMicrophone}"
+                                                          IsChecked="{Binding RdpRedirectMicrophone, Mode=TwoWay}" />
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Background="{DynamicResource SurfaceAltBrush}" CornerRadius="8" Padding="16">
+                                        <Grid ColumnDefinitions="128,*">
+                                            <TextBlock Grid.Column="0" Classes="label" Text="{l:Localize Notes}"
+                                                       VerticalAlignment="Top" Margin="0,7,0,0" />
+                                            <TextBox Grid.Column="1" Text="{Binding Notes, Mode=TwoWay}"
+                                                     AcceptsReturn="True" TextWrapping="Wrap" MinHeight="82" />
+                                        </Grid>
+                                    </Border>
                                 </StackPanel>
                             </ScrollViewer>
                         </Border>
@@ -246,11 +463,24 @@
             </ContentControl>
 
             <!-- Placeholder when nothing is selected -->
-            <TextBlock Grid.Column="2"
-                       IsVisible="{Binding Editor, Converter={x:Static ObjectConverters.IsNull}}"
-                       Text="{l:Localize SelectConnectionHint}"
-                       HorizontalAlignment="Center" VerticalAlignment="Center"
-                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}" />
+            <Border Grid.Column="2"
+                    Classes="panel"
+                    IsVisible="{Binding Editor, Converter={x:Static ObjectConverters.IsNull}}">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14" MaxWidth="360">
+                    <Border Width="54" Height="54" CornerRadius="8">
+                        <Image Source="/Assets/icon.png"
+                               Width="54"
+                               Height="54"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center" />
+                    </Border>
+                    <TextBlock Classes="page-title" Text="{l:Localize Connection}"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Classes="hint"
+                               Text="{l:Localize SelectConnectionHint}"
+                               TextAlignment="Center" />
+                </StackPanel>
+            </Border>
         </Grid>
     </DockPanel>
 </Window>
