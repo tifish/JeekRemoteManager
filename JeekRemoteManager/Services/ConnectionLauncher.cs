@@ -117,9 +117,12 @@ public class ConnectionLauncher
         sb.AppendLine($"audiomode:i:{(connection.RdpRedirectAudioPlayback ? 0 : 2)}");
         sb.AppendLine($"audiocapturemode:i:{(connection.RdpRedirectMicrophone ? 1 : 0)}");
 
-        var path = Path.Combine(
-            Path.GetTempPath(),
-            $"jrm_{ConnectionStore.SanitizeName(connection.Name)}_{Environment.ProcessId}.rdp");
+        // mstsc uses the .rdp file name as the window title, so name the file
+        // after the connection and isolate it in a unique subdirectory to
+        // avoid collisions across simultaneous launches.
+        var dir = Path.Combine(Path.GetTempPath(), $"jrm_{Environment.ProcessId}_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, $"{ConnectionStore.SanitizeName(connection.Name)}.rdp");
 
         // .rdp files are conventionally UTF-16 LE; mstsc accepts UTF-8 too, but
         // UTF-16 LE matches what Windows itself writes.
@@ -136,6 +139,9 @@ public class ConnectionLauncher
                 await Task.Delay(delay).ConfigureAwait(false);
                 if (File.Exists(path))
                     File.Delete(path);
+                var dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                    Directory.Delete(dir, recursive: true);
             }
             catch
             {
