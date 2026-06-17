@@ -304,7 +304,11 @@ public partial class MainWindow : Window
     }
 
     private Task<SettingsDialogResult?> PickSettingsAsync(
-        StorageLocation current, string? currentLanguage, string? currentTheme)
+        StorageLocation current,
+        string? currentLanguage,
+        string? currentTheme,
+        bool currentCheckOnStartup,
+        int currentIntervalHours)
     {
         var tcs = new TaskCompletionSource<SettingsDialogResult?>();
 
@@ -362,6 +366,30 @@ public partial class MainWindow : Window
             HorizontalAlignment = HorizontalAlignment.Left,
         };
 
+        var checkOnStartupBox = new CheckBox
+        {
+            Content = Localizer.Get("CheckUpdateOnStartup"),
+            IsChecked = currentCheckOnStartup,
+        };
+
+        // 0 = disabled. Hours used directly as the value.
+        var intervals = new[]
+        {
+            new IntervalChoice(Localizer.Get("IntervalNever"), 0),
+            new IntervalChoice(Localizer.Get("IntervalEvery6Hours"), 6),
+            new IntervalChoice(Localizer.Get("IntervalDaily"), 24),
+            new IntervalChoice(Localizer.Get("IntervalWeekly"), 24 * 7),
+        };
+        var intervalBox = new ComboBox
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            ItemsSource = intervals,
+        };
+        intervalBox.SelectedIndex =
+            System.Array.FindIndex(intervals, c => c.Hours == currentIntervalHours) is var ii && ii >= 0
+                ? ii
+                : 2;
+
         var ok = new Button { Content = Localizer.Get("DialogOk"), MinWidth = 80, IsDefault = true };
         var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 80, IsCancel = true };
 
@@ -387,6 +415,10 @@ public partial class MainWindow : Window
                     programRadio,
                     new TextBlock { Text = Localizer.Get("Password"), FontWeight = FontWeight.SemiBold },
                     changePassword,
+                    new TextBlock { Text = Localizer.Get("AutoUpdate"), FontWeight = FontWeight.SemiBold },
+                    checkOnStartupBox,
+                    new TextBlock { Text = Localizer.Get("UpdateCheckInterval") },
+                    intervalBox,
                     new StackPanel
                     {
                         Orientation = Orientation.Horizontal,
@@ -418,7 +450,10 @@ public partial class MainWindow : Window
                 : StorageLocation.ProgramDirectory;
             var language = (languageBox.SelectedItem as LanguageChoice)?.Code;
             var theme = (themeBox.SelectedItem as ThemeChoice)?.Code;
-            tcs.TrySetResult(new SettingsDialogResult(storage, language, theme));
+            var checkOnStartup = checkOnStartupBox.IsChecked == true;
+            var intervalHours = (intervalBox.SelectedItem as IntervalChoice)?.Hours ?? 0;
+            tcs.TrySetResult(new SettingsDialogResult(
+                storage, language, theme, checkOnStartup, intervalHours));
             dialog.Close();
         };
         cancel.Click += (_, _) => { tcs.TrySetResult(null); dialog.Close(); };
@@ -436,6 +471,12 @@ public partial class MainWindow : Window
 
     /// <summary>A selectable UI theme; <see cref="Code"/> is null for "follow system".</summary>
     private sealed record ThemeChoice(string Label, string? Code)
+    {
+        public override string ToString() => Label;
+    }
+
+    /// <summary>An auto-update polling interval; <see cref="Hours"/> is 0 for "never".</summary>
+    private sealed record IntervalChoice(string Label, int Hours)
     {
         public override string ToString() => Label;
     }

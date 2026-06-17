@@ -23,6 +23,15 @@ public class AppSettings
     /// <summary>UI theme ("Light", "Dark"). Null = follow system theme.</summary>
     public string? Theme { get; set; }
 
+    /// <summary>Whether to silently check for updates a few seconds after launch.</summary>
+    public bool CheckUpdateOnStartup { get; set; } = true;
+
+    /// <summary>
+    /// How often to check for updates while the app is running, in hours.
+    /// 0 disables the periodic check; the startup check is independent.
+    /// </summary>
+    public int UpdateCheckIntervalHours { get; set; } = 24;
+
     // The master-password vault (salt + wrapped data key) is NOT stored here. It
     // lives in a fixed per-user local folder managed by MasterKeyService, so these
     // secrets never travel with portable settings/connection data.
@@ -46,4 +55,9 @@ public class RecentSettings
 
 /// <summary>Outcome of the Settings dialog. <see cref="Language"/> and <see cref="Theme"/>
 /// are null when "follow system" is chosen.</summary>
-public record SettingsDialogResult(StorageLocation StorageLocation, string? Language, string? Theme);
+public record SettingsDialogResult(
+    StorageLocation StorageLocation,
+    string? Language,
+    string? Theme,
+    bool CheckUpdateOnStartup,
+    int UpdateCheckIntervalHours);

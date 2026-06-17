@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Input.Platform;
 using Avalonia.Threading;
@@ -113,7 +114,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public Func<string, string, Task<bool>>? ConfirmAsync { get; set; }
     public Func<string, string, string, Task<string?>>? PromptAsync { get; set; }
     public Func<Task<string?>>? PickKeyFileAsync { get; set; }
-    public Func<StorageLocation, string?, string?, Task<SettingsDialogResult?>>? PickSettingsAsync { get; set; }
+    public Func<StorageLocation, string?, string?, bool, int, Task<SettingsDialogResult?>>? PickSettingsAsync { get; set; }
     public Func<string, Task<string?>>? PickFolderAsync { get; set; }
 
     /// <summary>Asks the view to put keyboard focus on the tree so it receives shortcuts.</summary>
@@ -953,16 +954,59 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    // Cancelled when the user changes the periodic-check interval, so the loop
+    // wakes from its long sleep and picks up the new cadence immediately.
+    private CancellationTokenSource _updateIntervalChanged = new();
+
     /// <summary>
-    /// Runs once shortly after startup: silently asks GitHub Releases whether a
-    /// newer build exists and, if so, prompts the user to install it. Failures
-    /// (offline, GitHub down, dev build) are swallowed.
+    /// Background task driving auto-updates: an optional silent check shortly
+    /// after launch (per <see cref="AppSettings.CheckUpdateOnStartup"/>) and an
+    /// optional periodic check (per <see cref="AppSettings.UpdateCheckIntervalHours"/>).
+    /// Both gates are re-read each iteration so settings changes take effect
+    /// without a restart. Failures are swallowed.
     /// </summary>
-    public async Task CheckForUpdatesOnStartupAsync()
+    public async Task RunBackgroundUpdateChecksAsync()
     {
         try
         {
             await Task.Delay(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+
+            if (_settings.Settings.CheckUpdateOnStartup)
+                await CheckOnceSilentlyAsync().ConfigureAwait(false);
+
+            while (true)
+            {
+                var hours = _settings.Settings.UpdateCheckIntervalHours;
+                // Idle (1h) re-poll when periodic is disabled, so enabling it
+                // from Settings starts taking effect within the hour.
+                var delay = hours > 0 ? TimeSpan.FromHours(hours) : TimeSpan.FromHours(1);
+
+                var waker = _updateIntervalChanged;
+                try
+                {
+                    await Task.Delay(delay, waker.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Interval changed mid-wait; loop around to read the new value.
+                    _updateIntervalChanged = new CancellationTokenSource();
+                    continue;
+                }
+
+                if (_settings.Settings.UpdateCheckIntervalHours > 0)
+                    await CheckOnceSilentlyAsync().ConfigureAwait(false);
+            }
+        }
+        catch
+        {
+            // Best-effort: never let an update-check error tear the app down.
+        }
+    }
+
+    private async Task CheckOnceSilentlyAsync()
+    {
+        try
+        {
             var outcome = await AutoUpdateService.HasUpdateAsync().ConfigureAwait(false);
             if (outcome != UpdateCheckOutcome.Available)
                 return;
@@ -1103,7 +1147,12 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
 
         var current = _settings.Settings.StorageLocation;
-        var result = await PickSettingsAsync(current, _settings.Settings.Language, _settings.Settings.Theme);
+        var result = await PickSettingsAsync(
+            current,
+            _settings.Settings.Language,
+            _settings.Settings.Theme,
+            _settings.Settings.CheckUpdateOnStartup,
+            _settings.Settings.UpdateCheckIntervalHours);
         if (result is null)
             return;
 
@@ -1114,6 +1163,19 @@ public partial class MainWindowViewModel : ViewModelBase
         // Apply the theme choice (no-op if unchanged); takes effect immediately.
         if (result.Theme != _settings.Settings.Theme)
             ApplyTheme(result.Theme);
+
+        // Apply auto-update preferences. A changed interval wakes the periodic
+        // loop so the new cadence kicks in without a restart.
+        var intervalChanged = result.UpdateCheckIntervalHours != _settings.Settings.UpdateCheckIntervalHours;
+        if (result.CheckUpdateOnStartup != _settings.Settings.CheckUpdateOnStartup
+            || intervalChanged)
+        {
+            _settings.Settings.CheckUpdateOnStartup = result.CheckUpdateOnStartup;
+            _settings.Settings.UpdateCheckIntervalHours = result.UpdateCheckIntervalHours;
+            _settings.Save();
+            if (intervalChanged)
+                _updateIntervalChanged.Cancel();
+        }
 
         if (result.StorageLocation == current)
             return;

@@ -110,8 +110,8 @@ public partial class App : Application
         // stay current.
         Localizer.LanguageChanged += (_, _) => BuildTrayMenu();
 
-        // Silent background check shortly after startup.
-        _ = vm.CheckForUpdatesOnStartupAsync();
+        // Silent startup check + periodic re-check (both gated by user settings).
+        _ = vm.RunBackgroundUpdateChecksAsync();
     }
 
 
