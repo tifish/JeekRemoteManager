@@ -286,18 +286,33 @@
                         </TreeView.KeyBindings>
                         <TreeView.ContextMenu>
                             <ContextMenu>
-                                <MenuItem Header="{l:Localize Connect}" Command="{Binding ConnectCommand}" />
-                                <Separator />
-                                <MenuItem Header="{l:Localize NewFolder}" Command="{Binding NewFolderCommand}" />
-                                <MenuItem Header="{l:Localize NewSsh}" Command="{Binding NewSshCommand}" />
-                                <MenuItem Header="{l:Localize NewRdp}" Command="{Binding NewRdpCommand}" />
-                                <Separator />
-                                <MenuItem Header="{l:Localize Copy}" Command="{Binding CopyCommand}" InputGesture="Ctrl+C" />
-                                <MenuItem Header="{l:Localize Cut}" Command="{Binding CutCommand}" InputGesture="Ctrl+X" />
-                                <MenuItem Header="{l:Localize Paste}" Command="{Binding PasteCommand}" InputGesture="Ctrl+V" />
-                                <Separator />
-                                <MenuItem Header="{l:Localize Rename}" Command="{Binding RenameCommand}" InputGesture="F2" />
-                                <MenuItem Header="{l:Localize Delete}" Command="{Binding DeleteCommand}" InputGesture="Delete" />
+                                <MenuItem Header="{l:Localize Connect}" Command="{Binding ConnectCommand}"
+                                          IsVisible="{Binding !IsRecentGroupContext}" />
+                                <MenuItem Header="{l:Localize RevealInTree}" Command="{Binding RevealInTreeCommand}"
+                                          IsVisible="{Binding IsRecentConnectionContext}" />
+                                <MenuItem Header="{l:Localize RemoveFromRecent}" Command="{Binding RemoveFromRecentCommand}"
+                                          IsVisible="{Binding IsRecentConnectionContext}" />
+                                <MenuItem Header="{l:Localize ClearRecent}" Command="{Binding ClearRecentCommand}"
+                                          IsVisible="{Binding IsRecentGroupContext}" />
+                                <Separator IsVisible="{Binding IsRegularContext}" />
+                                <MenuItem Header="{l:Localize NewFolder}" Command="{Binding NewFolderCommand}"
+                                          IsVisible="{Binding IsRegularContext}" />
+                                <MenuItem Header="{l:Localize NewSsh}" Command="{Binding NewSshCommand}"
+                                          IsVisible="{Binding IsRegularContext}" />
+                                <MenuItem Header="{l:Localize NewRdp}" Command="{Binding NewRdpCommand}"
+                                          IsVisible="{Binding IsRegularContext}" />
+                                <Separator IsVisible="{Binding IsRegularContext}" />
+                                <MenuItem Header="{l:Localize Copy}" Command="{Binding CopyCommand}" InputGesture="Ctrl+C"
+                                          IsVisible="{Binding IsRegularContext}" />
+                                <MenuItem Header="{l:Localize Cut}" Command="{Binding CutCommand}" InputGesture="Ctrl+X"
+                                          IsVisible="{Binding IsRegularContext}" />
+                                <MenuItem Header="{l:Localize Paste}" Command="{Binding PasteCommand}" InputGesture="Ctrl+V"
+                                          IsVisible="{Binding IsRegularContext}" />
+                                <Separator IsVisible="{Binding IsRegularContext}" />
+                                <MenuItem Header="{l:Localize Rename}" Command="{Binding RenameCommand}" InputGesture="F2"
+                                          IsVisible="{Binding IsRegularContext}" />
+                                <MenuItem Header="{l:Localize Delete}" Command="{Binding DeleteCommand}" InputGesture="Delete"
+                                          IsVisible="{Binding IsRegularContext}" />
                             </ContextMenu>
                         </TreeView.ContextMenu>
                         <TreeView.ItemTemplate>

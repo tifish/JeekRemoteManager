@@ -78,8 +78,26 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(CopyCommand))]
     [NotifyCanExecuteChangedFor(nameof(CutCommand))]
     [NotifyCanExecuteChangedFor(nameof(BrowseKeyCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RevealInTreeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RemoveFromRecentCommand))]
     [NotifyPropertyChangedFor(nameof(TargetDescription))]
+    [NotifyPropertyChangedFor(nameof(IsRecentGroupContext))]
+    [NotifyPropertyChangedFor(nameof(IsRecentConnectionContext))]
+    [NotifyPropertyChangedFor(nameof(IsRegularContext))]
     private TreeNodeViewModel? _selectedNode;
+
+    /// <summary>True when the next SelectedNode assignment is a right-click target
+    /// for the context menu and should not trigger the one-click Recent shortcut.</summary>
+    public bool SuppressRecentAutoLaunch { get; set; }
+
+    /// <summary>True when the selection is the synthetic "Recent" group folder.</summary>
+    public bool IsRecentGroupContext => SelectedNode is { IsRecent: true, IsFolder: true };
+
+    /// <summary>True when the selection is a connection shadow under the "Recent" group.</summary>
+    public bool IsRecentConnectionContext => SelectedNode is { IsRecent: true, IsConnection: true };
+
+    /// <summary>True when the selection is on a regular (non-Recent) node or empty area.</summary>
+    public bool IsRegularContext => SelectedNode is null || !SelectedNode.IsRecent;
 
     /// <summary>Human-readable description of where New/Paste will create items.</summary>
     public string TargetDescription
@@ -139,6 +157,14 @@ public partial class MainWindowViewModel : ViewModelBase
         // clearing lets a subsequent click on the same entry re-fire this path.
         if (value is { IsRecent: true, IsConnection: true, Connection: not null })
         {
+            // Right-click on a Recent shadow flags this so the context menu can
+            // act on the selection without the one-click launch firing. The flag
+            // is cleared asynchronously by the code-behind so that any re-entrant
+            // SelectedNode change emitted by the TreeView during the same input
+            // event is also suppressed.
+            if (SuppressRecentAutoLaunch)
+                return;
+
             var node = value;
             Dispatcher.UIThread.Post(async () =>
             {
@@ -593,7 +619,81 @@ public partial class MainWindowViewModel : ViewModelBase
         return LaunchAsync(node);
     }
 
-    private bool CanConnect() => SelectedNode is { IsConnection: true, IsRecent: false };
+    private bool CanConnect() => SelectedNode is { IsConnection: true };
+
+    // --- Recent group: reveal / remove / clear ---
+
+    [RelayCommand(CanExecute = nameof(IsRecentConnectionContextMethod))]
+    private void RevealInTree()
+    {
+        if (SelectedNode is not { IsRecent: true, IsConnection: true } shadow)
+            return;
+
+        var real = FindNode(Nodes, shadow.FullPath);
+        if (real is null)
+        {
+            StatusMessage = L("StatusRevealMissing");
+            return;
+        }
+
+        ExpandAncestors(real);
+        SelectedNode = real;
+        RequestFocusTree?.Invoke();
+    }
+
+    [RelayCommand(CanExecute = nameof(IsRecentConnectionContextMethod))]
+    private void RemoveFromRecent()
+    {
+        if (SelectedNode is not { IsRecent: true, IsConnection: true } shadow)
+            return;
+
+        var removedName = shadow.Name;
+        var list = _settings.Recent.RecentConnectionPaths;
+        var before = list.Count;
+        list.RemoveAll(p => PathEquals(p, shadow.FullPath));
+        if (list.Count == before)
+            return;
+
+        _settings.SaveRecent();
+        RebuildRecentGroupInPlace();
+        SelectedNode = null;
+        StatusMessage = L("StatusRemovedFromRecent", removedName);
+    }
+
+    [RelayCommand]
+    private void ClearRecent()
+    {
+        var list = _settings.Recent.RecentConnectionPaths;
+        if (list.Count == 0)
+            return;
+
+        list.Clear();
+        _settings.SaveRecent();
+        RebuildRecentGroupInPlace();
+        if (SelectedNode is { IsRecent: true })
+            SelectedNode = null;
+        StatusMessage = L("StatusRecentCleared");
+    }
+
+    private bool IsRecentConnectionContextMethod() => IsRecentConnectionContext;
+
+    /// <summary>
+    /// Rebuilds the synthetic "Recent" group node from the current path list and
+    /// swaps it into <see cref="Nodes"/> without touching the rest of the tree.
+    /// </summary>
+    private void RebuildRecentGroupInPlace()
+    {
+        var newGroup = BuildRecentGroup();
+        if (_recentGroup != null)
+        {
+            var oldIndex = Nodes.IndexOf(_recentGroup);
+            if (oldIndex >= 0)
+                Nodes.RemoveAt(oldIndex);
+        }
+        _recentGroup = newGroup;
+        if (newGroup != null)
+            Nodes.Insert(0, newGroup);
+    }
 
     /// <summary>
     /// Launches the given connection and records it at the head of the recent list.
@@ -655,16 +755,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         // Rebuild just the recent group in place so the user's tree selection
         // (typically the just-launched node) survives untouched.
-        var newGroup = BuildRecentGroup();
-        if (_recentGroup != null)
-        {
-            var oldIndex = Nodes.IndexOf(_recentGroup);
-            if (oldIndex >= 0)
-                Nodes.RemoveAt(oldIndex);
-        }
-        _recentGroup = newGroup;
-        if (newGroup != null)
-            Nodes.Insert(0, newGroup);
+        RebuildRecentGroupInPlace();
     }
 
     /// <summary>Clears the OS clipboard after a delay, but only if it still holds the secret we put there.</summary>

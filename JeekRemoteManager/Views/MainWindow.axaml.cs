@@ -147,7 +147,21 @@ public partial class MainWindow : Window
             // Only right-click reselects; left-click on a node is handled by the
             // TreeView normally and would otherwise fight its own selection.
             if (e.GetCurrentPoint(this).Properties.IsRightButtonPressed)
+            {
+                // Right-clicking a Recent shadow should open the context menu, not
+                // fire the one-click launch the way a left-click selection would.
+                // We arm the suppress flag and clear it on the next dispatcher tick
+                // so any re-entrant SelectedNode change from the TreeView's own
+                // selection logic during this input event is suppressed too.
+                if (node is { IsRecent: true, IsConnection: true })
+                {
+                    vm.SuppressRecentAutoLaunch = true;
+                    Dispatcher.UIThread.Post(
+                        () => vm.SuppressRecentAutoLaunch = false,
+                        DispatcherPriority.Background);
+                }
                 vm.SelectedNode = node;
+            }
         }
         else
         {

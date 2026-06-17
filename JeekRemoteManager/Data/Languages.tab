@@ -26,6 +26,9 @@ Cut	Cut	剪切
 Paste	Paste	粘贴
 Rename	Rename	重命名
 Delete	Delete	删除
+RevealInTree	Reveal in tree	在树中定位
+RemoveFromRecent	Remove from recent	从最近列表移除
+ClearRecent	Clear recent list	清空最近列表
 Connection	Connection	连接
 Type	Type	类型
 Name	Name	名称
@@ -70,6 +73,9 @@ StatusFailedToLaunch	Failed to launch: {0}	启动失败：{0}
 StatusCouldNotDelete	Could not delete: {0}	无法删除：{0}
 StatusDeleted	Deleted {0}.	已删除 {0}。
 StatusRenamed	Renamed.	已重命名。
+StatusRemovedFromRecent	Removed '{0}' from recent.	已从最近列表移除“{0}”。
+StatusRecentCleared	Recent list cleared.	已清空最近列表。
+StatusRevealMissing	The original connection is no longer in the tree.	原连接已不在树中。
 StatusCouldNotRename	Could not rename: {0}	无法重命名：{0}
 StatusCopied	Copied '{0}'.	已复制“{0}”。
 StatusCut	Cut '{0}'.	已剪切“{0}”。
