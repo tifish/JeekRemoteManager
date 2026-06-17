@@ -16,7 +16,7 @@ SSH	SSH	SSH
 RDP	RDP	RDP
 Connect	Connect	连接
 ConnectTooltip	Connect (Enter / double-click)	连接（回车 / 双击）
-Settings	Settings	设置
+Settings	Settings...	设置...
 SettingsTooltip	Choose where connections are stored	选择连接保存位置
 MoreActions	More actions	更多操作
 ImportFromFinalShell	Import from FinalShell…	从 FinalShell 导入…
