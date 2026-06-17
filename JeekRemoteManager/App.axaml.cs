@@ -115,6 +115,7 @@ public partial class App : Application
 
         _vm = vm;
         BuildTrayMenu();
+        Program.ActivationRequested += ShowMainWindow;
 
         // Rebuild the tray menu on language change so its localized labels
         // stay current.

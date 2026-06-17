@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using Avalonia;
 
 namespace JeekRemoteManager;
@@ -9,6 +10,11 @@ namespace JeekRemoteManager;
 internal static class Program
 {
     private static Mutex? _singleInstanceMutex;
+    private static EventWaitHandle? _activationEvent;
+    private const string SingleInstanceMutexName = "JeekRemoteManager.App.SingleInstance";
+    private const string ActivationEventName = "JeekRemoteManager.App.Activate";
+
+    internal static event Action? ActivationRequested;
 
     // Initialization code. Don't use any Avalonia, third-party APIs or any
     // SynchronizationContext-reliant code before AppMain is called: things
@@ -16,13 +22,14 @@ internal static class Program
     [STAThread]
     public static void Main(string[] args)
     {
-        _singleInstanceMutex = new Mutex(true, "JeekRemoteManager.App.SingleInstance", out var createdNew);
+        _singleInstanceMutex = new Mutex(true, SingleInstanceMutexName, out var createdNew);
         if (!createdNew)
         {
-            ActivateExistingInstance();
+            SignalExistingInstance();
             return;
         }
 
+        StartActivationListener();
         SetCurrentProcessExplicitAppUserModelID("JeekRemoteManager.App");
 
         try
@@ -32,9 +39,49 @@ internal static class Program
         }
         finally
         {
+            _activationEvent?.Dispose();
             _singleInstanceMutex.ReleaseMutex();
             _singleInstanceMutex.Dispose();
         }
+    }
+
+    private static void StartActivationListener()
+    {
+        _activationEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ActivationEventName);
+        _ = Task.Run(() =>
+        {
+            var activationEvent = _activationEvent;
+            if (activationEvent is null)
+                return;
+
+            try
+            {
+                while (activationEvent.WaitOne())
+                    ActivationRequested?.Invoke();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Normal shutdown.
+            }
+        });
+    }
+
+    private static void SignalExistingInstance()
+    {
+        try
+        {
+            using var activationEvent = EventWaitHandle.OpenExisting(ActivationEventName);
+            activationEvent.Set();
+        }
+        catch
+        {
+            // Older/racing instances may not have the event yet; use the legacy
+            // visible-window activation as a fallback.
+            ActivateExistingInstance();
+            return;
+        }
+
+        ActivateExistingInstance();
     }
 
     private static void ActivateExistingInstance()
