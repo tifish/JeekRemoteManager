@@ -56,8 +56,8 @@ try {
         Exit 1
     }
 
-    # Preserve user data (portable mode) and the updater itself.
-    $preserveNames = @("Connections", "AutoUpdate.ps1")
+    # Preserve user data/settings (portable mode) and the updater itself.
+    $preserveNames = @("Connections", "Config", "AutoUpdate.ps1")
     Get-ChildItem -LiteralPath $installDir -Force -ErrorAction SilentlyContinue |
         Where-Object { $preserveNames -notcontains $_.Name } |
         Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
