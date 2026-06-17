@@ -259,6 +259,8 @@ public partial class MainWindowViewModel : ViewModelBase
             if (!PathEquals(newPath, node.FullPath))
             {
                 // The file was renamed because Name changed.
+                if (_clipboardPath != null && PathEquals(_clipboardPath, node.FullPath))
+                    _clipboardPath = newPath;
                 node.FullPath = newPath;
                 node.Name = node.Connection.Name;
             }
@@ -544,6 +546,18 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private static bool PathEquals(string a, string b) =>
         string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
+
+    private void DetachEditorIfEditingPath(string path)
+    {
+        if (_editingNode == null || !ConnectionStore.IsSameOrInside(path, _editingNode.FullPath))
+            return;
+
+        _autoSaveTimer?.Stop();
+        if (Editor != null)
+            Editor.PropertyChanged -= OnEditorPropertyChanged;
+        _editingNode = null;
+        Editor = null;
+    }
 
     /// <summary>Folder that new/pasted items should go into, based on the selection.</summary>
     private string TargetFolder()
@@ -858,9 +872,13 @@ public partial class MainWindowViewModel : ViewModelBase
         if (SelectedNode is not { } node || PromptAsync is null)
             return;
 
+        FlushPendingAutoSave();
+
         var newName = await PromptAsync(L("DialogRenameTitle"), L("DialogRenamePrompt"), node.Name);
         if (string.IsNullOrWhiteSpace(newName) || newName == node.Name)
             return;
+
+        var oldPath = node.FullPath;
 
         try
         {
@@ -880,6 +898,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 return;
             }
 
+            DetachEditorIfEditingPath(oldPath);
             ReloadTree(newPath);
             StatusMessage = L("StatusRenamed");
         }
@@ -929,6 +948,12 @@ public partial class MainWindowViewModel : ViewModelBase
         if (_clipboardPath is null)
             return;
 
+        if (_clipboardIsCut)
+            FlushPendingAutoSave();
+
+        if (_clipboardPath is null)
+            return;
+
         var source = _clipboardPath;
         var target = TargetFolder();
 
@@ -974,6 +999,7 @@ public partial class MainWindowViewModel : ViewModelBase
                     return;
                 }
 
+                DetachEditorIfEditingPath(source);
                 ClearClipboard(); // a real move consumes the cut
                 ReloadTree(newPath);
                 StatusMessage = L("StatusMoved");
