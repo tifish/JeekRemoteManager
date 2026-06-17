@@ -217,11 +217,21 @@ public partial class App : Application
         icon.Menu = menu;
     }
 
-    private static NativeMenuItem CommandItem(string header, System.Windows.Input.ICommand command)
+    private NativeMenuItem CommandItem(string header, System.Windows.Input.ICommand command)
     {
         var item = new NativeMenuItem { Header = header };
         item.Click += (_, _) =>
         {
+            // Tray-invoked commands open dialogs owned by the main window;
+            // ShowDialog over a hidden owner hangs, so surface the window first.
+            if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop
+                && desktop.MainWindow is Window window)
+            {
+                window.Show();
+                if (window.WindowState == WindowState.Minimized)
+                    window.WindowState = WindowState.Normal;
+                window.Activate();
+            }
             if (command.CanExecute(null))
                 command.Execute(null);
         };
