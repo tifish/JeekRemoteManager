@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Input.Platform;
@@ -20,6 +21,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly ConnectionStore _store;
     private readonly ConnectionLauncher _launcher;
     private readonly SettingsService _settings;
+    private readonly RemoteScriptStore _scriptStore;
+    private readonly RemoteScriptLauncher _scriptLauncher;
 
     // Internal (in-app) clipboard for copy/cut/paste of nodes.
     private string? _clipboardPath;
@@ -43,12 +46,21 @@ public partial class MainWindowViewModel : ViewModelBase
     private const string RecentSentinelPath = "<recent>";
     private TreeNodeViewModel? _recentGroup;
 
-    public MainWindowViewModel(ConnectionStore store, ConnectionLauncher launcher, SettingsService settings)
+    public MainWindowViewModel(
+        ConnectionStore store,
+        ConnectionLauncher launcher,
+        SettingsService settings,
+        RemoteScriptStore? scriptStore = null,
+        RemoteScriptLauncher? scriptLauncher = null)
     {
         _store = store;
         _launcher = launcher;
         _settings = settings;
+        _scriptStore = scriptStore ?? new RemoteScriptStore();
+        _scriptLauncher = scriptLauncher ?? new RemoteScriptLauncher();
         _store.SetRoot(_settings.ResolveConnectionsRoot());
+        _scriptStore.SetRoot(_settings.ResolveScriptsRoot());
+        ReloadScripts();
         ReloadTree();
         StartWatching(_store.RootPath);
 
@@ -71,6 +83,8 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>Top-level nodes (the contents of the root connections folder).</summary>
     public ObservableCollection<TreeNodeViewModel> Nodes { get; } = new();
 
+    public ObservableCollection<RemoteScriptSuite> ScriptSuites { get; } = new();
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeleteCommand))]
@@ -78,12 +92,14 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(CopyCommand))]
     [NotifyCanExecuteChangedFor(nameof(CutCommand))]
     [NotifyCanExecuteChangedFor(nameof(BrowseKeyCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RunSelectedScriptBindingCommand))]
     [NotifyCanExecuteChangedFor(nameof(RevealInTreeCommand))]
     [NotifyCanExecuteChangedFor(nameof(RemoveFromRecentCommand))]
     [NotifyPropertyChangedFor(nameof(TargetDescription))]
     [NotifyPropertyChangedFor(nameof(IsRecentGroupContext))]
     [NotifyPropertyChangedFor(nameof(IsRecentConnectionContext))]
     [NotifyPropertyChangedFor(nameof(IsRegularContext))]
+    [NotifyPropertyChangedFor(nameof(IsSshConnectionContext))]
     private TreeNodeViewModel? _selectedNode;
 
     /// <summary>True when the next SelectedNode assignment is a right-click target
@@ -98,6 +114,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>True when the selection is on a regular (non-Recent) node or empty area.</summary>
     public bool IsRegularContext => SelectedNode is null || !SelectedNode.IsRecent;
+
+    public bool IsSshConnectionContext =>
+        SelectedNode is { IsConnection: true, Connection: { Type: ConnectionType.Ssh } };
 
     /// <summary>Human-readable description of where New/Paste will create items.</summary>
     public string TargetDescription
@@ -117,6 +136,8 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowConnectionEditor))]
+    [NotifyPropertyChangedFor(nameof(ShowPlaceholder))]
     private ConnectionEditorViewModel? _editor;
 
     [ObservableProperty]
@@ -135,6 +156,18 @@ public partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     [ObservableProperty]
     private bool _showPassword;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasScriptExecution))]
+    [NotifyPropertyChangedFor(nameof(ShowConnectionEditor))]
+    [NotifyPropertyChangedFor(nameof(ShowPlaceholder))]
+    private ScriptSuitePanelViewModel? _scriptPanel;
+
+    public bool HasScriptExecution => ScriptPanel is not null;
+
+    public bool ShowConnectionEditor => Editor is not null && !HasScriptExecution;
+
+    public bool ShowPlaceholder => Editor is null && !HasScriptExecution;
 
     // Wired up by the view so the VM can reach platform services without a
     // hard dependency on the window.
@@ -197,12 +230,14 @@ public partial class MainWindowViewModel : ViewModelBase
         Editor = _editingNode != null
             ? ConnectionEditorViewModel.FromConnection(_editingNode.Connection!)
             : null;
+        ScriptPanel = null;
 
         // Watch the new editor for changes → auto-save with debounce.
         if (Editor != null)
             Editor.PropertyChanged += OnEditorPropertyChanged;
 
         BrowseKeyCommand.NotifyCanExecuteChanged();
+        RunSelectedScriptBindingCommand.NotifyCanExecuteChanged();
     }
 
     private void OnEditorPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -210,7 +245,10 @@ public partial class MainWindowViewModel : ViewModelBase
         // Computed properties don't represent user edits.
         if (e.PropertyName is nameof(ConnectionEditorViewModel.IsSsh)
                           or nameof(ConnectionEditorViewModel.IsRdp))
+        {
+            RunSelectedScriptBindingCommand.NotifyCanExecuteChanged();
             return;
+        }
 
         ScheduleAutoSave();
     }
@@ -252,6 +290,7 @@ public partial class MainWindowViewModel : ViewModelBase
         try
         {
             editor.ApplyTo(node.Connection);
+            ProtectConnectionScriptBindings(node.Connection);
 
             var folder = Path.GetDirectoryName(node.FullPath) ?? _store.RootPath;
             var newPath = _store.Save(node.Connection, folder, node.FullPath);
@@ -395,6 +434,93 @@ public partial class MainWindowViewModel : ViewModelBase
             if (pathToSelect != null)
                 RequestFocusTree?.Invoke();
         }
+    }
+
+    private void ReloadScripts()
+    {
+        ScriptSuites.Clear();
+        foreach (var suite in _scriptStore.LoadAll())
+            ScriptSuites.Add(suite);
+    }
+
+    private RemoteScriptSuite? FindScriptSuite(string suitePath) =>
+        ScriptSuites.FirstOrDefault(s => string.Equals(s.RelativePath, suitePath, StringComparison.OrdinalIgnoreCase));
+
+    private void ProtectConnectionScriptBindings(Connection connection)
+    {
+        for (var i = 0; i < connection.ScriptBindings.Count; i++)
+        {
+            var binding = connection.ScriptBindings[i];
+            var suite = FindScriptSuite(binding.Name);
+            if (suite is not null)
+                connection.ScriptBindings[i] = RemoteScriptLauncher.ProtectSecretValues(suite, binding);
+        }
+    }
+
+    public static int PruneMissingScriptBindings(
+        IList<ConnectionScriptBinding> bindings,
+        IEnumerable<RemoteScriptSuite> suites)
+    {
+        var validSuites = suites
+            .Select(s => s.RelativePath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var removed = 0;
+        for (var i = bindings.Count - 1; i >= 0; i--)
+        {
+            if (!validSuites.Contains(bindings[i].Name))
+            {
+                bindings.RemoveAt(i);
+                removed++;
+            }
+        }
+
+        return removed;
+    }
+
+    private int PruneMissingScriptBindingsForCurrentConnection(Connection connection)
+    {
+        var removed = PruneMissingScriptBindings(connection.ScriptBindings, ScriptSuites);
+        if (Editor is not null)
+            PruneMissingScriptBindingViewModels(Editor.ScriptBindings, ScriptSuites);
+
+        if (removed > 0)
+        {
+            if (ScriptPanel is not null
+                && FindScriptSuite(ScriptPanel.Suite.RelativePath) is null
+                && !ScriptPanel.IsRunning)
+            {
+                ScriptPanel = null;
+            }
+
+            ScheduleAutoSave();
+            RunSelectedScriptBindingCommand.NotifyCanExecuteChanged();
+        }
+
+        return removed;
+    }
+
+    private static int PruneMissingScriptBindingViewModels(
+        ObservableCollection<ConnectionScriptBindingViewModel> bindings,
+        IEnumerable<RemoteScriptSuite> suites)
+    {
+        var validSuites = suites
+            .Select(s => s.RelativePath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var removed = 0;
+        for (var i = bindings.Count - 1; i >= 0; i--)
+        {
+            if (!validSuites.Contains(bindings[i].Name))
+            {
+                bindings.RemoveAt(i);
+                removed++;
+            }
+        }
+
+        return removed;
     }
 
     /// <summary>
@@ -1054,6 +1180,347 @@ public partial class MainWindowViewModel : ViewModelBase
     // editor's Type is switched to SSH without re-selecting the node).
     private bool CanBrowseKey() => Editor is not null;
 
+    // --- SSH script actions ---
+
+    [RelayCommand(CanExecute = nameof(CanRunSelectedScriptBinding))]
+    private void RunSelectedScriptBinding()
+    {
+        var choices = PrepareScriptSuiteChoicesForSelectedConnection();
+        if (choices.Count == 1)
+            OpenScriptSuiteChoice(choices[0]);
+        else if (choices.Count > 1)
+            StatusMessage = L("StatusChooseScriptSuite");
+    }
+
+    public IReadOnlyList<ScriptSuiteChoiceViewModel> PrepareScriptSuiteChoicesForSelectedConnection()
+    {
+        if (SelectedNode is not { IsConnection: true, Connection: not null } node)
+            return Array.Empty<ScriptSuiteChoiceViewModel>();
+
+        FlushPendingAutoSave();
+
+        if (node.Connection.Type != ConnectionType.Ssh)
+        {
+            StatusMessage = L("StatusScriptOnlySsh");
+            return Array.Empty<ScriptSuiteChoiceViewModel>();
+        }
+
+        ReloadScripts();
+        var removed = PruneMissingScriptBindingsForCurrentConnection(node.Connection);
+        if (ScriptSuites.Count == 0)
+        {
+            StatusMessage = L("StatusNoScripts", $"{_scriptStore.BuiltInRootPath}; {_scriptStore.RootPath}");
+            return Array.Empty<ScriptSuiteChoiceViewModel>();
+        }
+
+        if (removed > 0)
+            StatusMessage = L("StatusMissingScriptBindingsRemoved", removed);
+        return BuildScriptSuiteChoices(node.Connection);
+    }
+
+    public void OpenScriptSuiteChoice(ScriptSuiteChoiceViewModel? choice)
+    {
+        if (choice is null)
+            return;
+        if (SelectedNode is not { IsConnection: true, Connection: not null } node)
+            return;
+
+        var suite = choice.Suite;
+        var binding = node.Connection.ScriptBindings.LastOrDefault(b =>
+            string.Equals(b.Name, suite.RelativePath, StringComparison.OrdinalIgnoreCase));
+        binding = binding is null
+            ? new ConnectionScriptBinding { Name = suite.RelativePath }
+            : RemoteScriptLauncher.UnprotectSecretValues(suite, binding);
+
+        ScriptPanel = new ScriptSuitePanelViewModel(suite, binding, () => _ = SaveScriptPanelBinding());
+        StatusMessage = L("StatusScriptSuiteOpened", suite.Name);
+    }
+
+    private bool CanRunSelectedScriptBinding() =>
+        SelectedNode is { IsConnection: true, Connection: { Type: ConnectionType.Ssh } };
+
+    private IReadOnlyList<ScriptSuiteChoiceViewModel> BuildScriptSuiteChoices(Connection connection) =>
+        SortScriptSuiteChoices(ScriptSuites, connection.ScriptBindings);
+
+    public static IReadOnlyList<ScriptSuiteChoiceViewModel> SortScriptSuiteChoices(
+        IEnumerable<RemoteScriptSuite> suites,
+        IEnumerable<ConnectionScriptBinding> bindings)
+    {
+        var boundSuites = new HashSet<string>(
+            bindings
+                .Where(b => !string.IsNullOrWhiteSpace(b.Name))
+                .Select(b => b.Name),
+            StringComparer.OrdinalIgnoreCase);
+
+        return suites
+            .Select(suite => new ScriptSuiteChoiceViewModel(suite, boundSuites.Contains(suite.RelativePath)))
+            .OrderByDescending(choice => choice.HasParameters)
+            .ThenByDescending(choice => choice.Suite.Source == RemoteScriptSuiteSource.User)
+            .ThenBy(choice => choice.Suite.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    [RelayCommand]
+    private async Task RunScriptFile(RemoteScriptFile? scriptFile)
+    {
+        if (scriptFile is null
+            || ScriptPanel is null
+            || SelectedNode is not { IsConnection: true, Connection: not null } node)
+            return;
+
+        if (ScriptPanel.IsRunning)
+        {
+            StatusMessage = L("StatusScriptAlreadyRunning");
+            return;
+        }
+
+        var binding = SaveScriptPanelBinding(flushImmediately: true);
+        if (binding is null)
+            return;
+
+        var panel = ScriptPanel;
+        var displayName = $"{panel.SuiteName}/{scriptFile.DisplayName}";
+        panel.Output = "";
+        panel.ClearExecutionResult();
+        panel.StatusText = L("ScriptExecutionRunning");
+        panel.IsRunning = true;
+        StatusMessage = L("StatusScriptRunning", displayName, node.Connection.Name);
+
+        try
+        {
+            var result = await _scriptLauncher.RunAsync(
+                node.Connection,
+                panel.Suite,
+                scriptFile,
+                binding,
+                text => Dispatcher.UIThread.Post(() => panel.AppendOutput(text)));
+
+            var duration = FormatScriptDuration(result.FinishedAt - result.StartedAt);
+            panel.StatusText = result.ExitCode == 0
+                ? L("ScriptExecutionSucceeded", duration)
+                : L("ScriptExecutionFailed", result.ExitCode, duration);
+            panel.SetExecutionResult(result.ExitCode == 0);
+            StatusMessage = result.ExitCode == 0
+                ? L("StatusScriptSucceeded", displayName)
+                : L("StatusScriptFailed", displayName, result.ExitCode);
+        }
+        catch (Exception ex)
+        {
+            panel.StatusText = L("ScriptExecutionStartFailed", ex.Message);
+            panel.SetExecutionResult(false);
+            StatusMessage = L("StatusScriptLaunchFailed", ex.Message);
+        }
+        finally
+        {
+            panel.IsRunning = false;
+        }
+    }
+
+    private ConnectionScriptBinding? SaveScriptPanelBinding(bool flushImmediately = false)
+    {
+        if (ScriptPanel is null
+            || Editor is null
+            || SelectedNode is not { IsConnection: true, Connection: not null } node)
+            return null;
+
+        var currentBinding = ScriptPanel.ToBinding();
+        var existingBinding = node.Connection.ScriptBindings.LastOrDefault(b =>
+            string.Equals(b.Name, currentBinding.Name, StringComparison.OrdinalIgnoreCase));
+
+        if (existingBinding is not null
+            && ScriptBindingsEquivalent(ScriptPanel.Suite, currentBinding, existingBinding))
+        {
+            return existingBinding;
+        }
+
+        if (existingBinding is null && !HasMeaningfulScriptParams(ScriptPanel.Suite, currentBinding))
+            return currentBinding;
+
+        var protectedBinding = RemoteScriptLauncher.ProtectSecretValues(ScriptPanel.Suite, currentBinding);
+        UpsertScriptBinding(Editor.ScriptBindings, protectedBinding);
+        UpsertScriptBinding(node.Connection.ScriptBindings, protectedBinding);
+        if (flushImmediately)
+            FlushPendingAutoSave();
+        else
+            ScheduleAutoSave();
+        RunSelectedScriptBindingCommand.NotifyCanExecuteChanged();
+        return protectedBinding;
+    }
+
+    private static bool ScriptBindingsEquivalent(
+        RemoteScriptSuite suite,
+        ConnectionScriptBinding currentBinding,
+        ConnectionScriptBinding storedBinding)
+    {
+        var current = ComparableScriptParams(suite, currentBinding);
+        var stored = ComparableScriptParams(
+            suite,
+            RemoteScriptLauncher.UnprotectSecretValues(suite, storedBinding));
+
+        if (current.Count != stored.Count)
+            return false;
+
+        foreach (var (name, value) in current)
+        {
+            if (!stored.TryGetValue(name, out var storedValue)
+                || !string.Equals(value, storedValue, StringComparison.Ordinal))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static Dictionary<string, string> ComparableScriptParams(
+        RemoteScriptSuite suite,
+        ConnectionScriptBinding binding)
+    {
+        var values = binding.Params.ToDictionary(v => v.Name, v => v.Value, StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var parameter in suite.Parameters)
+        {
+            values.TryGetValue(parameter.Name, out var value);
+            result[parameter.Name] = NormalizeComparableScriptParam(parameter, value ?? "");
+        }
+
+        return result;
+    }
+
+    private static bool HasMeaningfulScriptParams(RemoteScriptSuite suite, ConnectionScriptBinding binding) =>
+        ComparableScriptParams(suite, binding).Any(item => !IsDefaultScriptParamValue(suite, item.Key, item.Value));
+
+    private static bool IsDefaultScriptParamValue(RemoteScriptSuite suite, string name, string value)
+    {
+        var parameter = suite.Parameters.FirstOrDefault(p =>
+            string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+        return parameter?.Type == RemoteScriptParameterType.Bool
+            ? !string.Equals(value, "true", StringComparison.Ordinal)
+            : string.IsNullOrEmpty(value);
+    }
+
+    private static string NormalizeComparableScriptParam(RemoteScriptParameter parameter, string value)
+    {
+        if (parameter.Type != RemoteScriptParameterType.Bool)
+            return value;
+
+        return value.Trim().ToLowerInvariant() switch
+        {
+            "true" or "1" or "yes" or "y" => "true",
+            _ => "false",
+        };
+    }
+
+    private static void UpsertScriptBinding(
+        ObservableCollection<ConnectionScriptBindingViewModel> bindings,
+        ConnectionScriptBinding binding)
+    {
+        for (var i = bindings.Count - 1; i >= 0; i--)
+        {
+            if (string.Equals(bindings[i].Name, binding.Name, StringComparison.OrdinalIgnoreCase))
+                bindings.RemoveAt(i);
+        }
+
+        bindings.Add(ConnectionScriptBindingViewModel.FromModel(binding));
+    }
+
+    private static void UpsertScriptBinding(
+        IList<ConnectionScriptBinding> bindings,
+        ConnectionScriptBinding binding)
+    {
+        for (var i = bindings.Count - 1; i >= 0; i--)
+        {
+            if (string.Equals(bindings[i].Name, binding.Name, StringComparison.OrdinalIgnoreCase))
+                bindings.RemoveAt(i);
+        }
+
+        bindings.Add(RemoteScriptLauncher.CloneBinding(binding));
+    }
+
+    private static void RemoveScriptBinding(
+        ObservableCollection<ConnectionScriptBindingViewModel> bindings,
+        string name)
+    {
+        for (var i = bindings.Count - 1; i >= 0; i--)
+        {
+            if (string.Equals(bindings[i].Name, name, StringComparison.OrdinalIgnoreCase))
+                bindings.RemoveAt(i);
+        }
+    }
+
+    private static void RemoveScriptBinding(
+        IList<ConnectionScriptBinding> bindings,
+        string name)
+    {
+        for (var i = bindings.Count - 1; i >= 0; i--)
+        {
+            if (string.Equals(bindings[i].Name, name, StringComparison.OrdinalIgnoreCase))
+                bindings.RemoveAt(i);
+        }
+    }
+
+    [RelayCommand]
+    private async Task CopyScriptOutput()
+    {
+        if (Clipboard is null || ScriptPanel is null)
+            return;
+
+        await Clipboard.SetTextAsync(ScriptPanel.Output);
+        StatusMessage = L("StatusScriptOutputCopied");
+    }
+
+    [RelayCommand]
+    private void ClearScriptParameters()
+    {
+        if (ScriptPanel is null
+            || Editor is null
+            || SelectedNode is not { IsConnection: true, Connection: not null } node)
+            return;
+
+        if (ScriptPanel.IsRunning)
+        {
+            StatusMessage = L("StatusScriptStillRunning");
+            return;
+        }
+
+        var suitePath = ScriptPanel.Suite.RelativePath;
+        ScriptPanel.ClearParameters();
+        RemoveScriptBinding(Editor.ScriptBindings, suitePath);
+        RemoveScriptBinding(node.Connection.ScriptBindings, suitePath);
+        ScheduleAutoSave();
+        RunSelectedScriptBindingCommand.NotifyCanExecuteChanged();
+        StatusMessage = L("StatusScriptParametersCleared", ScriptPanel.SuiteName);
+    }
+
+    [RelayCommand]
+    private void ClearScriptOutput()
+    {
+        if (ScriptPanel is null)
+            return;
+
+        ScriptPanel.Output = "";
+    }
+
+    [RelayCommand]
+    private void CloseScriptExecution()
+    {
+        if (ScriptPanel is { IsRunning: true })
+        {
+            StatusMessage = L("StatusScriptStillRunning");
+            return;
+        }
+
+        ScriptPanel = null;
+    }
+
+    private static string FormatScriptDuration(TimeSpan value)
+    {
+        if (value.TotalHours >= 1)
+            return value.ToString(@"h\:mm\:ss");
+        if (value.TotalMinutes >= 1)
+            return value.ToString(@"m\:ss");
+        return value.TotalSeconds < 1 ? "<1s" : $"{value.TotalSeconds:0.#}s";
+    }
+
     // --- Misc ---
 
     [RelayCommand]
@@ -1309,10 +1776,12 @@ public partial class MainWindowViewModel : ViewModelBase
 
         var oldRoot = _store.RootPath;
         var newRoot = SettingsService.ResolveConnectionsRoot(result.StorageLocation);
+        var oldScriptsRoot = _scriptStore.RootPath;
+        var newScriptsRoot = SettingsService.ResolveScriptsRoot(result.StorageLocation);
 
         // Make sure the target is actually writable (e.g. ProgramDirectory under
         // %ProgramFiles% is not, for a standard user) before committing.
-        if (!TryEnsureWritable(newRoot))
+        if (!TryEnsureWritable(newRoot) || !TryEnsureWritable(newScriptsRoot))
         {
             StatusMessage = L("StatusNotWritable", newRoot);
             return;
@@ -1330,6 +1799,7 @@ public partial class MainWindowViewModel : ViewModelBase
         try
         {
             _store.CopyTreeContents(oldRoot, newRoot);
+            _scriptStore.CopyTreeContents(oldScriptsRoot, newScriptsRoot);
         }
         catch (Exception ex)
         {
@@ -1341,6 +1811,8 @@ public partial class MainWindowViewModel : ViewModelBase
         _settings.RelocateSettings(result.StorageLocation);
         var saved = _settings.Save();
         _store.SetRoot(newRoot);
+        _scriptStore.SetRoot(newScriptsRoot);
+        ReloadScripts();
         StartWatching(newRoot);
         ClearClipboard();
         ReloadTree();

@@ -1,13 +1,28 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
+using JeekRemoteManager.ViewModels;
 
 int failures = 0;
 void Check(bool cond, string label)
 {
     Console.WriteLine((cond ? "PASS  " : "FAIL  ") + label);
     if (!cond) failures++;
+}
+
+string FindRepoRoot()
+{
+    var dir = new DirectoryInfo(Environment.CurrentDirectory);
+    while (dir is not null)
+    {
+        if (File.Exists(Path.Combine(dir.FullName, "JeekRemoteManager.slnx")))
+            return dir.FullName;
+        dir = dir.Parent;
+    }
+
+    return Environment.CurrentDirectory;
 }
 
 // Isolated temp root so we don't touch the user's real data.
@@ -213,6 +228,238 @@ try
     Check(userRoot.Contains("JeekRemoteManager") && userRoot.EndsWith("Connections"),
           "User-directory root resolves under the user profile");
     Check(progRoot != userRoot, "The two storage locations are distinct");
+
+    var builtInScriptsRoot = SettingsService.ResolveBuiltInScriptsRoot();
+    Check(builtInScriptsRoot.StartsWith(AppContext.BaseDirectory, StringComparison.OrdinalIgnoreCase)
+          && builtInScriptsRoot.EndsWith(Path.Combine("Data", "Scripts"), StringComparison.OrdinalIgnoreCase),
+          "Built-in scripts root resolves under app Data");
+    var runtimeBbrDir = Path.Combine(FindRepoRoot(), "bin", "Data", "Scripts", "BBR");
+    Check(File.Exists(Path.Combine(runtimeBbrDir, "enable-bbr.sh"))
+          && File.Exists(Path.Combine(runtimeBbrDir, "disable-bbr.sh")),
+          "Bundled BBR scripts include enable and disable actions");
+
+    var progScriptsRoot = SettingsService.ResolveScriptsRoot(StorageLocation.ProgramDirectory);
+    var userScriptsRoot = SettingsService.ResolveScriptsRoot(StorageLocation.UserDirectory);
+    Check(progScriptsRoot.StartsWith(AppContext.BaseDirectory, StringComparison.OrdinalIgnoreCase)
+          && progScriptsRoot.EndsWith("Scripts"), "Program-directory custom scripts root resolves next to the exe");
+    Check(!string.Equals(Path.GetFullPath(builtInScriptsRoot), Path.GetFullPath(progScriptsRoot),
+              StringComparison.OrdinalIgnoreCase),
+          "Built-in scripts root is separate from program-directory custom scripts root");
+    Check(userScriptsRoot.Contains("JeekRemoteManager") && userScriptsRoot.EndsWith("Scripts"),
+          "User-directory custom scripts root resolves under the user profile");
+
+    // --- File-system script suites and parameter bindings ---
+    var scriptRoot = Path.Combine(root, "Scripts");
+    var builtInScriptRoot = Path.Combine(root, "BuiltInScripts");
+    var scriptStore = new RemoteScriptStore(scriptRoot, builtInScriptRoot);
+    var builtInDeployDir = Path.Combine(builtInScriptRoot, "Deploy");
+    Directory.CreateDirectory(builtInDeployDir);
+    File.WriteAllText(Path.Combine(builtInDeployDir, RemoteScriptStore.ParameterFileName), "BUILTIN=string\n");
+    File.WriteAllText(Path.Combine(builtInDeployDir, "builtin.sh"), "echo builtin\n");
+
+    var builtInOnlyDir = Path.Combine(builtInScriptRoot, "BuiltInOnly");
+    Directory.CreateDirectory(builtInOnlyDir);
+    File.WriteAllText(Path.Combine(builtInOnlyDir, RemoteScriptStore.ParameterFileName), "VALUE=string\n");
+    File.WriteAllText(Path.Combine(builtInOnlyDir, "show.sh"), "echo builtin-only\n");
+
+    var deployDir = Path.Combine(scriptRoot, "Deploy");
+    Directory.CreateDirectory(deployDir);
+    File.WriteAllText(Path.Combine(deployDir, RemoteScriptStore.ParameterFileName), """
+    # Deployment inputs
+    TARGET=string
+
+    COUNT=number
+    FORCE=bool
+    TOKEN=secret
+    MODE=enum:fast|safe|debug
+    """);
+    File.WriteAllText(Path.Combine(deployDir, "deploy.sh"),
+        "printf '%s\\n' \"$TARGET\" \"$TOKEN\" \"$FORCE\" \"$MODE\"\n");
+    File.WriteAllText(Path.Combine(deployDir, "restart.sh"), "echo restart\n");
+    File.WriteAllText(Path.Combine(deployDir, "README.txt"), "not executable\n");
+
+    var auditDir = Path.Combine(scriptRoot, "Audit");
+    Directory.CreateDirectory(auditDir);
+    File.WriteAllText(Path.Combine(auditDir, RemoteScriptStore.ParameterFileName), "LEVEL=enum:info|debug\n");
+    File.WriteAllText(Path.Combine(auditDir, "check.sh"), "echo check\n");
+
+    var suites = scriptStore.LoadAll();
+    var loadedSuite = suites.Single(s => s.Name == "Deploy");
+    var builtInOnlySuite = suites.Single(s => s.Name == "BuiltInOnly");
+    Check(suites.Count == 3
+          && loadedSuite.Parameters.Count == 5
+          && loadedSuite.Errors.Count == 0
+          && loadedSuite.Source == RemoteScriptSuiteSource.User
+          && builtInOnlySuite.Source == RemoteScriptSuiteSource.BuiltIn,
+          "RemoteScriptStore scans built-in and custom script suite directories");
+    Check(loadedSuite.Parameters.All(p => p.Name != "BUILTIN")
+          && loadedSuite.Scripts.All(s => s.Name != "builtin.sh"),
+          "Custom script suites override built-in suites with the same name");
+    Check(loadedSuite.Scripts.Count == 2
+          && loadedSuite.Scripts.Any(s => s.Name == "deploy.sh")
+          && loadedSuite.Scripts.All(s => s.Name.EndsWith(".sh", StringComparison.OrdinalIgnoreCase)),
+          "RemoteScriptStore discovers only .sh functions");
+
+    var parsedErrors = new List<string>();
+    _ = RemoteScriptStore.ParseParameterFile(new[]
+    {
+        "",
+        "# comment",
+        "bad-name=string",
+        "COUNT=decimal",
+        "MODE=enum:",
+    }, parsedErrors);
+    Check(parsedErrors.Count >= 3,
+          "params.conf parser supports blank lines/comments and rejects invalid names/types");
+
+    var missingParamsDir = Path.Combine(scriptRoot, "MissingParams");
+    Directory.CreateDirectory(missingParamsDir);
+    File.WriteAllText(Path.Combine(missingParamsDir, "run.sh"), "echo missing\n");
+    Check(scriptStore.LoadSuite(missingParamsDir).Errors.Any(e => e.Contains(RemoteScriptStore.ParameterFileName)),
+          "Script suites require readable params.conf");
+
+    var oldConnectionPath = Path.Combine(folder, "legacy-json.json");
+    File.WriteAllText(oldConnectionPath, """
+    {
+      "Type": "Ssh",
+      "Name": "legacy-json",
+      "Host": "legacy.example",
+      "Port": 22,
+      "Username": "root",
+      "EncryptedPassword": ""
+    }
+    """);
+    Check(store.Load(oldConnectionPath).ScriptBindings.Count == 0,
+          "Old connection JSON without ScriptBindings loads with an empty binding list");
+
+    var oldScriptBindingPath = Path.Combine(folder, "legacy-script-binding.json");
+    File.WriteAllText(oldScriptBindingPath, $$"""
+    {
+      "Type": "Ssh",
+      "Name": "legacy-script-binding",
+      "Host": "legacy.example",
+      "Port": 22,
+      "Username": "root",
+      "EncryptedPassword": "",
+      "ScriptBindings": [
+        {
+          "SuitePath": "{{loadedSuite.RelativePath}}",
+          "Values": [
+            { "Name": "TARGET", "Value": "legacy" }
+          ]
+        }
+      ]
+    }
+    """);
+    var oldScriptBinding = store.Load(oldScriptBindingPath).ScriptBindings.Single();
+    Check(oldScriptBinding.Name == loadedSuite.RelativePath
+          && oldScriptBinding.Params.Single().Value == "legacy",
+          "Old script binding JSON SuitePath/Values migrates to Name/Params");
+
+    var invalidBinding = new ConnectionScriptBinding
+    {
+        Name = loadedSuite.RelativePath,
+        Params =
+        {
+            new ConnectionScriptParameterValue { Name = "COUNT", Value = "many" },
+            new ConnectionScriptParameterValue { Name = "FORCE", Value = "maybe" },
+            new ConnectionScriptParameterValue { Name = "MODE", Value = "unsafe" },
+        },
+    };
+    Check(RemoteScriptLauncher.ValidateBinding(loadedSuite, invalidBinding).Count >= 4,
+          "Script binding validation catches number, bool, enum, and missing secret errors");
+
+    const string secretToken = "tok'en line1\nline2 密码";
+    var validBinding = new ConnectionScriptBinding
+    {
+        Name = loadedSuite.RelativePath,
+        Params =
+        {
+            new ConnectionScriptParameterValue { Name = "TARGET", Value = "web api" },
+            new ConnectionScriptParameterValue { Name = "COUNT", Value = "2.5" },
+            new ConnectionScriptParameterValue { Name = "FORCE", Value = "yes" },
+            new ConnectionScriptParameterValue { Name = "MODE", Value = "fast" },
+            new ConnectionScriptParameterValue { Name = "TOKEN", Value = secretToken },
+        },
+    };
+
+    var protectedBinding = RemoteScriptLauncher.ProtectSecretValues(loadedSuite, validBinding);
+    var protectedToken = protectedBinding.Params.Single(v => v.Name == "TOKEN").Value;
+    Check(MasterKeyService.IsPasswordBlob(protectedToken), "Secret script parameters are encrypted");
+    Check(!JsonSerializer.Serialize(protectedBinding).Contains(secretToken),
+          "Protected script binding JSON does not contain the clear secret");
+    var protectedBindingJson = JsonSerializer.Serialize(protectedBinding);
+    Check(protectedBindingJson.Contains("\"Name\"")
+          && protectedBindingJson.Contains("\"Params\"")
+          && !protectedBindingJson.Contains("SuitePath")
+          && !protectedBindingJson.Contains("Values"),
+          "Protected script binding JSON uses Name and Params fields");
+    Check(RemoteScriptLauncher.ValidateBinding(loadedSuite, protectedBinding).Count == 0,
+          "Protected script binding validates with the current master password");
+
+    var deployFile = loadedSuite.Scripts.Single(s => s.Name == "deploy.sh");
+    var payload = RemoteScriptLauncher.BuildPayload(loadedSuite, deployFile, protectedBinding);
+    Check(payload.Contains("export TARGET='web api'")
+          && payload.Contains("export COUNT='2.5'")
+          && payload.Contains("export FORCE='true'")
+          && payload.Contains("export MODE='fast'")
+          && !payload.Contains("JRM_"),
+          "Script payload exports original environment variable names");
+    Check(!payload.Contains('\r'), "Script payload uses LF line endings for remote sh");
+    Check(payload.Contains("tok'\"'\"'en line1") && payload.Contains("line2 密码"),
+          "Script payload shell-quotes quotes, newlines, and Unicode values");
+
+    var auditSuite = suites.Single(s => s.Name == "Audit");
+    var sortedChoices = MainWindowViewModel.SortScriptSuiteChoices(
+        suites,
+        new[] { new ConnectionScriptBinding { Name = auditSuite.RelativePath } });
+    Check(sortedChoices[0].Suite.RelativePath == auditSuite.RelativePath
+          && sortedChoices[0].HasParameters
+          && sortedChoices.Skip(1).All(c => !c.HasParameters),
+          "Script suite picker sorts suites with saved parameters first");
+
+    var staleBindingConnection = new Connection
+    {
+        Type = ConnectionType.Ssh,
+        Name = "stale-script-binding",
+        Host = "x",
+        ScriptBindings =
+        {
+            new ConnectionScriptBinding { Name = auditSuite.RelativePath },
+            new ConnectionScriptBinding { Name = "MissingSuite" },
+            new ConnectionScriptBinding { Name = "" },
+        },
+    };
+    var removedStaleBindings =
+        MainWindowViewModel.PruneMissingScriptBindings(staleBindingConnection.ScriptBindings, suites);
+    Check(removedStaleBindings == 2
+          && staleBindingConnection.ScriptBindings.Count == 1
+          && staleBindingConnection.ScriptBindings[0].Name == auditSuite.RelativePath,
+          "Missing script suite bindings are pruned when scripts are rescanned");
+
+    var editorForDedupe = new ConnectionEditorViewModel();
+    editorForDedupe.ScriptBindings.Add(ConnectionScriptBindingViewModel.FromModel(new ConnectionScriptBinding
+    {
+        Name = loadedSuite.RelativePath,
+        Params = { new ConnectionScriptParameterValue { Name = "TARGET", Value = "old" } },
+    }));
+    editorForDedupe.ScriptBindings.Add(ConnectionScriptBindingViewModel.FromModel(new ConnectionScriptBinding
+    {
+        Name = loadedSuite.RelativePath,
+        Params = { new ConnectionScriptParameterValue { Name = "TARGET", Value = "new" } },
+    }));
+    var dedupedConnection = new Connection { Type = ConnectionType.Ssh, Name = "deduped", Host = "x" };
+    editorForDedupe.ApplyTo(dedupedConnection);
+    Check(dedupedConnection.ScriptBindings.Count == 1
+          && dedupedConnection.ScriptBindings[0].Params.Single().Value == "new",
+          "Each connection keeps only one binding per script suite");
+
+    var copiedScriptRoot = Path.Combine(root, "CopiedScripts");
+    scriptStore.CopyTreeContents(scriptRoot, copiedScriptRoot);
+    Check(Directory.Exists(copiedScriptRoot)
+          && File.Exists(Path.Combine(copiedScriptRoot, "Deploy", RemoteScriptStore.ParameterFileName))
+          && File.Exists(Path.Combine(copiedScriptRoot, "Deploy", "deploy.sh")),
+          "RemoteScriptStore copies script suites during storage migration");
 
     // --- SetRoot ---
     var altRoot = Path.Combine(root, "Alt");

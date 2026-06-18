@@ -124,6 +124,33 @@ StorageUserOption	User directory (roaming)	用户目录（漫游）
 StorageProgramOption	Program directory (portable)	程序目录（便携）
 DialogPickKeyTitle	Select private key	选择私钥
 DialogPickFinalShellTitle	Select FinalShell conn directory	选择 FinalShell 连接目录
+RunScript	Run script	运行脚本
+Close	Close	关闭
+CopyOutput	Copy output	复制输出
+ClearOutput	Clear output	清空输出
+ClearParameters	Clear all parameters	清除所有参数
+UnnamedScriptBinding	Unnamed script action	未命名脚本动作
+StatusNoScripts	No script suite found under script roots: {0}.	未在脚本目录下找到脚本套件：{0}。
+StatusScriptOnlySsh	Script actions are only available for SSH connections.	脚本动作仅适用于 SSH 连接。
+StatusScriptAlreadyRunning	A script is already running.	已有脚本正在运行。
+StatusChooseScriptSuite	Choose a script suite.	请选择脚本套件。
+StatusScriptSuiteOpened	Opened script suite: {0}	已打开脚本套件：{0}
+StatusScriptRunning	Running {0} on {1}…	正在 {1} 上运行 {0}…
+StatusScriptSucceeded	{0} succeeded.	{0} 执行成功。
+StatusScriptFailed	{0} failed with exit code {1}.	{0} 执行失败，退出码 {1}。
+StatusScriptLaunchFailed	Script launch failed: {0}	脚本启动失败：{0}
+StatusScriptOutputCopied	Script output copied.	已复制脚本输出。
+StatusScriptStillRunning	The script is still running.	脚本仍在运行。
+StatusScriptParametersCleared	Cleared parameters for {0}.	已清除 {0} 的参数。
+StatusMissingScriptBindingsRemoved	Removed {0} missing script binding(s).	已删除 {0} 个已失效的脚本参数绑定。
+ScriptExecutionRunning	Running…	正在运行…
+ScriptExecutionSucceeded	Succeeded in {0}.	执行成功，用时 {0}。
+ScriptExecutionFailed	Failed with exit code {0} after {1}.	执行失败，退出码 {0}，用时 {1}。
+ScriptExecutionStartFailed	Failed to start: {0}	启动失败：{0}
+ScriptPanelReady	Ready: {0}	就绪：{0}
+HasScriptParameters	Has parameters	已有参数
+ScriptSourceBuiltIn	Built-in	内置
+ScriptSourceUser	Custom	自定义
 TrayShow	Show	显示
 TrayExit	Exit	退出
 MasterSetupTitle	Set master password	设置主密码

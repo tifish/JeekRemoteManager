@@ -80,6 +80,30 @@ public partial class MainWindow : Window
         vm.PropertyChanged += OnViewModelPropertyChanged;
     }
 
+    private void OnRunScriptMenuClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel vm || sender is not Control anchor)
+            return;
+
+        var choices = vm.PrepareScriptSuiteChoicesForSelectedConnection();
+        if (choices.Count == 0)
+            return;
+
+        var flyout = new MenuFlyout();
+        foreach (var choice in choices)
+        {
+            var item = new MenuItem
+            {
+                Header = choice.ToString(),
+            };
+            item.Click += (_, _) => vm.OpenScriptSuiteChoice(choice);
+            flyout.Items.Add(item);
+        }
+
+        flyout.ShowAt(anchor);
+        e.Handled = true;
+    }
+
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(MainWindowViewModel.ShowPassword))

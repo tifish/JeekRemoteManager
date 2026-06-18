@@ -256,6 +256,13 @@ public class SettingsService
     /// <summary>Resolves the connections root folder for the current setting.</summary>
     public string ResolveConnectionsRoot() => ResolveConnectionsRoot(Settings.StorageLocation);
 
+    /// <summary>Resolves the script-suite root folder for the current setting.</summary>
+    public string ResolveScriptsRoot() => ResolveScriptsRoot(Settings.StorageLocation);
+
+    /// <summary>Resolves the app-bundled script-suite root folder.</summary>
+    public static string ResolveBuiltInScriptsRoot() =>
+        Path.Combine(ProgramDir, "Data", "Scripts");
+
     /// <summary>Resolves the connections root folder for a given storage location.</summary>
     public static string ResolveConnectionsRoot(StorageLocation location) => location switch
     {
@@ -263,5 +270,14 @@ public class SettingsService
             Path.Combine(ProgramDir, "Connections"),
         _ =>
             Path.Combine(UserDir, "Connections"),
+    };
+
+    /// <summary>Resolves the script-suite root folder for a given storage location.</summary>
+    public static string ResolveScriptsRoot(StorageLocation location) => location switch
+    {
+        StorageLocation.ProgramDirectory =>
+            Path.Combine(ProgramDir, "Scripts"),
+        _ =>
+            Path.Combine(UserDir, "Scripts"),
     };
 }

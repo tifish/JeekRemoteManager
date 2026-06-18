@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
 namespace JeekRemoteManager.Models;
@@ -33,6 +34,9 @@ public class Connection
 
     /// <summary>Extra raw arguments appended to the ssh command line.</summary>
     public string ExtraSshArguments { get; set; } = "";
+
+    /// <summary>Per-connection parameter bindings for reusable SSH scripts.</summary>
+    public List<ConnectionScriptBinding> ScriptBindings { get; set; } = new();
 
     // --- RDP specific ---
 

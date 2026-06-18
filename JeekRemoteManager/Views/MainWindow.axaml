@@ -3,6 +3,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="using:JeekRemoteManager.ViewModels"
+        xmlns:models="using:JeekRemoteManager.Models"
         xmlns:l="using:Jeek.Avalonia.Localization"
         mc:Ignorable="d" d:DesignWidth="1040" d:DesignHeight="680"
         x:Class="JeekRemoteManager.Views.MainWindow"
@@ -34,6 +35,7 @@
                     <SolidColorBrush x:Key="AccentBrush" Color="#2563EB" />
                     <SolidColorBrush x:Key="AccentHoverBrush" Color="#1D4ED8" />
                     <SolidColorBrush x:Key="AccentSoftBrush" Color="#E8F0FF" />
+                    <SolidColorBrush x:Key="SuccessBrush" Color="#15803D" />
                     <SolidColorBrush x:Key="DangerBrush" Color="#B42318" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
@@ -48,6 +50,7 @@
                     <SolidColorBrush x:Key="AccentBrush" Color="#60A5FA" />
                     <SolidColorBrush x:Key="AccentHoverBrush" Color="#3B82F6" />
                     <SolidColorBrush x:Key="AccentSoftBrush" Color="#1E3A5F" />
+                    <SolidColorBrush x:Key="SuccessBrush" Color="#22C55E" />
                     <SolidColorBrush x:Key="DangerBrush" Color="#F97066" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
@@ -250,6 +253,9 @@
                             <Button.Flyout>
                                 <MenuFlyout>
                                     <MenuItem Header="{l:Localize Connect}" Command="{Binding ConnectCommand}" />
+                                    <MenuItem Header="{l:Localize RunScript}"
+                                              Click="OnRunScriptMenuClick"
+                                              IsVisible="{Binding IsSshConnectionContext}" />
                                     <Separator />
                                     <MenuItem Header="{l:Localize NewFolder}" Command="{Binding NewFolderCommand}" />
                                     <MenuItem Header="{l:Localize NewSsh}" Command="{Binding NewSshCommand}" />
@@ -289,6 +295,8 @@
                             <ContextMenu>
                                 <MenuItem Header="{l:Localize Connect}" Command="{Binding ConnectCommand}"
                                           IsVisible="{Binding !IsRecentGroupContext}" />
+                                <MenuItem Header="{l:Localize RunScript}" Click="OnRunScriptMenuClick"
+                                          IsVisible="{Binding IsSshConnectionContext}" />
                                 <MenuItem Header="{l:Localize RevealInTree}" Command="{Binding RevealInTreeCommand}"
                                           IsVisible="{Binding IsRecentConnectionContext}" />
                                 <MenuItem Header="{l:Localize RemoveFromRecent}" Command="{Binding RemoveFromRecentCommand}"
@@ -335,7 +343,9 @@
                           Background="Transparent" />
 
             <!-- Editor -->
-            <ContentControl Grid.Column="2" Content="{Binding Editor}">
+            <Grid Grid.Column="2">
+                <ContentControl Content="{Binding Editor}"
+                                IsVisible="{Binding ShowConnectionEditor}">
                 <ContentControl.DataTemplates>
                     <DataTemplate DataType="vm:ConnectionEditorViewModel">
                         <Border Classes="panel">
@@ -346,14 +356,23 @@
                                             <TextBlock Classes="page-title" Text="{l:Localize Edit}" />
                                             <TextBlock Classes="hint" Text="{l:Localize AutoSaveHint}" />
                                         </StackPanel>
-                                        <Button Grid.Column="1"
-                                                Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).ConnectCommand}"
-                                                Classes="accent">
-                                            <StackPanel Orientation="Horizontal" Spacing="7">
-                                                <TextBlock Classes="icon" Text="&#xE768;" />
-                                                <TextBlock Text="{l:Localize Connect}" />
-                                            </StackPanel>
-                                        </Button>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                            <Button Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).ConnectCommand}"
+                                                    Classes="accent">
+                                                <StackPanel Orientation="Horizontal" Spacing="7">
+                                                    <TextBlock Classes="icon" Text="&#xE768;" />
+                                                    <TextBlock Text="{l:Localize Connect}" />
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Click="OnRunScriptMenuClick"
+                                                    IsVisible="{Binding IsSsh}"
+                                                    Classes="toolbar">
+                                                <StackPanel Orientation="Horizontal" Spacing="7">
+                                                    <TextBlock Classes="icon" Text="&#xE756;" />
+                                                    <TextBlock Text="{l:Localize RunScript}" />
+                                                </StackPanel>
+                                            </Button>
+                                        </StackPanel>
                                     </Grid>
 
                                     <Border Background="{DynamicResource SurfaceAltBrush}" CornerRadius="8" Padding="16">
@@ -427,6 +446,7 @@
                                                          Text="{Binding ExtraSshArguments, Mode=TwoWay}"
                                                          PlaceholderText="{l:Localize ExtraArgsWatermark}" />
                                             </Grid>
+
                                         </StackPanel>
                                     </Border>
 
@@ -482,9 +502,9 @@
             </ContentControl>
 
             <!-- Placeholder when nothing is selected -->
-            <Border Grid.Column="2"
+            <Border
                     Classes="panel"
-                    IsVisible="{Binding Editor, Converter={x:Static ObjectConverters.IsNull}}">
+                    IsVisible="{Binding ShowPlaceholder}">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14" MaxWidth="360">
                     <Border Width="54" Height="54" CornerRadius="8">
                         <Image Source="/Assets/icon.png"
@@ -500,6 +520,128 @@
                                TextAlignment="Center" />
                 </StackPanel>
             </Border>
+                <Border Classes="panel"
+                        Padding="14"
+                        IsVisible="{Binding HasScriptExecution}">
+                    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="10">
+                        <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+                            <StackPanel Grid.Column="0" Spacing="2">
+                                <TextBlock Classes="page-title" Text="{Binding ScriptPanel.SuiteName}" />
+                            </StackPanel>
+                            <Button Grid.Column="1"
+                                    Classes="toolbar icon-button"
+                                    ToolTip.Tip="{l:Localize Close}"
+                                    Command="{Binding CloseScriptExecutionCommand}">
+                                <TextBlock Classes="icon"
+                                           Text="&#xE711;"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           TextAlignment="Center" />
+                            </Button>
+                        </Grid>
+
+                        <ScrollViewer Grid.Row="1"
+                                      MinHeight="0"
+                                      MaxHeight="260"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      VerticalScrollBarVisibility="Auto">
+                            <Grid ColumnDefinitions="*,160" ColumnSpacing="16">
+                                <ItemsControl Grid.Column="0" ItemsSource="{Binding ScriptPanel.Parameters}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="vm:ScriptParameterValueViewModel">
+                                            <Grid ColumnDefinitions="120,*" ColumnSpacing="10" Margin="0,3">
+                                                <TextBlock Grid.Column="0" Classes="label" Text="{Binding Name}" />
+                                                <Grid Grid.Column="1">
+                                                    <TextBox Text="{Binding Value, Mode=TwoWay}"
+                                                             IsVisible="{Binding IsText}" />
+                                                    <TextBox Text="{Binding Value, Mode=TwoWay}"
+                                                             PasswordChar="&#x2022;"
+                                                             IsVisible="{Binding IsSecret}" />
+                                                    <CheckBox IsChecked="{Binding BoolValue, Mode=TwoWay}"
+                                                              IsVisible="{Binding IsBool}" />
+                                                    <ComboBox ItemsSource="{Binding EnumOptions}"
+                                                              SelectedItem="{Binding SelectedEnumValue, Mode=TwoWay}"
+                                                              IsVisible="{Binding IsEnum}" />
+                                                </Grid>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <ItemsControl Grid.Column="1" ItemsSource="{Binding ScriptPanel.Scripts}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Vertical" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="models:RemoteScriptFile">
+                                            <Button Content="{Binding DisplayName}"
+                                                    HorizontalAlignment="Stretch"
+                                                    HorizontalContentAlignment="Center"
+                                                    Margin="0,0,0,6"
+                                                    Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).RunScriptFileCommand}"
+                                                    CommandParameter="{Binding}" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Grid>
+                        </ScrollViewer>
+
+                        <Grid Grid.Row="2" ColumnDefinitions="Auto,*" ColumnSpacing="9" MinHeight="30">
+                            <Grid Grid.Column="0"
+                                  Width="24"
+                                  Height="24"
+                                  VerticalAlignment="Center"
+                                  IsVisible="{Binding ScriptPanel.ShowResultIcon}">
+                                <TextBlock Classes="icon"
+                                           Text="&#xE73E;"
+                                           FontSize="22"
+                                           Foreground="{DynamicResource SuccessBrush}"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           TextAlignment="Center"
+                                           IsVisible="{Binding ScriptPanel.ShowSuccessIcon}" />
+                                <TextBlock Classes="icon"
+                                           Text="&#xE711;"
+                                           FontSize="22"
+                                           Foreground="{DynamicResource DangerBrush}"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           TextAlignment="Center"
+                                           IsVisible="{Binding ScriptPanel.ShowFailureIcon}" />
+                            </Grid>
+                            <TextBlock Grid.Column="1"
+                                       Classes="hint"
+                                       Text="{Binding ScriptPanel.StatusText}"
+                                       FontSize="14"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       VerticalAlignment="Center" />
+                        </Grid>
+
+                        <TextBox Grid.Row="3"
+                                 Text="{Binding ScriptPanel.Output, Mode=OneWay}"
+                                 IsReadOnly="True"
+                                 AcceptsReturn="True"
+                                 TextWrapping="NoWrap"
+                                 FontFamily="Consolas"
+                                 MinHeight="0"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto" />
+
+                        <Grid Grid.Row="4" ColumnDefinitions="Auto,*,Auto">
+                            <Button Grid.Column="0"
+                                    Content="{l:Localize ClearParameters}"
+                                    Command="{Binding ClearScriptParametersCommand}" />
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+                                <Button Content="{l:Localize CopyOutput}" Command="{Binding CopyScriptOutputCommand}" />
+                                <Button Content="{l:Localize ClearOutput}" Command="{Binding ClearScriptOutputCommand}" />
+                            </StackPanel>
+                        </Grid>
+                    </Grid>
+                </Border>
+            </Grid>
         </Grid>
     </DockPanel>
 </Window>

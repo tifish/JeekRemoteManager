@@ -1,3 +1,5 @@
+using System.Collections.ObjectModel;
+using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
@@ -52,6 +54,8 @@ public partial class ConnectionEditorViewModel : ViewModelBase
 
     [ObservableProperty]
     private string _extraSshArguments = "";
+
+    public ObservableCollection<ConnectionScriptBindingViewModel> ScriptBindings { get; } = new();
 
     // RDP
     [ObservableProperty]
@@ -110,6 +114,9 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             Notes = c.Notes,
         };
 
+        foreach (var binding in c.ScriptBindings)
+            vm.ScriptBindings.Add(ConnectionScriptBindingViewModel.FromModel(binding));
+
         // Decrypt the password, but remember the original ciphertext so we never
         // overwrite a password we could not read (see ApplyTo).
         vm._originalEncryptedPassword = c.EncryptedPassword;
@@ -135,6 +142,12 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             : PasswordProtector.Encrypt(Password);
         c.PrivateKeyPath = PrivateKeyPath.Trim();
         c.ExtraSshArguments = ExtraSshArguments.Trim();
+        c.ScriptBindings = ScriptBindings
+            .Select(b => b.ToModel())
+            .Where(b => !string.IsNullOrWhiteSpace(b.Name))
+            .GroupBy(b => b.Name, System.StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.Last())
+            .ToList();
         c.RdpFullScreen = RdpFullScreen;
         c.RdpUseAllMonitors = RdpUseAllMonitors;
         c.RdpWidth = RdpWidth;

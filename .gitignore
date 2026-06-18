@@ -29,3 +29,5 @@ Thumbs.db
 bin/*
 !bin/*.ps1
 !bin/*.cmd
+!bin/Data/
+!bin/Data/**
