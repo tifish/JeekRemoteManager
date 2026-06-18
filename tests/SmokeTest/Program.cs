@@ -223,6 +223,24 @@ try
     // --- Settings location resolution ---
     var progRoot = SettingsService.ResolveConnectionsRoot(StorageLocation.ProgramDirectory);
     var userRoot = SettingsService.ResolveConnectionsRoot(StorageLocation.UserDirectory);
+    var expectedSettingsPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "JeekRemoteManager",
+        "settings.json");
+    Check(string.Equals(
+              Path.GetFullPath(SettingsService.DefaultSettingsPath),
+              Path.GetFullPath(expectedSettingsPath),
+              StringComparison.OrdinalIgnoreCase),
+          "settings.json resolves under LocalAppData");
+    var settingsWithRecent = new AppSettings
+    {
+        RecentConnectionPaths = { Path.Combine(root, "Servers", "web01.json") },
+        RecentExpanded = false,
+    };
+    var settingsJson = JsonSerializer.Serialize(settingsWithRecent);
+    Check(settingsJson.Contains(nameof(AppSettings.RecentConnectionPaths))
+          && settingsJson.Contains(nameof(AppSettings.RecentExpanded)),
+          "Recent list is persisted inside AppSettings");
     Check(progRoot.StartsWith(AppContext.BaseDirectory, StringComparison.OrdinalIgnoreCase)
           && progRoot.EndsWith("Connections"), "Program-directory root resolves next to the exe");
     Check(userRoot.Contains("JeekRemoteManager") && userRoot.EndsWith("Connections"),

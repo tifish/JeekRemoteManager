@@ -35,17 +35,7 @@ public class AppSettings
     // Saved connection passwords are self-contained jrm1 blobs in the connection
     // files. The DPAPI cache managed by MasterKeyService is machine-local only
     // and is intentionally not stored here.
-    //
-    // The recently-used connection list also lives outside this file — it's a
-    // per-user preference and stays under %APPDATA% even in portable mode.
-}
 
-/// <summary>
-/// Per-user recently-used connections. Always persisted under %APPDATA%, so it
-/// never travels with a portable folder.
-/// </summary>
-public class RecentSettings
-{
     /// <summary>Recently-used connection file paths, most-recent first.</summary>
     public List<string> RecentConnectionPaths { get; set; } = new();
 

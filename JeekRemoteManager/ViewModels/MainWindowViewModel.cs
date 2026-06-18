@@ -524,13 +524,13 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Builds the synthetic "Recent" group from <see cref="RecentSettings.RecentConnectionPaths"/>,
+    /// Builds the synthetic "Recent" group from <see cref="AppSettings.RecentConnectionPaths"/>,
     /// pruning entries whose files no longer exist. Returns null when no usable
     /// entries remain (so the group doesn't appear empty).
     /// </summary>
     private TreeNodeViewModel? BuildRecentGroup()
     {
-        var paths = _settings.Recent.RecentConnectionPaths;
+        var paths = _settings.Settings.RecentConnectionPaths;
         if (paths.Count == 0)
             return null;
 
@@ -565,7 +565,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         if (pruned)
-            _settings.SaveRecent();
+            _settings.Save();
 
         if (children.Count == 0)
             return null;
@@ -575,7 +575,7 @@ public partial class MainWindowViewModel : ViewModelBase
             IsRecent = true,
             Name = L("RecentGroup"),
         };
-        group.IsExpanded = _settings.Recent.RecentExpanded;
+        group.IsExpanded = _settings.Settings.RecentExpanded;
         foreach (var c in children)
         {
             c.Parent = group;
@@ -587,10 +587,10 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             if (e.PropertyName != nameof(TreeNodeViewModel.IsExpanded))
                 return;
-            if (_settings.Recent.RecentExpanded == group.IsExpanded)
+            if (_settings.Settings.RecentExpanded == group.IsExpanded)
                 return;
-            _settings.Recent.RecentExpanded = group.IsExpanded;
-            _settings.SaveRecent();
+            _settings.Settings.RecentExpanded = group.IsExpanded;
+            _settings.Save();
         };
 
         return group;
@@ -630,7 +630,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         foreach (var node in nodes)
         {
-            if (node.IsRecent) continue; // tracked via RecentSettings.RecentExpanded
+            if (node.IsRecent) continue; // tracked via AppSettings.RecentExpanded
             if (node.IsFolder && node.IsExpanded)
                 expanded.Add(Path.GetFullPath(node.FullPath));
             CaptureExpanded(node.Children, expanded);
@@ -798,13 +798,13 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
 
         var removedName = shadow.Name;
-        var list = _settings.Recent.RecentConnectionPaths;
+        var list = _settings.Settings.RecentConnectionPaths;
         var before = list.Count;
         list.RemoveAll(p => PathEquals(p, shadow.FullPath));
         if (list.Count == before)
             return;
 
-        _settings.SaveRecent();
+        _settings.Save();
         RebuildRecentGroupInPlace();
         SelectedNode = null;
         StatusMessage = L("StatusRemovedFromRecent", removedName);
@@ -813,12 +813,12 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private void ClearRecent()
     {
-        var list = _settings.Recent.RecentConnectionPaths;
+        var list = _settings.Settings.RecentConnectionPaths;
         if (list.Count == 0)
             return;
 
         list.Clear();
-        _settings.SaveRecent();
+        _settings.Save();
         RebuildRecentGroupInPlace();
         if (SelectedNode is { IsRecent: true })
             SelectedNode = null;
@@ -896,12 +896,12 @@ public partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private void RecordRecent(string path)
     {
-        var list = _settings.Recent.RecentConnectionPaths;
+        var list = _settings.Settings.RecentConnectionPaths;
         list.RemoveAll(p => PathEquals(p, path));
         list.Insert(0, path);
         if (list.Count > RecentMax)
             list.RemoveRange(RecentMax, list.Count - RecentMax);
-        _settings.SaveRecent();
+        _settings.Save();
 
         // Rebuild just the recent group in place so the user's tree selection
         // (typically the just-launched node) survives untouched.
@@ -1808,7 +1808,6 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         _settings.Settings.StorageLocation = result.StorageLocation;
-        _settings.RelocateSettings(result.StorageLocation);
         var saved = _settings.Save();
         _store.SetRoot(newRoot);
         _scriptStore.SetRoot(newScriptsRoot);
