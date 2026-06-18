@@ -93,10 +93,17 @@ public class SettingsService
     {
         settings.StorageLocation = NormalizeStorageLocation(settings.StorageLocation);
         settings.RecentConnectionPaths ??= new List<string>();
+        if (!IsValidWindowDimension(settings.MainWindowWidth))
+            settings.MainWindowWidth = null;
+        if (!IsValidWindowDimension(settings.MainWindowHeight))
+            settings.MainWindowHeight = null;
     }
 
     private static StorageLocation NormalizeStorageLocation(StorageLocation location) =>
         Enum.IsDefined(location) ? location : StorageLocation.UserDirectory;
+
+    private static bool IsValidWindowDimension(double? value) =>
+        value is { } number && double.IsFinite(number) && number > 0;
 
     /// <summary>Persists the current settings. Returns false if writing failed.</summary>
     public bool Save()

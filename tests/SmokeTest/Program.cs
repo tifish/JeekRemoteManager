@@ -236,11 +236,15 @@ try
     {
         RecentConnectionPaths = { Path.Combine(root, "Servers", "web01.json") },
         RecentExpanded = false,
+        MainWindowWidth = 1200,
+        MainWindowHeight = 760,
     };
     var settingsJson = JsonSerializer.Serialize(settingsWithRecent);
     Check(settingsJson.Contains(nameof(AppSettings.RecentConnectionPaths))
-          && settingsJson.Contains(nameof(AppSettings.RecentExpanded)),
-          "Recent list is persisted inside AppSettings");
+          && settingsJson.Contains(nameof(AppSettings.RecentExpanded))
+          && settingsJson.Contains(nameof(AppSettings.MainWindowWidth))
+          && settingsJson.Contains(nameof(AppSettings.MainWindowHeight)),
+          "Recent list and main window size are persisted inside AppSettings");
     Check(progRoot.StartsWith(AppContext.BaseDirectory, StringComparison.OrdinalIgnoreCase)
           && progRoot.EndsWith("Connections"), "Program-directory root resolves next to the exe");
     Check(userRoot.Contains("JeekRemoteManager") && userRoot.EndsWith("Connections"),

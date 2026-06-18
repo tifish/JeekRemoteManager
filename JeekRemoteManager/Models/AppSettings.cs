@@ -23,6 +23,12 @@ public class AppSettings
     /// <summary>UI theme ("Light", "Dark"). Null = follow system theme.</summary>
     public string? Theme { get; set; }
 
+    /// <summary>Main window width in device-independent pixels. Null = default size.</summary>
+    public double? MainWindowWidth { get; set; }
+
+    /// <summary>Main window height in device-independent pixels. Null = default size.</summary>
+    public double? MainWindowHeight { get; set; }
+
     /// <summary>Whether to silently check for updates a few seconds after launch.</summary>
     public bool CheckUpdateOnStartup { get; set; } = true;
 

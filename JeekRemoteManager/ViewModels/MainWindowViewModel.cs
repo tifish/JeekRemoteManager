@@ -183,6 +183,32 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public string RootPath => _store.RootPath;
 
+    public bool TryGetSavedMainWindowSize(out double width, out double height)
+    {
+        width = _settings.Settings.MainWindowWidth ?? 0;
+        height = _settings.Settings.MainWindowHeight ?? 0;
+        return IsValidWindowDimension(width) && IsValidWindowDimension(height);
+    }
+
+    public void SaveMainWindowSize(double width, double height)
+    {
+        if (!IsValidWindowDimension(width) || !IsValidWindowDimension(height))
+            return;
+
+        var roundedWidth = Math.Round(width);
+        var roundedHeight = Math.Round(height);
+        if (_settings.Settings.MainWindowWidth == roundedWidth
+            && _settings.Settings.MainWindowHeight == roundedHeight)
+            return;
+
+        _settings.Settings.MainWindowWidth = roundedWidth;
+        _settings.Settings.MainWindowHeight = roundedHeight;
+        _settings.Save();
+    }
+
+    private static bool IsValidWindowDimension(double value) =>
+        double.IsFinite(value) && value > 0;
+
     public string VersionDisplay
     {
         get

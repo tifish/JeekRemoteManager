@@ -20,16 +20,25 @@ public partial class MainWindow : Window
 {
     private TreeNodeViewModel? _lastToggledFolder;
     private bool _lastToggledFolderExpanded;
+    private bool _windowSizeRestored;
+    private bool _ignoreWindowSizeChange;
+    private bool _canPersistWindowSize;
+    private double _defaultMinWidth;
+    private double _defaultMinHeight;
+    private DispatcherTimer? _windowSizeSaveTimer;
 
     // Auto-locks "Show password" after a stretch of inactivity in the main
     // window, so a revealed password isn't left on screen when the user
     // walks away. Any pointer or key input resets the timer.
     private static readonly TimeSpan ShowPasswordIdleTimeout = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan WindowSizeSaveDelay = TimeSpan.FromMilliseconds(500);
     private DispatcherTimer? _showPasswordIdleTimer;
 
     public MainWindow()
     {
         InitializeComponent();
+        _defaultMinWidth = MinWidth;
+        _defaultMinHeight = MinHeight;
         Tree.AddHandler(
             InputElement.PointerPressedEvent,
             OnTreePointerPressed,
@@ -56,11 +65,19 @@ public partial class MainWindow : Window
             RoutingStrategies.Tunnel,
             handledEventsToo: true);
         DataContextChanged += (_, _) => WireUp();
-        Opened += (_, _) => WireUp();
+        SizeChanged += OnWindowSizeChanged;
+        Opened += (_, _) =>
+        {
+            WireUp();
+            EnsureWindowFitsCurrentScreen();
+            _canPersistWindowSize = true;
+        };
         Closing += (_, _) =>
         {
+            var vm = DataContext as MainWindowViewModel;
             // Persist any pending edit before the app exits.
-            (DataContext as MainWindowViewModel)?.FlushAutoSave();
+            vm?.FlushAutoSave();
+            SaveCurrentWindowSize(vm);
         };
     }
 
@@ -78,7 +95,121 @@ public partial class MainWindow : Window
         vm.RequestFocusTree = FocusSelectedTreeItem;
         vm.PropertyChanged -= OnViewModelPropertyChanged;
         vm.PropertyChanged += OnViewModelPropertyChanged;
+        RestoreWindowSize(vm);
     }
+
+    private void RestoreWindowSize(MainWindowViewModel vm)
+    {
+        if (_windowSizeRestored)
+            return;
+
+        _windowSizeRestored = true;
+        if (!vm.TryGetSavedMainWindowSize(out var width, out var height))
+        {
+            width = Width;
+            height = Height;
+        }
+
+        _ignoreWindowSizeChange = true;
+        try
+        {
+            var size = ClampWindowSizeToCurrentScreen(width, height);
+            Width = size.Width;
+            Height = size.Height;
+        }
+        finally
+        {
+            _ignoreWindowSizeChange = false;
+        }
+    }
+
+    private void EnsureWindowFitsCurrentScreen()
+    {
+        _ignoreWindowSizeChange = true;
+        try
+        {
+            var size = ClampWindowSizeToCurrentScreen(Bounds.Width, Bounds.Height);
+            Width = size.Width;
+            Height = size.Height;
+        }
+        finally
+        {
+            _ignoreWindowSizeChange = false;
+        }
+    }
+
+    private void OnWindowSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        if (!_canPersistWindowSize
+            || !_windowSizeRestored
+            || _ignoreWindowSizeChange
+            || WindowState != WindowState.Normal)
+            return;
+
+        ScheduleWindowSizeSave();
+    }
+
+    private void ScheduleWindowSizeSave()
+    {
+        if (_windowSizeSaveTimer is null)
+        {
+            _windowSizeSaveTimer = new DispatcherTimer { Interval = WindowSizeSaveDelay };
+            _windowSizeSaveTimer.Tick += (_, _) =>
+            {
+                _windowSizeSaveTimer!.Stop();
+                SaveCurrentWindowSize(DataContext as MainWindowViewModel);
+            };
+        }
+
+        _windowSizeSaveTimer.Stop();
+        _windowSizeSaveTimer.Start();
+    }
+
+    private void SaveCurrentWindowSize(MainWindowViewModel? vm)
+    {
+        _windowSizeSaveTimer?.Stop();
+
+        if (vm is null || WindowState != WindowState.Normal)
+            return;
+
+        vm.SaveMainWindowSize(Bounds.Width, Bounds.Height);
+    }
+
+    private Size ClampWindowSizeToCurrentScreen(double width, double height)
+    {
+        if (!double.IsFinite(width) || width <= 0)
+            width = Width;
+        if (!double.IsFinite(height) || height <= 0)
+            height = Height;
+
+        if (TryGetCurrentScreenWorkingSize(out var workingSize))
+        {
+            MinWidth = Math.Min(_defaultMinWidth, workingSize.Width);
+            MinHeight = Math.Min(_defaultMinHeight, workingSize.Height);
+            width = Math.Min(width, workingSize.Width);
+            height = Math.Min(height, workingSize.Height);
+        }
+
+        width = ClampWindowDimension(width, MinWidth);
+        height = ClampWindowDimension(height, MinHeight);
+        return new Size(width, height);
+    }
+
+    private bool TryGetCurrentScreenWorkingSize(out Size workingSize)
+    {
+        workingSize = default;
+
+        var screen = Screens.ScreenFromWindow(this) ?? Screens.Primary;
+        if (screen is null)
+            return false;
+
+        var scaling = screen.Scaling > 0 ? screen.Scaling : 1;
+        workingSize = new Size(screen.WorkingArea.Width / scaling, screen.WorkingArea.Height / scaling);
+        return workingSize.Width > 0 && workingSize.Height > 0;
+    }
+
+    private static double ClampWindowDimension(double value, double minimum) =>
+        double.IsFinite(minimum) && minimum > 0 ? Math.Max(value, minimum) : value;
 
     private void OnRunScriptMenuClick(object? sender, RoutedEventArgs e)
     {
