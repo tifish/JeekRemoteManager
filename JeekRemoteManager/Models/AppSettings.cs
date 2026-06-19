@@ -45,6 +45,9 @@ public class AppSettings
     /// <summary>Recently-used connection file paths, most-recent first.</summary>
     public List<string> RecentConnectionPaths { get; set; } = new();
 
+    /// <summary>Connection file path that was selected when the app last ran.</summary>
+    public string? LastSelectedConnectionPath { get; set; }
+
     /// <summary>Whether the "Recent" group at the top of the tree is expanded.</summary>
     public bool RecentExpanded { get; set; } = true;
 }

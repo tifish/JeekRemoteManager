@@ -61,7 +61,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _store.SetRoot(_settings.ResolveConnectionsRoot());
         _scriptStore.SetRoot(_settings.ResolveScriptsRoot());
         ReloadScripts();
-        ReloadTree();
+        ReloadTree(_settings.Settings.LastSelectedConnectionPath);
         StartWatching(_store.RootPath);
 
         // Refresh language-dependent computed properties when the user switches language.
@@ -451,14 +451,20 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             var node = FindNode(Nodes, selectPath);
             if (node != null)
+            {
                 ExpandAncestors(node); // reveal it
-            SelectedNode = node;
+                SelectedNode = node;
 
-            // When ReloadTree was triggered by a user action (paste, new, rename,
-            // refresh), put keyboard focus on the tree so the new item is ready
-            // to receive Enter/F2/Delete/Ctrl+C etc.
-            if (pathToSelect != null)
-                RequestFocusTree?.Invoke();
+                // When ReloadTree was triggered by a user action (paste, new, rename,
+                // refresh), put keyboard focus on the tree so the new item is ready
+                // to receive Enter/F2/Delete/Ctrl+C etc.
+                if (pathToSelect != null)
+                    RequestFocusTree?.Invoke();
+            }
+            else
+            {
+                SelectedNode = null;
+            }
         }
     }
 
@@ -698,6 +704,30 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private static bool PathEquals(string a, string b) =>
         string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
+
+    public void SaveLastSelectedConnection()
+    {
+        FlushPendingAutoSave();
+        SaveLastSelectedConnectionPath(SelectedNode);
+    }
+
+    private void SaveLastSelectedConnectionPath(TreeNodeViewModel? node)
+    {
+        var path = node is { IsRecent: false, IsConnection: true } ? node.FullPath : null;
+        if (NullablePathEquals(_settings.Settings.LastSelectedConnectionPath, path))
+            return;
+
+        _settings.Settings.LastSelectedConnectionPath = path;
+        _settings.Save();
+    }
+
+    private static bool NullablePathEquals(string? a, string? b)
+    {
+        if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b))
+            return string.IsNullOrWhiteSpace(a) && string.IsNullOrWhiteSpace(b);
+
+        return PathEquals(a, b);
+    }
 
     private void DetachEditorIfEditingPath(string path)
     {

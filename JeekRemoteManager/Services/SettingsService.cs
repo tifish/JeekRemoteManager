@@ -93,6 +93,8 @@ public class SettingsService
     {
         settings.StorageLocation = NormalizeStorageLocation(settings.StorageLocation);
         settings.RecentConnectionPaths ??= new List<string>();
+        if (string.IsNullOrWhiteSpace(settings.LastSelectedConnectionPath))
+            settings.LastSelectedConnectionPath = null;
         if (!IsValidWindowDimension(settings.MainWindowWidth))
             settings.MainWindowWidth = null;
         if (!IsValidWindowDimension(settings.MainWindowHeight))

@@ -66,6 +66,10 @@ public partial class MainWindow : Window
             handledEventsToo: true);
         DataContextChanged += (_, _) => WireUp();
         SizeChanged += OnWindowSizeChanged;
+        Deactivated += (_, _) =>
+        {
+            (DataContext as MainWindowViewModel)?.SaveLastSelectedConnection();
+        };
         Opened += (_, _) =>
         {
             WireUp();
@@ -75,8 +79,8 @@ public partial class MainWindow : Window
         Closing += (_, _) =>
         {
             var vm = DataContext as MainWindowViewModel;
-            // Persist any pending edit before the app exits.
-            vm?.FlushAutoSave();
+            // Persist the current selection and any pending edit before the app exits.
+            vm?.SaveLastSelectedConnection();
             SaveCurrentWindowSize(vm);
         };
     }
