@@ -105,7 +105,7 @@ public class RemoteScriptStore
                 .Select(path => new RemoteScriptFile
                 {
                     Name = Path.GetFileName(path),
-                    DisplayName = Path.GetFileNameWithoutExtension(path),
+                    DisplayName = BuildScriptDisplayName(Path.GetFileNameWithoutExtension(path)),
                     FullPath = path,
                 })
                 .ToList();
@@ -116,6 +116,14 @@ public class RemoteScriptStore
         }
 
         return suite;
+    }
+
+    public static string BuildScriptDisplayName(string fileName)
+    {
+        var name = fileName.Replace('-', ' ');
+        if (name.Length > 0 && char.IsLower(name[0]))
+            name = char.ToUpper(name[0]) + name.Substring(1);
+        return name;
     }
 
     public static List<RemoteScriptParameter> ParseParameterFile(
