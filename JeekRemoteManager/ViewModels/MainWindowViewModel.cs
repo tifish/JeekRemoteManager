@@ -175,7 +175,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public Func<string, string, Task<bool>>? ConfirmAsync { get; set; }
     public Func<string, string, string, Task<string?>>? PromptAsync { get; set; }
     public Func<Task<string?>>? PickKeyFileAsync { get; set; }
-    public Func<StorageLocation, string?, string?, bool, int, Task<SettingsDialogResult?>>? PickSettingsAsync { get; set; }
+    public Func<StorageLocation, string?, string?, string?, bool, int, Task<SettingsDialogResult?>>? PickSettingsAsync { get; set; }
     public Func<string, Task<string?>>? PickFolderAsync { get; set; }
 
     /// <summary>Asks the view to put keyboard focus on the tree so it receives shortcuts.</summary>
@@ -1797,8 +1797,10 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
 
         var current = _settings.Settings.StorageLocation;
+        var currentCustomPath = _settings.Settings.CustomStoragePath;
         var result = await PickSettingsAsync(
             current,
+            currentCustomPath,
             _settings.Settings.Language,
             _settings.Settings.Theme,
             _settings.Settings.CheckUpdateOnStartup,
@@ -1827,13 +1829,16 @@ public partial class MainWindowViewModel : ViewModelBase
                 _updateIntervalChanged.Cancel();
         }
 
-        if (result.StorageLocation == current)
+        // A no-op when neither the location nor (for a custom location) its path changed.
+        if (result.StorageLocation == current
+            && (result.StorageLocation != StorageLocation.CustomDirectory
+                || string.Equals(result.CustomStoragePath, currentCustomPath, StringComparison.OrdinalIgnoreCase)))
             return;
 
         var oldRoot = _store.RootPath;
-        var newRoot = SettingsService.ResolveConnectionsRoot(result.StorageLocation);
+        var newRoot = SettingsService.ResolveConnectionsRoot(result.StorageLocation, result.CustomStoragePath);
         var oldScriptsRoot = _scriptStore.RootPath;
-        var newScriptsRoot = SettingsService.ResolveScriptsRoot(result.StorageLocation);
+        var newScriptsRoot = SettingsService.ResolveScriptsRoot(result.StorageLocation, result.CustomStoragePath);
 
         // Make sure the target is actually writable (e.g. ProgramDirectory under
         // %ProgramFiles% is not, for a standard user) before committing.
@@ -1864,6 +1869,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         _settings.Settings.StorageLocation = result.StorageLocation;
+        _settings.Settings.CustomStoragePath = result.CustomStoragePath;
         var saved = _settings.Save();
         _store.SetRoot(newRoot);
         _scriptStore.SetRoot(newScriptsRoot);

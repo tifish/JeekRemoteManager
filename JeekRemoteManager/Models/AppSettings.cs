@@ -10,12 +10,20 @@ public enum StorageLocation
 
     /// <summary>Under a "Connections" folder next to the executable (portable).</summary>
     ProgramDirectory,
+
+    /// <summary>Under a "Connections" folder beneath a user-chosen base directory.</summary>
+    CustomDirectory,
 }
 
 /// <summary>Persisted application settings.</summary>
 public class AppSettings
 {
     public StorageLocation StorageLocation { get; set; } = StorageLocation.UserDirectory;
+
+    /// <summary>Base directory for <see cref="StorageLocation.CustomDirectory"/>.
+    /// Connection and script data live under "Connections"/"Scripts" subfolders of
+    /// this path. Null/blank when no custom location has been chosen.</summary>
+    public string? CustomStoragePath { get; set; }
 
     /// <summary>UI language code ("en", "zh"). Null = follow system culture.</summary>
     public string? Language { get; set; }
@@ -56,6 +64,7 @@ public class AppSettings
 /// are null when "follow system" is chosen.</summary>
 public record SettingsDialogResult(
     StorageLocation StorageLocation,
+    string? CustomStoragePath,
     string? Language,
     string? Theme,
     bool CheckUpdateOnStartup,

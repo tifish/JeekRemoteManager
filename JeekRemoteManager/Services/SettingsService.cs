@@ -49,8 +49,12 @@ public class SettingsService
 
     public AppSettings Settings { get; private set; }
 
-    private static string StorageBaseDirFor(StorageLocation location) =>
-        location == StorageLocation.ProgramDirectory ? ProgramDir : RoamingDir;
+    private static string StorageBaseDirFor(StorageLocation location, string? customPath) => location switch
+    {
+        StorageLocation.ProgramDirectory => ProgramDir,
+        StorageLocation.CustomDirectory when !string.IsNullOrWhiteSpace(customPath) => customPath!,
+        _ => RoamingDir,
+    };
 
     private static StorageLocation LoadStorageLocation()
     {
@@ -92,6 +96,11 @@ public class SettingsService
     private static void NormalizeSettings(AppSettings settings)
     {
         settings.StorageLocation = NormalizeStorageLocation(settings.StorageLocation);
+        if (string.IsNullOrWhiteSpace(settings.CustomStoragePath))
+            settings.CustomStoragePath = null;
+        // A custom location without a usable path falls back to the user directory.
+        if (settings.StorageLocation == StorageLocation.CustomDirectory && settings.CustomStoragePath is null)
+            settings.StorageLocation = StorageLocation.UserDirectory;
         settings.RecentConnectionPaths ??= new List<string>();
         if (string.IsNullOrWhiteSpace(settings.LastSelectedConnectionPath))
             settings.LastSelectedConnectionPath = null;
@@ -125,30 +134,26 @@ public class SettingsService
     }
 
     /// <summary>Resolves the connections root folder for the current setting.</summary>
-    public string ResolveConnectionsRoot() => ResolveConnectionsRoot(Settings.StorageLocation);
+    public string ResolveConnectionsRoot() =>
+        ResolveConnectionsRoot(Settings.StorageLocation, Settings.CustomStoragePath);
 
     /// <summary>Resolves the script-suite root folder for the current setting.</summary>
-    public string ResolveScriptsRoot() => ResolveScriptsRoot(Settings.StorageLocation);
+    public string ResolveScriptsRoot() =>
+        ResolveScriptsRoot(Settings.StorageLocation, Settings.CustomStoragePath);
 
     /// <summary>Resolves the app-bundled script-suite root folder.</summary>
     public static string ResolveBuiltInScriptsRoot() =>
         Path.Combine(ProgramDir, "Data", "Scripts");
 
-    /// <summary>Resolves the connections root folder for a given storage location.</summary>
-    public static string ResolveConnectionsRoot(StorageLocation location) => location switch
-    {
-        StorageLocation.ProgramDirectory =>
-            Path.Combine(ProgramDir, "Connections"),
-        _ =>
-            Path.Combine(StorageBaseDirFor(StorageLocation.UserDirectory), "Connections"),
-    };
+    /// <summary>Resolves the connections root folder for a given storage location.
+    /// <paramref name="customPath"/> is the base directory used when
+    /// <paramref name="location"/> is <see cref="StorageLocation.CustomDirectory"/>.</summary>
+    public static string ResolveConnectionsRoot(StorageLocation location, string? customPath = null) =>
+        Path.Combine(StorageBaseDirFor(location, customPath), "Connections");
 
-    /// <summary>Resolves the script-suite root folder for a given storage location.</summary>
-    public static string ResolveScriptsRoot(StorageLocation location) => location switch
-    {
-        StorageLocation.ProgramDirectory =>
-            Path.Combine(ProgramDir, "Scripts"),
-        _ =>
-            Path.Combine(StorageBaseDirFor(StorageLocation.UserDirectory), "Scripts"),
-    };
+    /// <summary>Resolves the script-suite root folder for a given storage location.
+    /// <paramref name="customPath"/> is the base directory used when
+    /// <paramref name="location"/> is <see cref="StorageLocation.CustomDirectory"/>.</summary>
+    public static string ResolveScriptsRoot(StorageLocation location, string? customPath = null) =>
+        Path.Combine(StorageBaseDirFor(location, customPath), "Scripts");
 }

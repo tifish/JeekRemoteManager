@@ -95,7 +95,7 @@ public partial class MainWindow : Window
         vm.PromptAsync = PromptAsync;
         vm.PickKeyFileAsync = PickKeyFileAsync;
         vm.PickSettingsAsync = PickSettingsAsync;
-        vm.PickFolderAsync = PickFolderAsync;
+        vm.PickFolderAsync = path => PickFolderAsync(path);
         vm.RequestFocusTree = FocusSelectedTreeItem;
         vm.PropertyChanged -= OnViewModelPropertyChanged;
         vm.PropertyChanged += OnViewModelPropertyChanged;
@@ -460,11 +460,11 @@ public partial class MainWindow : Window
         _lastToggledFolderExpanded = node.IsExpanded;
     }
 
-    private async Task<string?> PickFolderAsync(string suggestedPath)
+    private async Task<string?> PickFolderAsync(string suggestedPath, string? title = null)
     {
         var options = new FolderPickerOpenOptions
         {
-            Title = Localizer.Get("DialogPickFinalShellTitle"),
+            Title = title ?? Localizer.Get("DialogPickFinalShellTitle"),
             AllowMultiple = false,
         };
 
@@ -582,6 +582,7 @@ public partial class MainWindow : Window
 
     private Task<SettingsDialogResult?> PickSettingsAsync(
         StorageLocation current,
+        string? currentCustomPath,
         string? currentLanguage,
         string? currentTheme,
         bool currentCheckOnStartup,
@@ -605,6 +606,58 @@ public partial class MainWindow : Window
             Content = BuildOption(
                 Localizer.Get("StorageProgramOption"),
                 SettingsService.ResolveConnectionsRoot(StorageLocation.ProgramDirectory)),
+        };
+
+        // The custom location lets the user point storage at any base directory.
+        // Browsing fills in customPath and selects this radio.
+        var customPath = currentCustomPath;
+        var customPathText = new TextBlock
+        {
+            FontSize = 11,
+            Opacity = 0.7,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var browseButton = new Button { Content = Localizer.Get("Browse") };
+
+        void RefreshCustomPathText()
+        {
+            customPathText.Foreground = Avalonia.Media.Brushes.Gray;
+            customPathText.Text = string.IsNullOrWhiteSpace(customPath)
+                ? Localizer.Get("StorageCustomNotSet")
+                : SettingsService.ResolveConnectionsRoot(StorageLocation.CustomDirectory, customPath);
+        }
+
+        RefreshCustomPathText();
+
+        var customRadio = new RadioButton
+        {
+            GroupName = "storage",
+            IsChecked = current == StorageLocation.CustomDirectory,
+            Content = new StackPanel
+            {
+                Spacing = 4,
+                Children =
+                {
+                    new TextBlock { Text = Localizer.Get("StorageCustomOption") },
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        Spacing = 8,
+                        Children = { browseButton, customPathText },
+                    },
+                },
+            },
+        };
+
+        browseButton.Click += async (_, _) =>
+        {
+            var picked = await PickFolderAsync(customPath ?? string.Empty, Localizer.Get("DialogPickStorageTitle"));
+            if (picked is null)
+                return;
+            customPath = picked;
+            customRadio.IsChecked = true;
+            RefreshCustomPathText();
         };
 
         // null code = follow system. Native names match the in-app language list.
@@ -690,6 +743,7 @@ public partial class MainWindow : Window
                     new TextBlock { Text = Localizer.Get("DialogStorageQuestion"), FontWeight = FontWeight.SemiBold },
                     userRadio,
                     programRadio,
+                    customRadio,
                     new TextBlock { Text = Localizer.Get("Password"), FontWeight = FontWeight.SemiBold },
                     changePassword,
                     new TextBlock { Text = Localizer.Get("AutoUpdate"), FontWeight = FontWeight.SemiBold },
@@ -722,15 +776,32 @@ public partial class MainWindow : Window
 
         ok.Click += (_, _) =>
         {
-            var storage = userRadio.IsChecked == true
-                ? StorageLocation.UserDirectory
-                : StorageLocation.ProgramDirectory;
+            var storage = programRadio.IsChecked == true
+                ? StorageLocation.ProgramDirectory
+                : customRadio.IsChecked == true
+                    ? StorageLocation.CustomDirectory
+                    : StorageLocation.UserDirectory;
+
+            // The custom option is meaningless without a directory — keep the dialog
+            // open and flag the missing path rather than committing a bad setting.
+            if (storage == StorageLocation.CustomDirectory && string.IsNullOrWhiteSpace(customPath))
+            {
+                customPathText.Foreground = Avalonia.Media.Brushes.Red;
+                customPathText.Text = Localizer.Get("StorageCustomRequired");
+                return;
+            }
+
             var language = (languageBox.SelectedItem as LanguageChoice)?.Code;
             var theme = (themeBox.SelectedItem as ThemeChoice)?.Code;
             var checkOnStartup = checkOnStartupBox.IsChecked == true;
             var intervalHours = (intervalBox.SelectedItem as IntervalChoice)?.Hours ?? 0;
             tcs.TrySetResult(new SettingsDialogResult(
-                storage, language, theme, checkOnStartup, intervalHours));
+                storage,
+                storage == StorageLocation.CustomDirectory ? customPath : currentCustomPath,
+                language,
+                theme,
+                checkOnStartup,
+                intervalHours));
             dialog.Close();
         };
         cancel.Click += (_, _) => { tcs.TrySetResult(null); dialog.Close(); };

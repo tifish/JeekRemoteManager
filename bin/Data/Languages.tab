@@ -122,8 +122,12 @@ DialogSettingsTitle	Settings	设置
 DialogStorageQuestion	Where should connections be stored?	连接应保存在哪里？
 StorageUserOption	User directory (roaming)	用户目录（漫游）
 StorageProgramOption	Program directory (portable)	程序目录（便携）
+StorageCustomOption	Custom directory	自定义目录
+StorageCustomNotSet	Not set — click Browse to choose a folder	未设置 —— 点击“浏览”选择文件夹
+StorageCustomRequired	Please choose a custom directory.	请选择一个自定义目录。
 DialogPickKeyTitle	Select private key	选择私钥
 DialogPickFinalShellTitle	Select FinalShell conn directory	选择 FinalShell 连接目录
+DialogPickStorageTitle	Select data directory	选择数据目录
 RunScript	Run script	运行脚本
 Close	Close	关闭
 CopyOutput	Copy output	复制输出
