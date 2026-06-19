@@ -58,6 +58,12 @@ public class AppSettings
 
     /// <summary>Whether the "Recent" group at the top of the tree is expanded.</summary>
     public bool RecentExpanded { get; set; } = true;
+
+    /// <summary>Absolute paths of folders the user has collapsed in the tree.
+    /// Folders not listed here default to expanded, so the set stays small and
+    /// new folders appear open. Restored on startup to persist the tree's
+    /// expand/collapse state across runs.</summary>
+    public List<string> CollapsedFolderPaths { get; set; } = new();
 }
 
 /// <summary>Outcome of the Settings dialog. <see cref="Language"/> and <see cref="Theme"/>

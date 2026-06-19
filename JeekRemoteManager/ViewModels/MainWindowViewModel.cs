@@ -418,9 +418,10 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void ReloadTree(string? pathToSelect = null)
     {
-        // Preserve expand/collapse state and the selection across the rebuild.
-        var expanded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        CaptureExpanded(Nodes, expanded);
+        // Folder expand/collapse state is persisted in AppSettings.CollapsedFolderPaths
+        // and applied as each folder node is built, so it survives both in-session
+        // rebuilds and restarts. Drop stale entries for folders that no longer exist.
+        PruneMissingCollapsedFolders();
         var previousSelection = SelectedNode?.FullPath;
 
         Nodes.Clear();
@@ -435,8 +436,6 @@ public partial class MainWindowViewModel : ViewModelBase
 
         foreach (var child in BuildChildren(_store.RootPath, parent: null))
             Nodes.Add(child);
-
-        RestoreExpanded(Nodes, expanded);
 
         // Re-apply the "cut" dimming to the source node so it survives reloads.
         if (_clipboardIsCut && _clipboardPath != null)
@@ -637,6 +636,7 @@ public partial class MainWindowViewModel : ViewModelBase
             var node = new TreeNodeViewModel(dir, isFolder: true) { Parent = parent };
             foreach (var child in BuildChildren(dir, node))
                 node.Children.Add(child);
+            ApplyPersistedExpansion(node);
             result.Add(node);
         }
 
@@ -658,26 +658,79 @@ public partial class MainWindowViewModel : ViewModelBase
         return result;
     }
 
-    private static void CaptureExpanded(IEnumerable<TreeNodeViewModel> nodes, HashSet<string> expanded)
+    /// <summary>
+    /// Applies the persisted expand/collapse state to a freshly-built folder node
+    /// and subscribes so later toggles are written back to settings. Folders absent
+    /// from <see cref="AppSettings.CollapsedFolderPaths"/> default to expanded.
+    /// </summary>
+    private void ApplyPersistedExpansion(TreeNodeViewModel node)
     {
-        foreach (var node in nodes)
-        {
-            if (node.IsRecent) continue; // tracked via AppSettings.RecentExpanded
-            if (node.IsFolder && node.IsExpanded)
-                expanded.Add(Path.GetFullPath(node.FullPath));
-            CaptureExpanded(node.Children, expanded);
-        }
+        // Set the initial state BEFORE subscribing so this seeding doesn't get
+        // mistaken for a user toggle and re-saved.
+        node.IsExpanded = !IsFolderCollapsed(node.FullPath);
+        node.PropertyChanged += OnFolderExpandedChanged;
     }
 
-    private static void RestoreExpanded(IEnumerable<TreeNodeViewModel> nodes, HashSet<string> expanded)
+    private void OnFolderExpandedChanged(object? sender, PropertyChangedEventArgs e)
     {
-        foreach (var node in nodes)
+        if (e.PropertyName != nameof(TreeNodeViewModel.IsExpanded))
+            return;
+        if (sender is not TreeNodeViewModel { IsFolder: true, IsRecent: false } node)
+            return;
+        UpdateFolderExpansionState(node);
+    }
+
+    private bool IsFolderCollapsed(string fullPath) =>
+        _settings.Settings.CollapsedFolderPaths.Exists(p => PathEquals(p, fullPath));
+
+    /// <summary>
+    /// Records a toggled folder's expand/collapse state in settings, saving when
+    /// it actually changed.
+    /// </summary>
+    private void UpdateFolderExpansionState(TreeNodeViewModel node)
+    {
+        var collapsed = _settings.Settings.CollapsedFolderPaths;
+        bool changed;
+        if (node.IsExpanded)
         {
-            if (node.IsRecent) continue;
-            if (node.IsFolder)
-                node.IsExpanded = expanded.Contains(Path.GetFullPath(node.FullPath));
-            RestoreExpanded(node.Children, expanded);
+            changed = collapsed.RemoveAll(p => PathEquals(p, node.FullPath)) > 0;
         }
+        else if (!collapsed.Exists(p => PathEquals(p, node.FullPath)))
+        {
+            collapsed.Add(Path.GetFullPath(node.FullPath));
+            changed = true;
+        }
+        else
+        {
+            changed = false;
+        }
+
+        if (changed)
+            _settings.Save();
+    }
+
+    /// <summary>Removes collapsed-folder entries whose directories no longer exist,
+    /// so renamed/deleted folders don't accumulate stale state.</summary>
+    private void PruneMissingCollapsedFolders()
+    {
+        var collapsed = _settings.Settings.CollapsedFolderPaths;
+        if (collapsed.Count == 0)
+            return;
+
+        var removed = collapsed.RemoveAll(p =>
+        {
+            try { return !Directory.Exists(p); }
+            catch { return true; }
+        });
+
+        if (removed > 0)
+            _settings.Save();
+    }
+
+    public void SaveLastSelectedConnection()
+    {
+        FlushPendingAutoSave();
+        SaveLastSelectedConnectionPath(SelectedNode);
     }
 
     private static void ExpandAncestors(TreeNodeViewModel node)
@@ -704,12 +757,6 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private static bool PathEquals(string a, string b) =>
         string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
-
-    public void SaveLastSelectedConnection()
-    {
-        FlushPendingAutoSave();
-        SaveLastSelectedConnectionPath(SelectedNode);
-    }
 
     private void SaveLastSelectedConnectionPath(TreeNodeViewModel? node)
     {
