@@ -77,6 +77,8 @@ try
         "-L", "8080:localhost:80",
         "root@example.com",
     }), "SSH options are emitted before the target host");
+    Check(ConnectionType.Ssh.ToDisplayName() == "SSH" && ConnectionType.Rdp.ToDisplayName() == "RDP",
+          "Connection types display as uppercase acronyms");
 
     // --- Portability: a connection file alone (no vault, no cache) suffices ---
     // Carry just the EncryptedPassword to a fresh "machine" and decrypt with the

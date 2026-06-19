@@ -382,8 +382,8 @@
                                             <Grid ColumnDefinitions="128,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10">
                                                 <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="{l:Localize Type}" />
                                                 <ComboBox Grid.Row="0" Grid.Column="1" HorizontalAlignment="Stretch"
-                                                          ItemsSource="{Binding AvailableTypes}"
-                                                          SelectedItem="{Binding Type, Mode=TwoWay}" />
+                                                          ItemsSource="{Binding AvailableTypeDisplays}"
+                                                          SelectedItem="{Binding TypeDisplay, Mode=TwoWay}" />
 
                                                 <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="{l:Localize Name}" />
                                                 <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Name, Mode=TwoWay}" />

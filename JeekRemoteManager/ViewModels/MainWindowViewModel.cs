@@ -837,7 +837,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
             var path = _store.Save(connection, TargetFolder());
             ReloadTree(path);
-            StatusMessage = L("StatusCreatedConnection", type);
+            StatusMessage = L("StatusCreatedConnection", type.ToDisplayName());
         }
         catch (Exception ex)
         {
@@ -966,7 +966,7 @@ public partial class MainWindowViewModel : ViewModelBase
             }
             else
             {
-                StatusMessage = L("StatusLaunching", connection.Type, connection.Host);
+                StatusMessage = L("StatusLaunching", connection.Type.ToDisplayName(), connection.Host);
             }
 
             _launcher.Launch(connection);

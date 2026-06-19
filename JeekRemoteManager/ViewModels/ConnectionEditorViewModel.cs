@@ -16,6 +16,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsSsh))]
     [NotifyPropertyChangedFor(nameof(IsRdp))]
+    [NotifyPropertyChangedFor(nameof(TypeDisplay))]
     private ConnectionType _type = ConnectionType.Ssh;
 
     [ObservableProperty]
@@ -90,7 +91,15 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     public bool IsRdp => Type == ConnectionType.Rdp;
 
     /// <summary>Connection types offered in the editor's Type selector.</summary>
-    public static ConnectionType[] AvailableTypes { get; } = System.Enum.GetValues<ConnectionType>();
+    public static string[] AvailableTypeDisplays { get; } = System.Enum.GetValues<ConnectionType>()
+        .Select(type => type.ToDisplayName())
+        .ToArray();
+
+    public string TypeDisplay
+    {
+        get => Type.ToDisplayName();
+        set => Type = ConnectionTypeDisplay.FromDisplayName(value);
+    }
 
     public static ConnectionEditorViewModel FromConnection(Connection c)
     {
