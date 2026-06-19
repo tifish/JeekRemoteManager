@@ -203,7 +203,6 @@ public partial class MainWindowViewModel : ViewModelBase
 
         _settings.Settings.MainWindowWidth = roundedWidth;
         _settings.Settings.MainWindowHeight = roundedHeight;
-        _settings.Save();
     }
 
     private static bool IsValidWindowDimension(double value) =>
@@ -297,6 +296,15 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>Forces any pending editor changes to be written to disk now.</summary>
     public void FlushAutoSave() => FlushPendingAutoSave();
+
+    /// <summary>Writes settings.json if the in-memory settings changed since the last flush.</summary>
+    public bool FlushSettings()
+    {
+        var saved = _settings.SaveIfChanged();
+        if (!saved)
+            StatusMessage = L("StatusStorageNotSaved", _settings.SettingsPath);
+        return saved;
+    }
 
     /// <summary>
     /// Persists any pending editor changes against <see cref="_editingNode"/>.
@@ -566,14 +574,12 @@ public partial class MainWindowViewModel : ViewModelBase
             return null;
 
         var children = new List<TreeNodeViewModel>();
-        var pruned = false;
 
         foreach (var path in paths.ToArray())
         {
             if (!File.Exists(path))
             {
                 paths.RemoveAll(p => PathEquals(p, path));
-                pruned = true;
                 continue;
             }
 
@@ -585,7 +591,6 @@ public partial class MainWindowViewModel : ViewModelBase
             catch
             {
                 paths.RemoveAll(p => PathEquals(p, path));
-                pruned = true;
                 continue;
             }
 
@@ -594,9 +599,6 @@ public partial class MainWindowViewModel : ViewModelBase
                 IsRecent = true,
             });
         }
-
-        if (pruned)
-            _settings.Save();
 
         if (children.Count == 0)
             return null;
@@ -621,7 +623,6 @@ public partial class MainWindowViewModel : ViewModelBase
             if (_settings.Settings.RecentExpanded == group.IsExpanded)
                 return;
             _settings.Settings.RecentExpanded = group.IsExpanded;
-            _settings.Save();
         };
 
         return group;
@@ -684,29 +685,19 @@ public partial class MainWindowViewModel : ViewModelBase
         _settings.Settings.CollapsedFolderPaths.Exists(p => PathEquals(p, fullPath));
 
     /// <summary>
-    /// Records a toggled folder's expand/collapse state in settings, saving when
-    /// it actually changed.
+    /// Records a toggled folder's expand/collapse state in settings when it changed.
     /// </summary>
     private void UpdateFolderExpansionState(TreeNodeViewModel node)
     {
         var collapsed = _settings.Settings.CollapsedFolderPaths;
-        bool changed;
         if (node.IsExpanded)
         {
-            changed = collapsed.RemoveAll(p => PathEquals(p, node.FullPath)) > 0;
+            collapsed.RemoveAll(p => PathEquals(p, node.FullPath));
         }
         else if (!collapsed.Exists(p => PathEquals(p, node.FullPath)))
         {
             collapsed.Add(Path.GetFullPath(node.FullPath));
-            changed = true;
         }
-        else
-        {
-            changed = false;
-        }
-
-        if (changed)
-            _settings.Save();
     }
 
     /// <summary>Removes collapsed-folder entries whose directories no longer exist,
@@ -717,14 +708,11 @@ public partial class MainWindowViewModel : ViewModelBase
         if (collapsed.Count == 0)
             return;
 
-        var removed = collapsed.RemoveAll(p =>
+        collapsed.RemoveAll(p =>
         {
             try { return !Directory.Exists(p); }
             catch { return true; }
         });
-
-        if (removed > 0)
-            _settings.Save();
     }
 
     public void SaveLastSelectedConnection()
@@ -765,7 +753,6 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
 
         _settings.Settings.LastSelectedConnectionPath = path;
-        _settings.Save();
     }
 
     private static bool NullablePathEquals(string? a, string? b)
@@ -907,7 +894,6 @@ public partial class MainWindowViewModel : ViewModelBase
         if (list.Count == before)
             return;
 
-        _settings.Save();
         RebuildRecentGroupInPlace();
         SelectedNode = null;
         StatusMessage = L("StatusRemovedFromRecent", removedName);
@@ -921,7 +907,6 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
 
         list.Clear();
-        _settings.Save();
         RebuildRecentGroupInPlace();
         if (SelectedNode is { IsRecent: true })
             SelectedNode = null;
@@ -1004,7 +989,6 @@ public partial class MainWindowViewModel : ViewModelBase
         list.Insert(0, path);
         if (list.Count > RecentMax)
             list.RemoveRange(RecentMax, list.Count - RecentMax);
-        _settings.Save();
 
         // Rebuild just the recent group in place so the user's tree selection
         // (typically the just-launched node) survives untouched.
@@ -1734,7 +1718,6 @@ public partial class MainWindowViewModel : ViewModelBase
         if (string.IsNullOrEmpty(language))
         {
             _settings.Settings.Language = null;
-            _settings.Save();
 
             var system = System.Globalization.CultureInfo.CurrentCulture.TwoLetterISOLanguageName;
             Localizer.Language = Localizer.Languages.Contains(system) ? system : "en";
@@ -1746,7 +1729,6 @@ public partial class MainWindowViewModel : ViewModelBase
 
         Localizer.Language = language;
         _settings.Settings.Language = language;
-        _settings.Save();
     }
 
     private void ApplyTheme(string? theme)
@@ -1754,7 +1736,6 @@ public partial class MainWindowViewModel : ViewModelBase
         // Empty / null means "follow system": clear the stored preference and
         // let Avalonia resolve the variant from the OS theme.
         _settings.Settings.Theme = string.IsNullOrEmpty(theme) ? null : theme;
-        _settings.Save();
 
         if (Avalonia.Application.Current is { } app)
             app.RequestedThemeVariant = App.ThemeVariantFor(_settings.Settings.Theme);
@@ -1780,6 +1761,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 }
 
                 FlushPendingAutoSave();
+                FlushSettings();
 
                 if (!AutoUpdateService.LaunchUpdate())
                 {
@@ -1871,7 +1853,6 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             _settings.Settings.CheckUpdateOnStartup = result.CheckUpdateOnStartup;
             _settings.Settings.UpdateCheckIntervalHours = result.UpdateCheckIntervalHours;
-            _settings.Save();
             if (intervalChanged)
                 _updateIntervalChanged.Cancel();
         }
@@ -1917,7 +1898,6 @@ public partial class MainWindowViewModel : ViewModelBase
 
         _settings.Settings.StorageLocation = result.StorageLocation;
         _settings.Settings.CustomStoragePath = result.CustomStoragePath;
-        var saved = _settings.Save();
         _store.SetRoot(newRoot);
         _scriptStore.SetRoot(newScriptsRoot);
         ReloadScripts();
@@ -1927,9 +1907,7 @@ public partial class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(RootPath));
         OnPropertyChanged(nameof(TargetDescription));
 
-        if (!saved)
-            StatusMessage = L("StatusStorageNotSaved", _settings.SettingsPath);
-        else if (HasData(newRoot))
+        if (HasData(newRoot))
             StatusMessage = L("StatusStorageLocationWithData", result.StorageLocation, newRoot);
         else
             StatusMessage = L("StatusStorageLocationOnly", result.StorageLocation, newRoot);

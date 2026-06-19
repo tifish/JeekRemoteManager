@@ -38,11 +38,14 @@ public class SettingsService
     /// <summary>True when startup will use the executable directory for connection data.</summary>
     public static bool IsPortable => LoadStorageLocation() == StorageLocation.ProgramDirectory;
 
-    public SettingsService()
+    private string _lastSavedJson;
+
+    public SettingsService(string? settingsPath = null)
     {
-        SettingsPath = DefaultSettingsPath;
-        Settings = Load();
+        SettingsPath = settingsPath ?? DefaultSettingsPath;
+        Settings = Load(SettingsPath);
         NormalizeSettings(Settings);
+        _lastSavedJson = Serialize(Settings);
     }
 
     public string SettingsPath { get; }
@@ -64,9 +67,9 @@ public class SettingsService
         return StorageLocation.UserDirectory;
     }
 
-    private static AppSettings Load()
+    private static AppSettings Load(string path)
     {
-        if (TryLoadSettingsFile(DefaultSettingsPath, out var settings))
+        if (TryLoadSettingsFile(path, out var settings))
             return settings;
 
         return new AppSettings();
@@ -102,6 +105,7 @@ public class SettingsService
         if (settings.StorageLocation == StorageLocation.CustomDirectory && settings.CustomStoragePath is null)
             settings.StorageLocation = StorageLocation.UserDirectory;
         settings.RecentConnectionPaths ??= new List<string>();
+        settings.CollapsedFolderPaths ??= new List<string>();
         if (string.IsNullOrWhiteSpace(settings.LastSelectedConnectionPath))
             settings.LastSelectedConnectionPath = null;
         if (!IsValidWindowDimension(settings.MainWindowWidth))
@@ -116,15 +120,24 @@ public class SettingsService
     private static bool IsValidWindowDimension(double? value) =>
         value is { } number && double.IsFinite(number) && number > 0;
 
-    /// <summary>Persists the current settings. Returns false if writing failed.</summary>
-    public bool Save()
+    private static string Serialize(AppSettings settings) =>
+        JsonSerializer.Serialize(settings, JsonOptions);
+
+    /// <summary>Persists the current settings only when they differ from the last saved snapshot.</summary>
+    public bool SaveIfChanged()
     {
+        NormalizeSettings(Settings);
+        var json = Serialize(Settings);
+        if (string.Equals(json, _lastSavedJson, StringComparison.Ordinal))
+            return true;
+
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
-            NormalizeSettings(Settings);
-            var json = JsonSerializer.Serialize(Settings, JsonOptions);
+            var directory = Path.GetDirectoryName(SettingsPath);
+            if (!string.IsNullOrEmpty(directory))
+                Directory.CreateDirectory(directory);
             File.WriteAllText(SettingsPath, json);
+            _lastSavedJson = json;
             return true;
         }
         catch

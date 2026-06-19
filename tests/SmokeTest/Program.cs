@@ -247,6 +247,24 @@ try
           && settingsJson.Contains(nameof(AppSettings.MainWindowWidth))
           && settingsJson.Contains(nameof(AppSettings.MainWindowHeight)),
           "Recent list, selected connection, and main window size are persisted inside AppSettings");
+
+    var tempSettingsPath = Path.Combine(root, "Config", "settings.json");
+    var tempSettings = new SettingsService(tempSettingsPath);
+    Check(!File.Exists(tempSettingsPath), "Unchanged settings do not create settings.json");
+    Check(tempSettings.SaveIfChanged(), "Unchanged settings flush succeeds");
+    Check(!File.Exists(tempSettingsPath), "Unchanged settings flush does not write settings.json");
+    tempSettings.Settings.Language = "zh";
+    Check(!File.Exists(tempSettingsPath), "Settings changes stay in memory before flush");
+    Check(tempSettings.SaveIfChanged() && File.Exists(tempSettingsPath), "Changed settings flush writes settings.json");
+    var savedSettingsJson = File.ReadAllText(tempSettingsPath);
+    Check(savedSettingsJson.Contains("\"Language\": \"zh\""), "Changed settings are serialized after flush");
+    File.SetLastWriteTimeUtc(tempSettingsPath, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+    var unchangedWriteTime = File.GetLastWriteTimeUtc(tempSettingsPath);
+    Check(tempSettings.SaveIfChanged(), "Second unchanged settings flush succeeds");
+    Check(File.GetLastWriteTimeUtc(tempSettingsPath) == unchangedWriteTime
+          && File.ReadAllText(tempSettingsPath) == savedSettingsJson,
+          "Unchanged settings flush does not rewrite the existing file");
+
     Check(progRoot.StartsWith(AppContext.BaseDirectory, StringComparison.OrdinalIgnoreCase)
           && progRoot.EndsWith("Connections"), "Program-directory root resolves next to the exe");
     Check(userRoot.Contains("JeekRemoteManager") && userRoot.EndsWith("Connections"),

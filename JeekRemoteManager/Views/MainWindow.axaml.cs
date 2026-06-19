@@ -66,10 +66,6 @@ public partial class MainWindow : Window
             handledEventsToo: true);
         DataContextChanged += (_, _) => WireUp();
         SizeChanged += OnWindowSizeChanged;
-        Deactivated += (_, _) =>
-        {
-            (DataContext as MainWindowViewModel)?.SaveLastSelectedConnection();
-        };
         Opened += (_, _) =>
         {
             WireUp();
@@ -81,12 +77,16 @@ public partial class MainWindow : Window
             FocusSelectedTreeItem();
         };
         Closing += (_, _) =>
-        {
-            var vm = DataContext as MainWindowViewModel;
-            // Persist the current selection and any pending edit before the app exits.
-            vm?.SaveLastSelectedConnection();
-            SaveCurrentWindowSize(vm);
-        };
+            FlushCurrentSettingsState();
+    }
+
+    public void FlushCurrentSettingsState()
+    {
+        var vm = DataContext as MainWindowViewModel;
+        // Sync pending UI state into AppSettings before deciding whether the file changed.
+        vm?.SaveLastSelectedConnection();
+        SaveCurrentWindowSize(vm);
+        vm?.FlushSettings();
     }
 
     private void WireUp()
@@ -177,7 +177,10 @@ public partial class MainWindow : Window
     {
         _windowSizeSaveTimer?.Stop();
 
-        if (vm is null || WindowState != WindowState.Normal)
+        if (vm is null
+            || !_canPersistWindowSize
+            || !_windowSizeRestored
+            || WindowState != WindowState.Normal)
             return;
 
         vm.SaveMainWindowSize(Bounds.Width, Bounds.Height);

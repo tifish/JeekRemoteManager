@@ -36,6 +36,9 @@ public partial class App : Application
             // Closing the main window only hides it to the tray; exit happens
             // via the tray's Exit menu.
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            desktop.Exit += (_, _) => FlushSettingsState();
+            if (desktop is IActivatableLifetime activatable)
+                activatable.Deactivated += (_, _) => FlushSettingsState();
 
             var settings = new SettingsService();
             var store = new ConnectionStore();
@@ -190,8 +193,22 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             _exitRequested = true;
+            FlushSettingsState();
             desktop.Shutdown();
         }
+    }
+
+    private void FlushSettingsState()
+    {
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop
+            && desktop.MainWindow is MainWindow window)
+        {
+            window.FlushCurrentSettingsState();
+            return;
+        }
+
+        _vm?.SaveLastSelectedConnection();
+        _vm?.FlushSettings();
     }
 
     private void ShowMainWindow()
