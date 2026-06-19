@@ -310,12 +310,12 @@ try
     Directory.CreateDirectory(deployDir);
     File.WriteAllText(Path.Combine(deployDir, RemoteScriptStore.ParameterFileName), """
     # Deployment inputs
-    TARGET=string
+    TARGET=string=default host
 
-    COUNT=number
-    FORCE=bool
+    COUNT=number=3
+    FORCE=bool=yes
     TOKEN=secret
-    MODE=enum:fast|safe|debug
+    MODE=enum:fast|safe|debug=safe
     """);
     File.WriteAllText(Path.Combine(deployDir, "deploy.sh"),
         "printf '%s\\n' \"$TARGET\" \"$TOKEN\" \"$FORCE\" \"$MODE\"\n");
@@ -343,6 +343,11 @@ try
           && loadedSuite.Scripts.Any(s => s.Name == "deploy.sh")
           && loadedSuite.Scripts.All(s => s.Name.EndsWith(".sh", StringComparison.OrdinalIgnoreCase)),
           "RemoteScriptStore discovers only .sh functions");
+    Check(loadedSuite.Parameters.Single(p => p.Name == "TARGET").DefaultValue == "default host"
+          && loadedSuite.Parameters.Single(p => p.Name == "COUNT").DefaultValue == "3"
+          && loadedSuite.Parameters.Single(p => p.Name == "FORCE").DefaultValue == "true"
+          && loadedSuite.Parameters.Single(p => p.Name == "MODE").DefaultValue == "safe",
+          "params.conf supports default values for script parameters");
 
     var parsedErrors = new List<string>();
     _ = RemoteScriptStore.ParseParameterFile(new[]
@@ -352,9 +357,12 @@ try
         "bad-name=string",
         "COUNT=decimal",
         "MODE=enum:",
+        "BAD_NUMBER=number=abc",
+        "BAD_BOOL=bool=maybe",
+        "BAD_MODE=enum:a|b=c",
     }, parsedErrors);
-    Check(parsedErrors.Count >= 3,
-          "params.conf parser supports blank lines/comments and rejects invalid names/types");
+    Check(parsedErrors.Count >= 6,
+          "params.conf parser supports blank lines/comments and rejects invalid names, types, and defaults");
 
     var missingParamsDir = Path.Combine(scriptRoot, "MissingParams");
     Directory.CreateDirectory(missingParamsDir);
@@ -400,6 +408,24 @@ try
           && oldScriptBinding.Params.Single().Value == "legacy",
           "Old script binding JSON SuitePath/Values migrates to Name/Params");
 
+    var defaultPanel = new ScriptSuitePanelViewModel(
+        loadedSuite,
+        new ConnectionScriptBinding { Name = loadedSuite.RelativePath },
+        () => { });
+    Check(defaultPanel.Parameters.Single(p => p.Name == "TARGET").Value == "default host"
+          && defaultPanel.Parameters.Single(p => p.Name == "COUNT").Value == "3"
+          && defaultPanel.Parameters.Single(p => p.Name == "FORCE").BoolValue
+          && defaultPanel.Parameters.Single(p => p.Name == "MODE").SelectedEnumValue == "safe",
+          "Script parameter panel fills missing values from params.conf defaults");
+    defaultPanel.Parameters.Single(p => p.Name == "TARGET").Value = "changed";
+    defaultPanel.Parameters.Single(p => p.Name == "FORCE").BoolValue = false;
+    defaultPanel.Parameters.Single(p => p.Name == "MODE").SelectedEnumValue = "debug";
+    defaultPanel.ClearParameters();
+    Check(defaultPanel.Parameters.Single(p => p.Name == "TARGET").Value == "default host"
+          && defaultPanel.Parameters.Single(p => p.Name == "FORCE").BoolValue
+          && defaultPanel.Parameters.Single(p => p.Name == "MODE").SelectedEnumValue == "safe",
+          "Clearing script parameters restores params.conf defaults");
+
     var invalidBinding = new ConnectionScriptBinding
     {
         Name = loadedSuite.RelativePath,
@@ -442,6 +468,23 @@ try
           "Protected script binding validates with the current master password");
 
     var deployFile = loadedSuite.Scripts.Single(s => s.Name == "deploy.sh");
+    var defaultValueBinding = new ConnectionScriptBinding
+    {
+        Name = loadedSuite.RelativePath,
+        Params =
+        {
+            new ConnectionScriptParameterValue { Name = "TOKEN", Value = secretToken },
+        },
+    };
+    Check(RemoteScriptLauncher.ValidateBinding(loadedSuite, defaultValueBinding).Count == 0,
+          "Script binding validation accepts params.conf defaults for missing values");
+    var defaultPayload = RemoteScriptLauncher.BuildPayload(loadedSuite, deployFile, defaultValueBinding);
+    Check(defaultPayload.Contains("export TARGET='default host'")
+          && defaultPayload.Contains("export COUNT='3'")
+          && defaultPayload.Contains("export FORCE='true'")
+          && defaultPayload.Contains("export MODE='safe'"),
+          "Script payload exports params.conf defaults for missing values");
+
     var payload = RemoteScriptLauncher.BuildPayload(loadedSuite, deployFile, protectedBinding);
     Check(payload.Contains("export TARGET='web api'")
           && payload.Contains("export COUNT='2.5'")

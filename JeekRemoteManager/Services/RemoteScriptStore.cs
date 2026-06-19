@@ -144,12 +144,19 @@ public class RemoteScriptStore
             var separator = line.IndexOf('=');
             if (separator <= 0)
             {
-                errors?.Add($"Line {lineNo}: expected NAME=TYPE.");
+                errors?.Add($"Line {lineNo}: expected NAME=TYPE[=DEFAULT].");
                 continue;
             }
 
             var name = line[..separator].Trim();
-            var typeText = line[(separator + 1)..].Trim();
+            var rawDefinition = line[(separator + 1)..];
+            var defaultSeparator = rawDefinition.IndexOf('=');
+            var typeText = defaultSeparator < 0
+                ? rawDefinition.Trim()
+                : rawDefinition[..defaultSeparator].Trim();
+            var defaultValue = defaultSeparator < 0
+                ? ""
+                : rawDefinition[(defaultSeparator + 1)..].Trim();
             if (!IsValidParameterName(name))
             {
                 errors?.Add($"Line {lineNo}: invalid parameter name '{name}'.");
@@ -168,10 +175,17 @@ public class RemoteScriptStore
                 continue;
             }
 
+            if (!TryNormalizeDefaultValue(type, enumOptions, defaultValue, out var normalizedDefault, out error))
+            {
+                errors?.Add($"Line {lineNo}: {error}");
+                continue;
+            }
+
             parameters.Add(new RemoteScriptParameter
             {
                 Name = name,
                 Type = type,
+                DefaultValue = normalizedDefault,
                 EnumOptions = enumOptions,
             });
         }
@@ -229,6 +243,78 @@ public class RemoteScriptStore
 
         error = $"unknown type '{raw}'.";
         return false;
+    }
+
+    private static bool TryNormalizeDefaultValue(
+        RemoteScriptParameterType type,
+        IReadOnlyList<string> enumOptions,
+        string defaultValue,
+        out string normalizedDefault,
+        out string error)
+    {
+        normalizedDefault = defaultValue;
+        error = "";
+
+        if (string.IsNullOrEmpty(defaultValue))
+            return true;
+
+        switch (type)
+        {
+            case RemoteScriptParameterType.Number:
+                if (!double.TryParse(defaultValue, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out _))
+                {
+                    error = $"default value '{defaultValue}' must be a number.";
+                    return false;
+                }
+                return true;
+            case RemoteScriptParameterType.Bool:
+                if (!TryNormalizeBool(defaultValue, out normalizedDefault))
+                {
+                    error = $"default value '{defaultValue}' must be true or false.";
+                    return false;
+                }
+                return true;
+            case RemoteScriptParameterType.Enum:
+                var option = enumOptions.FirstOrDefault(o =>
+                    string.Equals(o, defaultValue, StringComparison.OrdinalIgnoreCase));
+                if (option is null)
+                {
+                    error = $"default value '{defaultValue}' must be one of: {string.Join(", ", enumOptions)}.";
+                    return false;
+                }
+
+                normalizedDefault = option;
+                return true;
+            default:
+                return true;
+        }
+    }
+
+    private static bool TryNormalizeBool(string value, out string normalized)
+    {
+        normalized = "";
+        if (bool.TryParse(value, out var b))
+        {
+            normalized = b ? "true" : "false";
+            return true;
+        }
+
+        switch (value.Trim().ToLowerInvariant())
+        {
+            case "1":
+            case "yes":
+            case "y":
+                normalized = "true";
+                return true;
+            case "0":
+            case "no":
+            case "n":
+                normalized = "false";
+                return true;
+            default:
+                return false;
+        }
     }
 
     public void CopyTreeContents(string sourceRoot, string destRoot)

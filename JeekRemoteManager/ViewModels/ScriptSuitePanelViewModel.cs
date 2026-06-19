@@ -20,8 +20,9 @@ public partial class ScriptSuitePanelViewModel : ViewModelBase
 
         foreach (var parameter in suite.Parameters)
         {
-            var value = binding.Params.FirstOrDefault(v =>
-                string.Equals(v.Name, parameter.Name, StringComparison.OrdinalIgnoreCase))?.Value ?? "";
+            var parameterValue = binding.Params.FirstOrDefault(v =>
+                string.Equals(v.Name, parameter.Name, StringComparison.OrdinalIgnoreCase));
+            var value = parameterValue is null ? parameter.DefaultValue : parameterValue.Value;
             Parameters.Add(new ScriptParameterValueViewModel(parameter, value, _parametersChanged));
         }
 

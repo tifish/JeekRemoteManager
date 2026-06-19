@@ -120,8 +120,6 @@ public class RemoteScriptLauncher
         if (!string.Equals(binding.Name, suite.RelativePath, StringComparison.OrdinalIgnoreCase))
             errors.Add($"Script binding does not match suite: {suite.Name}");
 
-        var values = binding.Params.ToDictionary(v => v.Name, v => v.Value, StringComparer.OrdinalIgnoreCase);
-
         foreach (var parameter in suite.Parameters)
         {
             var value = ResolveValue(parameter, binding, out var decryptFailed);
@@ -147,7 +145,7 @@ public class RemoteScriptLauncher
                         errors.Add($"Parameter '{parameter.Name}' must be one of: {string.Join(", ", parameter.EnumOptions)}.");
                     break;
                 case RemoteScriptParameterType.Secret:
-                    if (!values.ContainsKey(parameter.Name))
+                    if (string.IsNullOrEmpty(value))
                         errors.Add($"Parameter '{parameter.Name}' is required.");
                     break;
             }
@@ -207,8 +205,11 @@ public class RemoteScriptLauncher
         out bool decryptFailed)
     {
         decryptFailed = false;
-        var value = binding.Params.FirstOrDefault(v =>
-            string.Equals(v.Name, parameter.Name, StringComparison.OrdinalIgnoreCase))?.Value ?? "";
+        var parameterValue = binding.Params.FirstOrDefault(v =>
+            string.Equals(v.Name, parameter.Name, StringComparison.OrdinalIgnoreCase));
+        var value = parameterValue is null
+            ? GetDefaultValue(parameter)
+            : parameterValue.Value;
 
         if (parameter.Type == RemoteScriptParameterType.Secret && !string.IsNullOrEmpty(value)
             && MasterKeyService.IsPasswordBlob(value))
@@ -229,6 +230,11 @@ public class RemoteScriptLauncher
 
         return value;
     }
+
+    private static string GetDefaultValue(RemoteScriptParameter parameter) =>
+        parameter.Type == RemoteScriptParameterType.Bool && string.IsNullOrEmpty(parameter.DefaultValue)
+            ? "false"
+            : parameter.DefaultValue;
 
     private static bool TryNormalizeBool(string value, out string normalized)
     {

@@ -1466,8 +1466,10 @@ public partial class MainWindowViewModel : ViewModelBase
 
         foreach (var parameter in suite.Parameters)
         {
-            values.TryGetValue(parameter.Name, out var value);
-            result[parameter.Name] = NormalizeComparableScriptParam(parameter, value ?? "");
+            var value = values.TryGetValue(parameter.Name, out var storedValue)
+                ? storedValue
+                : GetDefaultScriptParamValue(parameter);
+            result[parameter.Name] = NormalizeComparableScriptParam(parameter, value);
         }
 
         return result;
@@ -1480,22 +1482,35 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         var parameter = suite.Parameters.FirstOrDefault(p =>
             string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
-        return parameter?.Type == RemoteScriptParameterType.Bool
-            ? !string.Equals(value, "true", StringComparison.Ordinal)
-            : string.IsNullOrEmpty(value);
+        return parameter is not null
+            && string.Equals(value, NormalizeComparableScriptParam(parameter, GetDefaultScriptParamValue(parameter)),
+                StringComparison.Ordinal);
     }
 
     private static string NormalizeComparableScriptParam(RemoteScriptParameter parameter, string value)
     {
-        if (parameter.Type != RemoteScriptParameterType.Bool)
-            return value;
-
-        return value.Trim().ToLowerInvariant() switch
+        if (parameter.Type == RemoteScriptParameterType.Bool)
         {
-            "true" or "1" or "yes" or "y" => "true",
-            _ => "false",
-        };
+            return value.Trim().ToLowerInvariant() switch
+            {
+                "true" or "1" or "yes" or "y" => "true",
+                _ => "false",
+            };
+        }
+
+        if (parameter.Type == RemoteScriptParameterType.Enum)
+        {
+            return parameter.EnumOptions.FirstOrDefault(o =>
+                string.Equals(o, value, StringComparison.OrdinalIgnoreCase)) ?? value;
+        }
+
+        return value;
     }
+
+    private static string GetDefaultScriptParamValue(RemoteScriptParameter parameter) =>
+        parameter.Type == RemoteScriptParameterType.Bool && string.IsNullOrEmpty(parameter.DefaultValue)
+            ? "false"
+            : parameter.DefaultValue;
 
     private static void UpsertScriptBinding(
         ObservableCollection<ConnectionScriptBindingViewModel> bindings,

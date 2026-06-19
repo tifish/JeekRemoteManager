@@ -25,6 +25,8 @@ public class RemoteScriptParameter
 
     public RemoteScriptParameterType Type { get; set; } = RemoteScriptParameterType.String;
 
+    public string DefaultValue { get; set; } = "";
+
     public List<string> EnumOptions { get; set; } = new();
 }
 

@@ -13,12 +13,16 @@ public partial class ScriptParameterValueViewModel : ViewModelBase
     public ScriptParameterValueViewModel(RemoteScriptParameter parameter, string value, Action changed)
     {
         Parameter = parameter;
-        _value = value;
         _changed = changed;
-        _boolValue = IsTrue(value);
-        _selectedEnumValue = parameter.EnumOptions.Contains(value) ? value : "";
-        if (parameter.Type == RemoteScriptParameterType.Bool && string.IsNullOrEmpty(_value))
-            _value = "false";
+        _suppressChanged = true;
+        try
+        {
+            ApplyValue(value);
+        }
+        finally
+        {
+            _suppressChanged = false;
+        }
     }
 
     public RemoteScriptParameter Parameter { get; }
@@ -71,25 +75,34 @@ public partial class ScriptParameterValueViewModel : ViewModelBase
         _suppressChanged = true;
         try
         {
-            if (IsBool)
-            {
-                BoolValue = false;
-                Value = "false";
-            }
-            else if (IsEnum)
-            {
-                SelectedEnumValue = "";
-                Value = "";
-            }
-            else
-            {
-                Value = "";
-            }
+            ApplyValue(Parameter.DefaultValue);
         }
         finally
         {
             _suppressChanged = false;
         }
+    }
+
+    private void ApplyValue(string value)
+    {
+        value ??= "";
+        if (IsBool)
+        {
+            Value = string.IsNullOrEmpty(value) ? "false" : value;
+            BoolValue = IsTrue(Value);
+            return;
+        }
+
+        if (IsEnum)
+        {
+            var option = Parameter.EnumOptions.Find(o =>
+                string.Equals(o, value, StringComparison.OrdinalIgnoreCase));
+            SelectedEnumValue = option ?? "";
+            Value = option ?? value;
+            return;
+        }
+
+        Value = value;
     }
 
     private static bool IsTrue(string value) =>
