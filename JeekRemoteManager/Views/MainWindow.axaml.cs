@@ -75,6 +75,10 @@ public partial class MainWindow : Window
             WireUp();
             EnsureWindowFitsCurrentScreen();
             _canPersistWindowSize = true;
+            // Put keyboard focus on the restored selection so the user can act on
+            // it immediately. RequestFocusTree fired during construction is a no-op
+            // because the callback isn't wired up until the window opens.
+            FocusSelectedTreeItem();
         };
         Closing += (_, _) =>
         {
