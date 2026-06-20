@@ -1,5 +1,5 @@
-## 规则
+## Rules
 
-- 每次做完功能或者改完 bug，都自动编译并启动程序给我测试。如果程序已经在运行，则杀进程再运行。
-- Git 永远使用 rebase 和 fast-forward，不要 merge。
-- 提交使用英文注释，只用简短的一两句话说明目的，不要展开实现细节。
+- After finishing a feature or fixing a bug, automatically build and launch the program for me to test. If the program is already running, kill the process and run it again.
+- Always use rebase and fast-forward for Git, never merge.
+- Use English for commit messages, keeping them to a brief sentence or two stating the purpose without elaborating on implementation details.
