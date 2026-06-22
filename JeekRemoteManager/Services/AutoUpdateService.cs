@@ -4,6 +4,9 @@ using System.IO;
 using System.Net.Http;
 using System.Reflection;
 using System.Threading.Tasks;
+using JeekTools;
+using Microsoft.Extensions.Logging;
+using ZLogger;
 
 namespace JeekRemoteManager.Services;
 
@@ -19,9 +22,14 @@ public enum UpdateCheckOutcome
 /// PowerShell updater that replaces the install on disk and restarts the app.
 /// The build number is the commit count, baked in by CI as the assembly's
 /// major version.
+///
+/// Downloads are routed through the fastest reachable GitHub mirror (see
+/// <see cref="GitHubMirrors"/>) so updates keep working where github.com is blocked.
 /// </summary>
 public static class AutoUpdateService
 {
+    private static readonly ILogger Log = LogManager.CreateLogger(nameof(AutoUpdateService));
+
     private const string ReleaseZipUrl =
         "https://github.com/tifish/JeekRemoteManager/releases/download/latest_release/JeekRemoteManager.zip";
 
@@ -44,13 +52,26 @@ public static class AutoUpdateService
 
         try
         {
-            var remote = await DownloadTextAsync(VersionTxtUrl).ConfigureAwait(false);
+            // github.com is unreachable in some regions, so pick the fastest
+            // reachable mirror by probing the tiny version.txt, then reuse the
+            // same mirror for the much larger release zip.
+            GitHubMirrors.ResetFastestMirror();
+            var versionUrl = await GitHubMirrors.GetFastestMirror(VersionTxtUrl).ConfigureAwait(false);
+            if (string.IsNullOrEmpty(versionUrl))
+                versionUrl = VersionTxtUrl;
+
+            var remote = await DownloadTextAsync(versionUrl).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(remote))
-                return Fail($"empty version.txt from {VersionTxtUrl}");
+                return Fail($"empty version.txt from {versionUrl}");
 
             if (!int.TryParse(remote.Trim(), out var remoteCount) || remoteCount <= 0)
                 return Fail($"version.txt did not contain a positive integer: '{remote.Trim()}'");
             RemoteCommitCount = remoteCount;
+
+            // Reuses the cached fastest-mirror index from the probe above.
+            var zipUrl = await GitHubMirrors.GetFastestMirror(ReleaseZipUrl).ConfigureAwait(false);
+            if (!string.IsNullOrEmpty(zipUrl))
+                DownloadUrl = zipUrl;
 
             // Treat anything below this as a local dev build — CI bakes in the
             // real commit count, which is always well above this threshold.
@@ -58,8 +79,12 @@ public static class AutoUpdateService
                 return Fail("local version unavailable (dev build?)");
 
             if (RemoteCommitCount > LocalCommitCount)
+            {
+                Log.ZLogInformation($"Update available: local={LocalCommitCount}, remote={RemoteCommitCount}, url={DownloadUrl}");
                 return UpdateCheckOutcome.Available;
+            }
 
+            Log.ZLogInformation($"Already up to date: local={LocalCommitCount}, remote={RemoteCommitCount}");
             return UpdateCheckOutcome.UpToDate;
         }
         catch (Exception ex)
@@ -85,8 +110,12 @@ public static class AutoUpdateService
 
             var scriptPath = Path.Combine(workDir, UpdateScriptName);
             if (!File.Exists(scriptPath))
+            {
+                Log.ZLogWarning($"Updater script not found: {scriptPath}");
                 return false;
+            }
 
+            Log.ZLogInformation($"Launching updater for {DownloadUrl}");
             Process.Start(new ProcessStartInfo
             {
                 FileName = "powershell.exe",
@@ -97,8 +126,9 @@ public static class AutoUpdateService
 
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            Log.ZLogError(ex, $"Failed to launch updater");
             return false;
         }
     }
@@ -118,6 +148,7 @@ public static class AutoUpdateService
     private static UpdateCheckOutcome Fail(string reason)
     {
         FailureReason = reason;
+        Log.ZLogWarning($"Update check failed: {reason}");
         return UpdateCheckOutcome.Failed;
     }
 

@@ -4,11 +4,16 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
+using JeekRemoteManager.Services;
+using JeekTools;
+using Microsoft.Extensions.Logging;
+using ZLogger;
 
 namespace JeekRemoteManager;
 
 internal static class Program
 {
+    private static readonly ILogger Log = LogManager.CreateLogger(nameof(Program));
     private static Mutex? _singleInstanceMutex;
     private static EventWaitHandle? _activationEvent;
     private const string SingleInstanceMutexName = "JeekRemoteManager.App.SingleInstance";
@@ -32,13 +37,32 @@ internal static class Program
         StartActivationListener();
         SetCurrentProcessExplicitAppUserModelID("JeekRemoteManager.App");
 
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            if (e.ExceptionObject is Exception ex)
+                Log.ZLogCritical(ex, $"Unhandled exception (terminating={e.IsTerminating})");
+        };
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            Log.ZLogError(e.Exception, $"Unobserved task exception");
+            e.SetObserved();
+        };
+
+        Log.ZLogInformation($"JeekRemoteManager starting (build {AutoUpdateService.GetLocalCommitCount()})");
+
         try
         {
             BuildAvaloniaApp()
                 .StartWithClassicDesktopLifetime(args);
         }
+        catch (Exception ex)
+        {
+            Log.ZLogCritical(ex, $"Fatal error running the application");
+            throw;
+        }
         finally
         {
+            Log.ZLogInformation($"JeekRemoteManager exiting");
             _activationEvent?.Dispose();
             _singleInstanceMutex.ReleaseMutex();
             _singleInstanceMutex.Dispose();

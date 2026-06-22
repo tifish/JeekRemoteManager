@@ -1,0 +1,31 @@
+root = true
+
+[*]
+# 所有现代文件都支持 UTF-8 编码
+charset = utf-8
+# 所有现代文件都支持 LF 换行符
+end_of_line = lf
+# 最终换行符有利于统一文件内容
+insert_final_newline = true
+# 去除行尾空白符有利于统一文件内容
+trim_trailing_whitespace = true
+
+# Prettier 支持的文件都在 .prettierrc.yaml 中配置，因为 Prettier 不会再读取 .editorconfig 文件。
+
+# ---------- 需要 CRLF 的 Windows 生态文件 ----------
+[*.{sln,rc,reg,inf,ini}]
+end_of_line = crlf
+
+[*.ps1]
+# PowerShell 5.1 脚本文件使用 UTF-8 BOM 编码，否则运行时容易乱码和出错。
+charset = utf-8-bom
+end_of_line = crlf
+
+[*.{bat,cmd}]
+# bat 文件必须使用 GBK 编码和 CRLF 换行符，否则会出错和乱码。
+charset = gbk
+end_of_line = crlf
+
+[*.tab]
+# tab 文件不能去除行尾空白符，tab 分隔符需要保留。
+trim_trailing_whitespace = false
