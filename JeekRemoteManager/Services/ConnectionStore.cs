@@ -10,7 +10,7 @@ namespace JeekRemoteManager.Services;
 
 /// <summary>
 /// Persists connections on disk as one file per connection, organised into a
-/// folder tree. The root lives under %APPDATA%\JeekRemoteManager\Connections.
+/// folder tree. The root lives under the configured Config\Connections folder.
 /// </summary>
 public class ConnectionStore
 {
@@ -25,10 +25,7 @@ public class ConnectionStore
 
     public ConnectionStore(string? rootPath = null)
     {
-        RootPath = rootPath ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "JeekRemoteManager",
-            "Connections");
+        RootPath = rootPath ?? SettingsService.ResolveConnectionsRoot(StorageLocation.UserDirectory);
 
         Directory.CreateDirectory(RootPath);
     }

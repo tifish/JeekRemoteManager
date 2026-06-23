@@ -10,9 +10,10 @@ namespace JeekRemoteManager.Services;
 /// <summary>
 /// Loads and saves <see cref="AppSettings"/> as a machine-local JSON file.
 ///
-/// settings.json always lives under %LOCALAPPDATA%\JeekRemoteManager because it
-/// stores preferences for this Windows account and machine. The storage-location
-/// setting only controls where connection and custom script data live.
+/// settings.json always lives under %LOCALAPPDATA%\JeekRemoteManager\Config
+/// because it stores preferences for this Windows account and machine. The
+/// storage-location setting only controls where connection and custom script
+/// data live.
 /// </summary>
 public class SettingsService
 {
@@ -28,12 +29,18 @@ public class SettingsService
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "JeekRemoteManager");
 
+    private static string LocalConfigDir => Path.Combine(LocalDir, "Config");
+
     private static string RoamingDir => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "JeekRemoteManager");
 
+    private static string RoamingConfigDir => Path.Combine(RoamingDir, "Config");
+
+    private static string ProgramConfigDir => Path.Combine(ProgramDir, "Config");
+
     /// <summary>The single supported location for app settings.</summary>
-    public static string DefaultSettingsPath => Path.Combine(LocalDir, "settings.json");
+    public static string DefaultSettingsPath => Path.Combine(LocalConfigDir, "settings.json");
 
     /// <summary>True when startup will use the executable directory for connection data.</summary>
     public static bool IsPortable => LoadStorageLocation() == StorageLocation.ProgramDirectory;
@@ -54,13 +61,17 @@ public class SettingsService
 
     private static string StorageBaseDirFor(StorageLocation location, string? customPath) => location switch
     {
-        StorageLocation.ProgramDirectory => ProgramDir,
-        StorageLocation.CustomDirectory when !string.IsNullOrWhiteSpace(customPath) => customPath!,
-        _ => RoamingDir,
+        StorageLocation.ProgramDirectory => ProgramConfigDir,
+        StorageLocation.CustomDirectory when !string.IsNullOrWhiteSpace(customPath) =>
+            Path.Combine(customPath!, "Config"),
+        _ => RoamingConfigDir,
     };
 
     private static StorageLocation LoadStorageLocation()
     {
+        if (ProgramConfigRootExists())
+            return StorageLocation.ProgramDirectory;
+
         if (TryLoadSettingsFile(DefaultSettingsPath, out var settings))
             return NormalizeStorageLocation(settings.StorageLocation);
 
@@ -104,6 +115,8 @@ public class SettingsService
         // A custom location without a usable path falls back to the user directory.
         if (settings.StorageLocation == StorageLocation.CustomDirectory && settings.CustomStoragePath is null)
             settings.StorageLocation = StorageLocation.UserDirectory;
+        if (ProgramConfigRootExists())
+            settings.StorageLocation = StorageLocation.ProgramDirectory;
         settings.RecentConnectionPaths ??= new List<string>();
         settings.CollapsedFolderPaths ??= new List<string>();
         if (string.IsNullOrWhiteSpace(settings.LastSelectedConnectionPath))
@@ -119,6 +132,18 @@ public class SettingsService
 
     private static bool IsValidWindowDimension(double? value) =>
         value is { } number && double.IsFinite(number) && number > 0;
+
+    private static bool ProgramConfigRootExists()
+    {
+        try
+        {
+            return Directory.Exists(ProgramConfigDir);
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     private static string Serialize(AppSettings settings) =>
         JsonSerializer.Serialize(settings, JsonOptions);

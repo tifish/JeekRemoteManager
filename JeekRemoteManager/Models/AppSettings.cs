@@ -5,13 +5,13 @@ namespace JeekRemoteManager.Models;
 /// <summary>Where connection files are stored.</summary>
 public enum StorageLocation
 {
-    /// <summary>Under %APPDATA%\JeekRemoteManager\Connections (roaming, per-user).</summary>
+    /// <summary>Under %APPDATA%\JeekRemoteManager\Config\Connections (roaming, per-user).</summary>
     UserDirectory,
 
-    /// <summary>Under a "Connections" folder next to the executable (portable).</summary>
+    /// <summary>Under a "Config\Connections" folder next to the executable (portable).</summary>
     ProgramDirectory,
 
-    /// <summary>Under a "Connections" folder beneath a user-chosen base directory.</summary>
+    /// <summary>Under a "Config\Connections" folder beneath a user-chosen base directory.</summary>
     CustomDirectory,
 }
 
@@ -21,8 +21,8 @@ public class AppSettings
     public StorageLocation StorageLocation { get; set; } = StorageLocation.UserDirectory;
 
     /// <summary>Base directory for <see cref="StorageLocation.CustomDirectory"/>.
-    /// Connection and script data live under "Connections"/"Scripts" subfolders of
-    /// this path. Null/blank when no custom location has been chosen.</summary>
+    /// Connection and script data live under "Config\Connections"/"Config\Scripts"
+    /// subfolders of this path. Null/blank when no custom location has been chosen.</summary>
     public string? CustomStoragePath { get; set; }
 
     /// <summary>UI language code ("en", "zh"). Null = follow system culture.</summary>

@@ -225,15 +225,70 @@ try
     // --- Settings location resolution ---
     var progRoot = SettingsService.ResolveConnectionsRoot(StorageLocation.ProgramDirectory);
     var userRoot = SettingsService.ResolveConnectionsRoot(StorageLocation.UserDirectory);
+    var progConfigRoot = Path.GetDirectoryName(progRoot)!;
+    var topLevelProgramConnectionsRoot = Path.Combine(AppContext.BaseDirectory, "Connections");
+    var programConfigRootExisted = Directory.Exists(progConfigRoot);
+    var topLevelProgramConnectionsRootExisted = Directory.Exists(topLevelProgramConnectionsRoot);
+    if (programConfigRootExisted)
+    {
+        Check(true, "Top-level program Connections folder alone does not select portable storage");
+    }
+    else
+    {
+        if (!topLevelProgramConnectionsRootExisted)
+            Directory.CreateDirectory(topLevelProgramConnectionsRoot);
+        try
+        {
+            var topLevelOnlySettingsPath = Path.Combine(root, "TopLevelOnly", "settings.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(topLevelOnlySettingsPath)!);
+            File.WriteAllText(
+                topLevelOnlySettingsPath,
+                JsonSerializer.Serialize(new AppSettings { StorageLocation = StorageLocation.UserDirectory }));
+            var topLevelOnlySettings = new SettingsService(topLevelOnlySettingsPath);
+            Check(topLevelOnlySettings.Settings.StorageLocation == StorageLocation.UserDirectory,
+                  "Top-level program Connections folder alone does not select portable storage");
+        }
+        finally
+        {
+            if (!topLevelProgramConnectionsRootExisted && Directory.Exists(topLevelProgramConnectionsRoot))
+                Directory.Delete(topLevelProgramConnectionsRoot, true);
+        }
+    }
+    if (!programConfigRootExisted)
+        Directory.CreateDirectory(progConfigRoot);
+    try
+    {
+        var autoPortableSettingsPath = Path.Combine(root, "AutoPortable", "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(autoPortableSettingsPath)!);
+        File.WriteAllText(
+            autoPortableSettingsPath,
+            JsonSerializer.Serialize(new AppSettings { StorageLocation = StorageLocation.UserDirectory }));
+        var autoPortableSettings = new SettingsService(autoPortableSettingsPath);
+        Check(autoPortableSettings.Settings.StorageLocation == StorageLocation.ProgramDirectory,
+              "Existing program Config folder selects portable storage");
+        Check(string.Equals(
+                  Path.GetFullPath(autoPortableSettings.ResolveConnectionsRoot()),
+                  Path.GetFullPath(progRoot),
+                  StringComparison.OrdinalIgnoreCase),
+              "Auto-detected portable storage resolves to the program Config Connections folder");
+        Check(SettingsService.IsPortable,
+              "Existing program Config folder marks the app as portable");
+    }
+    finally
+    {
+        if (!programConfigRootExisted && Directory.Exists(progConfigRoot))
+            Directory.Delete(progConfigRoot, true);
+    }
     var expectedSettingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "JeekRemoteManager",
+        "Config",
         "settings.json");
     Check(string.Equals(
               Path.GetFullPath(SettingsService.DefaultSettingsPath),
               Path.GetFullPath(expectedSettingsPath),
               StringComparison.OrdinalIgnoreCase),
-          "settings.json resolves under LocalAppData");
+          "settings.json resolves under LocalAppData Config");
     var settingsWithRecent = new AppSettings
     {
         RecentConnectionPaths = { Path.Combine(root, "Servers", "web01.json") },
@@ -268,15 +323,23 @@ try
           "Unchanged settings flush does not rewrite the existing file");
 
     Check(progRoot.StartsWith(AppContext.BaseDirectory, StringComparison.OrdinalIgnoreCase)
-          && progRoot.EndsWith("Connections"), "Program-directory root resolves next to the exe");
-    Check(userRoot.Contains("JeekRemoteManager") && userRoot.EndsWith("Connections"),
-          "User-directory root resolves under the user profile");
+          && progRoot.EndsWith(Path.Combine("Config", "Connections"), StringComparison.OrdinalIgnoreCase),
+          "Program-directory root resolves under app Config");
+    Check(userRoot.Contains("JeekRemoteManager")
+          && userRoot.EndsWith(Path.Combine("Config", "Connections"), StringComparison.OrdinalIgnoreCase),
+          "User-directory root resolves under roaming Config");
     Check(progRoot != userRoot, "The two storage locations are distinct");
 
     var builtInScriptsRoot = SettingsService.ResolveBuiltInScriptsRoot();
     Check(builtInScriptsRoot.StartsWith(AppContext.BaseDirectory, StringComparison.OrdinalIgnoreCase)
           && builtInScriptsRoot.EndsWith(Path.Combine("Data", "Scripts"), StringComparison.OrdinalIgnoreCase),
           "Built-in scripts root resolves under app Data");
+    var autoUpdateScriptPath = Path.Combine(FindRepoRoot(), "bin", "AutoUpdate.ps1");
+    var autoUpdateScript = File.Exists(autoUpdateScriptPath)
+        ? File.ReadAllText(autoUpdateScriptPath)
+        : "";
+    Check(autoUpdateScript.Contains("$preserveNames = @(\"Config\", \"Connections\", \"Scripts\", \"AutoUpdate.ps1\")"),
+          "Auto-update preserves Config and legacy top-level user data");
     var runtimeBbrDir = Path.Combine(FindRepoRoot(), "bin", "Data", "Scripts", "BBR");
     Check(File.Exists(Path.Combine(runtimeBbrDir, "enable-bbr.sh"))
           && File.Exists(Path.Combine(runtimeBbrDir, "disable-bbr.sh")),
@@ -402,13 +465,23 @@ try
 
     var progScriptsRoot = SettingsService.ResolveScriptsRoot(StorageLocation.ProgramDirectory);
     var userScriptsRoot = SettingsService.ResolveScriptsRoot(StorageLocation.UserDirectory);
+    var customBaseRoot = Path.Combine(root, "CustomStorage");
+    var customConnectionsRoot = SettingsService.ResolveConnectionsRoot(StorageLocation.CustomDirectory, customBaseRoot);
+    var customScriptsRoot = SettingsService.ResolveScriptsRoot(StorageLocation.CustomDirectory, customBaseRoot);
     Check(progScriptsRoot.StartsWith(AppContext.BaseDirectory, StringComparison.OrdinalIgnoreCase)
-          && progScriptsRoot.EndsWith("Scripts"), "Program-directory custom scripts root resolves next to the exe");
+          && progScriptsRoot.EndsWith(Path.Combine("Config", "Scripts"), StringComparison.OrdinalIgnoreCase),
+          "Program-directory custom scripts root resolves under app Config");
     Check(!string.Equals(Path.GetFullPath(builtInScriptsRoot), Path.GetFullPath(progScriptsRoot),
               StringComparison.OrdinalIgnoreCase),
           "Built-in scripts root is separate from program-directory custom scripts root");
-    Check(userScriptsRoot.Contains("JeekRemoteManager") && userScriptsRoot.EndsWith("Scripts"),
-          "User-directory custom scripts root resolves under the user profile");
+    Check(userScriptsRoot.Contains("JeekRemoteManager")
+          && userScriptsRoot.EndsWith(Path.Combine("Config", "Scripts"), StringComparison.OrdinalIgnoreCase),
+          "User-directory custom scripts root resolves under roaming Config");
+    Check(customConnectionsRoot.StartsWith(customBaseRoot, StringComparison.OrdinalIgnoreCase)
+          && customConnectionsRoot.EndsWith(Path.Combine("Config", "Connections"), StringComparison.OrdinalIgnoreCase)
+          && customScriptsRoot.StartsWith(customBaseRoot, StringComparison.OrdinalIgnoreCase)
+          && customScriptsRoot.EndsWith(Path.Combine("Config", "Scripts"), StringComparison.OrdinalIgnoreCase),
+          "Custom storage resolves under the chosen Config folder");
 
     // --- File-system script suites and parameter bindings ---
     var scriptRoot = Path.Combine(root, "Scripts");
