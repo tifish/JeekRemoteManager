@@ -1840,7 +1840,7 @@ public partial class MainWindowViewModel : ViewModelBase
         if (PickSettingsAsync is null)
             return;
 
-        var current = _settings.Settings.StorageLocation;
+        var current = _settings.CurrentStorageLocation;
         var currentCustomPath = _settings.Settings.CustomStoragePath;
         var result = await PickSettingsAsync(
             current,

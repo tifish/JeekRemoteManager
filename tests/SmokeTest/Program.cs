@@ -243,10 +243,14 @@ try
             Directory.CreateDirectory(Path.GetDirectoryName(topLevelOnlySettingsPath)!);
             File.WriteAllText(
                 topLevelOnlySettingsPath,
-                JsonSerializer.Serialize(new AppSettings { StorageLocation = StorageLocation.UserDirectory }));
+                JsonSerializer.Serialize(new AppSettings { StorageLocation = StorageLocation.ProgramDirectory }));
             var topLevelOnlySettings = new SettingsService(topLevelOnlySettingsPath);
             Check(topLevelOnlySettings.Settings.StorageLocation == StorageLocation.UserDirectory,
+                  "Stale ProgramDirectory setting without app Config falls back to user storage");
+            Check(topLevelOnlySettings.CurrentStorageLocation == StorageLocation.UserDirectory,
                   "Top-level program Connections folder alone does not select portable storage");
+            Check(!Directory.Exists(progConfigRoot),
+                  "Stale ProgramDirectory setting does not create app Config");
         }
         finally
         {
@@ -264,8 +268,9 @@ try
             autoPortableSettingsPath,
             JsonSerializer.Serialize(new AppSettings { StorageLocation = StorageLocation.UserDirectory }));
         var autoPortableSettings = new SettingsService(autoPortableSettingsPath);
-        Check(autoPortableSettings.Settings.StorageLocation == StorageLocation.ProgramDirectory,
-              "Existing program Config folder selects portable storage");
+        Check(autoPortableSettings.Settings.StorageLocation == StorageLocation.UserDirectory
+              && autoPortableSettings.CurrentStorageLocation == StorageLocation.ProgramDirectory,
+              "Existing program Config folder selects portable storage without rewriting settings");
         Check(string.Equals(
                   Path.GetFullPath(autoPortableSettings.ResolveConnectionsRoot()),
                   Path.GetFullPath(progRoot),

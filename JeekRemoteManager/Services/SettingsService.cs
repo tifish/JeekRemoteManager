@@ -42,8 +42,8 @@ public class SettingsService
     /// <summary>The single supported location for app settings.</summary>
     public static string DefaultSettingsPath => Path.Combine(LocalConfigDir, "settings.json");
 
-    /// <summary>True when startup will use the executable directory for connection data.</summary>
-    public static bool IsPortable => LoadStorageLocation() == StorageLocation.ProgramDirectory;
+    /// <summary>True when startup will use the executable directory for user data.</summary>
+    public static bool IsPortable => ProgramConfigRootExists();
 
     private string _lastSavedJson;
 
@@ -59,6 +59,9 @@ public class SettingsService
 
     public AppSettings Settings { get; private set; }
 
+    public StorageLocation CurrentStorageLocation =>
+        ResolveEffectiveStorageLocation(Settings.StorageLocation);
+
     private static string StorageBaseDirFor(StorageLocation location, string? customPath) => location switch
     {
         StorageLocation.ProgramDirectory => ProgramConfigDir,
@@ -66,17 +69,6 @@ public class SettingsService
             Path.Combine(customPath!, "Config"),
         _ => RoamingConfigDir,
     };
-
-    private static StorageLocation LoadStorageLocation()
-    {
-        if (ProgramConfigRootExists())
-            return StorageLocation.ProgramDirectory;
-
-        if (TryLoadSettingsFile(DefaultSettingsPath, out var settings))
-            return NormalizeStorageLocation(settings.StorageLocation);
-
-        return StorageLocation.UserDirectory;
-    }
 
     private static AppSettings Load(string path)
     {
@@ -115,8 +107,11 @@ public class SettingsService
         // A custom location without a usable path falls back to the user directory.
         if (settings.StorageLocation == StorageLocation.CustomDirectory && settings.CustomStoragePath is null)
             settings.StorageLocation = StorageLocation.UserDirectory;
-        if (ProgramConfigRootExists())
-            settings.StorageLocation = StorageLocation.ProgramDirectory;
+        // ProgramDirectory is valid only when the app-side Config marker exists.
+        // Otherwise a stale setting would create the marker during startup and
+        // make the app portable forever.
+        if (settings.StorageLocation == StorageLocation.ProgramDirectory && !ProgramConfigRootExists())
+            settings.StorageLocation = StorageLocation.UserDirectory;
         settings.RecentConnectionPaths ??= new List<string>();
         settings.CollapsedFolderPaths ??= new List<string>();
         if (string.IsNullOrWhiteSpace(settings.LastSelectedConnectionPath))
@@ -129,6 +124,17 @@ public class SettingsService
 
     private static StorageLocation NormalizeStorageLocation(StorageLocation location) =>
         Enum.IsDefined(location) ? location : StorageLocation.UserDirectory;
+
+    private static StorageLocation ResolveEffectiveStorageLocation(StorageLocation location)
+    {
+        if (ProgramConfigRootExists())
+            return StorageLocation.ProgramDirectory;
+
+        var normalized = NormalizeStorageLocation(location);
+        return normalized == StorageLocation.ProgramDirectory
+            ? StorageLocation.UserDirectory
+            : normalized;
+    }
 
     private static bool IsValidWindowDimension(double? value) =>
         value is { } number && double.IsFinite(number) && number > 0;
@@ -173,11 +179,11 @@ public class SettingsService
 
     /// <summary>Resolves the connections root folder for the current setting.</summary>
     public string ResolveConnectionsRoot() =>
-        ResolveConnectionsRoot(Settings.StorageLocation, Settings.CustomStoragePath);
+        ResolveConnectionsRoot(CurrentStorageLocation, Settings.CustomStoragePath);
 
     /// <summary>Resolves the script-suite root folder for the current setting.</summary>
     public string ResolveScriptsRoot() =>
-        ResolveScriptsRoot(Settings.StorageLocation, Settings.CustomStoragePath);
+        ResolveScriptsRoot(CurrentStorageLocation, Settings.CustomStoragePath);
 
     /// <summary>Resolves the app-bundled script-suite root folder.</summary>
     public static string ResolveBuiltInScriptsRoot() =>
