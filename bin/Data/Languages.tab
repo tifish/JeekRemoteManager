@@ -43,8 +43,6 @@ SshOptions	SSH options	SSH 选项
 PrivateKey	Private key	私钥
 PrivateKeyWatermark	optional path to key file	可选，私钥文件路径
 Browse	Browse…	浏览…
-ExtraArgs	Extra args	额外参数
-ExtraArgsWatermark	e.g. -X -L 8080:localhost:80	例如 -X -L 8080:localhost:80
 RdpOptions	RDP options	RDP 选项
 FullScreen	Full screen	全屏
 UseAllMonitors	Use all monitors	使用所有显示器
@@ -182,3 +180,12 @@ IntervalNever	Never	从不
 IntervalEvery6Hours	Every 6 hours	每 6 小时
 IntervalDaily	Daily	每天
 IntervalWeekly	Every week	每周
+FontIncrease	Increase terminal font	增大终端字体
+FontDecrease	Decrease terminal font	减小终端字体
+HostKeyTitle	Unknown host key	未知主机密钥
+HostKeyPrompt	The server "{0}" presented a {1} host key. Trust this host and remember its key?	服务器“{0}”提供了一个 {1} 主机密钥。是否信任此主机并记住它的密钥？
+HostKeyHint	If you don't recognize this server, rejecting is safer.	如果你不认识这台服务器，拒绝更安全。
+HostKeyTrust	Trust	信任
+HostKeyReject	Reject	拒绝
+Passphrase	Key passphrase	私钥口令
+PassphraseWatermark	optional, only if the key is encrypted	可选，仅在私钥已加密时填写

@@ -158,6 +158,7 @@ public class SettingsService
             Theme = roamingSettings.Theme,
             CheckUpdateOnStartup = roamingSettings.CheckUpdateOnStartup,
             UpdateCheckIntervalHours = roamingSettings.UpdateCheckIntervalHours,
+            TerminalFontSize = roamingSettings.TerminalFontSize,
         };
 
     private static MachineAppSettings ToMachineSettings(AppSettings settings)
@@ -185,6 +186,7 @@ public class SettingsService
             Theme = settings.Theme,
             CheckUpdateOnStartup = settings.CheckUpdateOnStartup,
             UpdateCheckIntervalHours = settings.UpdateCheckIntervalHours,
+            TerminalFontSize = settings.TerminalFontSize,
         };
         NormalizeRoamingSettings(roamingSettings);
         return roamingSettings;
@@ -208,6 +210,7 @@ public class SettingsService
         settings.Theme = normalized.Theme;
         settings.CheckUpdateOnStartup = normalized.CheckUpdateOnStartup;
         settings.UpdateCheckIntervalHours = normalized.UpdateCheckIntervalHours;
+        settings.TerminalFontSize = normalized.TerminalFontSize;
     }
 
     private static void NormalizeMachineSettings(MachineAppSettings settings)
@@ -237,6 +240,7 @@ public class SettingsService
             settings.Theme = null;
         if (settings.UpdateCheckIntervalHours < 0)
             settings.UpdateCheckIntervalHours = 0;
+        settings.TerminalFontSize = Math.Clamp(settings.TerminalFontSize, 8, 36);
     }
 
     private static StorageLocation NormalizeStorageLocation(StorageLocation location) =>

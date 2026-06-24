@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -8,6 +7,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using JeekRemoteManager.Models;
+using Renci.SshNet;
 
 namespace JeekRemoteManager.Services;
 
@@ -24,6 +24,7 @@ public class RemoteScriptLauncher
         RemoteScriptFile scriptFile,
         ConnectionScriptBinding binding,
         Action<string> appendOutput,
+        Func<string, int, string, string, bool>? confirmHostKey = null,
         CancellationToken cancellationToken = default)
     {
         var errors = ValidateBinding(suite, binding);
@@ -35,51 +36,74 @@ public class RemoteScriptLauncher
             throw new InvalidOperationException(string.Join(Environment.NewLine, errors));
 
         var payload = BuildPayload(suite, scriptFile, binding);
-        var args = ConnectionLauncher.BuildSshArguments(connection).ToList();
-        args.Add("sh");
-        args.Add("-s");
+        var host = connection.Host.Trim();
+        var port = connection.Port > 0 ? connection.Port : 22;
 
-        var psi = new ProcessStartInfo("ssh.exe")
-        {
-            UseShellExecute = false,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8,
-        };
-
-        foreach (var arg in args)
-            psi.ArgumentList.Add(arg);
-
-        using var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
         var startedAt = DateTimeOffset.Now;
-
-        process.OutputDataReceived += (_, e) =>
+        // Build (which may query ssh-agent / Pageant over IPC) and Connect both run on
+        // a background thread; those calls can block and must not run on the UI thread.
+        // Scripts share the same auth + known_hosts path as the terminal: prompt for a
+        // first-seen host, and reject (not silently trust) when no prompt is available.
+        using var client = await Task.Run(() =>
         {
-            if (e.Data is not null)
-                appendOutput(e.Data + Environment.NewLine);
-        };
-        process.ErrorDataReceived += (_, e) =>
+            var sshClient = new SshClient(SshConnectionFactory.Build(connection));
+            SshHostKey.Attach(sshClient, host, port,
+                onUnknown: (keyType, fingerprint) => confirmHostKey?.Invoke(host, port, keyType, fingerprint) ?? false,
+                onRejected: message => appendOutput(message + Environment.NewLine),
+                onTrusted: fingerprint => appendOutput($"trusted new host key SHA256:{fingerprint}{Environment.NewLine}"));
+            sshClient.Connect();
+            return sshClient;
+        }, cancellationToken).ConfigureAwait(false);
+
+        using var command = client.CreateCommand("sh -s");
+        var async = command.BeginExecute();
+
+        // Drain stdout/stderr concurrently with writing stdin: a script that emits
+        // output while it is still being read off stdin could otherwise fill the
+        // channel window, block the remote, and deadlock the stdin write. Both
+        // streams EOF when `sh -s` exits.
+        var outputPump = PumpAsync(command.OutputStream, appendOutput, cancellationToken);
+        var errorPump = PumpAsync(command.ExtendedOutputStream, appendOutput, cancellationToken);
+
+        try
         {
-            if (e.Data is not null)
-                appendOutput(e.Data + Environment.NewLine);
-        };
+            // CreateInputStream must be called after execution begins; disposing it
+            // signals EOF so `sh -s` runs the piped script and exits.
+            using (var input = command.CreateInputStream())
+            {
+                var payloadBytes = Encoding.UTF8.GetBytes(payload);
+                await input.WriteAsync(payloadBytes, cancellationToken).ConfigureAwait(false);
+                await input.FlushAsync(cancellationToken).ConfigureAwait(false);
+            }
 
-        if (!process.Start())
-            throw new InvalidOperationException("Could not start ssh.exe.");
+            await Task.WhenAll(outputPump, errorPump).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Observe the execution result so its exception isn't left unobserved,
+            // but don't let it mask the original failure (cancellation, write error…).
+            try { command.EndExecute(async); } catch { /* superseded by the original */ }
+            throw;
+        }
 
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-
-        await process.StandardInput.WriteAsync(payload.AsMemory(), cancellationToken).ConfigureAwait(false);
-        await process.StandardInput.FlushAsync(cancellationToken).ConfigureAwait(false);
-        process.StandardInput.Close();
-
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        command.EndExecute(async);
         var finishedAt = DateTimeOffset.Now;
-        return new RemoteScriptExecutionResult(process.ExitCode, startedAt, finishedAt);
+        return new RemoteScriptExecutionResult(command.ExitStatus ?? -1, startedAt, finishedAt);
+    }
+
+    private static async Task PumpAsync(Stream stream, Action<string> appendOutput, CancellationToken cancellationToken)
+    {
+        var buffer = new byte[8192];
+        var decoder = Encoding.UTF8.GetDecoder();
+        var chars = new char[Encoding.UTF8.GetMaxCharCount(buffer.Length)];
+
+        int read;
+        while ((read = await stream.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false)) > 0)
+        {
+            var charCount = decoder.GetChars(buffer, 0, read, chars, 0);
+            if (charCount > 0)
+                appendOutput(new string(chars, 0, charCount));
+        }
     }
 
     public static string BuildPayload(

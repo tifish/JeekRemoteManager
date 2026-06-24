@@ -67,14 +67,11 @@ try
         Username = "root",
         Port = 2200,
         PrivateKeyPath = @"C:\keys\id_rsa",
-        ExtraSshArguments = "-X -L 8080:localhost:80",
     });
     Check(sshArgs.SequenceEqual(new[]
     {
         "-i", @"C:\keys\id_rsa",
         "-p", "2200",
-        "-X",
-        "-L", "8080:localhost:80",
         "root@example.com",
     }), "SSH options are emitted before the target host");
     Check(ConnectionType.Ssh.ToDisplayName() == "SSH" && ConnectionType.Rdp.ToDisplayName() == "RDP",

@@ -64,6 +64,9 @@ public class AppSettings
     /// new folders appear open. Restored on startup to persist the tree's
     /// expand/collapse state across runs.</summary>
     public List<string> CollapsedFolderPaths { get; set; } = new();
+
+    /// <summary>Terminal font size in points, adjustable from the toolbar.</summary>
+    public int TerminalFontSize { get; set; } = 14;
 }
 
 /// <summary>Settings that are bound to this Windows account and machine.</summary>
@@ -110,6 +113,9 @@ public class RoamingAppSettings
     /// 0 disables the periodic check; the startup check is independent.
     /// </summary>
     public int UpdateCheckIntervalHours { get; set; } = 24;
+
+    /// <summary>Terminal font size in points, adjustable from the toolbar.</summary>
+    public int TerminalFontSize { get; set; } = 14;
 }
 
 /// <summary>Outcome of the Settings dialog. <see cref="Language"/> and <see cref="Theme"/>

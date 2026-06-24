@@ -183,6 +183,47 @@ public partial class MainWindowViewModel : ViewModelBase
     public Func<StorageLocation, string?, string?, string?, bool, int, Task<SettingsDialogResult?>>? PickSettingsAsync { get; set; }
     public Func<string, Task<string?>>? PickFolderAsync { get; set; }
 
+    /// <summary>Opens an in-app SSH terminal for the connection (set by the view).</summary>
+    public Func<Connection, Task>? OpenSshTerminalAsync { get; set; }
+
+    /// <summary>Prompts the user to trust a first-seen SSH host key (set by the view).
+    /// (host, port, keyType, sha256Fingerprint) =&gt; trust?. Blocks the calling thread,
+    /// so it must be invoked off the UI thread (the SSH handshake runs in the background).</summary>
+    public Func<string, int, string, string, bool>? ConfirmHostKeyTrust { get; set; }
+
+    /// <summary>Set by the view to push a new font size to all open terminals.</summary>
+    public Action<int>? ApplyTerminalFontSize { get; set; }
+
+    /// <summary>Current terminal font size (points); the view sizes terminals with it.</summary>
+    public int TerminalFontSize => _settings.Settings.TerminalFontSize;
+
+    /// <summary>True when a terminal tab is the active right-pane tab. Drives the
+    /// visibility of the terminal font-size toolbar buttons.</summary>
+    [ObservableProperty]
+    private bool _isTerminalActive;
+
+    private const int TerminalFontMin = 8;
+    private const int TerminalFontMax = 36;
+
+    [RelayCommand]
+    private void IncreaseTerminalFont() => AdjustTerminalFont(+1);
+
+    [RelayCommand]
+    private void DecreaseTerminalFont() => AdjustTerminalFont(-1);
+
+    private void AdjustTerminalFont(int delta)
+    {
+        var current = _settings.Settings.TerminalFontSize;
+        var next = Math.Clamp(current + delta, TerminalFontMin, TerminalFontMax);
+        if (next == current)
+            return;
+
+        _settings.Settings.TerminalFontSize = next;
+        _settings.SaveIfChanged();
+        OnPropertyChanged(nameof(TerminalFontSize));
+        ApplyTerminalFontSize?.Invoke(next);
+    }
+
     /// <summary>Asks the view to put keyboard focus on the tree so it receives shortcuts.</summary>
     public Action? RequestFocusTree { get; set; }
 
@@ -1083,28 +1124,21 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            // ssh.exe cannot take a password on the command line, so copy it to
-            // the clipboard as a convenience for pasting at the prompt. The
-            // clipboard is auto-cleared after a short delay to limit exposure.
-            if (connection.Type == ConnectionType.Ssh && Clipboard is not null)
-            {
-                var password = PasswordProtector.Decrypt(connection.EncryptedPassword);
-                if (!string.IsNullOrEmpty(password))
-                {
-                    await Clipboard.SetTextAsync(password);
-                    ScheduleClipboardClear(password);
-                    StatusMessage = L("StatusLaunchingSshWithClipboard", connection.Host);
-                }
-                else
-                {
-                    StatusMessage = L("StatusLaunchingSsh", connection.Host);
-                }
-            }
-            else
+            // Interactive SSH renders in an in-app terminal with programmatic auth
+            // (no console window, no clipboard-password handoff).
+            if (connection.Type == ConnectionType.Ssh && OpenSshTerminalAsync is not null)
             {
                 StatusMessage = L("StatusLaunching", connection.Type.ToDisplayName(), connection.Host);
+                await OpenSshTerminalAsync(connection);
+                RecordRecent(node.FullPath);
+                return;
             }
 
+            // Fallback when no in-app terminal hook is wired (RDP, or the XAML
+            // designer VM): launch the OS client directly. Interactive SSH with
+            // the in-app terminal is handled by the early return above and needs
+            // no clipboard-password handoff.
+            StatusMessage = L("StatusLaunching", connection.Type.ToDisplayName(), connection.Host);
             _launcher.Launch(connection);
             RecordRecent(node.FullPath);
         }
@@ -1129,32 +1163,6 @@ public partial class MainWindowViewModel : ViewModelBase
         // Rebuild just the recent group in place so the user's tree selection
         // (typically the just-launched node) survives untouched.
         RebuildRecentGroupInPlace();
-    }
-
-    /// <summary>Clears the OS clipboard after a delay, but only if it still holds the secret we put there.</summary>
-    private void ScheduleClipboardClear(string secret)
-    {
-        var clipboard = Clipboard;
-        if (clipboard is null)
-            return;
-
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
-            await Dispatcher.UIThread.InvokeAsync(async () =>
-            {
-                try
-                {
-                    var current = await clipboard.TryGetTextAsync();
-                    if (current == secret)
-                        await clipboard.ClearAsync();
-                }
-                catch
-                {
-                    // Best-effort; ignore clipboard failures.
-                }
-            });
-        });
     }
 
     // --- Delete / rename ---
@@ -1516,7 +1524,8 @@ public partial class MainWindowViewModel : ViewModelBase
                 panel.Suite,
                 scriptFile,
                 binding,
-                text => Dispatcher.UIThread.Post(() => panel.AppendOutput(text)));
+                text => Dispatcher.UIThread.Post(() => panel.AppendOutput(text)),
+                ConfirmHostKeyTrust);
 
             var duration = FormatScriptDuration(result.FinishedAt - result.StartedAt);
             panel.StatusText = result.ExitCode == 0
@@ -2092,12 +2101,13 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Switches the master password by re-encrypting every connection file: each
-    /// password is decrypted with the current master password and re-encrypted
-    /// as a fresh self-contained jrm1 blob under <paramref name="newPassword"/>.
-    /// Connections we cannot decrypt are left untouched. The new password
-    /// replaces the cached one only after the sweep, so an interruption never
-    /// leaves us with files that no password in memory can read.
+    /// Switches the master password by re-encrypting every stored secret on every
+    /// connection — the login password, the private-key passphrase, and any
+    /// script-binding secret parameters — each decrypted with the current master
+    /// password and re-encrypted as a fresh jrm1 blob under <paramref name="newPassword"/>.
+    /// If any secret on a connection cannot be decrypted, the whole change aborts
+    /// before anything is written, so we never strand data. The new password
+    /// replaces the cached one only after the sweep succeeds.
     /// </summary>
     public void ChangeMasterPassword(string newPassword)
     {
@@ -2108,7 +2118,12 @@ public partial class MainWindowViewModel : ViewModelBase
             var current = MasterKeyService.Current
                           ?? throw new InvalidOperationException("Master password not initialised.");
 
-            var pending = new List<(string File, Connection Connection, string ClearPassword)>();
+            var pending = new List<(
+                string File,
+                Connection Connection,
+                string? ClearPassword,
+                string? ClearPassphrase,
+                List<(ConnectionScriptParameterValue Param, string Clear)> ScriptSecrets)>();
             var unreadable = 0;
 
             foreach (var file in _store.AllConnectionFiles())
@@ -2116,16 +2131,60 @@ public partial class MainWindowViewModel : ViewModelBase
                 try
                 {
                     var c = _store.Load(file);
-                    if (string.IsNullOrEmpty(c.EncryptedPassword))
-                        continue;
 
-                    if (!current.TryDecryptPassword(c.EncryptedPassword, out var clear))
+                    string? clearPassword = null;
+                    string? clearPassphrase = null;
+                    var scriptSecrets = new List<(ConnectionScriptParameterValue Param, string Clear)>();
+                    var failed = false;
+
+                    // Every master-password-encrypted secret on the connection must
+                    // decrypt with the CURRENT master password; if any one can't, skip
+                    // the whole connection so we never clobber it under a new password.
+                    if (!string.IsNullOrEmpty(c.EncryptedPassword))
+                    {
+                        if (current.TryDecryptPassword(c.EncryptedPassword, out var clear))
+                            clearPassword = clear;
+                        else
+                            failed = true;
+                    }
+
+                    if (!failed && !string.IsNullOrEmpty(c.EncryptedPrivateKeyPassphrase))
+                    {
+                        if (current.TryDecryptPassword(c.EncryptedPrivateKeyPassphrase, out var clearPp))
+                            clearPassphrase = clearPp;
+                        else
+                            failed = true;
+                    }
+
+                    // Script-binding secret parameters are jrm1 blobs too (detected by
+                    // prefix, no suite definition needed).
+                    if (!failed)
+                    {
+                        foreach (var param in c.ScriptBindings.SelectMany(b => b.Params))
+                        {
+                            if (string.IsNullOrEmpty(param.Value) || !MasterKeyService.IsPasswordBlob(param.Value))
+                                continue;
+                            if (current.TryDecryptPassword(param.Value, out var clearSecret))
+                                scriptSecrets.Add((param, clearSecret));
+                            else
+                            {
+                                failed = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (failed)
                     {
                         unreadable++;
                         continue;
                     }
 
-                    pending.Add((file, c, clear));
+                    // Nothing encrypted on this connection -> nothing to migrate.
+                    if (clearPassword is null && clearPassphrase is null && scriptSecrets.Count == 0)
+                        continue;
+
+                    pending.Add((file, c, clearPassword, clearPassphrase, scriptSecrets));
                 }
                 catch
                 {
@@ -2138,8 +2197,14 @@ public partial class MainWindowViewModel : ViewModelBase
 
             foreach (var item in pending)
             {
-                item.Connection.EncryptedPassword =
-                    MasterKeyService.EncryptWithPassword(newPassword, item.ClearPassword);
+                if (item.ClearPassword is not null)
+                    item.Connection.EncryptedPassword =
+                        MasterKeyService.EncryptWithPassword(newPassword, item.ClearPassword);
+                if (item.ClearPassphrase is not null)
+                    item.Connection.EncryptedPrivateKeyPassphrase =
+                        MasterKeyService.EncryptWithPassword(newPassword, item.ClearPassphrase);
+                foreach (var (param, clear) in item.ScriptSecrets)
+                    param.Value = MasterKeyService.EncryptWithPassword(newPassword, clear);
                 _store.SaveInPlace(item.Connection, item.File);
             }
 

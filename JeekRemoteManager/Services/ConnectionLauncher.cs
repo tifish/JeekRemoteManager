@@ -61,9 +61,6 @@ public class ConnectionLauncher
             args.Add(port.ToString());
         }
 
-        foreach (var extra in SplitArguments(connection.ExtraSshArguments))
-            args.Add(extra);
-
         var target = string.IsNullOrWhiteSpace(connection.Username)
             ? connection.Host
             : $"{connection.Username}@{connection.Host}";
@@ -161,36 +158,4 @@ public class ConnectionLauncher
         });
     }
 
-    /// <summary>Splits a raw argument string on whitespace, honoring double quotes.</summary>
-    private static System.Collections.Generic.IEnumerable<string> SplitArguments(string? raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw))
-            yield break;
-
-        var current = new StringBuilder();
-        var inQuotes = false;
-
-        foreach (var c in raw)
-        {
-            if (c == '"')
-            {
-                inQuotes = !inQuotes;
-            }
-            else if (char.IsWhiteSpace(c) && !inQuotes)
-            {
-                if (current.Length > 0)
-                {
-                    yield return current.ToString();
-                    current.Clear();
-                }
-            }
-            else
-            {
-                current.Append(c);
-            }
-        }
-
-        if (current.Length > 0)
-            yield return current.ToString();
-    }
 }

@@ -192,6 +192,20 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button Command="{Binding DecreaseTerminalFontCommand}"
+                            IsVisible="{Binding IsTerminalActive}"
+                            ToolTip.Tip="{l:Localize FontDecrease}"
+                            Classes="toolbar icon-button">
+                        <TextBlock Text="A-" FontWeight="SemiBold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Button>
+                    <Button Command="{Binding IncreaseTerminalFontCommand}"
+                            IsVisible="{Binding IsTerminalActive}"
+                            ToolTip.Tip="{l:Localize FontIncrease}"
+                            Classes="toolbar icon-button">
+                        <TextBlock Text="A+" FontWeight="SemiBold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Button>
                     <Button ToolTip.Tip="{l:Localize MoreActions}" Classes="toolbar icon-button">
                         <Button.Content>
                             <TextBlock Classes="icon"
@@ -342,8 +356,11 @@
             <GridSplitter Grid.Column="1" Width="5" ResizeDirection="Columns"
                           Background="Transparent" />
 
-            <!-- Editor -->
-            <Grid Grid.Column="2">
+            <!-- Right pane: fixed editor tab + terminal tabs added in code-behind -->
+            <TabControl Grid.Column="2" x:Name="RightTabs"
+                        SelectionChanged="OnRightTabsSelectionChanged">
+                <TabItem x:Name="EditorTab" Header="{l:Localize Edit}">
+                    <Grid>
                 <ContentControl Content="{Binding Editor}"
                                 IsVisible="{Binding ShowConnectionEditor}">
                 <ContentControl.DataTemplates>
@@ -441,10 +458,12 @@
                                                 <Button Grid.Row="0" Grid.Column="2" Content="{l:Localize Browse}"
                                                         Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).BrowseKeyCommand}" />
 
-                                                <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="{l:Localize ExtraArgs}" />
+                                                <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="{l:Localize Passphrase}" />
                                                 <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2"
-                                                         Text="{Binding ExtraSshArguments, Mode=TwoWay}"
-                                                         PlaceholderText="{l:Localize ExtraArgsWatermark}" />
+                                                         Text="{Binding PrivateKeyPassphrase, Mode=TwoWay}"
+                                                         PasswordChar="&#x2022;"
+                                                         RevealPassword="{Binding #Root.((vm:MainWindowViewModel)DataContext).ShowPassword}"
+                                                         PlaceholderText="{l:Localize PassphraseWatermark}" />
                                             </Grid>
 
                                         </StackPanel>
@@ -647,7 +666,9 @@
                         </Grid>
                     </Grid>
                 </Border>
-            </Grid>
+                    </Grid>
+                </TabItem>
+            </TabControl>
         </Grid>
     </DockPanel>
 </Window>

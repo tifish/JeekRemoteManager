@@ -56,7 +56,16 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     private string _privateKeyPath = "";
 
     [ObservableProperty]
-    private string _extraSshArguments = "";
+    private string _privateKeyPassphrase = "";
+
+    /// <summary>The passphrase ciphertext as stored on disk; preserved so a passphrase
+    /// we could not decrypt (different master password) is never clobbered on save.</summary>
+    private string _originalEncryptedPassphrase = "";
+
+    [ObservableProperty]
+    private bool _passphraseDecryptFailed;
+
+    private bool _passphraseEdited;
 
     public ObservableCollection<ConnectionScriptBindingViewModel> ScriptBindings { get; } = new();
 
@@ -113,7 +122,6 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             Port = c.Port,
             Username = c.Username,
             PrivateKeyPath = c.PrivateKeyPath,
-            ExtraSshArguments = c.ExtraSshArguments,
             RdpFullScreen = c.RdpFullScreen,
             RdpUseAllMonitors = c.RdpUseAllMonitors,
             RdpWidth = c.RdpWidth,
@@ -135,12 +143,23 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         vm.PasswordDecryptFailed = !decrypted;
         vm.Password = decrypted ? clear : "";
         vm._passwordEdited = false;
+
+        vm._originalEncryptedPassphrase = c.EncryptedPrivateKeyPassphrase;
+        var passphraseDecrypted = PasswordProtector.TryDecrypt(c.EncryptedPrivateKeyPassphrase, out var clearPassphrase);
+        vm.PassphraseDecryptFailed = !passphraseDecrypted;
+        vm.PrivateKeyPassphrase = passphraseDecrypted ? clearPassphrase : "";
+        vm._passphraseEdited = false;
         return vm;
     }
 
     partial void OnPasswordChanged(string value)
     {
         _passwordEdited = true;
+    }
+
+    partial void OnPrivateKeyPassphraseChanged(string value)
+    {
+        _passphraseEdited = true;
     }
 
     /// <summary>Writes the edited values back into the given connection.</summary>
@@ -159,7 +178,11 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             ? _originalEncryptedPassword
             : PasswordProtector.Encrypt(Password);
         c.PrivateKeyPath = PrivateKeyPath.Trim();
-        c.ExtraSshArguments = ExtraSshArguments.Trim();
+        // Same preserve-on-undecryptable rule as the password above.
+        var preserveExistingPassphrase = !_passphraseEdited || (PassphraseDecryptFailed && PrivateKeyPassphrase.Length == 0);
+        c.EncryptedPrivateKeyPassphrase = preserveExistingPassphrase
+            ? _originalEncryptedPassphrase
+            : PasswordProtector.Encrypt(PrivateKeyPassphrase);
         c.ScriptBindings = ScriptBindings
             .Select(b => b.ToModel())
             .Where(b => !string.IsNullOrWhiteSpace(b.Name))

@@ -21,6 +21,8 @@
 
     <Application.Styles>
         <FluentTheme />
+        <!-- Terminal control default font + 256-color palette resources. -->
+        <StyleInclude Source="avares://SvcSystems.UI.Terminal/Styles/Colors.axaml" />
         <Style Selector="Window">
             <Setter Property="FontFamily" Value="Inter, Segoe UI" />
         </Style>

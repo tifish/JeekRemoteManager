@@ -100,6 +100,9 @@ public partial class MainWindow : Window
         vm.PickKeyFileAsync = PickKeyFileAsync;
         vm.PickSettingsAsync = PickSettingsAsync;
         vm.PickFolderAsync = path => PickFolderAsync(path);
+        vm.OpenSshTerminalAsync = OpenSshTerminalAsync;
+        vm.ApplyTerminalFontSize = ApplyTerminalFontToOpenTabs;
+        vm.ConfirmHostKeyTrust = HostKeyDialog.PromptTrust;
         vm.RequestFocusTree = FocusSelectedTreeItem;
         vm.PropertyChanged -= OnViewModelPropertyChanged;
         vm.PropertyChanged += OnViewModelPropertyChanged;
@@ -221,6 +224,98 @@ public partial class MainWindow : Window
 
     private static double ClampWindowDimension(double value, double minimum) =>
         double.IsFinite(minimum) && minimum > 0 ? Math.Max(value, minimum) : value;
+
+    private Task OpenSshTerminalAsync(Connection connection)
+    {
+        var view = new TerminalView();
+        var tab = new TabItem
+        {
+            Header = BuildTerminalTabHeader(connection, out var closeButton),
+            Content = view,
+        };
+        closeButton.Click += (_, _) => CloseTerminalTab(tab);
+
+        RightTabs.Items.Add(tab);
+        RightTabs.SelectedItem = tab;
+
+        view.SetFontSize((DataContext as MainWindowViewModel)?.TerminalFontSize ?? 14);
+        view.Start(connection);
+        return Task.CompletedTask;
+    }
+
+    private void ApplyTerminalFontToOpenTabs(int size)
+    {
+        foreach (var item in RightTabs.Items)
+            if (item is TabItem { Content: TerminalView view })
+                view.SetFontSize(size);
+    }
+
+    // Tab title stays the connection name; the remote OSC title does not override it.
+    private static Control BuildTerminalTabHeader(Connection connection, out Button closeButton)
+    {
+        var title = new TextBlock
+        {
+            Text = string.IsNullOrWhiteSpace(connection.Name) ? connection.Host : connection.Name,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        closeButton = new Button
+        {
+            Content = new TextBlock
+            {
+                Text = "", // Segoe MDL2 ChromeClose
+                FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                FontSize = 10,
+                VerticalAlignment = VerticalAlignment.Center,
+            },
+            Padding = new Thickness(4, 2),
+            MinWidth = 0,
+            MinHeight = 0,
+            Background = Avalonia.Media.Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        ToolTip.SetTip(closeButton, Localizer.Get("Close"));
+
+        return new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            VerticalAlignment = VerticalAlignment.Center,
+            Children = { title, closeButton },
+        };
+    }
+
+    private void CloseTerminalTab(TabItem tab)
+    {
+        // Closing the active tab moves selection to the previous (left) tab, like a
+        // normal tabbed editor. Closing a background tab leaves the selection alone.
+        var wasSelected = ReferenceEquals(RightTabs.SelectedItem, tab);
+        var index = RightTabs.Items.IndexOf(tab);
+
+        if (tab.Content is TerminalView view)
+            view.Close();
+
+        RightTabs.Items.Remove(tab);
+
+        if (wasSelected && RightTabs.Items.Count > 0)
+            RightTabs.SelectedIndex = Math.Clamp(index - 1, 0, RightTabs.Items.Count - 1);
+    }
+
+    // When a terminal tab becomes active, give it keyboard focus so typing goes
+    // straight to the remote shell.
+    private void OnRightTabsSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        // Use sender, not the RightTabs field: this can fire during XAML init
+        // (the TabControl auto-selects the first tab) before the field is assigned.
+        var view = (sender as TabControl)?.SelectedItem is TabItem { Content: TerminalView v } ? v : null;
+
+        // The font-size buttons are only relevant while a terminal tab is active.
+        if (DataContext is MainWindowViewModel vm)
+            vm.IsTerminalActive = view is not null;
+
+        view?.FocusTerminal();
+    }
 
     private void OnRunScriptMenuClick(object? sender, RoutedEventArgs e)
     {

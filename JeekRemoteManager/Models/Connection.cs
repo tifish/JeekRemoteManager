@@ -32,8 +32,11 @@ public class Connection
     /// <summary>Optional path to a private key file (ssh -i).</summary>
     public string PrivateKeyPath { get; set; } = "";
 
-    /// <summary>Extra raw arguments appended to the ssh command line.</summary>
-    public string ExtraSshArguments { get; set; } = "";
+    /// <summary>
+    /// Master-password-encrypted passphrase for the private key (jrm1 blob), or
+    /// empty when the key is unencrypted. Read/write via <see cref="Services.PasswordProtector"/>.
+    /// </summary>
+    public string EncryptedPrivateKeyPassphrase { get; set; } = "";
 
     /// <summary>Per-connection parameter bindings for reusable SSH scripts.</summary>
     public List<ConnectionScriptBinding> ScriptBindings { get; set; } = new();
