@@ -15,7 +15,7 @@ public enum StorageLocation
     CustomDirectory,
 }
 
-/// <summary>Persisted application settings.</summary>
+/// <summary>In-memory view of all persisted application settings.</summary>
 public class AppSettings
 {
     public StorageLocation StorageLocation { get; set; } = StorageLocation.UserDirectory;
@@ -64,6 +64,52 @@ public class AppSettings
     /// new folders appear open. Restored on startup to persist the tree's
     /// expand/collapse state across runs.</summary>
     public List<string> CollapsedFolderPaths { get; set; } = new();
+}
+
+/// <summary>Settings that are bound to this Windows account and machine.</summary>
+public class MachineAppSettings
+{
+    public StorageLocation StorageLocation { get; set; } = StorageLocation.UserDirectory;
+
+    /// <summary>Base directory for <see cref="StorageLocation.CustomDirectory"/>.</summary>
+    public string? CustomStoragePath { get; set; }
+
+    /// <summary>Main window width in device-independent pixels. Null = default size.</summary>
+    public double? MainWindowWidth { get; set; }
+
+    /// <summary>Main window height in device-independent pixels. Null = default size.</summary>
+    public double? MainWindowHeight { get; set; }
+
+    /// <summary>Recently-used connection file paths, most-recent first.</summary>
+    public List<string> RecentConnectionPaths { get; set; } = new();
+
+    /// <summary>Connection file path that was selected when the app last ran.</summary>
+    public string? LastSelectedConnectionPath { get; set; }
+
+    /// <summary>Whether the "Recent" group at the top of the tree is expanded.</summary>
+    public bool RecentExpanded { get; set; } = true;
+
+    /// <summary>Absolute paths of folders the user has collapsed in the tree.</summary>
+    public List<string> CollapsedFolderPaths { get; set; } = new();
+}
+
+/// <summary>Machine-independent preferences stored with the selected storage mode.</summary>
+public class RoamingAppSettings
+{
+    /// <summary>UI language code ("en", "zh"). Null = follow system culture.</summary>
+    public string? Language { get; set; }
+
+    /// <summary>UI theme ("Light", "Dark"). Null = follow system theme.</summary>
+    public string? Theme { get; set; }
+
+    /// <summary>Whether to silently check for updates a few seconds after launch.</summary>
+    public bool CheckUpdateOnStartup { get; set; } = true;
+
+    /// <summary>
+    /// How often to check for updates while the app is running, in hours.
+    /// 0 disables the periodic check; the startup check is independent.
+    /// </summary>
+    public int UpdateCheckIntervalHours { get; set; } = 24;
 }
 
 /// <summary>Outcome of the Settings dialog. <see cref="Language"/> and <see cref="Theme"/>

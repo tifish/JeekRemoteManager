@@ -284,6 +284,15 @@ try
         if (!programConfigRootExisted && Directory.Exists(progConfigRoot))
             Directory.Delete(progConfigRoot, true);
     }
+    if (!programConfigRootExisted)
+    {
+        Directory.CreateDirectory(progConfigRoot);
+        File.WriteAllText(Path.Combine(progConfigRoot, "settings.json"), "{}");
+        Check(SettingsService.TryDeleteProgramConfig(out var deleteError)
+              && !Directory.Exists(progConfigRoot),
+              "Leaving portable storage deletes the program Config marker");
+        Check(string.IsNullOrEmpty(deleteError), "Deleting the program Config marker reports no error");
+    }
     var expectedSettingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "JeekRemoteManager",
@@ -294,38 +303,98 @@ try
               Path.GetFullPath(expectedSettingsPath),
               StringComparison.OrdinalIgnoreCase),
           "settings.json resolves under LocalAppData Config");
+    var expectedRoamingSettingsPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "JeekRemoteManager",
+        "Config",
+        "settings.json");
+    Check(string.Equals(
+              Path.GetFullPath(SettingsService.DefaultRoamingSettingsPath),
+              Path.GetFullPath(expectedRoamingSettingsPath),
+              StringComparison.OrdinalIgnoreCase),
+          "Roaming settings.json resolves under AppData Config");
     var settingsWithRecent = new AppSettings
     {
+        Language = "zh",
+        Theme = "Dark",
         RecentConnectionPaths = { Path.Combine(root, "Servers", "web01.json") },
         LastSelectedConnectionPath = Path.Combine(root, "Servers", "web01.json"),
         RecentExpanded = false,
         MainWindowWidth = 1200,
         MainWindowHeight = 760,
     };
-    var settingsJson = JsonSerializer.Serialize(settingsWithRecent);
-    Check(settingsJson.Contains(nameof(AppSettings.RecentConnectionPaths))
-          && settingsJson.Contains(nameof(AppSettings.LastSelectedConnectionPath))
-          && settingsJson.Contains(nameof(AppSettings.RecentExpanded))
-          && settingsJson.Contains(nameof(AppSettings.MainWindowWidth))
-          && settingsJson.Contains(nameof(AppSettings.MainWindowHeight)),
-          "Recent list, selected connection, and main window size are persisted inside AppSettings");
+    var machineSettingsJson = JsonSerializer.Serialize(new MachineAppSettings
+    {
+        RecentConnectionPaths = settingsWithRecent.RecentConnectionPaths,
+        LastSelectedConnectionPath = settingsWithRecent.LastSelectedConnectionPath,
+        RecentExpanded = settingsWithRecent.RecentExpanded,
+        MainWindowWidth = settingsWithRecent.MainWindowWidth,
+        MainWindowHeight = settingsWithRecent.MainWindowHeight,
+    });
+    Check(machineSettingsJson.Contains(nameof(MachineAppSettings.RecentConnectionPaths))
+          && machineSettingsJson.Contains(nameof(MachineAppSettings.LastSelectedConnectionPath))
+          && machineSettingsJson.Contains(nameof(MachineAppSettings.RecentExpanded))
+          && machineSettingsJson.Contains(nameof(MachineAppSettings.MainWindowWidth))
+          && machineSettingsJson.Contains(nameof(MachineAppSettings.MainWindowHeight))
+          && !machineSettingsJson.Contains(nameof(RoamingAppSettings.Language))
+          && !machineSettingsJson.Contains(nameof(RoamingAppSettings.Theme)),
+          "Machine settings persist local paths and window size only");
+    var roamingSettingsJson = JsonSerializer.Serialize(new RoamingAppSettings
+    {
+        Language = settingsWithRecent.Language,
+        Theme = settingsWithRecent.Theme,
+        CheckUpdateOnStartup = settingsWithRecent.CheckUpdateOnStartup,
+        UpdateCheckIntervalHours = settingsWithRecent.UpdateCheckIntervalHours,
+    });
+    Check(roamingSettingsJson.Contains(nameof(RoamingAppSettings.Language))
+          && roamingSettingsJson.Contains(nameof(RoamingAppSettings.Theme))
+          && !roamingSettingsJson.Contains(nameof(MachineAppSettings.RecentConnectionPaths))
+          && !roamingSettingsJson.Contains(nameof(MachineAppSettings.MainWindowWidth)),
+          "Roaming settings persist machine-independent preferences only");
 
-    var tempSettingsPath = Path.Combine(root, "Config", "settings.json");
-    var tempSettings = new SettingsService(tempSettingsPath);
-    Check(!File.Exists(tempSettingsPath), "Unchanged settings do not create settings.json");
+    var tempMachineSettingsPath = Path.Combine(root, "LocalConfig", "settings.json");
+    var tempRoamingSettingsPath = Path.Combine(root, "RoamingConfig", "settings.json");
+    var tempSettings = new SettingsService(tempMachineSettingsPath, tempRoamingSettingsPath);
+    Check(!File.Exists(tempMachineSettingsPath) && !File.Exists(tempRoamingSettingsPath),
+          "Unchanged settings do not create settings.json");
     Check(tempSettings.SaveIfChanged(), "Unchanged settings flush succeeds");
-    Check(!File.Exists(tempSettingsPath), "Unchanged settings flush does not write settings.json");
+    Check(!File.Exists(tempMachineSettingsPath) && !File.Exists(tempRoamingSettingsPath),
+          "Unchanged settings flush does not write settings.json");
     tempSettings.Settings.Language = "zh";
-    Check(!File.Exists(tempSettingsPath), "Settings changes stay in memory before flush");
-    Check(tempSettings.SaveIfChanged() && File.Exists(tempSettingsPath), "Changed settings flush writes settings.json");
-    var savedSettingsJson = File.ReadAllText(tempSettingsPath);
-    Check(savedSettingsJson.Contains("\"Language\": \"zh\""), "Changed settings are serialized after flush");
-    File.SetLastWriteTimeUtc(tempSettingsPath, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
-    var unchangedWriteTime = File.GetLastWriteTimeUtc(tempSettingsPath);
+    Check(!File.Exists(tempRoamingSettingsPath), "Settings changes stay in memory before flush");
+    Check(tempSettings.SaveIfChanged()
+          && File.Exists(tempRoamingSettingsPath)
+          && !File.Exists(tempMachineSettingsPath),
+          "Changed roaming settings flush writes roaming settings.json");
+    var savedSettingsJson = File.ReadAllText(tempRoamingSettingsPath);
+    Check(savedSettingsJson.Contains("\"Language\": \"zh\""), "Changed roaming settings are serialized after flush");
+    File.SetLastWriteTimeUtc(tempRoamingSettingsPath, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+    var unchangedWriteTime = File.GetLastWriteTimeUtc(tempRoamingSettingsPath);
     Check(tempSettings.SaveIfChanged(), "Second unchanged settings flush succeeds");
-    Check(File.GetLastWriteTimeUtc(tempSettingsPath) == unchangedWriteTime
-          && File.ReadAllText(tempSettingsPath) == savedSettingsJson,
-          "Unchanged settings flush does not rewrite the existing file");
+    Check(File.GetLastWriteTimeUtc(tempRoamingSettingsPath) == unchangedWriteTime
+          && File.ReadAllText(tempRoamingSettingsPath) == savedSettingsJson,
+          "Unchanged roaming settings flush does not rewrite the existing file");
+    tempSettings.Settings.MainWindowWidth = 1200;
+    Check(tempSettings.SaveIfChanged()
+          && File.Exists(tempMachineSettingsPath)
+          && File.ReadAllText(tempMachineSettingsPath).Contains("\"MainWindowWidth\": 1200"),
+          "Changed machine settings flush writes machine settings.json");
+    Check(!File.ReadAllText(tempMachineSettingsPath).Contains("\"Language\""),
+          "Machine settings.json does not include roaming preferences");
+    Check(!File.ReadAllText(tempRoamingSettingsPath).Contains("\"MainWindowWidth\""),
+          "Roaming settings.json does not include machine-local state");
+
+    var legacyMachineSettingsPath = Path.Combine(root, "LegacyLocal", "settings.json");
+    var missingLegacyRoamingPath = Path.Combine(root, "LegacyRoaming", "settings.json");
+    Directory.CreateDirectory(Path.GetDirectoryName(legacyMachineSettingsPath)!);
+    File.WriteAllText(
+        legacyMachineSettingsPath,
+        JsonSerializer.Serialize(settingsWithRecent));
+    var legacySettings = new SettingsService(legacyMachineSettingsPath, missingLegacyRoamingPath);
+    Check(legacySettings.Settings.Language == "zh"
+          && legacySettings.Settings.MainWindowWidth == 1200
+          && legacySettings.Settings.RecentConnectionPaths.Count == 1,
+          "Legacy single-file settings seed both machine and roaming settings");
 
     Check(progRoot.StartsWith(AppContext.BaseDirectory, StringComparison.OrdinalIgnoreCase)
           && progRoot.EndsWith(Path.Combine("Config", "Connections"), StringComparison.OrdinalIgnoreCase),
@@ -487,6 +556,35 @@ try
           && customScriptsRoot.StartsWith(customBaseRoot, StringComparison.OrdinalIgnoreCase)
           && customScriptsRoot.EndsWith(Path.Combine("Config", "Scripts"), StringComparison.OrdinalIgnoreCase),
           "Custom storage resolves under the chosen Config folder");
+    var settingsOnlyChange = MainWindowViewModel.ClassifyPortableConfigChanges(new[]
+    {
+        SettingsService.ResolveSettingsPath(StorageLocation.ProgramDirectory),
+    });
+    Check(settingsOnlyChange.SettingsChanged
+          && !settingsOnlyChange.ConnectionsChanged
+          && !settingsOnlyChange.ScriptsChanged,
+          "Portable watcher classifies settings.json changes without reloading data folders");
+    var connectionsOnlyChange = MainWindowViewModel.ClassifyPortableConfigChanges(new[]
+    {
+        Path.Combine(SettingsService.ResolveConnectionsRoot(StorageLocation.ProgramDirectory), "Servers", "web01.json"),
+    });
+    Check(!connectionsOnlyChange.SettingsChanged
+          && connectionsOnlyChange.ConnectionsChanged
+          && !connectionsOnlyChange.ScriptsChanged,
+          "Portable watcher classifies connection changes without reloading settings or scripts");
+    var scriptsOnlyChange = MainWindowViewModel.ClassifyPortableConfigChanges(new[]
+    {
+        Path.Combine(SettingsService.ResolveScriptsRoot(StorageLocation.ProgramDirectory), "Deploy", RemoteScriptStore.ParameterFileName),
+    });
+    Check(!scriptsOnlyChange.SettingsChanged
+          && !scriptsOnlyChange.ConnectionsChanged
+          && scriptsOnlyChange.ScriptsChanged,
+          "Portable watcher classifies script changes without reloading settings or connections");
+    var unrelatedChange = MainWindowViewModel.ClassifyPortableConfigChanges(new[]
+    {
+        Path.Combine(SettingsService.ResolveConfigRoot(StorageLocation.ProgramDirectory), "Other", "ignored.txt"),
+    });
+    Check(!unrelatedChange.HasAnyChange, "Portable watcher ignores unchanged configuration areas");
 
     // --- File-system script suites and parameter bindings ---
     var scriptRoot = Path.Combine(root, "Scripts");

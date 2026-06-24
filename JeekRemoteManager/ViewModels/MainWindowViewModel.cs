@@ -34,11 +34,15 @@ public partial class MainWindowViewModel : ViewModelBase
     private DispatcherTimer? _autoSaveTimer;
     private static readonly TimeSpan AutoSaveDelay = TimeSpan.FromMilliseconds(600);
 
-    // Watches the connections folder so external changes show up live. Reloads
-    // are debounced, and changes the app made itself are ignored.
+    // Watches external configuration changes. Portable mode watches the whole
+    // Config folder because settings, connections, and custom scripts may all
+    // be edited outside the app.
     private FileSystemWatcher? _watcher;
     private DispatcherTimer? _watchReloadTimer;
-    private static readonly TimeSpan WatchReloadDelay = TimeSpan.FromMilliseconds(400);
+    private readonly HashSet<string> _pendingWatchedPaths = new(StringComparer.OrdinalIgnoreCase);
+    private bool _watchingPortableConfig;
+    private static readonly TimeSpan ConnectionWatchReloadDelay = TimeSpan.FromMilliseconds(400);
+    private static readonly TimeSpan PortableConfigReloadDelay = TimeSpan.FromSeconds(10);
     private const long SelfWriteSuppressMs = 1000;
 
     // Synthetic node showing the last-used connections at the top of the tree.
@@ -62,7 +66,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _scriptStore.SetRoot(_settings.ResolveScriptsRoot());
         ReloadScripts();
         ReloadTree(_settings.Settings.LastSelectedConnectionPath);
-        StartWatching(_store.RootPath);
+        StartWatchingCurrentStorage();
 
         // Refresh language-dependent computed properties when the user switches language.
         Localizer.LanguageChanged += (_, _) =>
@@ -348,16 +352,25 @@ public partial class MainWindowViewModel : ViewModelBase
 
     // --- Watching the connections folder ---
 
-    /// <summary>(Re)starts the file-system watcher on the given root folder.</summary>
-    private void StartWatching(string path)
+    /// <summary>(Re)starts the file-system watcher for the active storage mode.</summary>
+    private void StartWatchingCurrentStorage()
+    {
+        var watchPortableConfig = _settings.CurrentStorageLocation == StorageLocation.ProgramDirectory;
+        var path = watchPortableConfig ? _settings.ResolveConfigRoot() : _store.RootPath;
+        StartWatching(path, watchPortableConfig);
+    }
+
+    private void StartWatching(string path, bool watchPortableConfig)
     {
         StopWatching();
+        _pendingWatchedPaths.Clear();
 
         if (!Directory.Exists(path))
             return;
 
         try
         {
+            _watchingPortableConfig = watchPortableConfig;
             _watcher = new FileSystemWatcher(path)
             {
                 IncludeSubdirectories = true,
@@ -392,34 +405,145 @@ public partial class MainWindowViewModel : ViewModelBase
         _watcher.Changed -= OnWatchedChange;
         _watcher.Dispose();
         _watcher = null;
+        _pendingWatchedPaths.Clear();
+        _watchingPortableConfig = false;
     }
 
     // Events arrive on a background thread; hop to the UI thread and debounce.
-    private void OnWatchedChange(object? sender, FileSystemEventArgs e) =>
-        Dispatcher.UIThread.Post(ScheduleWatchReload);
-
-    private void ScheduleWatchReload()
+    private void OnWatchedChange(object? sender, FileSystemEventArgs e)
     {
+        if (IsOwnWriteRecent())
+            return;
+
+        var changedPath = e.FullPath;
+        var oldPath = e is RenamedEventArgs renamed ? renamed.OldFullPath : null;
+
+        Dispatcher.UIThread.Post(() => ScheduleWatchReload(changedPath, oldPath));
+    }
+
+    private bool IsOwnWriteRecent()
+    {
+        var lastWrite = Math.Max(_store.LastWriteTick, _settings.LastWriteTick);
+        return lastWrite > 0 && Environment.TickCount64 - lastWrite < SelfWriteSuppressMs;
+    }
+
+    private void ScheduleWatchReload(string changedPath, string? oldPath = null)
+    {
+        if (_watchingPortableConfig)
+        {
+            AddPendingWatchedPath(changedPath);
+            if (!string.IsNullOrWhiteSpace(oldPath))
+                AddPendingWatchedPath(oldPath);
+        }
+
         if (_watchReloadTimer is null)
         {
-            _watchReloadTimer = new DispatcherTimer { Interval = WatchReloadDelay };
+            _watchReloadTimer = new DispatcherTimer();
             _watchReloadTimer.Tick += (_, _) =>
             {
                 _watchReloadTimer!.Stop();
+                var changedPaths = _pendingWatchedPaths.ToList();
+                _pendingWatchedPaths.Clear();
 
-                // Ignore the burst of events caused by the app's own writes.
-                if (Environment.TickCount64 - _store.LastWriteTick < SelfWriteSuppressMs)
-                    return;
-
-                // Don't clobber an in-progress edit; flush it first so the reload
-                // reflects the user's latest changes too.
-                FlushPendingAutoSave();
-                ReloadTree();
+                ReloadWatchedData(changedPaths);
             };
         }
 
+        _watchReloadTimer.Interval = _watchingPortableConfig
+            ? PortableConfigReloadDelay
+            : ConnectionWatchReloadDelay;
         _watchReloadTimer.Stop();
         _watchReloadTimer.Start();
+    }
+
+    private void AddPendingWatchedPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+
+        try
+        {
+            _pendingWatchedPaths.Add(Path.GetFullPath(path));
+        }
+        catch
+        {
+            _pendingWatchedPaths.Add(path);
+        }
+    }
+
+    private void ReloadWatchedData(IReadOnlyCollection<string> changedPaths)
+    {
+        if (!_watchingPortableConfig)
+        {
+            // Don't clobber an in-progress edit; flush it first so the reload
+            // reflects the user's latest changes too.
+            FlushPendingAutoSave();
+            ReloadTree();
+            return;
+        }
+
+        var changes = ClassifyPortableConfigChanges(changedPaths);
+        if (!changes.HasAnyChange)
+            return;
+
+        if (changes.SettingsChanged)
+        {
+            var previousInterval = _settings.Settings.UpdateCheckIntervalHours;
+            _settings.ReloadRoamingSettings();
+            ApplyLanguage(_settings.Settings.Language);
+            ApplyTheme(_settings.Settings.Theme);
+            if (previousInterval != _settings.Settings.UpdateCheckIntervalHours)
+                _updateIntervalChanged.Cancel();
+        }
+
+        if (changes.ScriptsChanged)
+            ReloadScripts();
+
+        if (changes.ConnectionsChanged)
+        {
+            FlushPendingAutoSave();
+            ClearClipboard();
+            ReloadTree(_settings.Settings.LastSelectedConnectionPath);
+            OnPropertyChanged(nameof(RootPath));
+            OnPropertyChanged(nameof(TargetDescription));
+        }
+    }
+
+    public static PortableConfigChangeSet ClassifyPortableConfigChanges(IEnumerable<string> changedPaths)
+    {
+        var settingsPath = SettingsService.ResolveSettingsPath(StorageLocation.ProgramDirectory);
+        var connectionsRoot = SettingsService.ResolveConnectionsRoot(StorageLocation.ProgramDirectory);
+        var scriptsRoot = SettingsService.ResolveScriptsRoot(StorageLocation.ProgramDirectory);
+
+        var result = new PortableConfigChangeSet();
+        foreach (var path in changedPaths)
+        {
+            if (PathEquals(path, settingsPath))
+            {
+                result.SettingsChanged = true;
+            }
+            else if (ConnectionStore.IsSameOrInside(connectionsRoot, path))
+            {
+                result.ConnectionsChanged = true;
+            }
+            else if (ConnectionStore.IsSameOrInside(scriptsRoot, path))
+            {
+                result.ScriptsChanged = true;
+            }
+        }
+
+        return result;
+    }
+
+    public sealed class PortableConfigChangeSet
+    {
+        public bool SettingsChanged { get; set; }
+
+        public bool ConnectionsChanged { get; set; }
+
+        public bool ScriptsChanged { get; set; }
+
+        public bool HasAnyChange => SettingsChanged || ConnectionsChanged || ScriptsChanged;
     }
 
     // --- Tree building ---
@@ -1851,6 +1975,8 @@ public partial class MainWindowViewModel : ViewModelBase
             _settings.Settings.UpdateCheckIntervalHours);
         if (result is null)
             return;
+        var leavingPortable = current == StorageLocation.ProgramDirectory
+            && result.StorageLocation != StorageLocation.ProgramDirectory;
 
         // Apply the language choice (no-op if unchanged); takes effect immediately.
         if (result.Language != _settings.Settings.Language)
@@ -1882,6 +2008,17 @@ public partial class MainWindowViewModel : ViewModelBase
         var newRoot = SettingsService.ResolveConnectionsRoot(result.StorageLocation, result.CustomStoragePath);
         var oldScriptsRoot = _scriptStore.RootPath;
         var newScriptsRoot = SettingsService.ResolveScriptsRoot(result.StorageLocation, result.CustomStoragePath);
+        var newConfigRoot = SettingsService.ResolveConfigRoot(result.StorageLocation, result.CustomStoragePath);
+
+        if (leavingPortable)
+        {
+            var programConfigRoot = SettingsService.ResolveConfigRoot(StorageLocation.ProgramDirectory);
+            if (ConnectionStore.IsSameOrInside(programConfigRoot, newConfigRoot))
+            {
+                StatusMessage = L("StatusNotWritable", newConfigRoot);
+                return;
+            }
+        }
 
         // Make sure the target is actually writable (e.g. ProgramDirectory under
         // %ProgramFiles% is not, for a standard user) before committing.
@@ -1911,18 +2048,31 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        if (leavingPortable)
+        {
+            StopWatching();
+            if (!SettingsService.TryDeleteProgramConfig(out var deleteError))
+            {
+                StatusMessage = L("StatusStorageCopyFailed", deleteError ?? "");
+                return;
+            }
+        }
+
         _settings.Settings.StorageLocation = result.StorageLocation;
         _settings.Settings.CustomStoragePath = result.CustomStoragePath;
+        var settingsSaved = _settings.SaveIfChanged();
         _store.SetRoot(newRoot);
         _scriptStore.SetRoot(newScriptsRoot);
         ReloadScripts();
-        StartWatching(newRoot);
+        StartWatchingCurrentStorage();
         ClearClipboard();
         ReloadTree();
         OnPropertyChanged(nameof(RootPath));
         OnPropertyChanged(nameof(TargetDescription));
 
-        if (HasData(newRoot))
+        if (!settingsSaved)
+            StatusMessage = L("StatusStorageNotSaved", _settings.SettingsPath);
+        else if (HasData(newRoot))
             StatusMessage = L("StatusStorageLocationWithData", result.StorageLocation, newRoot);
         else
             StatusMessage = L("StatusStorageLocationOnly", result.StorageLocation, newRoot);
