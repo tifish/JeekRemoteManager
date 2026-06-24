@@ -163,6 +163,55 @@ try
     Check(PasswordProtector.Decrypt(loaded.EncryptedPassword) == secret,
           "Password decrypts after load");
 
+    // --- Editor auto-save should only write real edits ---
+    var vmRoot = Path.Combine(root, "ViewModelStorage");
+    Directory.CreateDirectory(vmRoot);
+    var vmSettingsPath = Path.Combine(vmRoot, "machine-settings.json");
+    var vmRoamingSettingsPath = Path.Combine(vmRoot, "roaming-settings.json");
+    File.WriteAllText(vmSettingsPath, JsonSerializer.Serialize(new AppSettings
+    {
+        StorageLocation = StorageLocation.CustomDirectory,
+        CustomStoragePath = vmRoot,
+    }));
+
+    var vmSettings = new SettingsService(vmSettingsPath, vmRoamingSettingsPath);
+    var vmStore = new ConnectionStore(vmSettings.ResolveConnectionsRoot());
+    var autoSaveA = new Connection
+    {
+        Type = ConnectionType.Ssh,
+        Name = "autosave-a",
+        Host = "a.example",
+        Port = 22,
+        Username = "root",
+        EncryptedPassword = PasswordProtector.Encrypt("autosave-password"),
+    };
+    var autoSaveB = new Connection
+    {
+        Type = ConnectionType.Ssh,
+        Name = "autosave-b",
+        Host = "b.example",
+        Port = 22,
+        Username = "root",
+        EncryptedPassword = PasswordProtector.Encrypt("autosave-password"),
+    };
+    var autoSaveAPath = vmStore.Save(autoSaveA, vmStore.RootPath);
+    _ = vmStore.Save(autoSaveB, vmStore.RootPath);
+
+    var vm = new MainWindowViewModel(vmStore, new ConnectionLauncher(), vmSettings);
+    var nodeA = vm.Nodes.Single(n => n.Name == "autosave-a");
+    var nodeB = vm.Nodes.Single(n => n.Name == "autosave-b");
+    vm.SelectedNode = nodeA;
+    var autoSaveAJsonBeforeSwitch = File.ReadAllText(autoSaveAPath);
+    vm.SelectedNode = nodeB;
+    Check(File.ReadAllText(autoSaveAPath) == autoSaveAJsonBeforeSwitch,
+          "Switching selected connections without edits does not rewrite the old connection");
+
+    vm.SelectedNode = nodeA;
+    vm.Editor!.Host = "changed.example";
+    vm.SelectedNode = nodeB;
+    Check(vmStore.Load(autoSaveAPath).Host == "changed.example",
+          "Switching selected connections still flushes actual editor edits");
+
     // --- Rename via Save (file follows the name) ---
     loaded.Name = "web01-renamed";
     var renamedPath = store.Save(loaded, folder, sshPath);

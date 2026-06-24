@@ -32,6 +32,7 @@ public partial class MainWindowViewModel : ViewModelBase
     // Auto-save: which node the current editor is bound to, plus a debounce timer.
     private TreeNodeViewModel? _editingNode;
     private DispatcherTimer? _autoSaveTimer;
+    private bool _editorHasPendingChanges;
     private static readonly TimeSpan AutoSaveDelay = TimeSpan.FromMilliseconds(600);
 
     // Watches external configuration changes. Portable mode watches the whole
@@ -259,6 +260,7 @@ public partial class MainWindowViewModel : ViewModelBase
         Editor = _editingNode != null
             ? ConnectionEditorViewModel.FromConnection(_editingNode.Connection!)
             : null;
+        _editorHasPendingChanges = false;
         ScriptPanel = null;
 
         // Watch the new editor for changes → auto-save with debounce.
@@ -284,6 +286,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void ScheduleAutoSave()
     {
+        _editorHasPendingChanges = true;
+
         if (_autoSaveTimer == null)
         {
             _autoSaveTimer = new DispatcherTimer { Interval = AutoSaveDelay };
@@ -323,6 +327,12 @@ public partial class MainWindowViewModel : ViewModelBase
         var node = _editingNode;
         var editor = Editor;
         if (node?.Connection is null || editor is null)
+        {
+            _editorHasPendingChanges = false;
+            return;
+        }
+
+        if (!_editorHasPendingChanges)
             return;
 
         try
@@ -343,6 +353,7 @@ public partial class MainWindowViewModel : ViewModelBase
             }
 
             StatusMessage = L("StatusAutoSaved", node.Name);
+            _editorHasPendingChanges = false;
         }
         catch (Exception ex)
         {
@@ -897,6 +908,7 @@ public partial class MainWindowViewModel : ViewModelBase
             Editor.PropertyChanged -= OnEditorPropertyChanged;
         _editingNode = null;
         Editor = null;
+        _editorHasPendingChanges = false;
     }
 
     /// <summary>Folder that new/pasted items should go into, based on the selection.</summary>
@@ -1550,6 +1562,7 @@ public partial class MainWindowViewModel : ViewModelBase
         var protectedBinding = RemoteScriptLauncher.ProtectSecretValues(ScriptPanel.Suite, currentBinding);
         UpsertScriptBinding(Editor.ScriptBindings, protectedBinding);
         UpsertScriptBinding(node.Connection.ScriptBindings, protectedBinding);
+        _editorHasPendingChanges = true;
         if (flushImmediately)
             FlushPendingAutoSave();
         else
