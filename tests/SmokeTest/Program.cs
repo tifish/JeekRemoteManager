@@ -196,6 +196,7 @@ try
     };
     var autoSaveAPath = vmStore.Save(autoSaveA, vmStore.RootPath);
     _ = vmStore.Save(autoSaveB, vmStore.RootPath);
+    var autoSaveAPasswordBeforeEdit = autoSaveA.EncryptedPassword;
 
     var vm = new MainWindowViewModel(vmStore, new ConnectionLauncher(), vmSettings);
     var nodeA = vm.Nodes.Single(n => n.Name == "autosave-a");
@@ -209,8 +210,19 @@ try
     vm.SelectedNode = nodeA;
     vm.Editor!.Host = "changed.example";
     vm.SelectedNode = nodeB;
-    Check(vmStore.Load(autoSaveAPath).Host == "changed.example",
+    var autoSaveAAfterHostEdit = vmStore.Load(autoSaveAPath);
+    Check(autoSaveAAfterHostEdit.Host == "changed.example",
           "Switching selected connections still flushes actual editor edits");
+    Check(autoSaveAAfterHostEdit.EncryptedPassword == autoSaveAPasswordBeforeEdit,
+          "Editing non-password fields preserves the existing password blob");
+
+    vm.SelectedNode = nodeA;
+    vm.Editor!.Password = "changed-autosave-password";
+    vm.SelectedNode = nodeB;
+    var autoSaveAAfterPasswordEdit = vmStore.Load(autoSaveAPath);
+    Check(autoSaveAAfterPasswordEdit.EncryptedPassword != autoSaveAPasswordBeforeEdit
+          && PasswordProtector.Decrypt(autoSaveAAfterPasswordEdit.EncryptedPassword) == "changed-autosave-password",
+          "Editing the password writes a new decryptable password blob");
 
     // --- Rename via Save (file follows the name) ---
     loaded.Name = "web01-renamed";

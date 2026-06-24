@@ -49,6 +49,8 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     [ObservableProperty]
     private bool _passwordDecryptFailed;
 
+    private bool _passwordEdited;
+
     // SSH
     [ObservableProperty]
     private string _privateKeyPath = "";
@@ -132,7 +134,13 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         var decrypted = PasswordProtector.TryDecrypt(c.EncryptedPassword, out var clear);
         vm.PasswordDecryptFailed = !decrypted;
         vm.Password = decrypted ? clear : "";
+        vm._passwordEdited = false;
         return vm;
+    }
+
+    partial void OnPasswordChanged(string value)
+    {
+        _passwordEdited = true;
     }
 
     /// <summary>Writes the edited values back into the given connection.</summary>
@@ -146,7 +154,8 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         // If we could not decrypt the stored password and the user has not typed a
         // replacement, keep the original ciphertext intact instead of clobbering it
         // with an encryption of the (empty) box.
-        c.EncryptedPassword = PasswordDecryptFailed && Password.Length == 0
+        var preserveExistingPassword = !_passwordEdited || (PasswordDecryptFailed && Password.Length == 0);
+        c.EncryptedPassword = preserveExistingPassword
             ? _originalEncryptedPassword
             : PasswordProtector.Encrypt(Password);
         c.PrivateKeyPath = PrivateKeyPath.Trim();
