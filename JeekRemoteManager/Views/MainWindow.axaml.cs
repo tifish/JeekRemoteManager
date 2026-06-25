@@ -236,6 +236,15 @@ public partial class MainWindow : Window
         closeButton.Click += (_, _) => CloseTerminalTab(tab);
         tab.ContextMenu = BuildTerminalTabContextMenu(connection, sourcePath, tab);
 
+        // Middle-click or double-click on the tab header closes it, matching the
+        // close button and the context menu's Close item.
+        tab.AddHandler(
+            PointerPressedEvent,
+            OnTerminalTabPointerPressed,
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
+        tab.DoubleTapped += (_, _) => CloseTerminalTab(tab);
+
         RightTabs.Items.Add(tab);
         RightTabs.SelectedItem = tab;
 
@@ -264,9 +273,14 @@ public partial class MainWindow : Window
                 DispatcherPriority.Background);
         };
 
+        var close = new MenuItem { Header = Localizer.Get("Close") };
+        close.Click += (_, _) => CloseTerminalTab(tab);
+
         var menu = new ContextMenu();
         menu.Items.Add(copyKey);
         menu.Items.Add(runScript);
+        menu.Items.Add(new Separator());
+        menu.Items.Add(close);
         return menu;
     }
 
@@ -344,6 +358,17 @@ public partial class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
             Children = { title, closeButton },
         };
+    }
+
+    // Middle-clicking anywhere on a terminal tab closes it.
+    private void OnTerminalTabPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is TabItem tab
+            && e.GetCurrentPoint(tab).Properties.IsMiddleButtonPressed)
+        {
+            CloseTerminalTab(tab);
+            e.Handled = true;
+        }
     }
 
     private void CloseTerminalTab(TabItem tab)
