@@ -39,6 +39,7 @@ public static class AutoUpdateService
     private const string UpdateScriptName = "AutoUpdate.ps1";
 
     public static string DownloadUrl { get; private set; } = "";
+    public static IReadOnlyList<string> DownloadUrls { get; private set; } = [ReleaseZipUrl];
     public static int LocalCommitCount { get; private set; }
     public static int RemoteCommitCount { get; private set; }
     public static string FailureReason { get; private set; } = "";
@@ -46,6 +47,7 @@ public static class AutoUpdateService
     public static async Task<UpdateCheckOutcome> HasUpdateAsync()
     {
         DownloadUrl = ReleaseZipUrl;
+        DownloadUrls = [ReleaseZipUrl];
         RemoteCommitCount = 0;
         FailureReason = "";
         LocalCommitCount = GetLocalCommitCount();
@@ -72,6 +74,7 @@ public static class AutoUpdateService
             var zipUrl = await GitHubMirrors.GetFastestMirror(ReleaseZipUrl).ConfigureAwait(false);
             if (!string.IsNullOrEmpty(zipUrl))
                 DownloadUrl = zipUrl;
+            DownloadUrls = BuildDownloadUrls(DownloadUrl);
 
             // Treat anything below this as a local dev build — CI bakes in the
             // real commit count, which is always well above this threshold.
@@ -116,10 +119,20 @@ public static class AutoUpdateService
             }
 
             Log.ZLogInformation($"Launching updater for {DownloadUrl}");
+            var updateArguments = new[]
+                {
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    scriptPath,
+                }
+                .Concat(DownloadUrls)
+                .Select(QuoteProcessArgument);
             Process.Start(new ProcessStartInfo
             {
                 FileName = "powershell.exe",
-                Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{scriptPath}\" \"{DownloadUrl}\"",
+                Arguments = string.Join(" ", updateArguments),
                 WorkingDirectory = workDir,
                 UseShellExecute = true,
             });
@@ -131,6 +144,18 @@ public static class AutoUpdateService
             Log.ZLogError(ex, $"Failed to launch updater");
             return false;
         }
+    }
+
+    private static string[] BuildDownloadUrls(string preferredUrl)
+    {
+        return GitHubMirrors.GetMirrors(ReleaseZipUrl)
+            .OrderBy(url => string.Equals(url, preferredUrl, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ToArray();
+    }
+
+    private static string QuoteProcessArgument(string value)
+    {
+        return "\"" + value.Replace("\"", "\\\"") + "\"";
     }
 
     public static int GetLocalCommitCount()

@@ -472,6 +472,24 @@ try
         : "";
     Check(autoUpdateScript.Contains("$preserveNames = @(\"Config\", \"Connections\", \"Scripts\", \"AutoUpdate.ps1\")"),
           "Auto-update preserves Config and legacy top-level user data");
+    Check(autoUpdateScript.Contains("Download-FileWithProgress")
+          && autoUpdateScript.Contains("Write-Progress -Activity $activity")
+          && autoUpdateScript.Contains("MB/s"),
+          "Auto-update reports download progress and speed");
+    Check(autoUpdateScript.Contains("Download failed from this mirror")
+          && autoUpdateScript.Contains("Trying next mirror")
+          && autoUpdateScript.Contains("Download failed from all mirrors"),
+          "Auto-update retries alternate mirrors before failing");
+    Check(autoUpdateScript.Contains("No download data received for $IdleTimeoutSeconds seconds"),
+          "Auto-update abandons stalled mirror downloads");
+    var autoUpdateServicePath = Path.Combine(FindRepoRoot(), "JeekRemoteManager", "Services", "AutoUpdateService.cs");
+    var autoUpdateService = File.Exists(autoUpdateServicePath)
+        ? File.ReadAllText(autoUpdateServicePath)
+        : "";
+    Check(autoUpdateService.Contains("DownloadUrls")
+          && autoUpdateService.Contains("BuildDownloadUrls")
+          && autoUpdateService.Contains(".Concat(DownloadUrls)"),
+          "Auto-update passes mirror fallback URLs to the updater");
     var runtimeBbrDir = Path.Combine(FindRepoRoot(), "bin", "Data", "Scripts", "BBR");
     Check(File.Exists(Path.Combine(runtimeBbrDir, "enable-bbr.sh"))
           && File.Exists(Path.Combine(runtimeBbrDir, "disable-bbr.sh")),
