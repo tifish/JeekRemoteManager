@@ -9,6 +9,28 @@
         <local:ViewLocator />
     </Application.DataTemplates>
 
+    <Application.Resources>
+        <!-- Balanced ANSI palette for the embedded SSH terminal. -->
+        <SolidColorBrush x:Key="SvcSystems.UI.TerminalCaretBrush" Color="#D8E2EA" />
+        <SolidColorBrush x:Key="SvcSystems.UI.TerminalSelectionBrush" Color="#405E81AC" />
+        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor0" Color="#151B22" />
+        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor1" Color="#D66F7B" />
+        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor2" Color="#8DCB6E" />
+        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor3" Color="#DDB858" />
+        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor4" Color="#63A4DC" />
+        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor5" Color="#C27CC8" />
+        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor6" Color="#58BFD0" />
+        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor7" Color="#D6DEE8" />
+        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor8" Color="#66717F" />
+        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor9" Color="#EA8791" />
+        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor10" Color="#A4DA82" />
+        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor11" Color="#E8C96E" />
+        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor12" Color="#82BDF0" />
+        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor13" Color="#D794D8" />
+        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor14" Color="#76D5E2" />
+        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor15" Color="#F0F4F8" />
+    </Application.Resources>
+
     <TrayIcon.Icons>
         <TrayIcons>
             <!-- The right-click menu is built in code (App.axaml.cs) so it can
