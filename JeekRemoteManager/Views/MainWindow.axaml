@@ -24,34 +24,50 @@
         <ResourceDictionary>
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Light">
-                    <SolidColorBrush x:Key="AppBackgroundBrush" Color="#F5F7FA" />
+                    <SolidColorBrush x:Key="AppBackgroundBrush" Color="#EEF2F6" />
+                    <SolidColorBrush x:Key="ChromeSurfaceBrush" Color="#FBFCFE" />
                     <SolidColorBrush x:Key="SurfaceBrush" Color="#FFFFFF" />
-                    <SolidColorBrush x:Key="SurfaceAltBrush" Color="#F8FAFC" />
-                    <SolidColorBrush x:Key="PopupSurfaceBrush" Color="#FBFCFE" />
-                    <SolidColorBrush x:Key="PopupBorderBrush" Color="#BFC9D6" />
-                    <SolidColorBrush x:Key="BorderBrushSoft" Color="#DDE3EA" />
-                    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#182233" />
-                    <SolidColorBrush x:Key="TextMutedBrush" Color="#687385" />
-                    <SolidColorBrush x:Key="AccentBrush" Color="#2563EB" />
-                    <SolidColorBrush x:Key="AccentHoverBrush" Color="#1D4ED8" />
-                    <SolidColorBrush x:Key="AccentSoftBrush" Color="#E8F0FF" />
+                    <SolidColorBrush x:Key="SurfaceAltBrush" Color="#F6F8FA" />
+                    <SolidColorBrush x:Key="InputBackgroundBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="PopupSurfaceBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="PopupBorderBrush" Color="#B9C4D0" />
+                    <SolidColorBrush x:Key="BorderBrushSoft" Color="#D4DCE5" />
+                    <SolidColorBrush x:Key="BorderBrushStrong" Color="#AEBBC8" />
+                    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#17212B" />
+                    <SolidColorBrush x:Key="TextMutedBrush" Color="#657385" />
+                    <SolidColorBrush x:Key="AccentBrush" Color="#0F766E" />
+                    <SolidColorBrush x:Key="AccentHoverBrush" Color="#0B5F59" />
+                    <SolidColorBrush x:Key="AccentSoftBrush" Color="#DFF4EE" />
+                    <SolidColorBrush x:Key="HoverBrush" Color="#EEF6F4" />
+                    <SolidColorBrush x:Key="SelectedBrush" Color="#E6F4F1" />
+                    <SolidColorBrush x:Key="SelectedBorderBrush" Color="#8CCFC3" />
+                    <SolidColorBrush x:Key="TerminalBackgroundBrush" Color="#101820" />
+                    <SolidColorBrush x:Key="TerminalForegroundBrush" Color="#DCE7EF" />
                     <SolidColorBrush x:Key="SuccessBrush" Color="#15803D" />
-                    <SolidColorBrush x:Key="DangerBrush" Color="#B42318" />
+                    <SolidColorBrush x:Key="DangerBrush" Color="#C2410C" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
-                    <SolidColorBrush x:Key="AppBackgroundBrush" Color="#111827" />
-                    <SolidColorBrush x:Key="SurfaceBrush" Color="#1F2937" />
-                    <SolidColorBrush x:Key="SurfaceAltBrush" Color="#253244" />
-                    <SolidColorBrush x:Key="PopupSurfaceBrush" Color="#111827" />
-                    <SolidColorBrush x:Key="PopupBorderBrush" Color="#4B5563" />
-                    <SolidColorBrush x:Key="BorderBrushSoft" Color="#374151" />
-                    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F3F4F6" />
-                    <SolidColorBrush x:Key="TextMutedBrush" Color="#A7B0C0" />
-                    <SolidColorBrush x:Key="AccentBrush" Color="#60A5FA" />
-                    <SolidColorBrush x:Key="AccentHoverBrush" Color="#3B82F6" />
-                    <SolidColorBrush x:Key="AccentSoftBrush" Color="#1E3A5F" />
-                    <SolidColorBrush x:Key="SuccessBrush" Color="#22C55E" />
-                    <SolidColorBrush x:Key="DangerBrush" Color="#F97066" />
+                    <SolidColorBrush x:Key="AppBackgroundBrush" Color="#111417" />
+                    <SolidColorBrush x:Key="ChromeSurfaceBrush" Color="#171B20" />
+                    <SolidColorBrush x:Key="SurfaceBrush" Color="#1C2229" />
+                    <SolidColorBrush x:Key="SurfaceAltBrush" Color="#222A32" />
+                    <SolidColorBrush x:Key="InputBackgroundBrush" Color="#151A1F" />
+                    <SolidColorBrush x:Key="PopupSurfaceBrush" Color="#1A2027" />
+                    <SolidColorBrush x:Key="PopupBorderBrush" Color="#46515E" />
+                    <SolidColorBrush x:Key="BorderBrushSoft" Color="#303943" />
+                    <SolidColorBrush x:Key="BorderBrushStrong" Color="#4C5967" />
+                    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F2F5F7" />
+                    <SolidColorBrush x:Key="TextMutedBrush" Color="#A4AFBB" />
+                    <SolidColorBrush x:Key="AccentBrush" Color="#2DD4BF" />
+                    <SolidColorBrush x:Key="AccentHoverBrush" Color="#5EEAD4" />
+                    <SolidColorBrush x:Key="AccentSoftBrush" Color="#123B38" />
+                    <SolidColorBrush x:Key="HoverBrush" Color="#243332" />
+                    <SolidColorBrush x:Key="SelectedBrush" Color="#1F3B39" />
+                    <SolidColorBrush x:Key="SelectedBorderBrush" Color="#2DD4BF" />
+                    <SolidColorBrush x:Key="TerminalBackgroundBrush" Color="#070B10" />
+                    <SolidColorBrush x:Key="TerminalForegroundBrush" Color="#D8E2EA" />
+                    <SolidColorBrush x:Key="SuccessBrush" Color="#4ADE80" />
+                    <SolidColorBrush x:Key="DangerBrush" Color="#FB7185" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
             <SolidColorBrush x:Key="AccentForegroundBrush" Color="#FFFFFF" />
@@ -59,8 +75,11 @@
     </Window.Resources>
 
     <Window.Styles>
+        <Style Selector="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+        </Style>
         <Style Selector="TextBlock.page-title">
-            <Setter Property="FontSize" Value="20" />
+            <Setter Property="FontSize" Value="18" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
         </Style>
@@ -85,13 +104,48 @@
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="8" />
         </Style>
+        <Style Selector="Border.form-card">
+            <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushSoft}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="13" />
+        </Style>
+        <Style Selector="Border.icon-tile">
+            <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource SelectedBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+        </Style>
+        <Style Selector="Border.status-pill">
+            <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushSoft}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="9,3" />
+        </Style>
+        <Style Selector="Border.tree-row">
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="6,4" />
+        </Style>
         <Style Selector="Button">
             <Setter Property="MinHeight" Value="34" />
             <Setter Property="Padding" Value="12,6" />
             <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+            <Setter Property="Background" Value="{DynamicResource InputBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushSoft}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style Selector="Button:pointerover">
+            <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource SelectedBorderBrush}" />
+        </Style>
+        <Style Selector="Button:pressed">
+            <Setter Property="Background" Value="{DynamicResource SelectedBrush}" />
         </Style>
         <Style Selector="Button.toolbar">
-            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+            <Setter Property="Background" Value="{DynamicResource ChromeSurfaceBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushSoft}" />
             <Setter Property="BorderThickness" Value="1" />
         </Style>
@@ -102,10 +156,53 @@
             <Setter Property="HorizontalContentAlignment" Value="Center" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
+        <Style Selector="Button.font-step-button">
+            <Setter Property="MinWidth" Value="44" />
+            <Setter Property="Width" Value="44" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Border.font-size-display">
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushSoft}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="10,4" />
+        </Style>
+        <Style Selector="TextBlock.font-size-value">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBlock.font-size-unit">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.tab-close">
+            <Setter Property="MinWidth" Value="22" />
+            <Setter Property="MinHeight" Value="22" />
+            <Setter Property="Width" Value="22" />
+            <Setter Property="Height" Value="22" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.tab-close:pointerover">
+            <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
+        </Style>
         <Style Selector="Button.accent">
             <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
         <Style Selector="Button.accent:pointerover">
             <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}" />
@@ -114,19 +211,79 @@
         <Style Selector="TextBox">
             <Setter Property="MinHeight" Value="34" />
             <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Background" Value="{DynamicResource InputBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushSoft}" />
+            <Setter Property="Padding" Value="9,6" />
+        </Style>
+        <Style Selector="TextBox:focus">
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+        </Style>
+        <Style Selector="TextBox.output">
+            <Setter Property="Background" Value="{DynamicResource TerminalBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TerminalForegroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushStrong}" />
         </Style>
         <Style Selector="ComboBox">
             <Setter Property="MinHeight" Value="34" />
             <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Background" Value="{DynamicResource InputBackgroundBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushSoft}" />
+        </Style>
+        <Style Selector="ComboBox:focus">
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+        </Style>
+        <Style Selector="CheckBox">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
         </Style>
         <Style Selector="TreeView">
             <Setter Property="Background" Value="Transparent" />
         </Style>
         <Style Selector="TreeViewItem">
-            <Setter Property="MinHeight" Value="30" />
-            <Setter Property="Padding" Value="2" />
+            <Setter Property="MinHeight" Value="32" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+        </Style>
+        <Style Selector="TreeViewItem:selected">
+            <Setter Property="Background" Value="{DynamicResource SelectedBrush}" />
+        </Style>
+        <Style Selector="TabItem">
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="Padding" Value="2,2" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+        </Style>
+        <Style Selector="TabItem:selected">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Border.tab-pill">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="7" />
+            <Setter Property="Padding" Value="9,4" />
+            <Setter Property="MinHeight" Value="28" />
+        </Style>
+        <Style Selector="TabItem:pointerover Border.tab-pill">
+            <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushSoft}" />
+        </Style>
+        <Style Selector="TabItem:selected Border.tab-pill">
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource SelectedBorderBrush}" />
+        </Style>
+        <Style Selector="TextBlock.tab-label">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TabItem:selected TextBlock.tab-label">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
         <Style Selector="MenuFlyoutPresenter">
             <Setter Property="Background" Value="{DynamicResource PopupSurfaceBrush}" />
@@ -155,16 +312,16 @@
     <DockPanel Background="{DynamicResource AppBackgroundBrush}">
         <!-- Command bar -->
         <Border DockPanel.Dock="Top"
-                Background="{DynamicResource SurfaceBrush}"
+                Background="{DynamicResource ChromeSurfaceBrush}"
                 BorderBrush="{DynamicResource BorderBrushSoft}"
                 BorderThickness="0,0,0,1"
-                Padding="18,12">
-            <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="16">
+                Padding="18,10">
+            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="18">
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                    <Border Width="34" Height="34" CornerRadius="8">
+                    <Border Width="38" Height="38" Classes="icon-tile">
                         <Image Source="/Assets/icon.png"
-                               Width="34"
-                               Height="34"
+                               Width="30"
+                               Height="30"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center" />
                     </Border>
@@ -191,21 +348,32 @@
                     </Button>
                 </StackPanel>
 
-                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <Button Command="{Binding DecreaseTerminalFontCommand}"
-                            IsVisible="{Binding IsTerminalActive}"
-                            ToolTip.Tip="{l:Localize FontDecrease}"
-                            Classes="toolbar icon-button">
-                        <TextBlock Text="A-" FontWeight="SemiBold"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Button>
-                    <Button Command="{Binding IncreaseTerminalFontCommand}"
-                            IsVisible="{Binding IsTerminalActive}"
-                            ToolTip.Tip="{l:Localize FontIncrease}"
-                            Classes="toolbar icon-button">
-                        <TextBlock Text="A+" FontWeight="SemiBold"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Button>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal"
+                                Spacing="6"
+                                VerticalAlignment="Center"
+                                IsVisible="{Binding IsTerminalActive}">
+                        <Button Command="{Binding DecreaseTerminalFontCommand}"
+                                ToolTip.Tip="{l:Localize FontDecrease}"
+                                Classes="toolbar font-step-button">
+                            <TextBlock Text="A-"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" />
+                        </Button>
+                        <Border Classes="font-size-display">
+                            <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding TerminalFontSize}" Classes="font-size-value" />
+                                <TextBlock Text="pt" Classes="font-size-unit" />
+                            </StackPanel>
+                        </Border>
+                        <Button Command="{Binding IncreaseTerminalFontCommand}"
+                                ToolTip.Tip="{l:Localize FontIncrease}"
+                                Classes="toolbar font-step-button">
+                            <TextBlock Text="A+"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" />
+                        </Button>
+                    </StackPanel>
                     <Button ToolTip.Tip="{l:Localize MoreActions}" Classes="toolbar icon-button">
                         <Button.Content>
                             <TextBlock Classes="icon"
@@ -234,23 +402,28 @@
 
         <!-- Status bar -->
         <Border DockPanel.Dock="Bottom"
-                Padding="18,8"
-                Background="{DynamicResource SurfaceBrush}"
+                Padding="18,7"
+                Background="{DynamicResource ChromeSurfaceBrush}"
                 BorderBrush="{DynamicResource BorderBrushSoft}"
                 BorderThickness="0,1,0,0">
             <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Grid.Column="0" Text="{Binding StatusMessage}" VerticalAlignment="Center" />
-                <TextBlock Grid.Column="1" Text="{Binding VersionDisplay}" VerticalAlignment="Center"
-                           Foreground="{DynamicResource TextMutedBrush}" Margin="16,0,0,0" />
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Border Width="7" Height="7" CornerRadius="4" Background="{DynamicResource AccentBrush}" />
+                    <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" />
+                </StackPanel>
+                <Border Grid.Column="1" Classes="status-pill" Margin="16,0,0,0">
+                    <TextBlock Text="{Binding VersionDisplay}" VerticalAlignment="Center"
+                               Foreground="{DynamicResource TextMutedBrush}" />
+                </Border>
             </Grid>
         </Border>
 
         <!-- Main area: tree | editor -->
-        <Grid ColumnDefinitions="312,Auto,*" Margin="14" ColumnSpacing="12">
+        <Grid ColumnDefinitions="306,Auto,*" Margin="10" ColumnSpacing="8">
             <Border Grid.Column="0" Classes="panel" Padding="10">
                 <DockPanel>
-                    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="4,2,4,10">
-                        <StackPanel Grid.Column="0" Spacing="1" VerticalAlignment="Center">
+                    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="2,0,2,12">
+                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
                             <TextBlock Classes="page-title" Text="{l:Localize Connection}" />
                         </StackPanel>
                         <Button Grid.Column="1"
@@ -345,13 +518,19 @@
                         </TreeView.ContextMenu>
                         <TreeView.ItemTemplate>
                             <TreeDataTemplate ItemsSource="{Binding Children}" x:DataType="vm:TreeNodeViewModel">
-                                <StackPanel Orientation="Horizontal" Spacing="8" Opacity="{Binding NodeOpacity}">
-                                    <TextBlock Classes="emoji" Text="{Binding Glyph}"
-                                               Width="22"
-                                               HorizontalAlignment="Center"
-                                               VerticalAlignment="Center" />
-                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
-                                </StackPanel>
+                                <Border Classes="tree-row" Opacity="{Binding NodeOpacity}">
+                                    <Grid ColumnDefinitions="26,*" ColumnSpacing="8">
+                                        <TextBlock Grid.Column="0"
+                                                   Classes="emoji"
+                                                   Text="{Binding Glyph}"
+                                                   HorizontalAlignment="Center"
+                                                   VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding Name}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
                             </TreeDataTemplate>
                         </TreeView.ItemTemplate>
                     </TreeView>
@@ -362,17 +541,26 @@
                           Background="Transparent" />
 
             <!-- Right pane: fixed editor tab + terminal tabs added in code-behind -->
-            <TabControl Grid.Column="2" x:Name="RightTabs"
+            <Border Grid.Column="2" Classes="panel" Padding="6" ClipToBounds="True">
+            <TabControl x:Name="RightTabs"
                         SelectionChanged="OnRightTabsSelectionChanged">
-                <TabItem x:Name="EditorTab" Header="{l:Localize Edit}">
+                <TabItem x:Name="EditorTab">
+                    <TabItem.Header>
+                        <Border Classes="tab-pill">
+                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                <TextBlock Classes="icon" Text="&#xE70F;" />
+                                <TextBlock Classes="tab-label" Text="{l:Localize Edit}" />
+                            </StackPanel>
+                        </Border>
+                    </TabItem.Header>
                     <Grid>
                 <ContentControl Content="{Binding Editor}"
                                 IsVisible="{Binding ShowConnectionEditor}">
                 <ContentControl.DataTemplates>
                     <DataTemplate DataType="vm:ConnectionEditorViewModel">
-                        <Border Classes="panel">
+                        <Grid>
                             <ScrollViewer>
-                                <StackPanel Spacing="18" Margin="22,20,26,22">
+                                <StackPanel Spacing="12" Margin="14,12,16,14">
                                     <Grid ColumnDefinitions="*,Auto">
                                         <StackPanel Spacing="2">
                                             <TextBlock Classes="page-title" Text="{l:Localize Edit}" />
@@ -397,7 +585,7 @@
                                         </StackPanel>
                                     </Grid>
 
-                                    <Border Background="{DynamicResource SurfaceAltBrush}" CornerRadius="8" Padding="16">
+                                    <Border Classes="form-card">
                                         <StackPanel Spacing="12">
                                             <TextBlock Classes="section-title" Text="{l:Localize Connection}" />
 
@@ -422,7 +610,7 @@
                                         </StackPanel>
                                     </Border>
 
-                                    <Border Background="{DynamicResource SurfaceAltBrush}" CornerRadius="8" Padding="16">
+                                    <Border Classes="form-card">
                                         <StackPanel Spacing="12">
                                             <TextBlock Classes="section-title" Text="{l:Localize Username}" />
 
@@ -452,7 +640,7 @@
                                     </Border>
 
                                     <!-- SSH-specific -->
-                                    <Border Background="{DynamicResource SurfaceAltBrush}" CornerRadius="8" Padding="16"
+                                    <Border Classes="form-card"
                                             IsVisible="{Binding IsSsh}">
                                         <StackPanel Spacing="12">
                                             <TextBlock Classes="section-title" Text="{l:Localize SshOptions}" />
@@ -481,7 +669,7 @@
                                     </Border>
 
                                     <!-- RDP-specific -->
-                                    <Border Background="{DynamicResource SurfaceAltBrush}" CornerRadius="8" Padding="16"
+                                    <Border Classes="form-card"
                                             IsVisible="{Binding IsRdp}">
                                         <StackPanel Spacing="12">
                                             <TextBlock Classes="section-title" Text="{l:Localize RdpOptions}" />
@@ -516,7 +704,7 @@
                                         </StackPanel>
                                     </Border>
 
-                                    <Border Background="{DynamicResource SurfaceAltBrush}" CornerRadius="8" Padding="16">
+                                    <Border Classes="form-card">
                                         <Grid ColumnDefinitions="128,*">
                                             <TextBlock Grid.Column="0" Classes="label" Text="{l:Localize Notes}"
                                                        VerticalAlignment="Top" Margin="0,7,0,0" />
@@ -526,20 +714,18 @@
                                     </Border>
                                 </StackPanel>
                             </ScrollViewer>
-                        </Border>
+                        </Grid>
                     </DataTemplate>
                 </ContentControl.DataTemplates>
             </ContentControl>
 
             <!-- Placeholder when nothing is selected -->
-            <Border
-                    Classes="panel"
-                    IsVisible="{Binding ShowPlaceholder}">
+            <Grid IsVisible="{Binding ShowPlaceholder}">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14" MaxWidth="360">
-                    <Border Width="54" Height="54" CornerRadius="8">
+                    <Border Width="58" Height="58" Classes="icon-tile">
                         <Image Source="/Assets/icon.png"
-                               Width="54"
-                               Height="54"
+                               Width="44"
+                               Height="44"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center" />
                     </Border>
@@ -549,11 +735,10 @@
                                Text="{l:Localize SelectConnectionHint}"
                                TextAlignment="Center" />
                 </StackPanel>
-            </Border>
-                <Border Classes="panel"
-                        Padding="14"
+            </Grid>
+                <Border Padding="12"
                         IsVisible="{Binding HasScriptExecution}">
-                    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="10">
+                    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="8">
                         <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
                             <StackPanel Grid.Column="0" Spacing="2">
                                 <TextBlock Classes="page-title" Text="{Binding ScriptPanel.SuiteName}" />
@@ -572,10 +757,10 @@
 
                         <ScrollViewer Grid.Row="1"
                                       MinHeight="0"
-                                      MaxHeight="260"
+                                      MaxHeight="240"
                                       HorizontalScrollBarVisibility="Disabled"
                                       VerticalScrollBarVisibility="Auto">
-                            <Grid ColumnDefinitions="*,160" ColumnSpacing="16">
+                            <Grid ColumnDefinitions="*,156" ColumnSpacing="12">
                                 <ItemsControl Grid.Column="0" ItemsSource="{Binding ScriptPanel.Parameters}"
                                               Grid.IsSharedSizeScope="True">
                                     <ItemsControl.ItemTemplate>
@@ -613,6 +798,7 @@
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate DataType="models:RemoteScriptFile">
                                             <Button Content="{Binding DisplayName}"
+                                                    Classes="toolbar"
                                                     HorizontalAlignment="Stretch"
                                                     HorizontalContentAlignment="Center"
                                                     Margin="0,0,0,6"
@@ -657,6 +843,7 @@
                         </Grid>
 
                         <TextBox Grid.Row="3"
+                                 Classes="output"
                                  Text="{Binding ScriptPanel.Output, Mode=OneWay}"
                                  IsReadOnly="True"
                                  AcceptsReturn="True"
@@ -668,11 +855,12 @@
 
                         <Grid Grid.Row="4" ColumnDefinitions="Auto,*,Auto">
                             <Button Grid.Column="0"
+                                    Classes="toolbar"
                                     Content="{l:Localize ClearParameters}"
                                     Command="{Binding ClearScriptParametersCommand}" />
                             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
-                                <Button Content="{l:Localize CopyOutput}" Command="{Binding CopyScriptOutputCommand}" />
-                                <Button Content="{l:Localize ClearOutput}" Command="{Binding ClearScriptOutputCommand}" />
+                                <Button Classes="toolbar" Content="{l:Localize CopyOutput}" Command="{Binding CopyScriptOutputCommand}" />
+                                <Button Classes="toolbar" Content="{l:Localize ClearOutput}" Command="{Binding ClearScriptOutputCommand}" />
                             </StackPanel>
                         </Grid>
                     </Grid>
@@ -680,6 +868,7 @@
                     </Grid>
                 </TabItem>
             </TabControl>
+            </Border>
         </Grid>
     </DockPanel>
 </Window>

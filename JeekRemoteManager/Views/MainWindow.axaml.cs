@@ -327,37 +327,52 @@ public partial class MainWindow : Window
     // Tab title stays the connection name; the remote OSC title does not override it.
     private static Control BuildTerminalTabHeader(Connection connection, out Button closeButton)
     {
+        var icon = new TextBlock
+        {
+            Text = "\uE756",
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        icon.Classes.Add("icon");
+
         var title = new TextBlock
         {
             Text = string.IsNullOrWhiteSpace(connection.Name) ? connection.Host : connection.Name,
+            MaxWidth = 180,
+            TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center,
         };
+        title.Classes.Add("tab-label");
 
         closeButton = new Button
         {
             Content = new TextBlock
             {
-                Text = "", // Segoe MDL2 ChromeClose
+                Text = "\uE711", // Segoe MDL2 ChromeClose
                 FontFamily = new FontFamily("Segoe MDL2 Assets"),
                 FontSize = 10,
                 VerticalAlignment = VerticalAlignment.Center,
             },
-            Padding = new Thickness(4, 2),
-            MinWidth = 0,
-            MinHeight = 0,
-            Background = Avalonia.Media.Brushes.Transparent,
-            BorderThickness = new Thickness(0),
             VerticalAlignment = VerticalAlignment.Center,
         };
+        closeButton.Classes.Add("tab-close");
         ToolTip.SetTip(closeButton, Localizer.Get("Close"));
 
-        return new StackPanel
+        var content = new Grid
         {
-            Orientation = Orientation.Horizontal,
-            Spacing = 8,
+            ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"),
+            ColumnSpacing = 7,
             VerticalAlignment = VerticalAlignment.Center,
-            Children = { title, closeButton },
         };
+        Grid.SetColumn(icon, 0);
+        Grid.SetColumn(title, 1);
+        Grid.SetColumn(closeButton, 2);
+        content.Children.Add(icon);
+        content.Children.Add(title);
+        content.Children.Add(closeButton);
+
+        var pill = new Border { Child = content };
+        pill.Classes.Add("tab-pill");
+        return pill;
     }
 
     // Middle-clicking anywhere on a terminal tab closes it.
