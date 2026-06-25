@@ -53,6 +53,9 @@ public partial class ConnectionEditorViewModel : ViewModelBase
 
     // SSH
     [ObservableProperty]
+    private string _terminalType = Connection.DefaultTerminalType;
+
+    [ObservableProperty]
     private string _privateKeyPath = "";
 
     [ObservableProperty]
@@ -106,6 +109,18 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         .Select(type => type.ToDisplayName())
         .ToArray();
 
+    /// <summary>Common TERM values offered in the editor's terminal-type selector.</summary>
+    private static readonly string[] CommonTerminalTypes =
+    {
+        "xterm-256color", "xterm", "screen-256color", "screen", "tmux-256color", "vt100", "linux", "ansi",
+    };
+
+    /// <summary>Terminal types for the selector, prepending the current value if it is not a known one.</summary>
+    public string[] AvailableTerminalTypes =>
+        CommonTerminalTypes.Contains(TerminalType)
+            ? CommonTerminalTypes
+            : CommonTerminalTypes.Prepend(TerminalType).ToArray();
+
     public string TypeDisplay
     {
         get => Type.ToDisplayName();
@@ -121,6 +136,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             Host = c.Host,
             Port = c.Port,
             Username = c.Username,
+            TerminalType = string.IsNullOrWhiteSpace(c.TerminalType) ? Connection.DefaultTerminalType : c.TerminalType,
             PrivateKeyPath = c.PrivateKeyPath,
             RdpFullScreen = c.RdpFullScreen,
             RdpUseAllMonitors = c.RdpUseAllMonitors,
@@ -170,6 +186,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         c.Host = Host.Trim();
         c.Port = Port > 0 ? Port : Connection.DefaultPort(Type);
         c.Username = Username.Trim();
+        c.TerminalType = string.IsNullOrWhiteSpace(TerminalType) ? Connection.DefaultTerminalType : TerminalType.Trim();
         // If we could not decrypt the stored password and the user has not typed a
         // replacement, keep the original ciphertext intact instead of clobbering it
         // with an encryption of the (empty) box.

@@ -40,6 +40,7 @@ Username	Username	用户名
 Password	Password	密码
 Show	Show	显示
 SshOptions	SSH options	SSH 选项
+TerminalType	Terminal type	终端类型
 PrivateKey	Private key	私钥
 PrivateKeyWatermark	optional path to key file	可选，私钥文件路径
 Browse	Browse…	浏览…

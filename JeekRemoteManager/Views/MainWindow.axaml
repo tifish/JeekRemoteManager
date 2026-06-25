@@ -451,15 +451,21 @@
                                             IsVisible="{Binding IsSsh}">
                                         <StackPanel Spacing="12">
                                             <TextBlock Classes="section-title" Text="{l:Localize SshOptions}" />
-                                            <Grid ColumnDefinitions="128,*,Auto" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="10">
-                                                <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="{l:Localize PrivateKey}" />
-                                                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding PrivateKeyPath, Mode=TwoWay}"
+                                            <Grid ColumnDefinitions="128,*,Auto" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                                                <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="{l:Localize TerminalType}" />
+                                                <ComboBox Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2"
+                                                          HorizontalAlignment="Stretch"
+                                                          ItemsSource="{Binding AvailableTerminalTypes}"
+                                                          SelectedItem="{Binding TerminalType, Mode=TwoWay}" />
+
+                                                <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="{l:Localize PrivateKey}" />
+                                                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding PrivateKeyPath, Mode=TwoWay}"
                                                          PlaceholderText="{l:Localize PrivateKeyWatermark}" />
-                                                <Button Grid.Row="0" Grid.Column="2" Content="{l:Localize Browse}"
+                                                <Button Grid.Row="1" Grid.Column="2" Content="{l:Localize Browse}"
                                                         Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).BrowseKeyCommand}" />
 
-                                                <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="{l:Localize Passphrase}" />
-                                                <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2"
+                                                <TextBlock Grid.Row="2" Grid.Column="0" Classes="label" Text="{l:Localize Passphrase}" />
+                                                <TextBox Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2"
                                                          Text="{Binding PrivateKeyPassphrase, Mode=TwoWay}"
                                                          PasswordChar="&#x2022;"
                                                          RevealPassword="{Binding #Root.((vm:MainWindowViewModel)DataContext).ShowPassword}"

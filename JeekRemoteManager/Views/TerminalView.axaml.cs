@@ -117,7 +117,10 @@ public partial class TerminalView : UserControl
 
         var cols = (uint)Math.Max(20, _model.Terminal.Cols);
         var rows = (uint)Math.Max(5, _model.Terminal.Rows);
-        var shell = client.CreateShellStream("xterm-256color", cols, rows, 0, 0, 4096);
+        var terminalType = string.IsNullOrWhiteSpace(connection.TerminalType)
+            ? Connection.DefaultTerminalType
+            : connection.TerminalType.Trim();
+        var shell = client.CreateShellStream(terminalType, cols, rows, 0, 0, 4096);
         _shell = shell;
 
         shell.DataReceived += (_, e) => OnShellData(e.Data);

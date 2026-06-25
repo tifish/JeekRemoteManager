@@ -29,6 +29,15 @@ public class Connection
 
     // --- SSH specific ---
 
+    /// <summary>Terminal type advertised to servers that lack an xterm-256color terminfo entry.</summary>
+    public const string DefaultTerminalType = "xterm-256color";
+
+    /// <summary>
+    /// TERM value sent during the SSH PTY request. Defaults to "xterm-256color";
+    /// set to "xterm" for hosts that lack a 256-color terminfo entry and warn at login.
+    /// </summary>
+    public string TerminalType { get; set; } = DefaultTerminalType;
+
     /// <summary>Optional path to a private key file (ssh -i).</summary>
     public string PrivateKeyPath { get; set; } = "";
 
