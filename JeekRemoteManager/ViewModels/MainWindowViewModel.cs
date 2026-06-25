@@ -183,8 +183,10 @@ public partial class MainWindowViewModel : ViewModelBase
     public Func<StorageLocation, string?, string?, string?, bool, int, Task<SettingsDialogResult?>>? PickSettingsAsync { get; set; }
     public Func<string, Task<string?>>? PickFolderAsync { get; set; }
 
-    /// <summary>Opens an in-app SSH terminal for the connection (set by the view).</summary>
-    public Func<Connection, Task>? OpenSshTerminalAsync { get; set; }
+    /// <summary>Opens an in-app SSH terminal for the connection (set by the view).
+    /// The second argument is the connection's on-disk file path, carried so the
+    /// terminal tab's context menu can act on the originating tree node.</summary>
+    public Func<Connection, string?, Task>? OpenSshTerminalAsync { get; set; }
 
     /// <summary>Prompts the user to trust a first-seen SSH host key (set by the view).
     /// (host, port, keyType, sha256Fingerprint) =&gt; trust?. Blocks the calling thread,
@@ -1129,7 +1131,7 @@ public partial class MainWindowViewModel : ViewModelBase
             if (connection.Type == ConnectionType.Ssh && OpenSshTerminalAsync is not null)
             {
                 StatusMessage = L("StatusLaunching", connection.Type.ToDisplayName(), connection.Host);
-                await OpenSshTerminalAsync(connection);
+                await OpenSshTerminalAsync(connection, node.FullPath);
                 RecordRecent(node.FullPath);
                 return;
             }
@@ -1447,6 +1449,81 @@ public partial class MainWindowViewModel : ViewModelBase
         if (removed > 0)
             StatusMessage = L("StatusMissingScriptBindingsRemoved", removed);
         return BuildScriptSuiteChoices(node.Connection);
+    }
+
+    /// <summary>
+    /// Selects the tree node behind an open terminal tab (matched by its on-disk
+    /// path) and prepares its script-suite choices, so the existing selection-based
+    /// script flow targets that connection. Returns an empty list when the node is
+    /// gone or the connection has no usable scripts.
+    /// </summary>
+    public IReadOnlyList<ScriptSuiteChoiceViewModel> PrepareScriptSuiteChoicesForTerminal(string? sourcePath)
+    {
+        var node = string.IsNullOrEmpty(sourcePath) ? null : FindNode(Nodes, sourcePath);
+        if (node is null)
+        {
+            StatusMessage = L("StatusTerminalConnectionMissing");
+            return Array.Empty<ScriptSuiteChoiceViewModel>();
+        }
+
+        ExpandAncestors(node);
+        SelectedNode = node;
+        return PrepareScriptSuiteChoicesForSelectedConnection();
+    }
+
+    /// <summary>
+    /// Installs the local public key on the given connection's host
+    /// (the ssh-copy-id equivalent), confirming first and reporting the outcome
+    /// via the status bar. Invoked from a terminal tab's context menu.
+    /// </summary>
+    public async Task CopyPublicKeyToServerAsync(Connection connection)
+    {
+        if (connection.Type != ConnectionType.Ssh)
+        {
+            StatusMessage = L("StatusScriptOnlySsh");
+            return;
+        }
+
+        var publicKeyPath = PublicKeyInstaller.FindLocalPublicKey(connection);
+        if (publicKeyPath is null)
+        {
+            StatusMessage = L("StatusNoPublicKey");
+            return;
+        }
+
+        string publicKeyText;
+        try
+        {
+            publicKeyText = PublicKeyInstaller.ReadPublicKey(publicKeyPath);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = L("StatusPublicKeyFailed", ex.Message);
+            return;
+        }
+
+        var target = string.IsNullOrWhiteSpace(connection.Name) ? connection.Host : connection.Name;
+        if (ConfirmAsync is not null)
+        {
+            var ok = await ConfirmAsync(
+                L("DialogCopyPublicKeyTitle"),
+                L("DialogCopyPublicKeyMessage", publicKeyPath, target));
+            if (!ok)
+                return;
+        }
+
+        StatusMessage = L("StatusCopyingPublicKey", target);
+        try
+        {
+            var result = await PublicKeyInstaller.InstallAsync(connection, publicKeyText, ConfirmHostKeyTrust);
+            StatusMessage = result.AlreadyPresent
+                ? L("StatusPublicKeyAlreadyPresent", target)
+                : L("StatusPublicKeyInstalled", target);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = L("StatusPublicKeyFailed", ex.Message);
+        }
     }
 
     public void OpenScriptSuiteChoice(ScriptSuiteChoiceViewModel? choice)

@@ -225,7 +225,7 @@ public partial class MainWindow : Window
     private static double ClampWindowDimension(double value, double minimum) =>
         double.IsFinite(minimum) && minimum > 0 ? Math.Max(value, minimum) : value;
 
-    private Task OpenSshTerminalAsync(Connection connection)
+    private Task OpenSshTerminalAsync(Connection connection, string? sourcePath)
     {
         var view = new TerminalView();
         var tab = new TabItem
@@ -234,6 +234,7 @@ public partial class MainWindow : Window
             Content = view,
         };
         closeButton.Click += (_, _) => CloseTerminalTab(tab);
+        tab.ContextMenu = BuildTerminalTabContextMenu(connection, sourcePath, tab);
 
         RightTabs.Items.Add(tab);
         RightTabs.SelectedItem = tab;
@@ -241,6 +242,65 @@ public partial class MainWindow : Window
         view.SetFontSize((DataContext as MainWindowViewModel)?.TerminalFontSize ?? 14);
         view.Start(connection);
         return Task.CompletedTask;
+    }
+
+    // Right-click menu on an SSH terminal tab: install the local public key on the
+    // host (ssh-copy-id), or run one of the connection's SSH scripts.
+    private ContextMenu BuildTerminalTabContextMenu(Connection connection, string? sourcePath, TabItem tab)
+    {
+        var copyKey = new MenuItem { Header = Localizer.Get("CopyPublicKeyToServer") };
+        copyKey.Click += async (_, _) =>
+        {
+            if (DataContext is MainWindowViewModel vm)
+                await vm.CopyPublicKeyToServerAsync(connection);
+        };
+
+        var runScript = new MenuItem { Header = Localizer.Get("RunScript") };
+        runScript.Click += (_, _) =>
+        {
+            // Let the context menu close first, then open the script-suite chooser.
+            Dispatcher.UIThread.Post(
+                () => ShowTerminalScriptChooser(sourcePath, tab),
+                DispatcherPriority.Background);
+        };
+
+        var menu = new ContextMenu();
+        menu.Items.Add(copyKey);
+        menu.Items.Add(runScript);
+        return menu;
+    }
+
+    // Mirrors OnRunScriptMenuClick but targets the terminal tab's connection rather
+    // than the tree selection, and reveals the script panel in the editor tab.
+    private void ShowTerminalScriptChooser(string? sourcePath, Control? anchor)
+    {
+        if (DataContext is not MainWindowViewModel vm || anchor is null)
+            return;
+
+        var choices = vm.PrepareScriptSuiteChoicesForTerminal(sourcePath);
+        if (choices.Count == 0)
+            return;
+
+        if (choices.Count == 1)
+        {
+            vm.OpenScriptSuiteChoice(choices[0]);
+            RightTabs.SelectedItem = EditorTab;
+            return;
+        }
+
+        var flyout = new MenuFlyout();
+        foreach (var choice in choices)
+        {
+            var item = new MenuItem { Header = choice.ToString() };
+            item.Click += (_, _) =>
+            {
+                vm.OpenScriptSuiteChoice(choice);
+                RightTabs.SelectedItem = EditorTab;
+            };
+            flyout.Items.Add(item);
+        }
+
+        flyout.ShowAt(anchor);
     }
 
     private void ApplyTerminalFontToOpenTabs(int size)
