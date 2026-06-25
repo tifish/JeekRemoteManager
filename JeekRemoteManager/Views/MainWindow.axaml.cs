@@ -377,6 +377,17 @@ public partial class MainWindow : Window
         view?.FocusTerminal();
     }
 
+    // The right-click already selected the connection, which binds its editor.
+    // Bring the editor tab to the front so the editor is visible even when a
+    // terminal tab is currently active.
+    private void OnEditMenuClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel { SelectedNode: { IsConnection: true } })
+            return;
+
+        RightTabs.SelectedItem = EditorTab;
+    }
+
     private void OnRunScriptMenuClick(object? sender, RoutedEventArgs e)
     {
         if (DataContext is not MainWindowViewModel vm || sender is not Control anchor)

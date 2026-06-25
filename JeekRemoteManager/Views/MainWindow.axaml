@@ -267,6 +267,9 @@
                             <Button.Flyout>
                                 <MenuFlyout>
                                     <MenuItem Header="{l:Localize Connect}" Command="{Binding ConnectCommand}" />
+                                    <MenuItem Header="{l:Localize Edit}"
+                                              Click="OnEditMenuClick"
+                                              IsVisible="{Binding IsRegularConnectionContext}" />
                                     <MenuItem Header="{l:Localize RunScript}"
                                               Click="OnRunScriptMenuClick"
                                               IsVisible="{Binding IsSshConnectionContext}" />
@@ -309,6 +312,8 @@
                             <ContextMenu>
                                 <MenuItem Header="{l:Localize Connect}" Command="{Binding ConnectCommand}"
                                           IsVisible="{Binding !IsRecentGroupContext}" />
+                                <MenuItem Header="{l:Localize Edit}" Click="OnEditMenuClick"
+                                          IsVisible="{Binding IsRegularConnectionContext}" />
                                 <MenuItem Header="{l:Localize RunScript}" Click="OnRunScriptMenuClick"
                                           IsVisible="{Binding IsSshConnectionContext}" />
                                 <MenuItem Header="{l:Localize RevealInTree}" Command="{Binding RevealInTreeCommand}"

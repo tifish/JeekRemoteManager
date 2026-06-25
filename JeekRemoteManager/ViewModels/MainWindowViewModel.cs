@@ -104,6 +104,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsRecentGroupContext))]
     [NotifyPropertyChangedFor(nameof(IsRecentConnectionContext))]
     [NotifyPropertyChangedFor(nameof(IsRegularContext))]
+    [NotifyPropertyChangedFor(nameof(IsRegularConnectionContext))]
     [NotifyPropertyChangedFor(nameof(IsSshConnectionContext))]
     private TreeNodeViewModel? _selectedNode;
 
@@ -119,6 +120,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>True when the selection is on a regular (non-Recent) node or empty area.</summary>
     public bool IsRegularContext => SelectedNode is null || !SelectedNode.IsRecent;
+
+    /// <summary>True when the selection is a regular (non-Recent) connection that can be edited.</summary>
+    public bool IsRegularConnectionContext => SelectedNode is { IsRecent: false, IsConnection: true };
 
     public bool IsSshConnectionContext =>
         SelectedNode is { IsConnection: true, Connection: { Type: ConnectionType.Ssh } };
