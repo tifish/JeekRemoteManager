@@ -594,8 +594,10 @@ try
           && runtimeSingBoxInstall.Contains("dnf install -y curl ca-certificates")
           && runtimeSingBoxInstall.Contains("yum install -y curl ca-certificates")
           && runtimeSingBoxInstall.Contains("zypper --non-interactive install curl ca-certificates")
-          && runtimeSingBoxInstall.Contains("pacman -Sy --noconfirm --needed curl ca-certificates"),
-          "Bundled sing-box reality install/update script includes downloader fallback");
+          && runtimeSingBoxInstall.Contains("pacman -Sy --noconfirm --needed curl ca-certificates")
+          && runtimeSingBoxInstall.Contains("curl is required by the official sing-box install script")
+          && runtimeSingBoxInstall.Contains("ensure_official_installer_dependencies"),
+          "Bundled sing-box reality install/update script ensures official installer dependencies");
     Check(runtimeSingBoxInstall.Contains("/etc/sysctl.conf")
           && runtimeSingBoxInstall.Contains("modprobe tcp_bbr")
           && runtimeSingBoxInstall.Contains("net.core.default_qdisc=fq")

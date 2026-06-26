@@ -72,19 +72,19 @@ install_downloader_packages() {
     fi
 }
 
-ensure_downloader() {
-    if command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1; then
+ensure_official_installer_dependencies() {
+    if command -v curl >/dev/null 2>&1; then
         return 0
     fi
 
-    printf 'curl and wget are not installed. Trying to install curl and ca-certificates...\n'
+    printf 'curl is required by the official sing-box install script. Trying to install curl and ca-certificates...\n'
     install_downloader_packages || true
 
-    if command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1; then
+    if command -v curl >/dev/null 2>&1; then
         return 0
     fi
 
-    fail "Neither curl nor wget is available, and curl could not be installed."
+    fail "curl is required by the official sing-box install script, and curl could not be installed."
 }
 
 download_to_file() {
@@ -323,7 +323,7 @@ configure_firewall() {
     fi
 }
 
-ensure_downloader
+ensure_official_installer_dependencies
 
 printf 'Installing or updating sing-box to the latest available version...\n'
 tmp_install=$(mktemp)
