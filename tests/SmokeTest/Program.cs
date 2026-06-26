@@ -557,61 +557,63 @@ try
           && runtimeSingBoxUninstall.Contains("sing-box-config-backup-before-uninstall")
           && runtimeSingBoxUninstall.Contains("BBR settings were left unchanged"),
           "Bundled sing-box reality uninstall script cleans local state without disabling BBR");
-    var runtimeServerSecurityDir = Path.Combine(FindRepoRoot(), "bin", "Data", "Scripts", "Security");
-    var runtimeServerSecuritySuite = RemoteScriptStore.LoadSuite(runtimeServerSecurityDir, RemoteScriptSuiteSource.BuiltIn);
-    var runtimeServerSecurityScriptPath = Path.Combine(runtimeServerSecurityDir, "apply.sh");
-    var runtimeServerSecurityScript = File.Exists(runtimeServerSecurityScriptPath)
-        ? File.ReadAllText(runtimeServerSecurityScriptPath)
+    var runtimeServerOptimizationDir = Path.Combine(FindRepoRoot(), "bin", "Data", "Scripts", "Optimization");
+    var runtimeServerOptimizationSuite = RemoteScriptStore.LoadSuite(runtimeServerOptimizationDir, RemoteScriptSuiteSource.BuiltIn);
+    var runtimeServerOptimizationScriptPath = Path.Combine(runtimeServerOptimizationDir, "apply.sh");
+    var runtimeServerOptimizationScript = File.Exists(runtimeServerOptimizationScriptPath)
+        ? File.ReadAllText(runtimeServerOptimizationScriptPath)
         : "";
-    Check(runtimeServerSecuritySuite.Errors.Count == 0
-          && runtimeServerSecuritySuite.Scripts.Count == 1
-          && runtimeServerSecuritySuite.Scripts[0].Name == "apply.sh",
-          "Bundled server security script is discoverable");
-    Check(runtimeServerSecuritySuite.Parameters.Count == 4
-          && runtimeServerSecuritySuite.Parameters.All(p => p.Type == RemoteScriptParameterType.Bool)
-          && runtimeServerSecuritySuite.Parameters.Single(p => p.Name == "ENABLE_FAIL2BAN").DefaultValue == "true"
-          && runtimeServerSecuritySuite.Parameters.Single(p => p.Name == "ENABLE_FIREWALL").DefaultValue == "true"
-          && runtimeServerSecuritySuite.Parameters.Single(p => p.Name == "ENABLE_AUTO_UPDATES").DefaultValue == "true"
-          && runtimeServerSecuritySuite.Parameters.Single(p => p.Name == "ENABLE_APT_AUTOREMOVE").DefaultValue == "false"
-          && runtimeServerSecuritySuite.Parameters.Any(p => p.Name == "ENABLE_FAIL2BAN")
-          && runtimeServerSecuritySuite.Parameters.Any(p => p.Name == "ENABLE_FIREWALL")
-          && runtimeServerSecuritySuite.Parameters.Any(p => p.Name == "ENABLE_AUTO_UPDATES")
-          && runtimeServerSecuritySuite.Parameters.Any(p => p.Name == "ENABLE_APT_AUTOREMOVE"),
-          "Bundled server security script exposes boolean feature toggles");
-    Check(runtimeServerSecurityScript.Contains("install_packages fail2ban")
-          && runtimeServerSecurityScript.Contains("systemctl enable fail2ban")
-          && runtimeServerSecurityScript.Contains("systemctl restart fail2ban")
-          && runtimeServerSecurityScript.Contains("/etc/fail2ban/jail.d/jeekremote-sshd.conf")
-          && runtimeServerSecurityScript.Contains("port = $ssh_port"),
-          "Bundled server security script installs fail2ban with a jail bound to the detected SSH port");
-    Check(runtimeServerSecurityScript.Contains("\"$sshd_bin\" -T")
-          && runtimeServerSecurityScript.Contains("printf '22\\n'"),
-          "Bundled server security script detects the SSH port with a 22 fallback");
-    Check(runtimeServerSecurityScript.Contains("ufw allow \"${ssh_port}/tcp\"")
-          && runtimeServerSecurityScript.Contains("ufw allow 443/tcp")
-          && runtimeServerSecurityScript.Contains("firewall-cmd --permanent --add-port=\"${ssh_port}/tcp\"")
-          && runtimeServerSecurityScript.Contains("firewall-cmd --permanent --add-port=443/tcp"),
-          "Bundled server security script allows SSH and 443 on supported firewalls");
-    Check(runtimeServerSecurityScript.Contains("unattended-upgrades")
-          && runtimeServerSecurityScript.Contains("dnf-automatic")
-          && runtimeServerSecurityScript.Contains("yum-cron"),
-          "Bundled server security script enables automatic updates on supported package managers");
-    Check(runtimeServerSecurityScript.Contains("is_enabled \"$ENABLE_FIREWALL\"")
-          && runtimeServerSecurityScript.Contains("is_enabled \"$ENABLE_FAIL2BAN\"")
-          && runtimeServerSecurityScript.Contains("is_enabled \"$ENABLE_AUTO_UPDATES\"")
-          && runtimeServerSecurityScript.Contains("is_enabled \"$ENABLE_APT_AUTOREMOVE\""),
-          "Bundled server security script gates each feature behind a boolean parameter");
-    Check(runtimeServerSecurityScript.Contains("apt-get autoremove -y")
-          && runtimeServerSecurityScript.Contains("/etc/apt/apt.conf.d/52unattended-upgrades-jeekremote-autoremove")
-          && runtimeServerSecurityScript.Contains("Unattended-Upgrade::Remove-Unused-Dependencies \"true\"")
-          && runtimeServerSecurityScript.Contains("Unattended-Upgrade::Remove-New-Unused-Dependencies \"true\"")
-          && runtimeServerSecurityScript.Contains("/var/run/reboot-required")
-          && runtimeServerSecurityScript.Contains("skipping immediate apt autoremove")
-          && runtimeServerSecurityScript.Contains("ENABLE_APT_AUTOREMOVE=${ENABLE_APT_AUTOREMOVE:-false}"),
-          "Bundled server security script supports unattended-upgrades apt autoremove");
-    Check(!runtimeServerSecurityScript.Contains("PasswordAuthentication")
-          && !runtimeServerSecurityScript.Contains("PermitRootLogin"),
-          "Bundled server security script does not harden SSH login policy");
+    Check(runtimeServerOptimizationSuite.Errors.Count == 0
+          && runtimeServerOptimizationSuite.Name == RemoteScriptSuiteNames.Optimization
+          && runtimeServerOptimizationSuite.RelativePath == RemoteScriptSuiteNames.Optimization
+          && runtimeServerOptimizationSuite.Scripts.Count == 1
+          && runtimeServerOptimizationSuite.Scripts[0].Name == "apply.sh",
+          "Bundled server optimization script is discoverable");
+    Check(runtimeServerOptimizationSuite.Parameters.Count == 4
+          && runtimeServerOptimizationSuite.Parameters.All(p => p.Type == RemoteScriptParameterType.Bool)
+          && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_FAIL2BAN").DefaultValue == "true"
+          && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_FIREWALL").DefaultValue == "true"
+          && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_AUTO_UPDATES").DefaultValue == "true"
+          && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_APT_AUTOREMOVE").DefaultValue == "false"
+          && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_FAIL2BAN")
+          && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_FIREWALL")
+          && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_AUTO_UPDATES")
+          && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_APT_AUTOREMOVE"),
+          "Bundled server optimization script exposes boolean feature toggles");
+    Check(runtimeServerOptimizationScript.Contains("install_packages fail2ban")
+          && runtimeServerOptimizationScript.Contains("systemctl enable fail2ban")
+          && runtimeServerOptimizationScript.Contains("systemctl restart fail2ban")
+          && runtimeServerOptimizationScript.Contains("/etc/fail2ban/jail.d/jeekremote-sshd.conf")
+          && runtimeServerOptimizationScript.Contains("port = $ssh_port"),
+          "Bundled server optimization script installs fail2ban with a jail bound to the detected SSH port");
+    Check(runtimeServerOptimizationScript.Contains("\"$sshd_bin\" -T")
+          && runtimeServerOptimizationScript.Contains("printf '22\\n'"),
+          "Bundled server optimization script detects the SSH port with a 22 fallback");
+    Check(runtimeServerOptimizationScript.Contains("ufw allow \"${ssh_port}/tcp\"")
+          && runtimeServerOptimizationScript.Contains("ufw allow 443/tcp")
+          && runtimeServerOptimizationScript.Contains("firewall-cmd --permanent --add-port=\"${ssh_port}/tcp\"")
+          && runtimeServerOptimizationScript.Contains("firewall-cmd --permanent --add-port=443/tcp"),
+          "Bundled server optimization script allows SSH and 443 on supported firewalls");
+    Check(runtimeServerOptimizationScript.Contains("unattended-upgrades")
+          && runtimeServerOptimizationScript.Contains("dnf-automatic")
+          && runtimeServerOptimizationScript.Contains("yum-cron"),
+          "Bundled server optimization script enables automatic updates on supported package managers");
+    Check(runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_FIREWALL\"")
+          && runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_FAIL2BAN\"")
+          && runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_AUTO_UPDATES\"")
+          && runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_APT_AUTOREMOVE\""),
+          "Bundled server optimization script gates each feature behind a boolean parameter");
+    Check(runtimeServerOptimizationScript.Contains("apt-get autoremove -y")
+          && runtimeServerOptimizationScript.Contains("/etc/apt/apt.conf.d/52unattended-upgrades-jeekremote-autoremove")
+          && runtimeServerOptimizationScript.Contains("Unattended-Upgrade::Remove-Unused-Dependencies \"true\"")
+          && runtimeServerOptimizationScript.Contains("Unattended-Upgrade::Remove-New-Unused-Dependencies \"true\"")
+          && runtimeServerOptimizationScript.Contains("/var/run/reboot-required")
+          && runtimeServerOptimizationScript.Contains("skipping immediate apt autoremove")
+          && runtimeServerOptimizationScript.Contains("ENABLE_APT_AUTOREMOVE=${ENABLE_APT_AUTOREMOVE:-false}"),
+          "Bundled server optimization script supports unattended-upgrades apt autoremove");
+    Check(!runtimeServerOptimizationScript.Contains("PasswordAuthentication")
+          && !runtimeServerOptimizationScript.Contains("PermitRootLogin"),
+          "Bundled server optimization script does not harden SSH login policy");
 
     var progScriptsRoot = SettingsService.ResolveScriptsRoot(StorageLocation.ProgramDirectory);
     var userScriptsRoot = SettingsService.ResolveScriptsRoot(StorageLocation.UserDirectory);
@@ -893,6 +895,30 @@ try
           && staleBindingConnection.ScriptBindings.Count == 1
           && staleBindingConnection.ScriptBindings[0].Name == auditSuite.RelativePath,
           "Missing script suite bindings are pruned when scripts are rescanned");
+
+    var legacyOptimizationBindingConnection = new Connection
+    {
+        Type = ConnectionType.Ssh,
+        Name = "legacy-optimization-script-binding",
+        Host = "x",
+        ScriptBindings =
+        {
+            new ConnectionScriptBinding
+            {
+                Name = "Security",
+                Params = { new ConnectionScriptParameterValue { Name = "ENABLE_FIREWALL", Value = "false" } },
+            },
+        },
+    };
+    var removedLegacyOptimizationBindings =
+        MainWindowViewModel.PruneMissingScriptBindings(
+            legacyOptimizationBindingConnection.ScriptBindings,
+            new[] { runtimeServerOptimizationSuite });
+    Check(removedLegacyOptimizationBindings == 0
+          && legacyOptimizationBindingConnection.ScriptBindings.Count == 1
+          && legacyOptimizationBindingConnection.ScriptBindings[0].Name == RemoteScriptSuiteNames.Optimization
+          && legacyOptimizationBindingConnection.ScriptBindings[0].Params.Single().Value == "false",
+          "Legacy Security script bindings are renamed to Optimization");
 
     var editorForDedupe = new ConnectionEditorViewModel();
     editorForDedupe.ScriptBindings.Add(ConnectionScriptBindingViewModel.FromModel(new ConnectionScriptBinding

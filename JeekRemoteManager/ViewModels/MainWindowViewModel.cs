@@ -672,6 +672,7 @@ public partial class MainWindowViewModel : ViewModelBase
         for (var i = 0; i < connection.ScriptBindings.Count; i++)
         {
             var binding = connection.ScriptBindings[i];
+            binding.Name = RemoteScriptSuiteNames.NormalizeBindingName(binding.Name);
             var suite = FindScriptSuite(binding.Name);
             if (suite is not null)
                 connection.ScriptBindings[i] = RemoteScriptLauncher.ProtectSecretValues(suite, binding);
@@ -690,6 +691,7 @@ public partial class MainWindowViewModel : ViewModelBase
         var removed = 0;
         for (var i = bindings.Count - 1; i >= 0; i--)
         {
+            bindings[i].Name = RemoteScriptSuiteNames.NormalizeBindingName(bindings[i].Name);
             if (!validSuites.Contains(bindings[i].Name))
             {
                 bindings.RemoveAt(i);
@@ -734,6 +736,7 @@ public partial class MainWindowViewModel : ViewModelBase
         var removed = 0;
         for (var i = bindings.Count - 1; i >= 0; i--)
         {
+            bindings[i].Name = RemoteScriptSuiteNames.NormalizeBindingName(bindings[i].Name);
             if (!validSuites.Contains(bindings[i].Name))
             {
                 bindings.RemoveAt(i);
@@ -1539,7 +1542,12 @@ public partial class MainWindowViewModel : ViewModelBase
 
         var suite = choice.Suite;
         var binding = node.Connection.ScriptBindings.LastOrDefault(b =>
-            string.Equals(b.Name, suite.RelativePath, StringComparison.OrdinalIgnoreCase));
+            string.Equals(
+                RemoteScriptSuiteNames.NormalizeBindingName(b.Name),
+                suite.RelativePath,
+                StringComparison.OrdinalIgnoreCase));
+        if (binding is not null)
+            binding.Name = suite.RelativePath;
         binding = binding is null
             ? new ConnectionScriptBinding { Name = suite.RelativePath }
             : RemoteScriptLauncher.UnprotectSecretValues(suite, binding);
@@ -1561,7 +1569,7 @@ public partial class MainWindowViewModel : ViewModelBase
         var boundSuites = new HashSet<string>(
             bindings
                 .Where(b => !string.IsNullOrWhiteSpace(b.Name))
-                .Select(b => b.Name),
+                .Select(b => RemoteScriptSuiteNames.NormalizeBindingName(b.Name)),
             StringComparer.OrdinalIgnoreCase);
 
         return suites

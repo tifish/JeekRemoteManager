@@ -29,7 +29,7 @@ is_enabled() {
 }
 
 if [ "$(uname -s)" != "Linux" ]; then
-    fail "This security script only supports Linux."
+    fail "This optimization script only supports Linux."
 fi
 
 if [ "$(id -u)" != "0" ]; then
@@ -335,4 +335,4 @@ else
     info "apt autoremove skipped by ENABLE_APT_AUTOREMOVE=false."
 fi
 
-info "Basic server security setup completed."
+info "Basic server optimization setup completed."

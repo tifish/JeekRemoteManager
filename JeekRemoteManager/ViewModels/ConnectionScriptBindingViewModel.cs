@@ -18,7 +18,7 @@ public partial class ConnectionScriptBindingViewModel : ViewModelBase
 
     public static ConnectionScriptBindingViewModel FromModel(ConnectionScriptBinding binding) => new()
     {
-        Name = binding.Name,
+        Name = RemoteScriptSuiteNames.NormalizeBindingName(binding.Name),
         Params = binding.Params
             .Select(v => new ConnectionScriptParameterValue { Name = v.Name, Value = v.Value })
             .ToList(),
@@ -26,7 +26,7 @@ public partial class ConnectionScriptBindingViewModel : ViewModelBase
 
     public ConnectionScriptBinding ToModel() => new()
     {
-        Name = Name,
+        Name = RemoteScriptSuiteNames.NormalizeBindingName(Name),
         Params = Params
             .Select(v => new ConnectionScriptParameterValue { Name = v.Name, Value = v.Value })
             .ToList(),

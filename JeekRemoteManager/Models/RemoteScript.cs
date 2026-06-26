@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -17,6 +18,17 @@ public enum RemoteScriptSuiteSource
 {
     BuiltIn,
     User,
+}
+
+public static class RemoteScriptSuiteNames
+{
+    public const string Optimization = "Optimization";
+    private const string LegacySecurity = "Security";
+
+    public static string NormalizeBindingName(string name) =>
+        string.Equals(name, LegacySecurity, StringComparison.OrdinalIgnoreCase)
+            ? Optimization
+            : name;
 }
 
 public class RemoteScriptParameter
@@ -90,5 +102,6 @@ public class ConnectionScriptBinding : IJsonOnDeserialized
 
         ExtensionData?.Remove("SuitePath");
         ExtensionData?.Remove("Values");
+        Name = RemoteScriptSuiteNames.NormalizeBindingName(Name);
     }
 }
