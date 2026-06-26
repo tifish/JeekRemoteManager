@@ -491,9 +491,8 @@ try
           && autoUpdateService.Contains(".Concat(DownloadUrls)"),
           "Auto-update passes mirror fallback URLs to the updater");
     var runtimeBbrDir = Path.Combine(FindRepoRoot(), "bin", "Data", "Scripts", "BBR");
-    Check(File.Exists(Path.Combine(runtimeBbrDir, "enable-bbr.sh"))
-          && File.Exists(Path.Combine(runtimeBbrDir, "disable-bbr.sh")),
-          "Bundled BBR scripts include enable and disable actions");
+    Check(!Directory.Exists(runtimeBbrDir),
+          "Standalone BBR script suite is removed");
     var runtimeSingBoxDir = Path.Combine(FindRepoRoot(), "bin", "Data", "Scripts", "sing-box reality");
     var runtimeSingBoxSuite = RemoteScriptStore.LoadSuite(runtimeSingBoxDir, RemoteScriptSuiteSource.BuiltIn);
     var runtimeSingBoxInstallPath = Path.Combine(runtimeSingBoxDir, "install.sh");
@@ -523,12 +522,13 @@ try
           && runtimeSingBoxInstall.Contains("zypper --non-interactive install curl ca-certificates")
           && runtimeSingBoxInstall.Contains("pacman -Sy --noconfirm --needed curl ca-certificates"),
           "Bundled sing-box reality install/update script includes downloader fallback");
-    Check(runtimeSingBoxInstall.Contains("/etc/sysctl.d/99-jeekremote-bbr.conf")
+    Check(runtimeSingBoxInstall.Contains("/etc/sysctl.conf")
           && runtimeSingBoxInstall.Contains("modprobe tcp_bbr")
           && runtimeSingBoxInstall.Contains("net.core.default_qdisc=fq")
           && runtimeSingBoxInstall.Contains("net.ipv4.tcp_congestion_control=bbr")
-          && runtimeSingBoxInstall.Contains("BBR is enabled."),
-          "Bundled sing-box reality install script keeps BBR behavior aligned with the BBR bundle");
+          && runtimeSingBoxInstall.Contains("BBR is enabled.")
+          && !runtimeSingBoxInstall.Contains("/etc/sysctl.d/99-jeekremote-bbr.conf"),
+          "Bundled sing-box reality install script writes BBR settings to sysctl.conf");
     Check(runtimeSingBoxInstall.Contains("\"type\": \"vless\"")
           && runtimeSingBoxInstall.Contains("\"listen\": \"0.0.0.0\"")
           && runtimeSingBoxInstall.Contains("xtls-rprx-vision")
@@ -555,7 +555,8 @@ try
     Check(runtimeSingBoxUninstall.Contains("ufw --force delete allow \"${PORT}/tcp\"")
           && runtimeSingBoxUninstall.Contains("firewall-cmd --permanent --remove-port=\"${PORT}/tcp\"")
           && runtimeSingBoxUninstall.Contains("sing-box-config-backup-before-uninstall")
-          && runtimeSingBoxUninstall.Contains("BBR settings were left unchanged"),
+          && runtimeSingBoxUninstall.Contains("BBR settings were left unchanged")
+          && !runtimeSingBoxUninstall.Contains("built-in BBR disable script"),
           "Bundled sing-box reality uninstall script cleans local state without disabling BBR");
     var runtimeServerOptimizationDir = Path.Combine(FindRepoRoot(), "bin", "Data", "Scripts", "Optimization");
     var runtimeServerOptimizationSuite = RemoteScriptStore.LoadSuite(runtimeServerOptimizationDir, RemoteScriptSuiteSource.BuiltIn);
@@ -569,15 +570,17 @@ try
           && runtimeServerOptimizationSuite.Scripts.Count == 1
           && runtimeServerOptimizationSuite.Scripts[0].Name == "apply.sh",
           "Bundled server optimization script is discoverable");
-    Check(runtimeServerOptimizationSuite.Parameters.Count == 4
+    Check(runtimeServerOptimizationSuite.Parameters.Count == 5
           && runtimeServerOptimizationSuite.Parameters.All(p => p.Type == RemoteScriptParameterType.Bool)
           && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_FAIL2BAN").DefaultValue == "true"
           && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_FIREWALL").DefaultValue == "true"
           && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_AUTO_UPDATES").DefaultValue == "true"
+          && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_BBR").DefaultValue == "true"
           && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_APT_AUTOREMOVE").DefaultValue == "false"
           && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_FAIL2BAN")
           && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_FIREWALL")
           && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_AUTO_UPDATES")
+          && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_BBR")
           && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_APT_AUTOREMOVE"),
           "Bundled server optimization script exposes boolean feature toggles");
     Check(runtimeServerOptimizationScript.Contains("install_packages fail2ban")
@@ -598,9 +601,16 @@ try
           && runtimeServerOptimizationScript.Contains("dnf-automatic")
           && runtimeServerOptimizationScript.Contains("yum-cron"),
           "Bundled server optimization script enables automatic updates on supported package managers");
+    Check(runtimeServerOptimizationScript.Contains("modprobe tcp_bbr")
+          && runtimeServerOptimizationScript.Contains("set_sysctl_conf_value /etc/sysctl.conf net.core.default_qdisc fq")
+          && runtimeServerOptimizationScript.Contains("set_sysctl_conf_value /etc/sysctl.conf net.ipv4.tcp_congestion_control bbr")
+          && runtimeServerOptimizationScript.Contains("BBR configuration written to /etc/sysctl.conf.")
+          && !runtimeServerOptimizationScript.Contains("/etc/sysctl.d/99-jeekremote-bbr.conf"),
+          "Bundled server optimization script writes BBR settings to sysctl.conf");
     Check(runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_FIREWALL\"")
           && runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_FAIL2BAN\"")
           && runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_AUTO_UPDATES\"")
+          && runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_BBR\"")
           && runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_APT_AUTOREMOVE\""),
           "Bundled server optimization script gates each feature behind a boolean parameter");
     Check(runtimeServerOptimizationScript.Contains("apt-get autoremove -y")

@@ -123,5 +123,5 @@ rm -rf /var/lib/sing-box /var/log/sing-box 2>/dev/null || true
 
 printf '\n'
 printf 'sing-box reality uninstall completed.\n'
-printf 'BBR settings were left unchanged. Use the built-in BBR disable script if you want to disable BBR.\n'
+printf 'BBR settings were left unchanged.\n'
 printf 'If the server is behind a cloud security group, remove %s/tcp there manually if needed.\n' "${PORT:-the sing-box port}"

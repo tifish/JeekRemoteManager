@@ -44,6 +44,7 @@ APT_UPDATED=0
 ENABLE_FAIL2BAN=${ENABLE_FAIL2BAN:-true}
 ENABLE_FIREWALL=${ENABLE_FIREWALL:-true}
 ENABLE_AUTO_UPDATES=${ENABLE_AUTO_UPDATES:-true}
+ENABLE_BBR=${ENABLE_BBR:-true}
 ENABLE_APT_AUTOREMOVE=${ENABLE_APT_AUTOREMOVE:-false}
 
 detect_package_manager() {
@@ -221,6 +222,85 @@ set_or_append_key_value() {
     fi
 }
 
+set_sysctl_conf_value() {
+    config_file=$1
+    config_key=$2
+    config_value=$3
+    tmp_file="${config_file}.tmp.$$"
+    trap 'rm -f "$tmp_file"' EXIT HUP INT TERM
+
+    if [ ! -f "$config_file" ]; then
+        : > "$config_file"
+    fi
+
+    awk -v key="$config_key" -v value="$config_value" '
+        BEGIN { updated = 0 }
+        {
+            trimmed = $0
+            sub(/^[[:space:]]*/, "", trimmed)
+            if (substr(trimmed, 1, 1) != "#") {
+                separator = index(trimmed, "=")
+                if (separator > 0) {
+                    lhs = substr(trimmed, 1, separator - 1)
+                    gsub(/[[:space:]]/, "", lhs)
+                    if (lhs == key) {
+                        if (!updated) {
+                            print key " = " value
+                            updated = 1
+                        }
+                        next
+                    }
+                }
+            }
+
+            print
+        }
+        END {
+            if (!updated)
+                print key " = " value
+        }
+    ' "$config_file" > "$tmp_file"
+
+    mv "$tmp_file" "$config_file"
+}
+
+enable_bbr() {
+    if ! command -v sysctl >/dev/null 2>&1; then
+        fail "sysctl is not available on this server."
+    fi
+
+    available_file=/proc/sys/net/ipv4/tcp_available_congestion_control
+    if [ -r "$available_file" ] && ! grep -qw bbr "$available_file"; then
+        if command -v modprobe >/dev/null 2>&1; then
+            modprobe tcp_bbr 2>/dev/null || true
+        fi
+    fi
+
+    if [ -r "$available_file" ] && ! grep -qw bbr "$available_file"; then
+        available=$(cat "$available_file")
+        fail "Kernel does not report BBR support. Available congestion controls: $available"
+    fi
+
+    set_sysctl_conf_value /etc/sysctl.conf net.core.default_qdisc fq
+    set_sysctl_conf_value /etc/sysctl.conf net.ipv4.tcp_congestion_control bbr
+
+    sysctl -w net.core.default_qdisc=fq
+    sysctl -w net.ipv4.tcp_congestion_control=bbr
+
+    current_qdisc=$(sysctl -n net.core.default_qdisc 2>/dev/null || printf 'unknown')
+    current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || printf 'unknown')
+
+    info "BBR configuration written to /etc/sysctl.conf."
+    info "net.core.default_qdisc=${current_qdisc}"
+    info "net.ipv4.tcp_congestion_control=${current_cc}"
+
+    if [ "$current_cc" != "bbr" ]; then
+        fail "BBR was configured but is not active."
+    fi
+
+    info "BBR is enabled."
+}
+
 enable_apt_auto_updates() {
     install_packages unattended-upgrades
 
@@ -327,6 +407,12 @@ if is_enabled "$ENABLE_AUTO_UPDATES"; then
     enable_auto_updates
 else
     info "Automatic updates setup skipped by ENABLE_AUTO_UPDATES=false."
+fi
+
+if is_enabled "$ENABLE_BBR"; then
+    enable_bbr
+else
+    info "BBR setup skipped by ENABLE_BBR=false."
 fi
 
 if is_enabled "$ENABLE_APT_AUTOREMOVE"; then
