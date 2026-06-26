@@ -17,7 +17,7 @@ RDP	RDP	RDP
 Connect	Connect	连接
 ConnectTooltip	Connect (Enter / double-click)	连接（回车 / 双击）
 Settings	Settings...	设置...
-SettingsTooltip	Choose where connections are stored	选择连接保存位置
+SettingsTooltip	Choose where Config is stored	选择 Config 保存位置
 MoreActions	More actions	更多操作
 ImportFromFinalShell	Import from FinalShell…	从 FinalShell 导入…
 CheckForUpdates	Check for updates…	检查更新…
@@ -96,10 +96,10 @@ StatusImported	Imported {0} connection(s) into {1} new folder(s). Skipped {2}. P
 StatusImportFailed	Import failed: {0}	导入失败：{0}
 StatusOpenFolderFailed	Cannot open folder: {0}	无法打开文件夹：{0}
 StatusNotWritable	That location is not writable: {0}	该位置不可写：{0}
-StatusStorageLocationOnly	Storage location: {0}. Folder: {1}	存储位置：{0}。文件夹：{1}
-StatusStorageLocationWithData	Storage location: {0}. Showing data at {1}	存储位置：{0}。数据位于 {1}
-StatusStorageNotSaved	Storage location changed, but settings could not be saved to {0}.	存储位置已更改，但设置无法保存到 {0}。
-StatusStorageCopyFailed	Could not copy data to the new location: {0}	无法复制数据到新位置：{0}
+StatusStorageLocationOnly	Config location: {0}. Folder: {1}	Config 位置：{0}。文件夹：{1}
+StatusStorageLocationWithData	Config location: {0}. Showing Config at {1}	Config 位置：{0}。Config 位于 {1}
+StatusStorageNotSaved	Config location changed, but settings could not be saved to {0}.	Config 位置已更改，但设置无法保存到 {0}。
+StatusStorageCopyFailed	Could not copy Config data to the new location: {0}	无法复制 Config 数据到新位置：{0}
 NewSshDefault	New SSH	新建 SSH
 NewRdpDefault	New RDP	新建 RDP
 NewFolderDefault	New Folder	新建文件夹
@@ -116,9 +116,9 @@ DialogRenamePrompt	New name:	新名称：
 DialogUpdateAvailableTitle	Update available	发现新版本
 DialogUpdateAvailableMessage	A newer build is available (current {0}, latest {1}).\n\nDownload and install now? The app will close and relaunch.	发现新版本（当前 {0}，最新 {1}）。\n\n是否立即下载并安装？应用将关闭并重启。
 DialogCopyDataTitle	Copy data	复制数据
-DialogCopyDataMessage	Copy existing connections to the new location?\n\nFrom: {0}\nTo: {1}\n\nThe originals are left in place; remove them yourself afterwards if you no longer need them.	将现有连接复制到新位置？\n\n源：{0}\n目标：{1}\n\n原始文件将保留；如不再需要请自行删除。
+DialogCopyDataMessage	Copy existing Config data to the new location?\n\nFrom: {0}\nTo: {1}\n\nConnections and custom scripts are copied. The originals are left in place; remove them yourself afterwards if you no longer need them.	将现有 Config 数据复制到新位置？\n\n源：{0}\n目标：{1}\n\n会复制连接和自定义脚本。原始文件将保留；如不再需要请自行删除。
 DialogSettingsTitle	Settings	设置
-DialogStorageQuestion	Where should connections be stored?	连接应保存在哪里？
+DialogStorageQuestion	Where should Config be stored?	Config 应保存在哪里？
 StorageUserOption	User directory (roaming)	用户目录（漫游）
 StorageProgramOption	Program directory (portable)	程序目录（便携）
 StorageCustomOption	Custom directory	自定义目录
@@ -126,7 +126,7 @@ StorageCustomNotSet	Not set — click Browse to choose a folder	未设置 ——
 StorageCustomRequired	Please choose a custom directory.	请选择一个自定义目录。
 DialogPickKeyTitle	Select private key	选择私钥
 DialogPickFinalShellTitle	Select FinalShell conn directory	选择 FinalShell 连接目录
-DialogPickStorageTitle	Select data directory	选择数据目录
+DialogPickStorageTitle	Select Config location	选择 Config 保存位置
 RunScript	Run script	运行脚本
 CopyPublicKeyToServer	Copy public key to server	复制公钥到服务器
 DialogCopyPublicKeyTitle	Copy public key	复制公钥

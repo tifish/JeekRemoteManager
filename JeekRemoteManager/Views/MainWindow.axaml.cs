@@ -809,7 +809,7 @@ public partial class MainWindow : Window
             IsChecked = current == StorageLocation.UserDirectory,
             Content = BuildOption(
                 Localizer.Get("StorageUserOption"),
-                SettingsService.ResolveConnectionsRoot(StorageLocation.UserDirectory)),
+                SettingsService.ResolveConfigRoot(StorageLocation.UserDirectory)),
         };
 
         var programRadio = new RadioButton
@@ -818,7 +818,7 @@ public partial class MainWindow : Window
             IsChecked = current == StorageLocation.ProgramDirectory,
             Content = BuildOption(
                 Localizer.Get("StorageProgramOption"),
-                SettingsService.ResolveConnectionsRoot(StorageLocation.ProgramDirectory)),
+                SettingsService.ResolveConfigRoot(StorageLocation.ProgramDirectory)),
         };
 
         // The custom location lets the user point storage at any base directory.
@@ -838,7 +838,7 @@ public partial class MainWindow : Window
             customPathText.Foreground = Avalonia.Media.Brushes.Gray;
             customPathText.Text = string.IsNullOrWhiteSpace(customPath)
                 ? Localizer.Get("StorageCustomNotSet")
-                : SettingsService.ResolveConnectionsRoot(StorageLocation.CustomDirectory, customPath);
+                : SettingsService.ResolveConfigRoot(StorageLocation.CustomDirectory, customPath);
         }
 
         RefreshCustomPathText();

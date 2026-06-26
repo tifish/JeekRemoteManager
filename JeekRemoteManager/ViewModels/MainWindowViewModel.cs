@@ -2116,6 +2116,7 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
 
         var oldRoot = _store.RootPath;
+        var oldConfigRoot = _settings.ResolveConfigRoot();
         var newRoot = SettingsService.ResolveConnectionsRoot(result.StorageLocation, result.CustomStoragePath);
         var oldScriptsRoot = _scriptStore.RootPath;
         var newScriptsRoot = SettingsService.ResolveScriptsRoot(result.StorageLocation, result.CustomStoragePath);
@@ -2133,9 +2134,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
         // Make sure the target is actually writable (e.g. ProgramDirectory under
         // %ProgramFiles% is not, for a standard user) before committing.
-        if (!TryEnsureWritable(newRoot) || !TryEnsureWritable(newScriptsRoot))
+        if (!TryEnsureWritable(newConfigRoot))
         {
-            StatusMessage = L("StatusNotWritable", newRoot);
+            StatusMessage = L("StatusNotWritable", newConfigRoot);
             return;
         }
 
@@ -2143,7 +2144,7 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             var ok = await ConfirmAsync(
                 L("DialogCopyDataTitle"),
-                L("DialogCopyDataMessage", oldRoot, newRoot));
+                L("DialogCopyDataMessage", oldConfigRoot, newConfigRoot));
             if (!ok)
                 return;
         }
@@ -2184,9 +2185,9 @@ public partial class MainWindowViewModel : ViewModelBase
         if (!settingsSaved)
             StatusMessage = L("StatusStorageNotSaved", _settings.SettingsPath);
         else if (HasData(newRoot))
-            StatusMessage = L("StatusStorageLocationWithData", result.StorageLocation, newRoot);
+            StatusMessage = L("StatusStorageLocationWithData", result.StorageLocation, newConfigRoot);
         else
-            StatusMessage = L("StatusStorageLocationOnly", result.StorageLocation, newRoot);
+            StatusMessage = L("StatusStorageLocationOnly", result.StorageLocation, newConfigRoot);
     }
 
     /// <summary>
