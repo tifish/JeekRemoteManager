@@ -81,8 +81,6 @@ function Download-FileWithProgress {
         $buffer = New-Object byte[] (1024 * 1024)
         [long]$received = 0
         $sw = [Diagnostics.Stopwatch]::StartNew()
-        [long]$lastConsoleMs = -5000
-        [int]$nextConsolePercent = 0
 
         while ($true) {
             $readTask = $stream.ReadAsync($buffer, 0, $buffer.Length)
@@ -107,20 +105,9 @@ function Download-FileWithProgress {
                 $totalText = Format-ByteSize $totalBytes
                 $status = "{0}% ({1} / {2}, {3:N1} MB/s)" -f $percent, $receivedText, $totalText, $speed
                 Write-Progress -Activity $activity -Status $status -PercentComplete $percent
-
-                if ($percent -ge $nextConsolePercent -or $sw.ElapsedMilliseconds - $lastConsoleMs -ge 5000) {
-                    Write-Host "      $status"
-                    $nextConsolePercent = [Math]::Min(100, $percent + 5)
-                    $lastConsoleMs = $sw.ElapsedMilliseconds
-                }
             } else {
                 $status = "{0} downloaded, {1:N1} MB/s" -f $receivedText, $speed
                 Write-Progress -Activity $activity -Status $status -PercentComplete 0
-
-                if ($sw.ElapsedMilliseconds - $lastConsoleMs -ge 5000) {
-                    Write-Host "      $status"
-                    $lastConsoleMs = $sw.ElapsedMilliseconds
-                }
             }
         }
 

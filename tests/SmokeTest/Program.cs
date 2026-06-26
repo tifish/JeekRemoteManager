@@ -548,6 +548,8 @@ try
           && autoUpdateScript.Contains("Write-Progress -Activity $activity")
           && autoUpdateScript.Contains("MB/s"),
           "Auto-update reports download progress and speed");
+    Check(!autoUpdateScript.Contains("Write-Host \"      $status\""),
+          "Auto-update does not print periodic status lines while the progress bar is active");
     Check(autoUpdateScript.Contains("Download failed from this mirror")
           && autoUpdateScript.Contains("Trying next mirror")
           && autoUpdateScript.Contains("Download failed from all mirrors"),
