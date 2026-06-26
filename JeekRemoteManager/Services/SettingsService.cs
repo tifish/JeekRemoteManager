@@ -409,11 +409,8 @@ public class SettingsService
         if (!string.IsNullOrEmpty(destParent))
             Directory.CreateDirectory(destParent);
 
-        if (!Directory.Exists(dest))
-        {
-            Directory.Move(source, dest);
+        if (!Directory.Exists(dest) && TryRenameDirectory(source, dest))
             return;
-        }
 
         MoveDirectoryContents(source, dest);
         Directory.Delete(source, recursive: true);
@@ -472,15 +469,29 @@ public class SettingsService
             var target = Path.Combine(destDir, Path.GetFileName(dir.TrimEnd(
                 Path.DirectorySeparatorChar,
                 Path.AltDirectorySeparatorChar)));
-            if (Directory.Exists(target))
-            {
-                MoveDirectoryContents(dir, target);
-                Directory.Delete(dir, recursive: true);
-            }
-            else
-            {
-                Directory.Move(dir, target);
-            }
+            if (!Directory.Exists(target) && TryRenameDirectory(dir, target))
+                continue;
+
+            MoveDirectoryContents(dir, target);
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Attempts a fast same-volume directory rename. Returns <c>false</c> when the
+    /// move crosses drives (<see cref="Directory.Move"/> cannot move across
+    /// volumes), so the caller falls back to a recursive copy+delete.
+    /// </summary>
+    private static bool TryRenameDirectory(string source, string dest)
+    {
+        try
+        {
+            Directory.Move(source, dest);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
         }
     }
 }
