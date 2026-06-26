@@ -385,6 +385,40 @@ public class SettingsService
     public static string ResolveScriptsRoot(StorageLocation location, string? customPath = null) =>
         Path.Combine(StorageBaseDirFor(location, customPath), "Scripts");
 
+    /// <summary>
+    /// Moves the whole roaming Config folder to a new root. Existing destination
+    /// files with the same relative paths are replaced by the current Config.
+    /// </summary>
+    public static void MoveConfigRoot(string sourceRoot, string destRoot)
+    {
+        var source = NormalizeDirectoryPath(sourceRoot);
+        var dest = NormalizeDirectoryPath(destRoot);
+        if (string.Equals(source, dest, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        if (IsSameOrInside(source, dest) || IsSameOrInside(dest, source))
+            throw new InvalidOperationException("Config cannot be moved into itself or a nested folder.");
+
+        if (!Directory.Exists(source))
+        {
+            Directory.CreateDirectory(dest);
+            return;
+        }
+
+        var destParent = Path.GetDirectoryName(dest);
+        if (!string.IsNullOrEmpty(destParent))
+            Directory.CreateDirectory(destParent);
+
+        if (!Directory.Exists(dest))
+        {
+            Directory.Move(source, dest);
+            return;
+        }
+
+        MoveDirectoryContents(source, dest);
+        Directory.Delete(source, recursive: true);
+    }
+
     /// <summary>Deletes the executable-side Config folder after leaving portable mode.</summary>
     public static bool TryDeleteProgramConfig(out string? error)
     {
@@ -407,6 +441,46 @@ public class SettingsService
         {
             error = ex.Message;
             return false;
+        }
+    }
+
+    private static string NormalizeDirectoryPath(string path) =>
+        Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+    private static bool IsSameOrInside(string folder, string candidate)
+    {
+        if (string.Equals(folder, candidate, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return candidate.StartsWith(folder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void MoveDirectoryContents(string sourceDir, string destDir)
+    {
+        Directory.CreateDirectory(destDir);
+
+        foreach (var file in Directory.GetFiles(sourceDir))
+        {
+            var target = Path.Combine(destDir, Path.GetFileName(file));
+            if (File.Exists(target))
+                File.Delete(target);
+            File.Move(file, target);
+        }
+
+        foreach (var dir in Directory.GetDirectories(sourceDir))
+        {
+            var target = Path.Combine(destDir, Path.GetFileName(dir.TrimEnd(
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar)));
+            if (Directory.Exists(target))
+            {
+                MoveDirectoryContents(dir, target);
+                Directory.Delete(dir, recursive: true);
+            }
+            else
+            {
+                Directory.Move(dir, target);
+            }
         }
     }
 }

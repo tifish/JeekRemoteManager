@@ -2086,9 +2086,6 @@ public partial class MainWindowViewModel : ViewModelBase
             _settings.Settings.UpdateCheckIntervalHours);
         if (result is null)
             return;
-        var leavingPortable = current == StorageLocation.ProgramDirectory
-            && result.StorageLocation != StorageLocation.ProgramDirectory;
-
         // Apply the language choice (no-op if unchanged); takes effect immediately.
         if (result.Language != _settings.Settings.Language)
             ApplyLanguage(result.Language);
@@ -2115,59 +2112,32 @@ public partial class MainWindowViewModel : ViewModelBase
                 || string.Equals(result.CustomStoragePath, currentCustomPath, StringComparison.OrdinalIgnoreCase)))
             return;
 
-        var oldRoot = _store.RootPath;
         var oldConfigRoot = _settings.ResolveConfigRoot();
         var newRoot = SettingsService.ResolveConnectionsRoot(result.StorageLocation, result.CustomStoragePath);
-        var oldScriptsRoot = _scriptStore.RootPath;
         var newScriptsRoot = SettingsService.ResolveScriptsRoot(result.StorageLocation, result.CustomStoragePath);
         var newConfigRoot = SettingsService.ResolveConfigRoot(result.StorageLocation, result.CustomStoragePath);
 
-        if (leavingPortable)
+        var moveConfigData = ConfirmAsync is null
+            || await ConfirmAsync(
+                L("DialogMoveConfigTitle"),
+                L("DialogMoveConfigMessage", oldConfigRoot, newConfigRoot));
+
+        if (moveConfigData)
         {
-            var programConfigRoot = SettingsService.ResolveConfigRoot(StorageLocation.ProgramDirectory);
-            if (ConnectionStore.IsSameOrInside(programConfigRoot, newConfigRoot))
+            try
             {
-                StatusMessage = L("StatusNotWritable", newConfigRoot);
+                StopWatching();
+                SettingsService.MoveConfigRoot(oldConfigRoot, newConfigRoot);
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = L("StatusStorageCopyFailed", ex.Message);
                 return;
             }
         }
-
-        // Make sure the target is actually writable (e.g. ProgramDirectory under
-        // %ProgramFiles% is not, for a standard user) before committing.
-        if (!TryEnsureWritable(newConfigRoot))
-        {
-            StatusMessage = L("StatusNotWritable", newConfigRoot);
-            return;
-        }
-
-        if (ConfirmAsync is not null)
-        {
-            var ok = await ConfirmAsync(
-                L("DialogCopyDataTitle"),
-                L("DialogCopyDataMessage", oldConfigRoot, newConfigRoot));
-            if (!ok)
-                return;
-        }
-
-        try
-        {
-            _store.CopyTreeContents(oldRoot, newRoot);
-            _scriptStore.CopyTreeContents(oldScriptsRoot, newScriptsRoot);
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = L("StatusStorageCopyFailed", ex.Message);
-            return;
-        }
-
-        if (leavingPortable)
+        else
         {
             StopWatching();
-            if (!SettingsService.TryDeleteProgramConfig(out var deleteError))
-            {
-                StatusMessage = L("StatusStorageCopyFailed", deleteError ?? "");
-                return;
-            }
         }
 
         _settings.Settings.StorageLocation = result.StorageLocation;
@@ -2184,7 +2154,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         if (!settingsSaved)
             StatusMessage = L("StatusStorageNotSaved", _settings.SettingsPath);
-        else if (HasData(newRoot))
+        else if (HasData(newConfigRoot))
             StatusMessage = L("StatusStorageLocationWithData", result.StorageLocation, newConfigRoot);
         else
             StatusMessage = L("StatusStorageLocationOnly", result.StorageLocation, newConfigRoot);
@@ -2311,20 +2281,4 @@ public partial class MainWindowViewModel : ViewModelBase
         Directory.Exists(folder) &&
         (Directory.GetFiles(folder, "*" + ConnectionStore.FileExtension).Length > 0 ||
          Directory.GetDirectories(folder).Length > 0);
-
-    private static bool TryEnsureWritable(string folder)
-    {
-        try
-        {
-            Directory.CreateDirectory(folder);
-            var probe = Path.Combine(folder, ".write_test_" + Guid.NewGuid().ToString("N"));
-            File.WriteAllText(probe, string.Empty);
-            File.Delete(probe);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
 }

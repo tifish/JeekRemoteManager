@@ -99,7 +99,7 @@ StatusNotWritable	That location is not writable: {0}	该位置不可写：{0}
 StatusStorageLocationOnly	Config location: {0}. Folder: {1}	Config 位置：{0}。文件夹：{1}
 StatusStorageLocationWithData	Config location: {0}. Showing Config at {1}	Config 位置：{0}。Config 位于 {1}
 StatusStorageNotSaved	Config location changed, but settings could not be saved to {0}.	Config 位置已更改，但设置无法保存到 {0}。
-StatusStorageCopyFailed	Could not copy Config data to the new location: {0}	无法复制 Config 数据到新位置：{0}
+StatusStorageCopyFailed	Could not move Config data to the new location: {0}	无法移动 Config 数据到新位置：{0}
 NewSshDefault	New SSH	新建 SSH
 NewRdpDefault	New RDP	新建 RDP
 NewFolderDefault	New Folder	新建文件夹
@@ -115,8 +115,8 @@ DialogRenameTitle	Rename	重命名
 DialogRenamePrompt	New name:	新名称：
 DialogUpdateAvailableTitle	Update available	发现新版本
 DialogUpdateAvailableMessage	A newer build is available (current {0}, latest {1}).\n\nDownload and install now? The app will close and relaunch.	发现新版本（当前 {0}，最新 {1}）。\n\n是否立即下载并安装？应用将关闭并重启。
-DialogCopyDataTitle	Copy data	复制数据
-DialogCopyDataMessage	Copy existing Config data to the new location?\n\nFrom: {0}\nTo: {1}\n\nConnections and custom scripts are copied. The originals are left in place; remove them yourself afterwards if you no longer need them.	将现有 Config 数据复制到新位置？\n\n源：{0}\n目标：{1}\n\n会复制连接和自定义脚本。原始文件将保留；如不再需要请自行删除。
+DialogMoveConfigTitle	Move Config data	移动 Config 数据
+DialogMoveConfigMessage	Move existing Config data to the new location?\n\nFrom: {0}\nTo: {1}\n\nChoose No to only change the setting and leave files in their current location.	是否将现有 Config 数据移动到新位置？\n\n源：{0}\n目标：{1}\n\n选择“否”将只修改设置，文件仍保留在当前位置。
 DialogSettingsTitle	Settings	设置
 DialogStorageQuestion	Where should Config be stored?	Config 应保存在哪里？
 StorageUserOption	User directory (roaming)	用户目录（漫游）

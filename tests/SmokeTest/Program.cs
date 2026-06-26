@@ -351,6 +351,78 @@ try
               "Leaving portable storage deletes the program Config marker");
         Check(string.IsNullOrEmpty(deleteError), "Deleting the program Config marker reports no error");
     }
+    var sourceConfigRoot = Path.Combine(root, "SourceConfig");
+    var destConfigRoot = Path.Combine(root, "DestConfig");
+    Directory.CreateDirectory(Path.Combine(sourceConfigRoot, "Connections", "Servers"));
+    Directory.CreateDirectory(Path.Combine(sourceConfigRoot, "Scripts", "Deploy"));
+    Directory.CreateDirectory(destConfigRoot);
+    File.WriteAllText(Path.Combine(sourceConfigRoot, "settings.json"), "{\"Theme\":\"Dark\"}");
+    File.WriteAllText(Path.Combine(sourceConfigRoot, "Connections", "Servers", "web01.json"), "{}");
+    File.WriteAllText(Path.Combine(sourceConfigRoot, "Scripts", "Deploy", RemoteScriptStore.ParameterFileName), "TARGET=string");
+    File.WriteAllText(Path.Combine(destConfigRoot, "settings.json"), "{\"Theme\":\"Light\"}");
+    SettingsService.MoveConfigRoot(sourceConfigRoot, destConfigRoot);
+    Check(!Directory.Exists(sourceConfigRoot), "Moving Config removes the source Config root");
+    Check(File.ReadAllText(Path.Combine(destConfigRoot, "settings.json")).Contains("Dark")
+          && File.Exists(Path.Combine(destConfigRoot, "Connections", "Servers", "web01.json"))
+          && File.Exists(Path.Combine(destConfigRoot, "Scripts", "Deploy", RemoteScriptStore.ParameterFileName)),
+          "Moving Config transfers settings, connections, and scripts together");
+    var nestedConfigRoot = Path.Combine(root, "NestedConfig");
+    Directory.CreateDirectory(nestedConfigRoot);
+    var nestedRejected = false;
+    try
+    {
+        SettingsService.MoveConfigRoot(nestedConfigRoot, Path.Combine(nestedConfigRoot, "Child", "Config"));
+    }
+    catch (InvalidOperationException)
+    {
+        nestedRejected = true;
+    }
+    Check(nestedRejected && Directory.Exists(nestedConfigRoot),
+          "Moving Config refuses a destination inside the source Config root");
+    var noMoveSourceBase = Path.Combine(root, "NoMoveSource");
+    var noMoveTargetBase = Path.Combine(root, "NoMoveTarget");
+    var noMoveMachineSettingsPath = Path.Combine(root, "NoMoveMachine", "settings.json");
+    Directory.CreateDirectory(Path.GetDirectoryName(noMoveMachineSettingsPath)!);
+    File.WriteAllText(
+        noMoveMachineSettingsPath,
+        JsonSerializer.Serialize(new AppSettings
+        {
+            StorageLocation = StorageLocation.CustomDirectory,
+            CustomStoragePath = noMoveSourceBase,
+        }));
+    var noMoveSettings = new SettingsService(noMoveMachineSettingsPath);
+    var noMoveStore = new ConnectionStore(noMoveSettings.ResolveConnectionsRoot());
+    var noMoveConnectionFolder = Path.Combine(noMoveStore.RootPath, "Servers");
+    Directory.CreateDirectory(noMoveConnectionFolder);
+    var noMoveConnectionPath = Path.Combine(noMoveConnectionFolder, "web01.json");
+    File.WriteAllText(noMoveConnectionPath, "{}");
+    var noMoveVm = new MainWindowViewModel(noMoveStore, new ConnectionLauncher(), noMoveSettings);
+    var noMovePromptCount = 0;
+    noMoveVm.ConfirmAsync = (_, _) =>
+    {
+        noMovePromptCount++;
+        return Task.FromResult(false);
+    };
+    noMoveVm.PickSettingsAsync = (_, _, language, theme, checkOnStartup, intervalHours) =>
+        Task.FromResult<SettingsDialogResult?>(new SettingsDialogResult(
+            StorageLocation.CustomDirectory,
+            noMoveTargetBase,
+            language,
+            theme,
+            checkOnStartup,
+            intervalHours));
+    await noMoveVm.OpenSettingsCommand.ExecuteAsync(null);
+    Check(noMovePromptCount == 1, "Changing Config location asks whether to move files");
+    Check(File.Exists(noMoveConnectionPath)
+          && !File.Exists(Path.Combine(noMoveTargetBase, "Config", "Connections", "Servers", "web01.json")),
+          "Choosing not to move Config data leaves existing files in place");
+    Check(noMoveSettings.Settings.StorageLocation == StorageLocation.CustomDirectory
+          && string.Equals(noMoveSettings.Settings.CustomStoragePath, noMoveTargetBase, StringComparison.OrdinalIgnoreCase)
+          && string.Equals(
+              Path.GetFullPath(noMoveVm.RootPath),
+              Path.GetFullPath(SettingsService.ResolveConnectionsRoot(StorageLocation.CustomDirectory, noMoveTargetBase)),
+              StringComparison.OrdinalIgnoreCase),
+          "Choosing not to move Config data only changes the active setting");
     var expectedSettingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "JeekRemoteManager",
