@@ -1,7 +1,142 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:models="using:JeekRemoteManager.Models"
              xmlns:terminal="using:SvcSystems.UI.Terminal"
-             x:Class="JeekRemoteManager.Views.TerminalView">
-    <terminal:TerminalControl x:Name="Term"
-                              RightClickAction="CopyOrPaste" />
+             xmlns:vm="using:JeekRemoteManager.ViewModels"
+             xmlns:l="using:Jeek.Avalonia.Localization"
+             x:Class="JeekRemoteManager.Views.TerminalView"
+             x:Name="TerminalRoot"
+             x:DataType="vm:MainWindowViewModel">
+    <Grid>
+        <terminal:TerminalControl x:Name="Term"
+                                  RightClickAction="CopyOrPaste" />
+
+        <Border x:Name="ScriptPanelOverlay"
+                IsVisible="False"
+                Background="#88000000"
+                Padding="14">
+            <Border Classes="panel"
+                    Padding="12"
+                    MaxWidth="760"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Top">
+                <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
+                    <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0"
+                                   Classes="page-title"
+                                   Text="{Binding ScriptPanel.SuiteName}" />
+                        <Button Grid.Column="1"
+                                Classes="toolbar icon-button"
+                                ToolTip.Tip="{l:Localize Close}"
+                                Command="{Binding CloseScriptExecutionCommand}">
+                            <TextBlock Classes="icon"
+                                       Text="&#xE711;"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       TextAlignment="Center" />
+                        </Button>
+                    </Grid>
+
+                    <ScrollViewer Grid.Row="1"
+                                  MinHeight="0"
+                                  MaxHeight="260"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  VerticalScrollBarVisibility="Auto">
+                        <Grid ColumnDefinitions="*,156" ColumnSpacing="12">
+                            <ItemsControl Grid.Column="0"
+                                          ItemsSource="{Binding ScriptPanel.Parameters}"
+                                          Grid.IsSharedSizeScope="True">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="vm:ScriptParameterValueViewModel">
+                                        <Grid ColumnSpacing="10" Margin="0,3">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"
+                                                                  MinWidth="120"
+                                                                  SharedSizeGroup="ScriptParamName" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0"
+                                                       Classes="label"
+                                                       Text="{Binding Name}"
+                                                       TextWrapping="Wrap" />
+                                            <Grid Grid.Column="1">
+                                                <TextBox Text="{Binding Value, Mode=TwoWay}"
+                                                         IsVisible="{Binding IsText}" />
+                                                <TextBox Text="{Binding Value, Mode=TwoWay}"
+                                                         PasswordChar="&#x2022;"
+                                                         IsVisible="{Binding IsSecret}" />
+                                                <CheckBox IsChecked="{Binding BoolValue, Mode=TwoWay}"
+                                                          IsVisible="{Binding IsBool}" />
+                                                <ComboBox ItemsSource="{Binding EnumOptions}"
+                                                          SelectedItem="{Binding SelectedEnumValue, Mode=TwoWay}"
+                                                          IsVisible="{Binding IsEnum}" />
+                                            </Grid>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <ItemsControl Grid.Column="1"
+                                          ItemsSource="{Binding ScriptPanel.Scripts}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Vertical" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="models:RemoteScriptFile">
+                                        <Button Content="{Binding DisplayName}"
+                                                Classes="toolbar"
+                                                HorizontalAlignment="Stretch"
+                                                HorizontalContentAlignment="Center"
+                                                Margin="0,0,0,6"
+                                                Command="{Binding #TerminalRoot.((vm:MainWindowViewModel)DataContext).RunScriptFileCommand}"
+                                                CommandParameter="{Binding}" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Grid>
+                    </ScrollViewer>
+
+                    <Grid Grid.Row="2" ColumnDefinitions="Auto,*" ColumnSpacing="9" MinHeight="30">
+                        <Grid Grid.Column="0"
+                              Width="24"
+                              Height="24"
+                              VerticalAlignment="Center"
+                              IsVisible="{Binding ScriptPanel.ShowResultIcon}">
+                            <TextBlock Classes="icon"
+                                       Text="&#xE73E;"
+                                       FontSize="22"
+                                       Foreground="{DynamicResource SuccessBrush}"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       TextAlignment="Center"
+                                       IsVisible="{Binding ScriptPanel.ShowSuccessIcon}" />
+                            <TextBlock Classes="icon"
+                                       Text="&#xE711;"
+                                       FontSize="22"
+                                       Foreground="{DynamicResource DangerBrush}"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       TextAlignment="Center"
+                                       IsVisible="{Binding ScriptPanel.ShowFailureIcon}" />
+                        </Grid>
+                        <TextBlock Grid.Column="1"
+                                   Classes="hint"
+                                   Text="{Binding ScriptPanel.StatusText}"
+                                   FontSize="14"
+                                   FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                   VerticalAlignment="Center" />
+                    </Grid>
+
+                    <Button Grid.Row="3"
+                            Classes="toolbar"
+                            HorizontalAlignment="Left"
+                            Content="{l:Localize ClearParameters}"
+                            Command="{Binding ClearScriptParametersCommand}" />
+                </Grid>
+            </Border>
+        </Border>
+    </Grid>
 </UserControl>

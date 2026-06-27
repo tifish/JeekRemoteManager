@@ -4,10 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using JeekRemoteManager.Models;
-using Renci.SshNet;
 
 namespace JeekRemoteManager.Services;
 
@@ -18,93 +15,7 @@ public sealed record RemoteScriptExecutionResult(
 
 public class RemoteScriptLauncher
 {
-    public async Task<RemoteScriptExecutionResult> RunAsync(
-        Connection connection,
-        RemoteScriptSuite suite,
-        RemoteScriptFile scriptFile,
-        ConnectionScriptBinding binding,
-        Action<string> appendOutput,
-        Func<string, int, string, string, bool>? confirmHostKey = null,
-        CancellationToken cancellationToken = default)
-    {
-        var errors = ValidateBinding(suite, binding);
-        if (connection.Type != ConnectionType.Ssh)
-            errors.Add("Script actions are only available for SSH connections.");
-        if (!File.Exists(scriptFile.FullPath))
-            errors.Add($"Script file does not exist: {scriptFile.Name}");
-        if (errors.Count > 0)
-            throw new InvalidOperationException(string.Join(Environment.NewLine, errors));
-
-        var payload = BuildPayload(suite, scriptFile, binding);
-        var host = connection.Host.Trim();
-        var port = connection.Port > 0 ? connection.Port : 22;
-
-        var startedAt = DateTimeOffset.Now;
-        // Build (which may query ssh-agent / Pageant over IPC) and Connect both run on
-        // a background thread; those calls can block and must not run on the UI thread.
-        // Scripts share the same auth + known_hosts path as the terminal: prompt for a
-        // first-seen host, and reject (not silently trust) when no prompt is available.
-        using var client = await Task.Run(() =>
-        {
-            var sshClient = new SshClient(SshConnectionFactory.Build(connection));
-            SshHostKey.Attach(sshClient, host, port,
-                onUnknown: (keyType, fingerprint) => confirmHostKey?.Invoke(host, port, keyType, fingerprint) ?? false,
-                onRejected: message => appendOutput(message + Environment.NewLine),
-                onTrusted: fingerprint => appendOutput($"trusted new host key SHA256:{fingerprint}{Environment.NewLine}"));
-            sshClient.Connect();
-            return sshClient;
-        }, cancellationToken).ConfigureAwait(false);
-
-        using var command = client.CreateCommand("sh -s");
-        var async = command.BeginExecute();
-
-        // Drain stdout/stderr concurrently with writing stdin: a script that emits
-        // output while it is still being read off stdin could otherwise fill the
-        // channel window, block the remote, and deadlock the stdin write. Both
-        // streams EOF when `sh -s` exits.
-        var outputPump = PumpAsync(command.OutputStream, appendOutput, cancellationToken);
-        var errorPump = PumpAsync(command.ExtendedOutputStream, appendOutput, cancellationToken);
-
-        try
-        {
-            // CreateInputStream must be called after execution begins; disposing it
-            // signals EOF so `sh -s` runs the piped script and exits.
-            using (var input = command.CreateInputStream())
-            {
-                var payloadBytes = Encoding.UTF8.GetBytes(payload);
-                await input.WriteAsync(payloadBytes, cancellationToken).ConfigureAwait(false);
-                await input.FlushAsync(cancellationToken).ConfigureAwait(false);
-            }
-
-            await Task.WhenAll(outputPump, errorPump).ConfigureAwait(false);
-        }
-        catch
-        {
-            // Observe the execution result so its exception isn't left unobserved,
-            // but don't let it mask the original failure (cancellation, write error…).
-            try { command.EndExecute(async); } catch { /* superseded by the original */ }
-            throw;
-        }
-
-        command.EndExecute(async);
-        var finishedAt = DateTimeOffset.Now;
-        return new RemoteScriptExecutionResult(command.ExitStatus ?? -1, startedAt, finishedAt);
-    }
-
-    private static async Task PumpAsync(Stream stream, Action<string> appendOutput, CancellationToken cancellationToken)
-    {
-        var buffer = new byte[8192];
-        var decoder = Encoding.UTF8.GetDecoder();
-        var chars = new char[Encoding.UTF8.GetMaxCharCount(buffer.Length)];
-
-        int read;
-        while ((read = await stream.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false)) > 0)
-        {
-            var charCount = decoder.GetChars(buffer, 0, read, chars, 0);
-            if (charCount > 0)
-                appendOutput(new string(chars, 0, charCount));
-        }
-    }
+    public const string TerminalScriptExitMarkerPrefix = "\u001b]777;JRM_SCRIPT_EXIT:";
 
     public static string BuildPayload(
         RemoteScriptSuite suite,
@@ -131,6 +42,41 @@ public class RemoteScriptLauncher
         sb.Append(script);
         if (!script.EndsWith('\n'))
             sb.Append('\n');
+
+        return sb.ToString();
+    }
+
+    public static string BuildTerminalInvocation(string payload, string token)
+    {
+        if (string.IsNullOrWhiteSpace(token)
+            || token.Any(c => !char.IsLetterOrDigit(c) && c != '_'))
+            throw new ArgumentException("Terminal script token must contain only letters, digits, or underscores.", nameof(token));
+
+        var normalizedPayload = payload
+            .Replace("\r\n", "\n")
+            .Replace('\r', '\n');
+        var delimiter = "JRM_SCRIPT_" + token;
+        var sb = new StringBuilder();
+
+        sb.Append('\n');
+        sb.Append("__jrm_stty=$(stty -g 2>/dev/null || true)\n");
+        sb.Append("stty -echo 2>/dev/null || true\n");
+        sb.Append("__jrm_payload=$(cat <<'");
+        sb.Append(delimiter);
+        sb.Append("'\n");
+        sb.Append(normalizedPayload);
+        if (!normalizedPayload.EndsWith('\n'))
+            sb.Append('\n');
+        sb.Append(delimiter);
+        sb.Append("\n)\n");
+        sb.Append("if [ -n \"$__jrm_stty\" ]; then stty \"$__jrm_stty\" 2>/dev/null || stty echo 2>/dev/null || true; else stty echo 2>/dev/null || true; fi\n");
+        sb.Append("printf '%s\\n' \"$__jrm_payload\" | sh\n");
+        sb.Append("__jrm_status=$?\n");
+        sb.Append("unset __jrm_payload\n");
+        sb.Append("printf '\\033]777;JRM_SCRIPT_EXIT:");
+        sb.Append(token);
+        sb.Append(":%s\\007\\n' \"$__jrm_status\"\n");
+        sb.Append("unset __jrm_stty __jrm_status\n");
 
         return sb.ToString();
     }

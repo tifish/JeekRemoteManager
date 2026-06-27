@@ -22,7 +22,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly ConnectionLauncher _launcher;
     private readonly SettingsService _settings;
     private readonly RemoteScriptStore _scriptStore;
-    private readonly RemoteScriptLauncher _scriptLauncher;
+    private ScriptExecutionContext? _scriptContext;
 
     // Internal (in-app) clipboard for copy/cut/paste of nodes.
     private string? _clipboardPath;
@@ -51,18 +51,29 @@ public partial class MainWindowViewModel : ViewModelBase
     private const string RecentSentinelPath = "<recent>";
     private TreeNodeViewModel? _recentGroup;
 
+    private sealed class ScriptExecutionContext
+    {
+        public ScriptExecutionContext(TreeNodeViewModel node, TerminalScriptSession? terminal)
+        {
+            Node = node;
+            Terminal = terminal;
+        }
+
+        public TreeNodeViewModel Node { get; }
+
+        public TerminalScriptSession? Terminal { get; set; }
+    }
+
     public MainWindowViewModel(
         ConnectionStore store,
         ConnectionLauncher launcher,
         SettingsService settings,
-        RemoteScriptStore? scriptStore = null,
-        RemoteScriptLauncher? scriptLauncher = null)
+        RemoteScriptStore? scriptStore = null)
     {
         _store = store;
         _launcher = launcher;
         _settings = settings;
         _scriptStore = scriptStore ?? new RemoteScriptStore();
-        _scriptLauncher = scriptLauncher ?? new RemoteScriptLauncher();
         _store.SetRoot(_settings.ResolveConnectionsRoot());
         _scriptStore.SetRoot(_settings.ResolveScriptsRoot());
         ReloadScripts();
@@ -174,9 +185,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public bool HasScriptExecution => ScriptPanel is not null;
 
-    public bool ShowConnectionEditor => Editor is not null && !HasScriptExecution;
+    public bool ShowConnectionEditor => Editor is not null;
 
-    public bool ShowPlaceholder => Editor is null && !HasScriptExecution;
+    public bool ShowPlaceholder => Editor is null;
 
     // Wired up by the view so the VM can reach platform services without a
     // hard dependency on the window.
@@ -191,6 +202,10 @@ public partial class MainWindowViewModel : ViewModelBase
     /// The second argument is the connection's on-disk file path, carried so the
     /// terminal tab's context menu can act on the originating tree node.</summary>
     public Func<Connection, string?, Task>? OpenSshTerminalAsync { get; set; }
+
+    /// <summary>Returns an SSH terminal tab for script execution, reusing an open
+    /// terminal for the same connection file when possible.</summary>
+    public Func<Connection, string?, Task<TerminalScriptSession?>>? EnsureSshTerminalAsync { get; set; }
 
     /// <summary>Prompts the user to trust a first-seen SSH host key (set by the view).
     /// (host, port, keyType, sha256Fingerprint) =&gt; trust?. Blocks the calling thread,
@@ -308,6 +323,7 @@ public partial class MainWindowViewModel : ViewModelBase
             ? ConnectionEditorViewModel.FromConnection(_editingNode.Connection!)
             : null;
         _editorHasPendingChanges = false;
+        _scriptContext = null;
         ScriptPanel = null;
 
         // Watch the new editor for changes → auto-save with debounce.
@@ -1455,6 +1471,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         if (removed > 0)
             StatusMessage = L("StatusMissingScriptBindingsRemoved", removed);
+        _scriptContext = new ScriptExecutionContext(node, terminal: null);
         return BuildScriptSuiteChoices(node.Connection);
     }
 
@@ -1464,9 +1481,9 @@ public partial class MainWindowViewModel : ViewModelBase
     /// script flow targets that connection. Returns an empty list when the node is
     /// gone or the connection has no usable scripts.
     /// </summary>
-    public IReadOnlyList<ScriptSuiteChoiceViewModel> PrepareScriptSuiteChoicesForTerminal(string? sourcePath)
+    public IReadOnlyList<ScriptSuiteChoiceViewModel> PrepareScriptSuiteChoicesForTerminal(TerminalScriptSession terminal)
     {
-        var node = string.IsNullOrEmpty(sourcePath) ? null : FindNode(Nodes, sourcePath);
+        var node = string.IsNullOrEmpty(terminal.SourcePath) ? null : FindNode(Nodes, terminal.SourcePath);
         if (node is null)
         {
             StatusMessage = L("StatusTerminalConnectionMissing");
@@ -1475,15 +1492,25 @@ public partial class MainWindowViewModel : ViewModelBase
 
         ExpandAncestors(node);
         SelectedNode = node;
-        return PrepareScriptSuiteChoicesForSelectedConnection();
+        var choices = PrepareScriptSuiteChoicesForSelectedConnection();
+        if (choices.Count > 0)
+            _scriptContext = new ScriptExecutionContext(node, terminal);
+        return choices;
     }
+
+    public Task CopyPublicKeyToServerAsync(Connection connection) =>
+        CopyPublicKeyToServerAsync(
+            connection,
+            publicKeyText => PublicKeyInstaller.InstallAsync(connection, publicKeyText, ConfirmHostKeyTrust));
 
     /// <summary>
     /// Installs the local public key on the given connection's host
     /// (the ssh-copy-id equivalent), confirming first and reporting the outcome
-    /// via the status bar. Invoked from a terminal tab's context menu.
+    /// via the status bar.
     /// </summary>
-    public async Task CopyPublicKeyToServerAsync(Connection connection)
+    public async Task CopyPublicKeyToServerAsync(
+        Connection connection,
+        Func<string, Task<PublicKeyInstallResult>> installAsync)
     {
         if (connection.Type != ConnectionType.Ssh)
         {
@@ -1522,7 +1549,7 @@ public partial class MainWindowViewModel : ViewModelBase
         StatusMessage = L("StatusCopyingPublicKey", target);
         try
         {
-            var result = await PublicKeyInstaller.InstallAsync(connection, publicKeyText, ConfirmHostKeyTrust);
+            var result = await installAsync(publicKeyText);
             StatusMessage = result.AlreadyPresent
                 ? L("StatusPublicKeyAlreadyPresent", target)
                 : L("StatusPublicKeyInstalled", target);
@@ -1537,7 +1564,9 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         if (choice is null)
             return;
-        if (SelectedNode is not { IsConnection: true, Connection: not null } node)
+        var context = _scriptContext;
+        var node = context?.Node;
+        if (node is not { IsConnection: true, Connection: not null })
             return;
 
         var suite = choice.Suite;
@@ -1583,9 +1612,10 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async Task RunScriptFile(RemoteScriptFile? scriptFile)
     {
+        var context = _scriptContext;
         if (scriptFile is null
             || ScriptPanel is null
-            || SelectedNode is not { IsConnection: true, Connection: not null } node)
+            || context?.Node is not { IsConnection: true, Connection: not null } node)
             return;
 
         if (ScriptPanel.IsRunning)
@@ -1600,7 +1630,6 @@ public partial class MainWindowViewModel : ViewModelBase
 
         var panel = ScriptPanel;
         var displayName = $"{panel.SuiteName}/{scriptFile.DisplayName}";
-        panel.Output = "";
         panel.ClearExecutionResult();
         panel.StatusText = L("ScriptExecutionRunning");
         panel.IsRunning = true;
@@ -1608,13 +1637,27 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            var result = await _scriptLauncher.RunAsync(
-                node.Connection,
+            var terminal = context.Terminal;
+            if (terminal is null)
+            {
+                if (EnsureSshTerminalAsync is null)
+                    throw new InvalidOperationException(Localizer.Get("StatusScriptTerminalUnavailable"));
+
+                panel.StatusText = L("ScriptExecutionWaitingTerminal");
+                terminal = await EnsureSshTerminalAsync(node.Connection, node.FullPath);
+                context.Terminal = terminal
+                    ?? throw new InvalidOperationException(Localizer.Get("StatusScriptTerminalUnavailable"));
+            }
+
+            terminal.Activate();
+            terminal.HideScriptPanel();
+            await terminal.WaitUntilConnectedAsync();
+            panel.StatusText = L("ScriptExecutionRunningInTerminal");
+
+            var result = await terminal.RunScriptAsync(
                 panel.Suite,
                 scriptFile,
-                binding,
-                text => Dispatcher.UIThread.Post(() => panel.AppendOutput(text)),
-                ConfirmHostKeyTrust);
+                binding);
 
             var duration = FormatScriptDuration(result.FinishedAt - result.StartedAt);
             panel.StatusText = result.ExitCode == 0
@@ -1640,8 +1683,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private ConnectionScriptBinding? SaveScriptPanelBinding(bool flushImmediately = false)
     {
         if (ScriptPanel is null
-            || Editor is null
-            || SelectedNode is not { IsConnection: true, Connection: not null } node)
+            || _scriptContext?.Node is not { IsConnection: true, Connection: not null } node)
             return null;
 
         var currentBinding = ScriptPanel.ToBinding();
@@ -1658,15 +1700,47 @@ public partial class MainWindowViewModel : ViewModelBase
             return currentBinding;
 
         var protectedBinding = RemoteScriptLauncher.ProtectSecretValues(ScriptPanel.Suite, currentBinding);
-        UpsertScriptBinding(Editor.ScriptBindings, protectedBinding);
+        if (ReferenceEquals(_editingNode, node) && Editor is not null)
+            UpsertScriptBinding(Editor.ScriptBindings, protectedBinding);
         UpsertScriptBinding(node.Connection.ScriptBindings, protectedBinding);
-        _editorHasPendingChanges = true;
-        if (flushImmediately)
-            FlushPendingAutoSave();
+
+        if (!ReferenceEquals(_editingNode, node))
+        {
+            SaveScriptContextConnection(node);
+        }
         else
-            ScheduleAutoSave();
+        {
+            _editorHasPendingChanges = true;
+            if (flushImmediately)
+                FlushPendingAutoSave();
+            else
+                ScheduleAutoSave();
+        }
+
         RunSelectedScriptBindingCommand.NotifyCanExecuteChanged();
         return protectedBinding;
+    }
+
+    private void SaveScriptContextConnection(TreeNodeViewModel node)
+    {
+        if (node.Connection is null)
+            return;
+
+        try
+        {
+            ProtectConnectionScriptBindings(node.Connection);
+            var folder = Path.GetDirectoryName(node.FullPath) ?? _store.RootPath;
+            var newPath = _store.Save(node.Connection, folder, node.FullPath);
+            if (!PathEquals(newPath, node.FullPath))
+            {
+                node.FullPath = newPath;
+                node.Name = node.Connection.Name;
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = L("StatusAutoSaveFailed", ex.Message);
+        }
     }
 
     private static bool ScriptBindingsEquivalent(
@@ -1809,8 +1883,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private void ClearScriptParameters()
     {
         if (ScriptPanel is null
-            || Editor is null
-            || SelectedNode is not { IsConnection: true, Connection: not null } node)
+            || _scriptContext?.Node is not { IsConnection: true, Connection: not null } node)
             return;
 
         if (ScriptPanel.IsRunning)
@@ -1821,9 +1894,17 @@ public partial class MainWindowViewModel : ViewModelBase
 
         var suitePath = ScriptPanel.Suite.RelativePath;
         ScriptPanel.ClearParameters();
-        RemoveScriptBinding(Editor.ScriptBindings, suitePath);
+        if (ReferenceEquals(_editingNode, node) && Editor is not null)
+            RemoveScriptBinding(Editor.ScriptBindings, suitePath);
         RemoveScriptBinding(node.Connection.ScriptBindings, suitePath);
-        ScheduleAutoSave();
+        if (ReferenceEquals(_editingNode, node))
+        {
+            ScheduleAutoSave();
+        }
+        else
+        {
+            SaveScriptContextConnection(node);
+        }
         RunSelectedScriptBindingCommand.NotifyCanExecuteChanged();
         StatusMessage = L("StatusScriptParametersCleared", ScriptPanel.SuiteName);
     }
@@ -1847,6 +1928,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         ScriptPanel = null;
+        _scriptContext = null;
     }
 
     private static string FormatScriptDuration(TimeSpan value)

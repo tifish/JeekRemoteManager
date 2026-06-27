@@ -953,6 +953,18 @@ try
     Check(!payload.Contains('\r'), "Script payload uses LF line endings for remote sh");
     Check(payload.Contains("tok'\"'\"'en line1") && payload.Contains("line2 密码"),
           "Script payload shell-quotes quotes, newlines, and Unicode values");
+    const string terminalScriptToken = "abc123";
+    var terminalInvocation = RemoteScriptLauncher.BuildTerminalInvocation(payload.Replace("\n", "\r\n"), terminalScriptToken);
+    Check(!terminalInvocation.Contains('\r')
+          && terminalInvocation.Contains("__jrm_payload=$(cat <<'JRM_SCRIPT_abc123'")
+          && terminalInvocation.Contains("export TARGET='web api'")
+          && terminalInvocation.Contains("printf '\\033]777;JRM_SCRIPT_EXIT:abc123:%s\\007\\n' \"$__jrm_status\""),
+          "Terminal script invocation wraps payload with LF line endings and an exit marker");
+    var terminalPublicKeyPayload = PublicKeyInstaller.BuildTerminalPayload("ssh-ed25519 AAAATEST test");
+    Check(terminalPublicKeyPayload.Contains(PublicKeyInstaller.TerminalAlreadyPresentLine)
+          && terminalPublicKeyPayload.Contains(PublicKeyInstaller.TerminalAddedLine)
+          && !terminalPublicKeyPayload.Contains("__JRM_KEY_PRESENT__"),
+          "Terminal public key payload prints user-facing status lines");
 
     var auditSuite = suites.Single(s => s.Name == "Audit");
     var sortedChoices = MainWindowViewModel.SortScriptSuiteChoices(

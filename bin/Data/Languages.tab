@@ -151,11 +151,14 @@ StatusScriptRunning	Running {0} on {1}…	正在 {1} 上运行 {0}…
 StatusScriptSucceeded	{0} succeeded.	{0} 执行成功。
 StatusScriptFailed	{0} failed with exit code {1}.	{0} 执行失败，退出码 {1}。
 StatusScriptLaunchFailed	Script launch failed: {0}	脚本启动失败：{0}
+StatusScriptTerminalUnavailable	Could not open an SSH terminal for script execution.	无法打开用于执行脚本的 SSH 终端。
 StatusScriptOutputCopied	Script output copied.	已复制脚本输出。
 StatusScriptStillRunning	The script is still running.	脚本仍在运行。
 StatusScriptParametersCleared	Cleared parameters for {0}.	已清除 {0} 的参数。
 StatusMissingScriptBindingsRemoved	Removed {0} missing script binding(s).	已删除 {0} 个已失效的脚本参数绑定。
 ScriptExecutionRunning	Running…	正在运行…
+ScriptExecutionWaitingTerminal	Waiting for the SSH terminal…	正在等待 SSH 终端…
+ScriptExecutionRunningInTerminal	Running in the SSH terminal…	正在 SSH 终端中运行…
 ScriptExecutionSucceeded	Succeeded in {0}.	执行成功，用时 {0}。
 ScriptExecutionFailed	Failed with exit code {0} after {1}.	执行失败，退出码 {0}，用时 {1}。
 ScriptExecutionStartFailed	Failed to start: {0}	启动失败：{0}

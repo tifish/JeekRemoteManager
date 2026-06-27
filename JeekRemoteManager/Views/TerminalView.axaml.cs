@@ -1,4 +1,7 @@
 using System;
+using System.Globalization;
+using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Threading;
@@ -30,10 +33,22 @@ public partial class TerminalView : UserControl
     private Connection? _connection;
     private SshClient? _client;
     private ShellStream? _shell;
+    private string? _sourcePath;
+    private TaskCompletionSource<bool>? _connected;
+    private readonly SemaphoreSlim _scriptLock = new(1, 1);
+    private readonly object _shellWriteGate = new();
+    private TaskCompletionSource<int>? _scriptExit;
+    private string? _scriptExitToken;
+    private string _scriptControlBuffer = "";
+    private bool _shellClosed;
     private volatile bool _disposed;
 
     /// <summary>Raised on the UI thread when the remote shell sets its title (OSC).</summary>
     public event EventHandler<string>? TitleChanged;
+
+    public Connection? Connection => _connection;
+
+    public string? SourcePath => _sourcePath;
 
     public TerminalView()
     {
@@ -52,11 +67,124 @@ public partial class TerminalView : UserControl
     }
 
     /// <summary>Connects the given connection and starts streaming. Call once.</summary>
-    public void Start(Connection connection)
+    public void Start(Connection connection, string? sourcePath = null)
     {
         _connection = connection;
+        _sourcePath = sourcePath;
+        _connected = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _shellClosed = false;
         FocusTerminal();
         _ = ConnectAsync();
+    }
+
+    public async Task WaitUntilConnectedAsync(CancellationToken cancellationToken = default)
+    {
+        var connected = _connected ?? throw new InvalidOperationException("Terminal has not started.");
+        await connected.Task.WaitAsync(cancellationToken);
+    }
+
+    public async Task<RemoteScriptExecutionResult> RunScriptAsync(
+        RemoteScriptSuite suite,
+        RemoteScriptFile scriptFile,
+        ConnectionScriptBinding binding,
+        CancellationToken cancellationToken = default)
+    {
+        var errors = RemoteScriptLauncher.ValidateBinding(suite, binding);
+        if (errors.Count > 0)
+            throw new InvalidOperationException(string.Join(Environment.NewLine, errors));
+
+        await WaitUntilConnectedAsync(cancellationToken);
+        await _scriptLock.WaitAsync(cancellationToken);
+
+        try
+        {
+            if (_disposed || _shellClosed || _shell is null)
+                throw new InvalidOperationException("SSH terminal is not connected.");
+
+            var startedAt = DateTimeOffset.Now;
+            var token = Guid.NewGuid().ToString("N");
+            var payload = RemoteScriptLauncher.BuildPayload(suite, scriptFile, binding);
+            var invocation = RemoteScriptLauncher.BuildTerminalInvocation(payload, token);
+            var exit = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            _scriptExitToken = token;
+            _scriptExit = exit;
+            _scriptControlBuffer = "";
+
+            Dispatcher.UIThread.Post(() =>
+                FeedLine($"\r\n\u001b[36m[run script] {suite.Name}/{scriptFile.DisplayName}\u001b[0m"));
+            WriteToShell(invocation);
+
+            using var registration = cancellationToken.Register(() => exit.TrySetCanceled(cancellationToken));
+            var exitCode = await exit.Task;
+            var finishedAt = DateTimeOffset.Now;
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                var color = exitCode == 0 ? "32" : "31";
+                FeedLine($"\u001b[{color}m[script exit {exitCode}]\u001b[0m");
+            });
+
+            return new RemoteScriptExecutionResult(exitCode, startedAt, finishedAt);
+        }
+        finally
+        {
+            _scriptExit = null;
+            _scriptExitToken = null;
+            _scriptControlBuffer = "";
+            _scriptLock.Release();
+        }
+    }
+
+    public async Task<PublicKeyInstallResult> InstallPublicKeyAsync(
+        string publicKeyText,
+        CancellationToken cancellationToken = default)
+    {
+        await WaitUntilConnectedAsync(cancellationToken);
+        await _scriptLock.WaitAsync(cancellationToken);
+
+        try
+        {
+            if (_disposed || _shellClosed || _shell is null)
+                throw new InvalidOperationException("SSH terminal is not connected.");
+
+            var token = Guid.NewGuid().ToString("N");
+            var payload = PublicKeyInstaller.BuildTerminalPayload(publicKeyText);
+            var invocation = RemoteScriptLauncher.BuildTerminalInvocation(payload, token);
+            var exit = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            _scriptExitToken = token;
+            _scriptExit = exit;
+            _scriptControlBuffer = "";
+
+            Dispatcher.UIThread.Post(() =>
+                FeedLine("\r\n\u001b[36m[copy public key]\u001b[0m"));
+            WriteToShell(invocation);
+
+            using var registration = cancellationToken.Register(() => exit.TrySetCanceled(cancellationToken));
+            var exitCode = await exit.Task;
+            var output = _scriptControlBuffer;
+
+            if (exitCode != 0)
+            {
+                Dispatcher.UIThread.Post(() =>
+                    FeedLine($"\u001b[31m[copy public key exit {exitCode}]\u001b[0m"));
+                throw new InvalidOperationException($"Remote command exited with code {exitCode}.");
+            }
+
+            Dispatcher.UIThread.Post(() =>
+                FeedLine("\u001b[32m[copy public key complete]\u001b[0m"));
+            return new PublicKeyInstallResult(
+                output.Contains(PublicKeyInstaller.TerminalAlreadyPresentLine, StringComparison.Ordinal),
+                output);
+        }
+        finally
+        {
+            _scriptExit = null;
+            _scriptExitToken = null;
+            _scriptControlBuffer = "";
+            _scriptLock.Release();
+        }
     }
 
     /// <summary>
@@ -66,6 +194,16 @@ public partial class TerminalView : UserControl
     /// </summary>
     public void FocusTerminal() =>
         Dispatcher.UIThread.Post(() => Term.Focus(), DispatcherPriority.Background);
+
+    public void ShowScriptPanel()
+    {
+        ScriptPanelOverlay.IsVisible = true;
+    }
+
+    public void HideScriptPanel()
+    {
+        ScriptPanelOverlay.IsVisible = false;
+    }
 
     /// <summary>Sets the terminal font size in points.</summary>
     public void SetFontSize(double size)
@@ -103,12 +241,14 @@ public partial class TerminalView : UserControl
         }
         catch (Exception ex)
         {
+            _connected?.TrySetException(new InvalidOperationException($"Connection failed: {ex.Message}", ex));
             FeedLine($"[31m[connect failed] {ex.Message}[0m\r\n");
             return;
         }
 
         if (_disposed)
         {
+            _connected?.TrySetCanceled();
             try { client.Dispose(); } catch { /* ignore */ }
             return;
         }
@@ -126,8 +266,15 @@ public partial class TerminalView : UserControl
         shell.DataReceived += (_, e) => OnShellData(e.Data);
         shell.ErrorOccurred += (_, e) => Dispatcher.UIThread.Post(() =>
             FeedLine($"\r\n[31m[error] {e.Exception.Message}[0m"));
-        shell.Closed += (_, _) => Dispatcher.UIThread.Post(() =>
-            FeedLine("\r\n[33m[session closed][0m\r\n"));
+        shell.Closed += (_, _) =>
+        {
+            _shellClosed = true;
+            _scriptExit?.TrySetException(new InvalidOperationException("SSH terminal session closed."));
+            Dispatcher.UIThread.Post(() =>
+                FeedLine("\r\n[33m[session closed][0m\r\n"));
+        };
+
+        _connected?.TrySetResult(true);
 
         // Push the current (laid-out) size in case SizeChanged fired before connect.
         SyncWindowSize();
@@ -137,6 +284,7 @@ public partial class TerminalView : UserControl
     {
         if (_disposed || data.Length == 0)
             return;
+        ObserveScriptControl(data);
         Dispatcher.UIThread.Post(() =>
         {
             if (!_disposed)
@@ -151,13 +299,55 @@ public partial class TerminalView : UserControl
             return;
         try
         {
-            shell.Write(data.Span);
-            shell.Flush();
+            WriteToShell(data.ToArray());
         }
         catch
         {
             // Best-effort; a closed/broken stream is reported via Closed/ErrorOccurred.
         }
+    }
+
+    private void WriteToShell(string text) => WriteToShell(Encoding.UTF8.GetBytes(text));
+
+    private void WriteToShell(byte[] data)
+    {
+        var shell = _shell;
+        if (shell is null || _disposed || _shellClosed || data.Length == 0)
+            return;
+
+        lock (_shellWriteGate)
+        {
+            shell.Write(data, 0, data.Length);
+            shell.Flush();
+        }
+    }
+
+    private void ObserveScriptControl(byte[] data)
+    {
+        var exit = _scriptExit;
+        var token = _scriptExitToken;
+        if (exit is null || string.IsNullOrEmpty(token))
+            return;
+
+        _scriptControlBuffer += Encoding.UTF8.GetString(data);
+        if (_scriptControlBuffer.Length > 8192)
+            _scriptControlBuffer = _scriptControlBuffer[^8192..];
+
+        var marker = RemoteScriptLauncher.TerminalScriptExitMarkerPrefix + token + ":";
+        var markerStart = _scriptControlBuffer.IndexOf(marker, StringComparison.Ordinal);
+        if (markerStart < 0)
+            return;
+
+        var codeStart = markerStart + marker.Length;
+        var codeEnd = _scriptControlBuffer.IndexOf('\a', codeStart);
+        if (codeEnd < 0)
+            return;
+
+        var codeText = _scriptControlBuffer[codeStart..codeEnd];
+        if (int.TryParse(codeText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var exitCode))
+            exit.TrySetResult(exitCode);
+        else
+            exit.TrySetException(new InvalidOperationException($"Invalid script exit code: {codeText}"));
     }
 
     private void SyncWindowSize()
@@ -183,6 +373,8 @@ public partial class TerminalView : UserControl
     public void Close()
     {
         _disposed = true;
+        _connected?.TrySetCanceled();
+        _scriptExit?.TrySetException(new InvalidOperationException("SSH terminal closed."));
         try { _shell?.Dispose(); } catch { /* ignore */ }
         try { _client?.Disconnect(); } catch { /* ignore */ }
         try { _client?.Dispose(); } catch { /* ignore */ }

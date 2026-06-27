@@ -22,6 +22,9 @@ public sealed record PublicKeyInstallResult(bool AlreadyPresent, string Output);
 /// </summary>
 public static class PublicKeyInstaller
 {
+    public const string TerminalAlreadyPresentLine = "Public key already present.";
+    public const string TerminalAddedLine = "Public key added.";
+
     // Default public key names tried under ~/.ssh, in preference order, when the
     // connection has no explicit private key with a matching ".pub" file.
     private static readonly string[] DefaultPublicKeyNames =
@@ -134,16 +137,22 @@ public static class PublicKeyInstaller
     }
 
     private static string BuildPayload(string publicKeyText) =>
+        BuildPayload(publicKeyText, "__JRM_KEY_PRESENT__", "__JRM_KEY_ADDED__");
+
+    public static string BuildTerminalPayload(string publicKeyText) =>
+        BuildPayload(publicKeyText, TerminalAlreadyPresentLine, TerminalAddedLine);
+
+    private static string BuildPayload(string publicKeyText, string alreadyPresentLine, string addedLine) =>
         "set -e\n" +
         "umask 077\n" +
         "mkdir -p \"$HOME/.ssh\"\n" +
         "touch \"$HOME/.ssh/authorized_keys\"\n" +
         "KEY=" + ShellQuote(publicKeyText) + "\n" +
         "if grep -qxF \"$KEY\" \"$HOME/.ssh/authorized_keys\" 2>/dev/null; then\n" +
-        "  printf '__JRM_KEY_PRESENT__\\n'\n" +
+        "  printf '%s\\n' " + ShellQuote(alreadyPresentLine) + "\n" +
         "else\n" +
         "  printf '%s\\n' \"$KEY\" >> \"$HOME/.ssh/authorized_keys\"\n" +
-        "  printf '__JRM_KEY_ADDED__\\n'\n" +
+        "  printf '%s\\n' " + ShellQuote(addedLine) + "\n" +
         "fi\n" +
         "chmod 700 \"$HOME/.ssh\" 2>/dev/null || true\n" +
         "chmod 600 \"$HOME/.ssh/authorized_keys\" 2>/dev/null || true\n";

@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -100,7 +102,11 @@ public partial class MainWindow : Window
         vm.PickKeyFileAsync = PickKeyFileAsync;
         vm.PickSettingsAsync = PickSettingsAsync;
         vm.PickFolderAsync = path => PickFolderAsync(path);
-        vm.OpenSshTerminalAsync = OpenSshTerminalAsync;
+        vm.OpenSshTerminalAsync = async (connection, sourcePath) =>
+        {
+            _ = await EnsureSshTerminalAsync(connection, sourcePath);
+        };
+        vm.EnsureSshTerminalAsync = EnsureSshTerminalAsync;
         vm.ApplyTerminalFontSize = ApplyTerminalFontToOpenTabs;
         vm.ConfirmHostKeyTrust = HostKeyDialog.PromptTrust;
         vm.RequestFocusTree = FocusSelectedTreeItem;
@@ -225,8 +231,22 @@ public partial class MainWindow : Window
     private static double ClampWindowDimension(double value, double minimum) =>
         double.IsFinite(minimum) && minimum > 0 ? Math.Max(value, minimum) : value;
 
-    private Task OpenSshTerminalAsync(Connection connection, string? sourcePath)
+    private Task<TerminalScriptSession?> EnsureSshTerminalAsync(Connection connection, string? sourcePath) =>
+        EnsureSshTerminalAsync(connection, sourcePath, forceNew: false);
+
+    private Task<TerminalScriptSession?> EnsureSshTerminalAsync(Connection connection, string? sourcePath, bool forceNew)
     {
+        if (!forceNew)
+        {
+            var existing = FindTerminalTab(connection, sourcePath);
+            if (existing is not null)
+            {
+                RightTabs.SelectedItem = existing.Value.Tab;
+                existing.Value.View.FocusTerminal();
+                return Task.FromResult<TerminalScriptSession?>(CreateTerminalScriptSession(existing.Value.View, existing.Value.Tab));
+            }
+        }
+
         var view = new TerminalView();
         var tab = new TabItem
         {
@@ -234,7 +254,7 @@ public partial class MainWindow : Window
             Content = view,
         };
         closeButton.Click += (_, _) => CloseTerminalTab(tab);
-        tab.ContextMenu = BuildTerminalTabContextMenu(connection, sourcePath, tab);
+        tab.ContextMenu = BuildTerminalTabContextMenu(connection, tab);
 
         // Middle-click or double-click on the tab header closes it, matching the
         // close button and the context menu's Close item.
@@ -249,19 +269,71 @@ public partial class MainWindow : Window
         RightTabs.SelectedItem = tab;
 
         view.SetFontSize((DataContext as MainWindowViewModel)?.TerminalFontSize ?? 14);
-        view.Start(connection);
-        return Task.CompletedTask;
+        view.Start(connection, sourcePath);
+        return Task.FromResult<TerminalScriptSession?>(CreateTerminalScriptSession(view, tab));
     }
+
+    private TerminalScriptSession CreateTerminalScriptSession(TerminalView view, TabItem tab) =>
+        new(
+            view.Connection!,
+            view.SourcePath,
+            view.WaitUntilConnectedAsync,
+            view.RunScriptAsync,
+            () =>
+            {
+                RightTabs.SelectedItem = tab;
+                view.FocusTerminal();
+            },
+            view.ShowScriptPanel,
+            view.HideScriptPanel);
+
+    private (TerminalView View, TabItem Tab)? FindTerminalTab(Connection connection, string? sourcePath)
+    {
+        foreach (var item in RightTabs.Items)
+        {
+            if (item is not TabItem { Content: TerminalView view } tab)
+                continue;
+
+            if (!string.IsNullOrEmpty(sourcePath)
+                && !string.IsNullOrEmpty(view.SourcePath)
+                && PathEquals(view.SourcePath, sourcePath))
+            {
+                return (view, tab);
+            }
+
+            if (string.IsNullOrEmpty(sourcePath)
+                && ReferenceEquals(view.Connection, connection))
+            {
+                return (view, tab);
+            }
+        }
+
+        return null;
+    }
+
+    private static bool PathEquals(string a, string b) =>
+        string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
 
     // Right-click menu on an SSH terminal tab: install the local public key on the
     // host (ssh-copy-id), or run one of the connection's SSH scripts.
-    private ContextMenu BuildTerminalTabContextMenu(Connection connection, string? sourcePath, TabItem tab)
+    private ContextMenu BuildTerminalTabContextMenu(Connection connection, TabItem tab)
     {
         var copyKey = new MenuItem { Header = Localizer.Get("CopyPublicKeyToServer") };
         copyKey.Click += async (_, _) =>
         {
             if (DataContext is MainWindowViewModel vm)
-                await vm.CopyPublicKeyToServerAsync(connection);
+            {
+                RightTabs.SelectedItem = tab;
+                if (tab.Content is TerminalView view)
+                {
+                    view.FocusTerminal();
+                    await vm.CopyPublicKeyToServerAsync(connection, key => view.InstallPublicKeyAsync(key));
+                }
+                else
+                {
+                    await vm.CopyPublicKeyToServerAsync(connection);
+                }
+            }
         };
 
         var runScript = new MenuItem { Header = Localizer.Get("RunScript") };
@@ -269,7 +341,7 @@ public partial class MainWindow : Window
         {
             // Let the context menu close first, then open the script-suite chooser.
             Dispatcher.UIThread.Post(
-                () => ShowTerminalScriptChooser(sourcePath, tab),
+                () => ShowTerminalScriptChooser(tab),
                 DispatcherPriority.Background);
         };
 
@@ -284,21 +356,26 @@ public partial class MainWindow : Window
         return menu;
     }
 
-    // Mirrors OnRunScriptMenuClick but targets the terminal tab's connection rather
-    // than the tree selection, and reveals the script panel in the editor tab.
-    private void ShowTerminalScriptChooser(string? sourcePath, Control? anchor)
+    // Mirrors OnRunScriptMenuClick but targets the terminal tab's connection and
+    // shows the script panel over that same terminal.
+    private void ShowTerminalScriptChooser(TabItem tab)
+        => ShowTerminalScriptChooser(tab, tab);
+
+    private void ShowTerminalScriptChooser(TabItem tab, Control? anchor)
     {
-        if (DataContext is not MainWindowViewModel vm || anchor is null)
+        if (DataContext is not MainWindowViewModel vm
+            || tab.Content is not TerminalView view)
             return;
 
-        var choices = vm.PrepareScriptSuiteChoicesForTerminal(sourcePath);
+        var session = CreateTerminalScriptSession(view, tab);
+        var choices = vm.PrepareScriptSuiteChoicesForTerminal(session);
         if (choices.Count == 0)
             return;
 
         if (choices.Count == 1)
         {
             vm.OpenScriptSuiteChoice(choices[0]);
-            RightTabs.SelectedItem = EditorTab;
+            ShowScriptPanelInTerminal(session);
             return;
         }
 
@@ -309,12 +386,12 @@ public partial class MainWindow : Window
             item.Click += (_, _) =>
             {
                 vm.OpenScriptSuiteChoice(choice);
-                RightTabs.SelectedItem = EditorTab;
+                ShowScriptPanelInTerminal(session);
             };
             flyout.Items.Add(item);
         }
 
-        flyout.ShowAt(anchor);
+        flyout.ShowAt(anchor ?? tab);
     }
 
     private void ApplyTerminalFontToOpenTabs(int size)
@@ -428,14 +505,49 @@ public partial class MainWindow : Window
         RightTabs.SelectedItem = EditorTab;
     }
 
-    private void OnRunScriptMenuClick(object? sender, RoutedEventArgs e)
+    private void OnRunScriptTerminalToolbarClick(object? sender, RoutedEventArgs e)
+    {
+        if (RightTabs.SelectedItem is not TabItem { Content: TerminalView } tab)
+        {
+            return;
+        }
+
+        ShowTerminalScriptChooser(tab, sender as Control);
+        e.Handled = true;
+    }
+
+    private async void OnCopyPublicKeyTerminalToolbarClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel vm
+            || RightTabs.SelectedItem is not TabItem { Content: TerminalView view }
+            || view.Connection is not { } connection)
+        {
+            return;
+        }
+
+        view.FocusTerminal();
+        await vm.CopyPublicKeyToServerAsync(connection, key => view.InstallPublicKeyAsync(key));
+        e.Handled = true;
+    }
+
+    private async void OnRunScriptMenuClick(object? sender, RoutedEventArgs e)
     {
         if (DataContext is not MainWindowViewModel vm || sender is not Control anchor)
+            return;
+
+        if (vm.SelectedNode is not { IsConnection: true, Connection: not null } node)
             return;
 
         var choices = vm.PrepareScriptSuiteChoicesForSelectedConnection();
         if (choices.Count == 0)
             return;
+
+        if (choices.Count == 1)
+        {
+            await OpenScriptPanelInNewTerminalAsync(node, choices[0]);
+            e.Handled = true;
+            return;
+        }
 
         var flyout = new MenuFlyout();
         foreach (var choice in choices)
@@ -444,7 +556,10 @@ public partial class MainWindow : Window
             {
                 Header = choice.ToString(),
             };
-            item.Click += (_, _) => vm.OpenScriptSuiteChoice(choice);
+            item.Click += async (_, _) =>
+            {
+                await OpenScriptPanelInNewTerminalAsync(node, choice);
+            };
             flyout.Items.Add(item);
         }
 
@@ -452,10 +567,43 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    private async Task OpenScriptPanelInNewTerminalAsync(TreeNodeViewModel node, ScriptSuiteChoiceViewModel choice)
+    {
+        if (DataContext is not MainWindowViewModel vm || node.Connection is null)
+            return;
+
+        var session = await EnsureSshTerminalAsync(node.Connection, node.FullPath, forceNew: true);
+        if (session is null)
+            return;
+
+        var choices = vm.PrepareScriptSuiteChoicesForTerminal(session);
+        var terminalChoice = choices.FirstOrDefault(c =>
+            string.Equals(c.Suite.RelativePath, choice.Suite.RelativePath, StringComparison.OrdinalIgnoreCase));
+        vm.OpenScriptSuiteChoice(terminalChoice ?? choice);
+        ShowScriptPanelInTerminal(session);
+    }
+
+    private void ShowScriptPanelInTerminal(TerminalScriptSession session)
+    {
+        HideScriptPanels();
+        session.Activate();
+        session.ShowScriptPanel();
+    }
+
+    private void HideScriptPanels()
+    {
+        foreach (var item in RightTabs.Items)
+            if (item is TabItem { Content: TerminalView view })
+                view.HideScriptPanel();
+    }
+
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(MainWindowViewModel.ShowPassword))
             UpdateShowPasswordIdleTimer();
+        else if (e.PropertyName == nameof(MainWindowViewModel.ScriptPanel)
+                 && sender is MainWindowViewModel { ScriptPanel: null })
+            HideScriptPanels();
     }
 
     /// <summary>
