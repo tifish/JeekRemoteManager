@@ -133,56 +133,6 @@ bbr_fail() {
     return 1
 }
 
-set_sysctl_conf_value_strict() {
-    config_file=$1
-    config_key=$2
-    config_value=$3
-    tmp_bbr_file="${config_file}.tmp.$$"
-
-    if [ ! -f "$config_file" ] && ! : > "$config_file"; then
-        bbr_fail "Could not create $config_file."
-        return 1
-    fi
-
-    if ! awk -v key="$config_key" -v value="$config_value" '
-        BEGIN { updated = 0 }
-        {
-            trimmed = $0
-            sub(/^[[:space:]]*/, "", trimmed)
-            if (substr(trimmed, 1, 1) != "#") {
-                separator = index(trimmed, "=")
-                if (separator > 0) {
-                    lhs = substr(trimmed, 1, separator - 1)
-                    gsub(/[[:space:]]/, "", lhs)
-                    if (lhs == key) {
-                        if (!updated) {
-                            print key " = " value
-                            updated = 1
-                        }
-                        next
-                    }
-                }
-            }
-
-            print
-        }
-        END {
-            if (!updated)
-                print key " = " value
-        }
-    ' "$config_file" > "$tmp_bbr_file"; then
-        rm -f "$tmp_bbr_file"
-        bbr_fail "Could not update $config_file."
-        return 1
-    fi
-
-    if ! mv "$tmp_bbr_file" "$config_file"; then
-        rm -f "$tmp_bbr_file"
-        bbr_fail "Could not write $config_file."
-        return 1
-    fi
-}
-
 enable_bbr_strict() {
     if [ "$(uname -s)" != "Linux" ]; then
         bbr_fail "BBR can only be enabled on Linux."
@@ -212,13 +162,22 @@ enable_bbr_strict() {
         return 1
     fi
 
-    if ! set_sysctl_conf_value_strict /etc/sysctl.conf net.core.default_qdisc fq; then
+    bbr_config_file=/etc/sysctl.d/99-jeekremote-bbr.conf
+    if ! mkdir -p /etc/sysctl.d; then
+        bbr_fail "Could not create /etc/sysctl.d."
         return 1
     fi
 
-    if ! set_sysctl_conf_value_strict /etc/sysctl.conf net.ipv4.tcp_congestion_control bbr; then
+    if ! cat > "$bbr_config_file" <<'EOF'
+# Managed by JeekRemoteManager.
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+EOF
+    then
+        bbr_fail "Could not write $bbr_config_file."
         return 1
     fi
+    chmod 0644 "$bbr_config_file" 2>/dev/null || true
 
     sysctl -w net.core.default_qdisc=fq
     sysctl -w net.ipv4.tcp_congestion_control=bbr
@@ -226,7 +185,7 @@ enable_bbr_strict() {
     current_qdisc=$(sysctl -n net.core.default_qdisc 2>/dev/null || printf 'unknown')
     current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || printf 'unknown')
 
-    printf 'BBR configuration written to /etc/sysctl.conf\n'
+    printf 'BBR configuration written to %s\n' "$bbr_config_file"
     printf 'net.core.default_qdisc=%s\n' "$current_qdisc"
     printf 'net.ipv4.tcp_congestion_control=%s\n' "$current_cc"
 

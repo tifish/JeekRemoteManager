@@ -223,48 +223,6 @@ set_or_append_key_value() {
     fi
 }
 
-set_sysctl_conf_value() {
-    config_file=$1
-    config_key=$2
-    config_value=$3
-    tmp_file="${config_file}.tmp.$$"
-    trap 'rm -f "$tmp_file"' EXIT HUP INT TERM
-
-    if [ ! -f "$config_file" ]; then
-        : > "$config_file"
-    fi
-
-    awk -v key="$config_key" -v value="$config_value" '
-        BEGIN { updated = 0 }
-        {
-            trimmed = $0
-            sub(/^[[:space:]]*/, "", trimmed)
-            if (substr(trimmed, 1, 1) != "#") {
-                separator = index(trimmed, "=")
-                if (separator > 0) {
-                    lhs = substr(trimmed, 1, separator - 1)
-                    gsub(/[[:space:]]/, "", lhs)
-                    if (lhs == key) {
-                        if (!updated) {
-                            print key " = " value
-                            updated = 1
-                        }
-                        next
-                    }
-                }
-            }
-
-            print
-        }
-        END {
-            if (!updated)
-                print key " = " value
-        }
-    ' "$config_file" > "$tmp_file"
-
-    mv "$tmp_file" "$config_file"
-}
-
 enable_bbr() {
     if ! command -v sysctl >/dev/null 2>&1; then
         fail "sysctl is not available on this server."
@@ -282,8 +240,14 @@ enable_bbr() {
         fail "Kernel does not report BBR support. Available congestion controls: $available"
     fi
 
-    set_sysctl_conf_value /etc/sysctl.conf net.core.default_qdisc fq
-    set_sysctl_conf_value /etc/sysctl.conf net.ipv4.tcp_congestion_control bbr
+    bbr_config_file=/etc/sysctl.d/99-jeekremote-bbr.conf
+    mkdir -p /etc/sysctl.d
+    cat > "$bbr_config_file" <<'EOF'
+# Managed by JeekRemoteManager.
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+EOF
+    chmod 0644 "$bbr_config_file"
 
     sysctl -w net.core.default_qdisc=fq
     sysctl -w net.ipv4.tcp_congestion_control=bbr
@@ -291,7 +255,7 @@ enable_bbr() {
     current_qdisc=$(sysctl -n net.core.default_qdisc 2>/dev/null || printf 'unknown')
     current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || printf 'unknown')
 
-    info "BBR configuration written to /etc/sysctl.conf."
+    info "BBR configuration written to ${bbr_config_file}."
     info "net.core.default_qdisc=${current_qdisc}"
     info "net.ipv4.tcp_congestion_control=${current_cc}"
 

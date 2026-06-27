@@ -603,13 +603,15 @@ try
           && runtimeSingBoxInstall.Contains("curl is required by the official sing-box install script")
           && runtimeSingBoxInstall.Contains("ensure_official_installer_dependencies"),
           "Bundled sing-box reality install/update script ensures official installer dependencies");
-    Check(runtimeSingBoxInstall.Contains("/etc/sysctl.conf")
+    Check(runtimeSingBoxInstall.Contains("/etc/sysctl.d/99-jeekremote-bbr.conf")
           && runtimeSingBoxInstall.Contains("modprobe tcp_bbr")
           && runtimeSingBoxInstall.Contains("net.core.default_qdisc=fq")
           && runtimeSingBoxInstall.Contains("net.ipv4.tcp_congestion_control=bbr")
+          && runtimeSingBoxInstall.Contains("sysctl -w net.core.default_qdisc=fq")
+          && runtimeSingBoxInstall.Contains("sysctl -w net.ipv4.tcp_congestion_control=bbr")
           && runtimeSingBoxInstall.Contains("BBR is enabled.")
-          && !runtimeSingBoxInstall.Contains("/etc/sysctl.d/99-jeekremote-bbr.conf"),
-          "Bundled sing-box reality install script writes BBR settings to sysctl.conf");
+          && !runtimeSingBoxInstall.Contains("set_sysctl_conf_value_strict /etc/sysctl.conf"),
+          "Bundled sing-box reality install script writes BBR settings to an independent sysctl file");
     Check(runtimeSingBoxInstall.Contains("\"type\": \"vless\"")
           && runtimeSingBoxInstall.Contains("\"listen\": \"0.0.0.0\"")
           && runtimeSingBoxInstall.Contains("xtls-rprx-vision")
@@ -698,11 +700,14 @@ try
           && runtimeServerOptimizationScript.Contains("yum-cron"),
           "Bundled server optimization script enables automatic updates on supported package managers");
     Check(runtimeServerOptimizationScript.Contains("modprobe tcp_bbr")
-          && runtimeServerOptimizationScript.Contains("set_sysctl_conf_value /etc/sysctl.conf net.core.default_qdisc fq")
-          && runtimeServerOptimizationScript.Contains("set_sysctl_conf_value /etc/sysctl.conf net.ipv4.tcp_congestion_control bbr")
-          && runtimeServerOptimizationScript.Contains("BBR configuration written to /etc/sysctl.conf.")
-          && !runtimeServerOptimizationScript.Contains("/etc/sysctl.d/99-jeekremote-bbr.conf"),
-          "Bundled server optimization script writes BBR settings to sysctl.conf");
+          && runtimeServerOptimizationScript.Contains("/etc/sysctl.d/99-jeekremote-bbr.conf")
+          && runtimeServerOptimizationScript.Contains("net.core.default_qdisc = fq")
+          && runtimeServerOptimizationScript.Contains("net.ipv4.tcp_congestion_control = bbr")
+          && runtimeServerOptimizationScript.Contains("sysctl -w net.core.default_qdisc=fq")
+          && runtimeServerOptimizationScript.Contains("sysctl -w net.ipv4.tcp_congestion_control=bbr")
+          && runtimeServerOptimizationScript.Contains("BBR configuration written to ${bbr_config_file}.")
+          && !runtimeServerOptimizationScript.Contains("set_sysctl_conf_value /etc/sysctl.conf"),
+          "Bundled server optimization script writes BBR settings to an independent sysctl file and applies them immediately");
     Check(runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_FIREWALL\"")
           && runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_FAIL2BAN\"")
           && runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_AUTO_UPDATES\"")
