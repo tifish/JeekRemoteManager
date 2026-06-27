@@ -5,12 +5,25 @@ fail() {
     exit 1
 }
 
+COLOR_ESCAPE=$(printf '\033')
+COLOR_RESET="${COLOR_ESCAPE}[0m"
+COLOR_FEATURE_DONE="${COLOR_ESCAPE}[1;32m"
+COLOR_FEATURE_SKIPPED="${COLOR_ESCAPE}[1;33m"
+
 warn() {
     printf 'WARNING: %s\n' "$1" >&2
 }
 
 info() {
     printf '%s\n' "$1"
+}
+
+feature_done() {
+    printf '\n%s=== %s: complete ===%s\n\n' "$COLOR_FEATURE_DONE" "$1" "$COLOR_RESET"
+}
+
+feature_skipped() {
+    printf '\n%s=== %s: skipped ===%s\n\n' "$COLOR_FEATURE_SKIPPED" "$1" "$COLOR_RESET"
 }
 
 is_enabled() {
@@ -414,38 +427,50 @@ info "Detected SSH port: ${ssh_port}"
 
 if is_enabled "$ENABLE_FIREWALL"; then
     configure_firewall "$ssh_port"
+    feature_done "Firewall"
 else
     info "Firewall setup skipped by ENABLE_FIREWALL=false."
+    feature_skipped "Firewall"
 fi
 
 if is_enabled "$ENABLE_FAIL2BAN"; then
     ensure_fail2ban "$ssh_port"
+    feature_done "fail2ban"
 else
     info "fail2ban setup skipped by ENABLE_FAIL2BAN=false."
+    feature_skipped "fail2ban"
 fi
 
 if is_enabled "$ENABLE_AUTO_UPDATES"; then
     enable_auto_updates
+    feature_done "Automatic security updates"
 else
     info "Automatic updates setup skipped by ENABLE_AUTO_UPDATES=false."
+    feature_skipped "Automatic security updates"
 fi
 
 if is_enabled "$ENABLE_BBR"; then
     enable_bbr
+    feature_done "BBR"
 else
     info "BBR setup skipped by ENABLE_BBR=false."
+    feature_skipped "BBR"
 fi
 
 if is_enabled "$ENABLE_APT_AUTOREMOVE"; then
     run_apt_autoremove
+    feature_done "apt autoremove"
 else
     info "apt autoremove skipped by ENABLE_APT_AUTOREMOVE=false."
+    feature_skipped "apt autoremove"
 fi
 
 if is_enabled "$ENABLE_COMMAND_COLORS"; then
     enable_command_colors
+    feature_done "Command colors"
 else
     info "Command color setup skipped by ENABLE_COMMAND_COLORS=false."
+    feature_skipped "Command colors"
 fi
 
 info "Basic server optimization setup completed."

@@ -715,6 +715,23 @@ try
           && runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_APT_AUTOREMOVE\"")
           && runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_COMMAND_COLORS\""),
           "Bundled server optimization script gates each feature behind a boolean parameter");
+    Check(!runtimeServerOptimizationScript.Contains("COLOR_FEATURE_START")
+          && !runtimeServerOptimizationScript.Contains("feature_start")
+          && runtimeServerOptimizationScript.Contains("COLOR_FEATURE_DONE")
+          && runtimeServerOptimizationScript.Contains("COLOR_FEATURE_SKIPPED")
+          && runtimeServerOptimizationScript.Contains("feature_done \"Firewall\"")
+          && runtimeServerOptimizationScript.Contains("feature_skipped \"Firewall\"")
+          && runtimeServerOptimizationScript.Contains("feature_done \"fail2ban\"")
+          && runtimeServerOptimizationScript.Contains("feature_skipped \"fail2ban\"")
+          && runtimeServerOptimizationScript.Contains("feature_done \"Automatic security updates\"")
+          && runtimeServerOptimizationScript.Contains("feature_skipped \"Automatic security updates\"")
+          && runtimeServerOptimizationScript.Contains("feature_done \"BBR\"")
+          && runtimeServerOptimizationScript.Contains("feature_skipped \"BBR\"")
+          && runtimeServerOptimizationScript.Contains("feature_done \"apt autoremove\"")
+          && runtimeServerOptimizationScript.Contains("feature_skipped \"apt autoremove\"")
+          && runtimeServerOptimizationScript.Contains("feature_done \"Command colors\"")
+          && runtimeServerOptimizationScript.Contains("feature_skipped \"Command colors\""),
+          "Bundled server optimization script separates every feature with colored end output");
     Check(runtimeServerOptimizationScript.Contains("apt-get autoremove -y")
           && runtimeServerOptimizationScript.Contains("/etc/apt/apt.conf.d/52unattended-upgrades-jeekremote-autoremove")
           && runtimeServerOptimizationScript.Contains("Unattended-Upgrade::Remove-Unused-Dependencies \"true\"")
