@@ -60,15 +60,21 @@ remove_firewall_rule() {
 
 backup_and_remove_config() {
     config_file=/etc/sing-box/config.json
-    if [ ! -f "$config_file" ]; then
+    link_info_file=/etc/sing-box/jeekremote-reality-link.conf
+
+    if [ -f "$config_file" ]; then
+        backup_file="/root/sing-box-config-backup-before-uninstall-$(date +%Y%m%d-%H%M%S).json"
+        cp -p "$config_file" "$backup_file"
+        rm -f "$config_file"
+        printf 'Existing sing-box config backed up to %s and removed.\n' "$backup_file"
+    else
         printf 'sing-box config not found: %s\n' "$config_file"
-        return 0
     fi
 
-    backup_file="/root/sing-box-config-backup-before-uninstall-$(date +%Y%m%d-%H%M%S).json"
-    cp -p "$config_file" "$backup_file"
-    rm -f "$config_file"
-    printf 'Existing sing-box config backed up to %s and removed.\n' "$backup_file"
+    if [ -f "$link_info_file" ]; then
+        rm -f "$link_info_file"
+        printf 'sing-box reality link metadata removed: %s\n' "$link_info_file"
+    fi
 
     rmdir /etc/sing-box 2>/dev/null || true
 }

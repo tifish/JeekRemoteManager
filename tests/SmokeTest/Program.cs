@@ -577,10 +577,15 @@ try
     var runtimeSingBoxUninstall = File.Exists(runtimeSingBoxUninstallPath)
         ? File.ReadAllText(runtimeSingBoxUninstallPath)
         : "";
+    var runtimeSingBoxShowLinkPath = Path.Combine(runtimeSingBoxDir, "show-link.sh");
+    var runtimeSingBoxShowLink = File.Exists(runtimeSingBoxShowLinkPath)
+        ? File.ReadAllText(runtimeSingBoxShowLinkPath)
+        : "";
     Check(runtimeSingBoxSuite.Errors.Count == 0
           && runtimeSingBoxSuite.Scripts.Any(s => s.Name == "install.sh")
+          && runtimeSingBoxSuite.Scripts.Any(s => s.Name == "show-link.sh")
           && runtimeSingBoxSuite.Scripts.Any(s => s.Name == "uninstall.sh"),
-          "Bundled sing-box reality install and uninstall scripts are discoverable");
+          "Bundled sing-box reality install, show-link, and uninstall scripts are discoverable");
     Check(runtimeSingBoxSuite.Parameters.Count == 2
           && runtimeSingBoxSuite.Parameters[0].Name == "PORT"
           && runtimeSingBoxSuite.Parameters[0].Type == RemoteScriptParameterType.Number
@@ -618,10 +623,22 @@ try
           && runtimeSingBoxInstall.Contains("ufw allow \"${PORT}/tcp\"")
           && runtimeSingBoxInstall.Contains("firewall-cmd --permanent --add-port=\"${PORT}/tcp\"")
           && runtimeSingBoxInstall.Contains("YOUR_SERVER_ADDRESS")
+          && runtimeSingBoxInstall.Contains("/etc/sing-box/jeekremote-reality-link.conf")
+          && runtimeSingBoxInstall.Contains("PUBLIC_KEY=$public_key")
+          && runtimeSingBoxInstall.Contains("SHORT_ID=$short_id")
           && runtimeSingBoxInstall.Contains("install/update completed")
           && runtimeSingBoxInstall.Contains("Repeated runs update sing-box and replace the config with the current PORT and SNI")
           && runtimeSingBoxInstall.Contains("cloud security group"),
           "Bundled sing-box reality install/update script detects address and handles supported firewalls");
+    Check(runtimeSingBoxShowLink.Contains("/etc/sing-box/jeekremote-reality-link.conf")
+          && runtimeSingBoxShowLink.Contains("Run install.sh once")
+          && runtimeSingBoxShowLink.Contains("https://api.ipify.org")
+          && runtimeSingBoxShowLink.Contains("flow=xtls-rprx-vision")
+          && runtimeSingBoxShowLink.Contains("fp=chrome")
+          && runtimeSingBoxShowLink.Contains("pbk=${public_key}")
+          && runtimeSingBoxShowLink.Contains("sid=${short_id}")
+          && runtimeSingBoxShowLink.Contains("sing-box reality client link"),
+          "Bundled sing-box reality show-link script prints the saved client URI");
     Check(runtimeSingBoxUninstall.Contains("systemctl stop sing-box")
           && runtimeSingBoxUninstall.Contains("apt-get purge -y sing-box")
           && runtimeSingBoxUninstall.Contains("dnf remove -y sing-box")
@@ -631,6 +648,7 @@ try
     Check(runtimeSingBoxUninstall.Contains("ufw --force delete allow \"${PORT}/tcp\"")
           && runtimeSingBoxUninstall.Contains("firewall-cmd --permanent --remove-port=\"${PORT}/tcp\"")
           && runtimeSingBoxUninstall.Contains("sing-box-config-backup-before-uninstall")
+          && runtimeSingBoxUninstall.Contains("jeekremote-reality-link.conf")
           && runtimeSingBoxUninstall.Contains("BBR settings were left unchanged")
           && !runtimeSingBoxUninstall.Contains("built-in BBR disable script"),
           "Bundled sing-box reality uninstall script cleans local state without disabling BBR");

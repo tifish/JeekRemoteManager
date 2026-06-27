@@ -2,6 +2,7 @@ set -eu
 
 tmp_config=
 tmp_install=
+tmp_link_info=
 
 cleanup() {
     if [ -n "$tmp_config" ]; then
@@ -9,6 +10,9 @@ cleanup() {
     fi
     if [ -n "$tmp_install" ]; then
         rm -f "$tmp_install"
+    fi
+    if [ -n "$tmp_link_info" ]; then
+        rm -f "$tmp_link_info"
     fi
 }
 
@@ -445,6 +449,19 @@ case "$server_address" in
 esac
 
 vless_uri="vless://${uuid}@${uri_host}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${SNI}&fp=chrome&pbk=${public_key}&sid=${short_id}&type=tcp#sing-box-reality"
+link_info_file=/etc/sing-box/jeekremote-reality-link.conf
+tmp_link_info=$(mktemp)
+cat > "$tmp_link_info" <<EOF_LINK_INFO
+SERVER_ADDRESS=$server_address
+PORT=$PORT
+SNI=$SNI
+UUID=$uuid
+PUBLIC_KEY=$public_key
+SHORT_ID=$short_id
+EOF_LINK_INFO
+chmod 600 "$tmp_link_info"
+mv "$tmp_link_info" "$link_info_file"
+tmp_link_info=
 
 printf '\n'
 printf 'sing-box reality install/update completed.\n'
