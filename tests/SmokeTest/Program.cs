@@ -997,23 +997,10 @@ try
     Check(!payload.Contains('\r'), "Script payload uses LF line endings for remote sh");
     Check(payload.Contains("tok'\"'\"'en line1") && payload.Contains("line2 密码"),
           "Script payload shell-quotes quotes, newlines, and Unicode values");
-    const string terminalScriptToken = "abc123";
-    var terminalInvocation = RemoteScriptLauncher.BuildTerminalInvocation(payload.Replace("\n", "\r\n"), terminalScriptToken);
-    var terminalProfileSourceIndex = terminalInvocation.IndexOf(
-        ". /etc/profile.d/jeekremote-command-colors.sh 2>/dev/null || true",
-        StringComparison.Ordinal);
-    var terminalExitMarkerIndex = terminalInvocation.IndexOf(
-        "printf '\\033]777;JRM_SCRIPT_EXIT:",
-        StringComparison.Ordinal);
-    Check(!terminalInvocation.Contains('\r')
-          && terminalInvocation.Contains("__jrm_payload=$(cat <<'JRM_SCRIPT_abc123'")
-          && terminalInvocation.Contains("export TARGET='web api'")
-          && terminalInvocation.Contains("printf '\\033]777;JRM_SCRIPT_EXIT:abc123:%s\\007\\n' \"$__jrm_status\""),
-          "Terminal script invocation wraps payload with LF line endings and an exit marker");
-    Check(terminalProfileSourceIndex > 0
-          && terminalProfileSourceIndex < terminalExitMarkerIndex
-          && terminalInvocation.Contains("if [ \"$__jrm_status\" -eq 0 ] && [ -r /etc/profile.d/jeekremote-command-colors.sh ]; then"),
-          "Terminal script invocation activates command colors in the current shell before completion");
+    Check(!payload.Contains("JRM_SCRIPT_", StringComparison.Ordinal)
+          && !payload.Contains("stty -echo", StringComparison.Ordinal)
+          && !payload.Contains("__jrm_payload", StringComparison.Ordinal),
+          "Script execution payload contains only the script body, not terminal control wrappers");
     var terminalPublicKeyPayload = PublicKeyInstaller.BuildTerminalPayload("ssh-ed25519 AAAATEST test");
     Check(terminalPublicKeyPayload.Contains(PublicKeyInstaller.TerminalAlreadyPresentLine)
           && terminalPublicKeyPayload.Contains(PublicKeyInstaller.TerminalAddedLine)

@@ -15,8 +15,6 @@ public sealed record RemoteScriptExecutionResult(
 
 public class RemoteScriptLauncher
 {
-    public const string TerminalScriptExitMarkerPrefix = "\u001b]777;JRM_SCRIPT_EXIT:";
-
     public static string BuildPayload(
         RemoteScriptSuite suite,
         RemoteScriptFile scriptFile,
@@ -42,43 +40,6 @@ public class RemoteScriptLauncher
         sb.Append(script);
         if (!script.EndsWith('\n'))
             sb.Append('\n');
-
-        return sb.ToString();
-    }
-
-    public static string BuildTerminalInvocation(string payload, string token)
-    {
-        if (string.IsNullOrWhiteSpace(token)
-            || token.Any(c => !char.IsLetterOrDigit(c) && c != '_'))
-            throw new ArgumentException("Terminal script token must contain only letters, digits, or underscores.", nameof(token));
-
-        var normalizedPayload = payload
-            .Replace("\r\n", "\n")
-            .Replace('\r', '\n');
-        var delimiter = "JRM_SCRIPT_" + token;
-        var sb = new StringBuilder();
-
-        sb.Append('\n');
-        sb.Append("__jrm_stty=$(stty -g 2>/dev/null || true)\n");
-        sb.Append("stty -echo 2>/dev/null || true\n");
-        sb.Append("__jrm_payload=$(cat <<'");
-        sb.Append(delimiter);
-        sb.Append("'\n");
-        sb.Append(normalizedPayload);
-        if (!normalizedPayload.EndsWith('\n'))
-            sb.Append('\n');
-        sb.Append(delimiter);
-        sb.Append("\n)\n");
-        sb.Append("if [ -n \"$__jrm_stty\" ]; then stty \"$__jrm_stty\" 2>/dev/null || stty echo 2>/dev/null || true; else stty echo 2>/dev/null || true; fi\n");
-        sb.Append("printf '%s\\n' \"$__jrm_payload\" | sh\n");
-        sb.Append("__jrm_status=$?\n");
-        sb.Append("unset __jrm_payload\n");
-        sb.Append("if [ \"$__jrm_status\" -eq 0 ] && [ -r /etc/profile.d/jeekremote-command-colors.sh ]; then ");
-        sb.Append(". /etc/profile.d/jeekremote-command-colors.sh 2>/dev/null || true; fi\n");
-        sb.Append("printf '\\033]777;JRM_SCRIPT_EXIT:");
-        sb.Append(token);
-        sb.Append(":%s\\007\\n' \"$__jrm_status\"\n");
-        sb.Append("unset __jrm_stty __jrm_status\n");
 
         return sb.ToString();
     }
