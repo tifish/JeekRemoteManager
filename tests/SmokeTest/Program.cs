@@ -664,18 +664,20 @@ try
           && runtimeServerOptimizationSuite.Scripts.Count == 1
           && runtimeServerOptimizationSuite.Scripts[0].Name == "apply.sh",
           "Bundled server optimization script is discoverable");
-    Check(runtimeServerOptimizationSuite.Parameters.Count == 5
+    Check(runtimeServerOptimizationSuite.Parameters.Count == 6
           && runtimeServerOptimizationSuite.Parameters.All(p => p.Type == RemoteScriptParameterType.Bool)
           && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_FAIL2BAN").DefaultValue == "true"
           && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_FIREWALL").DefaultValue == "true"
           && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_AUTO_UPDATES").DefaultValue == "true"
           && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_BBR").DefaultValue == "true"
           && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_APT_AUTOREMOVE").DefaultValue == "false"
+          && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_COMMAND_COLORS").DefaultValue == "true"
           && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_FAIL2BAN")
           && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_FIREWALL")
           && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_AUTO_UPDATES")
           && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_BBR")
-          && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_APT_AUTOREMOVE"),
+          && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_APT_AUTOREMOVE")
+          && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_COMMAND_COLORS"),
           "Bundled server optimization script exposes boolean feature toggles");
     Check(runtimeServerOptimizationScript.Contains("install_packages fail2ban")
           && runtimeServerOptimizationScript.Contains("systemctl enable fail2ban")
@@ -705,7 +707,8 @@ try
           && runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_FAIL2BAN\"")
           && runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_AUTO_UPDATES\"")
           && runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_BBR\"")
-          && runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_APT_AUTOREMOVE\""),
+          && runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_APT_AUTOREMOVE\"")
+          && runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_COMMAND_COLORS\""),
           "Bundled server optimization script gates each feature behind a boolean parameter");
     Check(runtimeServerOptimizationScript.Contains("apt-get autoremove -y")
           && runtimeServerOptimizationScript.Contains("/etc/apt/apt.conf.d/52unattended-upgrades-jeekremote-autoremove")
@@ -715,6 +718,24 @@ try
           && runtimeServerOptimizationScript.Contains("skipping immediate apt autoremove")
           && runtimeServerOptimizationScript.Contains("ENABLE_APT_AUTOREMOVE=${ENABLE_APT_AUTOREMOVE:-false}"),
           "Bundled server optimization script supports unattended-upgrades apt autoremove");
+    Check(runtimeServerOptimizationScript.Contains("/etc/profile.d/jeekremote-command-colors.sh")
+          && runtimeServerOptimizationScript.Contains("ENABLE_COMMAND_COLORS=${ENABLE_COMMAND_COLORS:-true}")
+          && runtimeServerOptimizationScript.Contains("case \"$-\"")
+          && runtimeServerOptimizationScript.Contains("dircolors -b")
+          && runtimeServerOptimizationScript.Contains("alias ls='ls --color=auto'")
+          && runtimeServerOptimizationScript.Contains("alias ll='ls -alF --color=auto'")
+          && runtimeServerOptimizationScript.Contains("alias la='ls -A --color=auto'")
+          && runtimeServerOptimizationScript.Contains("alias l='ls -CF --color=auto'")
+          && runtimeServerOptimizationScript.Contains("alias grep='grep --color=auto'")
+          && runtimeServerOptimizationScript.Contains("export LESS='-R'")
+          && runtimeServerOptimizationScript.Contains("prompt_user_color='31'")
+          && runtimeServerOptimizationScript.Contains("prompt_user_color='32'")
+          && runtimeServerOptimizationScript.Contains("BASH_VERSION")
+          && runtimeServerOptimizationScript.Contains("\\u")
+          && runtimeServerOptimizationScript.Contains("\\h")
+          && runtimeServerOptimizationScript.Contains("\\w")
+          && runtimeServerOptimizationScript.Contains("export PS1"),
+          "Bundled server optimization script installs interactive command color defaults");
     Check(!runtimeServerOptimizationScript.Contains("PasswordAuthentication")
           && !runtimeServerOptimizationScript.Contains("PermitRootLogin"),
           "Bundled server optimization script does not harden SSH login policy");
@@ -973,11 +994,21 @@ try
           "Script payload shell-quotes quotes, newlines, and Unicode values");
     const string terminalScriptToken = "abc123";
     var terminalInvocation = RemoteScriptLauncher.BuildTerminalInvocation(payload.Replace("\n", "\r\n"), terminalScriptToken);
+    var terminalProfileSourceIndex = terminalInvocation.IndexOf(
+        ". /etc/profile.d/jeekremote-command-colors.sh 2>/dev/null || true",
+        StringComparison.Ordinal);
+    var terminalExitMarkerIndex = terminalInvocation.IndexOf(
+        "printf '\\033]777;JRM_SCRIPT_EXIT:",
+        StringComparison.Ordinal);
     Check(!terminalInvocation.Contains('\r')
           && terminalInvocation.Contains("__jrm_payload=$(cat <<'JRM_SCRIPT_abc123'")
           && terminalInvocation.Contains("export TARGET='web api'")
           && terminalInvocation.Contains("printf '\\033]777;JRM_SCRIPT_EXIT:abc123:%s\\007\\n' \"$__jrm_status\""),
           "Terminal script invocation wraps payload with LF line endings and an exit marker");
+    Check(terminalProfileSourceIndex > 0
+          && terminalProfileSourceIndex < terminalExitMarkerIndex
+          && terminalInvocation.Contains("if [ \"$__jrm_status\" -eq 0 ] && [ -r /etc/profile.d/jeekremote-command-colors.sh ]; then"),
+          "Terminal script invocation activates command colors in the current shell before completion");
     var terminalPublicKeyPayload = PublicKeyInstaller.BuildTerminalPayload("ssh-ed25519 AAAATEST test");
     Check(terminalPublicKeyPayload.Contains(PublicKeyInstaller.TerminalAlreadyPresentLine)
           && terminalPublicKeyPayload.Contains(PublicKeyInstaller.TerminalAddedLine)

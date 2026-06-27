@@ -73,6 +73,8 @@ public class RemoteScriptLauncher
         sb.Append("printf '%s\\n' \"$__jrm_payload\" | sh\n");
         sb.Append("__jrm_status=$?\n");
         sb.Append("unset __jrm_payload\n");
+        sb.Append("if [ \"$__jrm_status\" -eq 0 ] && [ -r /etc/profile.d/jeekremote-command-colors.sh ]; then ");
+        sb.Append(". /etc/profile.d/jeekremote-command-colors.sh 2>/dev/null || true; fi\n");
         sb.Append("printf '\\033]777;JRM_SCRIPT_EXIT:");
         sb.Append(token);
         sb.Append(":%s\\007\\n' \"$__jrm_status\"\n");

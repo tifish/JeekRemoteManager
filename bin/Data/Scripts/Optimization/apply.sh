@@ -46,6 +46,7 @@ ENABLE_FIREWALL=${ENABLE_FIREWALL:-true}
 ENABLE_AUTO_UPDATES=${ENABLE_AUTO_UPDATES:-true}
 ENABLE_BBR=${ENABLE_BBR:-true}
 ENABLE_APT_AUTOREMOVE=${ENABLE_APT_AUTOREMOVE:-false}
+ENABLE_COMMAND_COLORS=${ENABLE_COMMAND_COLORS:-true}
 
 detect_package_manager() {
     if command -v apt-get >/dev/null 2>&1; then
@@ -388,6 +389,62 @@ EOF
     info "apt autoremove completed."
 }
 
+enable_command_colors() {
+    mkdir -p /etc/profile.d
+    cat > /etc/profile.d/jeekremote-command-colors.sh <<'EOF'
+# Managed by JeekRemoteManager.
+
+case "$-" in
+    *i*)
+        ;;
+    *)
+        return 0 2>/dev/null || exit 0
+        ;;
+esac
+
+if [ ! -t 1 ]; then
+    return 0 2>/dev/null || exit 0
+fi
+
+if command -v dircolors >/dev/null 2>&1; then
+    eval "$(dircolors -b 2>/dev/null)" || true
+fi
+
+if command -v ls >/dev/null 2>&1 && ls --color=auto -d . >/dev/null 2>&1; then
+    alias ls='ls --color=auto'
+    alias ll='ls -alF --color=auto'
+    alias la='ls -A --color=auto'
+    alias l='ls -CF --color=auto'
+fi
+
+if command -v grep >/dev/null 2>&1 && { grep --color=auto -q '' /dev/null >/dev/null 2>&1 || [ "$?" -eq 1 ]; }; then
+    alias grep='grep --color=auto'
+fi
+
+if [ "${LESS+x}" != x ]; then
+    export LESS='-R'
+fi
+
+if [ "$(id -u 2>/dev/null || printf '1')" = "0" ]; then
+    prompt_user_color='31'
+else
+    prompt_user_color='32'
+fi
+
+if [ -n "${BASH_VERSION:-}" ]; then
+    PS1='\[\033[1;'"${prompt_user_color}"'m\]\u\[\033[0m\]@\[\033[1;36m\]\h\[\033[0m\]:\[\033[1;34m\]\w\[\033[0m\] \[\033[1;33m\]\$ \[\033[0m\]'
+else
+    prompt_escape=$(printf '\033')
+    prompt_user=$(id -un 2>/dev/null || printf 'user')
+    prompt_host=$(hostname -s 2>/dev/null || hostname 2>/dev/null || printf 'host')
+    PS1="${prompt_escape}[1;${prompt_user_color}m${prompt_user}${prompt_escape}[0m@${prompt_escape}[1;36m${prompt_host}${prompt_escape}[0m:${prompt_escape}[1;34m"'$PWD'"${prompt_escape}[0m ${prompt_escape}[1;33m\\$ ${prompt_escape}[0m"
+fi
+export PS1
+EOF
+    chmod 0644 /etc/profile.d/jeekremote-command-colors.sh
+    info "Command color profile is installed at /etc/profile.d/jeekremote-command-colors.sh."
+}
+
 ssh_port=$(detect_ssh_port)
 info "Detected SSH port: ${ssh_port}"
 
@@ -419,6 +476,12 @@ if is_enabled "$ENABLE_APT_AUTOREMOVE"; then
     run_apt_autoremove
 else
     info "apt autoremove skipped by ENABLE_APT_AUTOREMOVE=false."
+fi
+
+if is_enabled "$ENABLE_COMMAND_COLORS"; then
+    enable_command_colors
+else
+    info "Command color setup skipped by ENABLE_COMMAND_COLORS=false."
 fi
 
 info "Basic server optimization setup completed."
