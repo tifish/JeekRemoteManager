@@ -28,9 +28,11 @@ LISTEN_PORT=${LISTEN_PORT:-}
 ALLOW_EXTERNAL=${ALLOW_EXTERNAL:-false}
 ENABLE_TUN=${ENABLE_TUN:-false}
 UPDATE_SING_BOX=${UPDATE_SING_BOX:-true}
-download_connect_timeout_seconds=5
-download_stall_timeout_seconds=8
-download_min_speed_bytes=1024
+download_connect_timeout_seconds=2
+download_response_timeout_seconds=4
+download_package_timeout_seconds=20
+download_stall_timeout_seconds=3
+download_min_speed_bytes=65536
 
 if [ "$(uname -s)" != "Linux" ]; then
     fail "This deployment script only supports Linux."
@@ -286,19 +288,31 @@ download_to_file() {
     if command -v curl >/dev/null 2>&1; then
         curl -fsSL \
             --connect-timeout "$download_connect_timeout_seconds" \
+            --max-time "$download_package_timeout_seconds" \
             --retry 0 \
             --speed-limit "$download_min_speed_bytes" \
             --speed-time "$download_stall_timeout_seconds" \
             -o "$target" \
             "$url"
     elif command -v wget >/dev/null 2>&1; then
-        wget \
-            --connect-timeout="$download_connect_timeout_seconds" \
-            --read-timeout="$download_stall_timeout_seconds" \
-            --timeout="$download_stall_timeout_seconds" \
-            --tries=1 \
-            -qO "$target" \
-            "$url"
+        if command -v timeout >/dev/null 2>&1; then
+            timeout "$download_package_timeout_seconds" \
+                wget \
+                    --connect-timeout="$download_connect_timeout_seconds" \
+                    --read-timeout="$download_stall_timeout_seconds" \
+                    --timeout="$download_stall_timeout_seconds" \
+                    --tries=1 \
+                    -qO "$target" \
+                    "$url"
+        else
+            wget \
+                --connect-timeout="$download_connect_timeout_seconds" \
+                --read-timeout="$download_stall_timeout_seconds" \
+                --timeout="$download_stall_timeout_seconds" \
+                --tries=1 \
+                -qO "$target" \
+                "$url"
+        fi
     else
         return 1
     fi
@@ -310,17 +324,28 @@ download_to_stdout() {
     if command -v curl >/dev/null 2>&1; then
         curl -fsSL \
             --connect-timeout "$download_connect_timeout_seconds" \
-            --max-time "$download_stall_timeout_seconds" \
+            --max-time "$download_response_timeout_seconds" \
             --retry 0 \
             "$url"
     elif command -v wget >/dev/null 2>&1; then
-        wget \
-            --connect-timeout="$download_connect_timeout_seconds" \
-            --read-timeout="$download_stall_timeout_seconds" \
-            --timeout="$download_stall_timeout_seconds" \
-            --tries=1 \
-            -qO- \
-            "$url"
+        if command -v timeout >/dev/null 2>&1; then
+            timeout "$download_response_timeout_seconds" \
+                wget \
+                    --connect-timeout="$download_connect_timeout_seconds" \
+                    --read-timeout="$download_response_timeout_seconds" \
+                    --timeout="$download_response_timeout_seconds" \
+                    --tries=1 \
+                    -qO- \
+                    "$url"
+        else
+            wget \
+                --connect-timeout="$download_connect_timeout_seconds" \
+                --read-timeout="$download_response_timeout_seconds" \
+                --timeout="$download_response_timeout_seconds" \
+                --tries=1 \
+                -qO- \
+                "$url"
+        fi
     else
         return 1
     fi
