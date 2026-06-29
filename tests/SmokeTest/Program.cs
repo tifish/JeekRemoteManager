@@ -1016,8 +1016,44 @@ try
           "Script payload shell-quotes quotes, newlines, and Unicode values");
     Check(!payload.Contains("JRM_SCRIPT_", StringComparison.Ordinal)
           && !payload.Contains("stty -echo", StringComparison.Ordinal)
+          && !payload.Contains("__JRM_PAYLOAD_", StringComparison.Ordinal)
           && !payload.Contains("__jrm_payload", StringComparison.Ordinal),
           "Script execution payload contains only the script body, not terminal control wrappers");
+    var interactivePayload = InteractiveShellPayloadRunner.Build(payload, "SMOKETOKEN");
+    var encodedPayload = InteractiveShellPayloadRunner.EncodePayloadForShell(payload);
+    var encodedPayloadFirstLine = encodedPayload[..Math.Min(
+        InteractiveShellPayloadRunner.EncodedPayloadLineLength,
+        encodedPayload.Length)];
+    var encodedPayloadLines = interactivePayload.ExecuteCommand
+        .Split('\n')
+        .Where(line => line.Length > 0 && line.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '+' or '/' or '='))
+        .ToArray();
+    Check(interactivePayload.PrepareCommand.Contains("stty -echo", StringComparison.Ordinal)
+          && interactivePayload.PrepareCommand.Contains("'__JRM_READY_' 'SMOKETOKEN__'", StringComparison.Ordinal)
+          && interactivePayload.ExecuteCommand.Contains(
+              "base64 -d <<'__JRM_PAYLOAD_SMOKETOKEN__' | gzip -dc | { printf '\\n%s%s\\n' '__JRM_BEGIN_' 'SMOKETOKEN__'; sh -s; }\n",
+              StringComparison.Ordinal)
+          && interactivePayload.ExecuteCommand.Contains(interactivePayload.PayloadDelimiter, StringComparison.Ordinal)
+          && interactivePayload.ExecuteCommand.Contains(encodedPayloadFirstLine, StringComparison.Ordinal)
+          && encodedPayloadLines.All(line => line.Length <= InteractiveShellPayloadRunner.EncodedPayloadLineLength)
+          && interactivePayload.ExecuteCommand.Contains("'__JRM_BEGIN_' 'SMOKETOKEN__'", StringComparison.Ordinal)
+          && interactivePayload.ExecuteCommand.Contains("'__JRM_EXIT_' 'SMOKETOKEN__'", StringComparison.Ordinal)
+          && !interactivePayload.ExecuteCommand.Contains(payload, StringComparison.Ordinal)
+          && !interactivePayload.ExecuteCommand.Contains('\r'),
+          "Interactive shell runner sends compressed base64 payload to sh stdin and wraps it with ready and exit markers");
+    var interactiveMonitor = new InteractiveShellPayloadMonitor(interactivePayload);
+    var hiddenOutput = interactiveMonitor.Append(Encoding.UTF8.GetBytes("echoed command\n__JRM_READY_SMOKE"));
+    hiddenOutput = hiddenOutput.Concat(interactiveMonitor.Append(Encoding.UTF8.GetBytes("TOKEN__\nechoed payload\n"))).ToArray();
+    await interactiveMonitor.WaitForReadyAsync(TimeSpan.FromMilliseconds(50), CancellationToken.None);
+    var visibleOutput = interactiveMonitor.Append(Encoding.UTF8.GetBytes("__JRM_BEGIN_SMOKETOKEN__\nscript output"));
+    visibleOutput = visibleOutput.Concat(interactiveMonitor.Append(Encoding.UTF8.GetBytes("\n__JRM_EXIT_SMOKETOKEN__:105\n"))).ToArray();
+    var parsedInteractiveResult = await interactiveMonitor.WaitForExitAsync(CancellationToken.None);
+    Check(parsedInteractiveResult.ExitCode == 105
+          && parsedInteractiveResult.Output.Contains("script output", StringComparison.Ordinal)
+          && Encoding.UTF8.GetString(hiddenOutput).Length == 0
+          && Encoding.UTF8.GetString(visibleOutput).Contains("script output", StringComparison.Ordinal)
+          && !Encoding.UTF8.GetString(visibleOutput).Contains(interactivePayload.ExitMarkerPrefix, StringComparison.Ordinal),
+          "Interactive shell monitor hides injection echo and parses split ready and exit markers");
     var terminalPublicKeyPayload = PublicKeyInstaller.BuildTerminalPayload("ssh-ed25519 AAAATEST test");
     Check(terminalPublicKeyPayload.Contains(PublicKeyInstaller.TerminalAlreadyPresentLine)
           && terminalPublicKeyPayload.Contains(PublicKeyInstaller.TerminalAddedLine)

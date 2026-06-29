@@ -16,9 +16,8 @@ public sealed record PublicKeyInstallResult(bool AlreadyPresent, string Output);
 
 /// <summary>
 /// Installs a local SSH public key into the remote account's
-/// <c>~/.ssh/authorized_keys</c> over a fresh SSH connection, reusing the same
-/// programmatic auth and known-hosts path as the terminal and script runner.
-/// Idempotent: an already-present key is detected rather than duplicated.
+/// <c>~/.ssh/authorized_keys</c> over a fresh interactive SSH shell. Idempotent:
+/// an already-present key is detected rather than duplicated.
 /// </summary>
 public static class PublicKeyInstaller
 {
@@ -104,36 +103,51 @@ public static class PublicKeyInstaller
             return sshClient;
         }, cancellationToken).ConfigureAwait(false);
 
-        using var command = client.CreateCommand("sh -s");
-        var async = command.BeginExecute();
+        var terminalType = string.IsNullOrWhiteSpace(connection.TerminalType)
+            ? Connection.DefaultTerminalType
+            : connection.TerminalType.Trim();
+        using var shell = client.CreateShellStream(
+            terminalType,
+            120,
+            30,
+            0,
+            0,
+            4096);
+        var payload = InteractiveShellPayloadRunner.Build(BuildPayload(publicKeyText));
+        var monitor = new InteractiveShellPayloadMonitor(payload);
+        shell.DataReceived += (_, e) => monitor.Append(e.Data);
+        shell.ErrorOccurred += (_, e) => monitor.Fail(e.Exception);
+        shell.Closed += (_, _) => monitor.Fail(new InvalidOperationException("SSH shell closed during public key installation."));
 
+        InteractiveShellPayloadResult result;
         try
         {
-            using (var input = command.CreateInputStream())
-            {
-                var payload = Encoding.UTF8.GetBytes(BuildPayload(publicKeyText));
-                await input.WriteAsync(payload, cancellationToken).ConfigureAwait(false);
-                await input.FlushAsync(cancellationToken).ConfigureAwait(false);
-            }
+            result = await InteractiveShellPayloadRunner.RunAsync(
+                payload,
+                monitor,
+                WriteToShell,
+                cancellationToken).ConfigureAwait(false);
         }
         catch
         {
-            try { command.EndExecute(async); } catch { /* superseded by the original */ }
+            try { WriteToShell(InteractiveShellPayloadRunner.RestoreEchoCommand); } catch { /* ignore */ }
             throw;
         }
 
-        var result = command.EndExecute(async) ?? "";
-        var errors = command.Error ?? "";
-        if (errors.Length > 0)
-            output.Append(errors);
-
-        if ((command.ExitStatus ?? -1) != 0)
+        if (result.ExitCode != 0)
             throw new InvalidOperationException(
-                output.Length > 0 ? output.ToString().Trim() : $"Remote command exited with code {command.ExitStatus}.");
+                result.Output.Length > 0 ? result.Output.Trim() : $"Remote command exited with code {result.ExitCode}.");
 
         return new PublicKeyInstallResult(
-            AlreadyPresent: result.Contains("__JRM_KEY_PRESENT__", StringComparison.Ordinal),
-            Output: output.ToString());
+            AlreadyPresent: result.Output.Contains("__JRM_KEY_PRESENT__", StringComparison.Ordinal),
+            Output: result.Output);
+
+        void WriteToShell(string text)
+        {
+            var bytes = Encoding.UTF8.GetBytes(text);
+            shell.Write(bytes, 0, bytes.Length);
+            shell.Flush();
+        }
     }
 
     private static string BuildPayload(string publicKeyText) =>

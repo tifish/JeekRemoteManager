@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -37,8 +36,9 @@ public partial class TerminalView : UserControl
     private TaskCompletionSource<bool>? _connected;
     private readonly SemaphoreSlim _scriptLock = new(1, 1);
     private readonly object _shellWriteGate = new();
-    private SshCommand? _runningCommand;
+    private InteractiveShellPayloadMonitor? _activePayloadMonitor;
     private bool _shellClosed;
+    private bool _suppressUserInput;
     private volatile bool _disposed;
 
     private sealed record RemotePayloadResult(int ExitCode, string Output);
@@ -56,7 +56,11 @@ public partial class TerminalView : UserControl
 
         Term.Model = _model;
 
-        _model.UserInput += (_, e) => SendToShell(e.Data);
+        _model.UserInput += (_, e) =>
+        {
+            if (!_suppressUserInput)
+                SendToShell(e.Data);
+        };
         _model.SizeChanged += (_, _) => SyncWindowSize();
         _model.Terminal.TitleChanged += (_, _) => Dispatcher.UIThread.Post(() =>
         {
@@ -105,7 +109,10 @@ public partial class TerminalView : UserControl
             var payload = RemoteScriptLauncher.BuildPayload(suite, scriptFile, binding);
 
             Dispatcher.UIThread.Post(() =>
-                FeedLine($"\r\n\u001b[36m[run script] {suite.Name}/{scriptFile.DisplayName}\u001b[0m"));
+            {
+                FeedLine($"\r\n\u001b[36m[run script] {suite.Name}/{scriptFile.DisplayName}\u001b[0m");
+                FeedLine("\u001b[33m[please wait] Sending the script through the interactive terminal. This can take a few seconds.\u001b[0m");
+            });
 
             var result = await ExecuteRemotePayloadAsync(payload, cancellationToken);
             var finishedAt = DateTimeOffset.Now;
@@ -139,7 +146,10 @@ public partial class TerminalView : UserControl
             var payload = PublicKeyInstaller.BuildTerminalPayload(publicKeyText);
 
             Dispatcher.UIThread.Post(() =>
-                FeedLine("\r\n\u001b[36m[copy public key]\u001b[0m"));
+            {
+                FeedLine("\r\n\u001b[36m[copy public key]\u001b[0m");
+                FeedLine("\u001b[33m[please wait] Sending commands through the interactive terminal. This can take a few seconds.\u001b[0m");
+            });
 
             var result = await ExecuteRemotePayloadAsync(payload, cancellationToken);
             if (result.ExitCode != 0)
@@ -243,6 +253,7 @@ public partial class TerminalView : UserControl
         shell.Closed += (_, _) =>
         {
             _shellClosed = true;
+            _activePayloadMonitor?.Fail(new InvalidOperationException("SSH terminal closed during script execution."));
             Dispatcher.UIThread.Post(() =>
                 FeedLine("\r\n[33m[session closed][0m\r\n"));
         };
@@ -257,10 +268,14 @@ public partial class TerminalView : UserControl
     {
         if (_disposed || data.Length == 0)
             return;
+        var displayData = _activePayloadMonitor?.Append(data) ?? data;
+        if (displayData.Length == 0)
+            return;
+
         Dispatcher.UIThread.Post(() =>
         {
             if (!_disposed)
-                _model.Feed(data, data.Length);
+                _model.Feed(displayData, displayData.Length);
         });
     }
 
@@ -285,85 +300,35 @@ public partial class TerminalView : UserControl
         string payload,
         CancellationToken cancellationToken)
     {
-        var client = _client;
-        if (client is null || !client.IsConnected)
+        var shell = _shell;
+        if (shell is null || _disposed || _shellClosed)
             throw new InvalidOperationException("SSH terminal is not connected.");
 
-        using var command = client.CreateCommand("sh -s");
-        _runningCommand = command;
-        var output = new StringBuilder();
-        var outputGate = new object();
+        var interactivePayload = InteractiveShellPayloadRunner.Build(payload);
+        var monitor = new InteractiveShellPayloadMonitor(interactivePayload);
+        _activePayloadMonitor = monitor;
+        _suppressUserInput = true;
 
         try
         {
-            var executeTask = command.ExecuteAsync(cancellationToken);
-            var stdoutTask = PumpCommandOutputAsync(command.OutputStream, output, outputGate, cancellationToken);
-            var stderrTask = PumpCommandOutputAsync(command.ExtendedOutputStream, output, outputGate, cancellationToken);
-
-            using (var input = command.CreateInputStream())
-            {
-                var payloadBytes = Encoding.UTF8.GetBytes(payload);
-                await input.WriteAsync(payloadBytes, cancellationToken).ConfigureAwait(false);
-                await input.FlushAsync(cancellationToken).ConfigureAwait(false);
-            }
-
-            await executeTask.ConfigureAwait(false);
-            await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
-
-            return new RemotePayloadResult(command.ExitStatus ?? -1, output.ToString());
+            var result = await InteractiveShellPayloadRunner.RunAsync(
+                interactivePayload,
+                monitor,
+                WriteToShell,
+                cancellationToken).ConfigureAwait(false);
+            return new RemotePayloadResult(result.ExitCode, result.Output);
+        }
+        catch
+        {
+            TryRestoreShellEcho();
+            throw;
         }
         finally
         {
-            if (ReferenceEquals(_runningCommand, command))
-                _runningCommand = null;
+            if (ReferenceEquals(_activePayloadMonitor, monitor))
+                _activePayloadMonitor = null;
+            _suppressUserInput = false;
         }
-    }
-
-    private async Task PumpCommandOutputAsync(
-        Stream stream,
-        StringBuilder output,
-        object outputGate,
-        CancellationToken cancellationToken)
-    {
-        var buffer = new byte[4096];
-        var previousWasCarriageReturn = false;
-        while (true)
-        {
-            var read = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-            if (read <= 0)
-                return;
-
-            lock (outputGate)
-            {
-                output.Append(Encoding.UTF8.GetString(buffer, 0, read));
-            }
-
-            var chunk = NormalizeTerminalLineEndings(buffer, read, ref previousWasCarriageReturn);
-            Dispatcher.UIThread.Post(() =>
-            {
-                if (!_disposed)
-                    _model.Feed(chunk, chunk.Length);
-            });
-        }
-    }
-
-    private static byte[] NormalizeTerminalLineEndings(
-        byte[] data,
-        int length,
-        ref bool previousWasCarriageReturn)
-    {
-        using var normalized = new MemoryStream(length + 16);
-        for (var i = 0; i < length; i++)
-        {
-            var value = data[i];
-            if (value == (byte)'\n' && !previousWasCarriageReturn)
-                normalized.WriteByte((byte)'\r');
-
-            normalized.WriteByte(value);
-            previousWasCarriageReturn = value == (byte)'\r';
-        }
-
-        return normalized.ToArray();
     }
 
     private void WriteToShell(byte[] data)
@@ -376,6 +341,18 @@ public partial class TerminalView : UserControl
         {
             shell.Write(data, 0, data.Length);
             shell.Flush();
+        }
+    }
+
+    private void TryRestoreShellEcho()
+    {
+        try
+        {
+            WriteToShell(InteractiveShellPayloadRunner.RestoreEchoCommand);
+        }
+        catch
+        {
+            // Best-effort only; the shell may already be closed.
         }
     }
 
@@ -403,7 +380,7 @@ public partial class TerminalView : UserControl
     {
         _disposed = true;
         _connected?.TrySetCanceled();
-        try { _runningCommand?.CancelAsync(forceKill: true, millisecondsTimeout: 1000); } catch { /* ignore */ }
+        _activePayloadMonitor?.Fail(new ObjectDisposedException(nameof(TerminalView)));
         try { _shell?.Dispose(); } catch { /* ignore */ }
         try { _client?.Disconnect(); } catch { /* ignore */ }
         try { _client?.Dispose(); } catch { /* ignore */ }
