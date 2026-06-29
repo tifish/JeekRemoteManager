@@ -117,11 +117,8 @@ public partial class TerminalView : UserControl
             var result = await ExecuteRemotePayloadAsync(payload, cancellationToken);
             var finishedAt = DateTimeOffset.Now;
 
-            Dispatcher.UIThread.Post(() =>
-            {
-                var color = result.ExitCode == 0 ? "32" : "31";
-                FeedLine($"\u001b[{color}m[script exit {result.ExitCode}]\u001b[0m");
-            });
+            var color = result.ExitCode == 0 ? "32" : "31";
+            await FeedCompletionLineAndRefreshPromptAsync($"\u001b[{color}m[script exit {result.ExitCode}]\u001b[0m");
 
             return new RemoteScriptExecutionResult(result.ExitCode, startedAt, finishedAt);
         }
@@ -154,13 +151,11 @@ public partial class TerminalView : UserControl
             var result = await ExecuteRemotePayloadAsync(payload, cancellationToken);
             if (result.ExitCode != 0)
             {
-                Dispatcher.UIThread.Post(() =>
-                    FeedLine($"\u001b[31m[copy public key exit {result.ExitCode}]\u001b[0m"));
+                await FeedCompletionLineAndRefreshPromptAsync($"\u001b[31m[copy public key exit {result.ExitCode}]\u001b[0m");
                 throw new InvalidOperationException($"Remote command exited with code {result.ExitCode}.");
             }
 
-            Dispatcher.UIThread.Post(() =>
-                FeedLine("\u001b[32m[copy public key complete]\u001b[0m"));
+            await FeedCompletionLineAndRefreshPromptAsync("\u001b[32m[copy public key complete]\u001b[0m");
             return new PublicKeyInstallResult(
                 result.Output.Contains(PublicKeyInstaller.TerminalAlreadyPresentLine, StringComparison.Ordinal),
                 result.Output);
@@ -349,6 +344,24 @@ public partial class TerminalView : UserControl
         try
         {
             WriteToShell(InteractiveShellPayloadRunner.RestoreEchoCommand);
+        }
+        catch
+        {
+            // Best-effort only; the shell may already be closed.
+        }
+    }
+
+    private async Task FeedCompletionLineAndRefreshPromptAsync(string text)
+    {
+        await Dispatcher.UIThread.InvokeAsync(() => FeedLine("\r\n" + text));
+        TryRefreshShellPrompt();
+    }
+
+    private void TryRefreshShellPrompt()
+    {
+        try
+        {
+            WriteToShell(Encoding.UTF8.GetBytes("\n"));
         }
         catch
         {

@@ -129,6 +129,7 @@ public sealed class InteractiveShellPayloadMonitor
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int _displayOffset;
     private bool _displayStarted;
+    private bool _displayCompleted;
 
     public InteractiveShellPayloadMonitor(InteractiveShellPayload payload)
     {
@@ -206,12 +207,20 @@ public sealed class InteractiveShellPayloadMonitor
         while (end < output.Length && char.IsDigit(output[end]))
             end++;
 
-        return end > start
-               && int.TryParse(output.AsSpan(start, end - start), out exitCode);
+        if (end <= start || !int.TryParse(output.AsSpan(start, end - start), out exitCode))
+            return false;
+
+        return end < output.Length && output[end] is '\r' or '\n';
     }
 
     private string ExtractDisplayText(string output)
     {
+        if (_displayCompleted)
+        {
+            _displayOffset = output.Length;
+            return "";
+        }
+
         if (!_displayStarted)
         {
             var beginIndex = output.IndexOf(_payload.BeginMarker, StringComparison.Ordinal);
@@ -226,12 +235,26 @@ public sealed class InteractiveShellPayloadMonitor
         }
 
         var exitIndex = output.IndexOf(_payload.ExitMarkerPrefix, _displayOffset, StringComparison.Ordinal);
-        var end = exitIndex >= 0 ? exitIndex : output.Length;
-        if (end <= _displayOffset)
-            return "";
+        if (exitIndex < 0)
+        {
+            if (output.Length <= _displayOffset)
+                return "";
 
-        var displayText = output[_displayOffset..end];
-        _displayOffset = end;
-        return displayText;
+            var displayText = output[_displayOffset..];
+            _displayOffset = output.Length;
+            return displayText;
+        }
+
+        var beforeExitMarker = output[_displayOffset..exitIndex];
+        var markerLineEnd = output.IndexOf('\n', exitIndex);
+        if (markerLineEnd < 0)
+        {
+            _displayOffset = exitIndex;
+            return beforeExitMarker;
+        }
+
+        _displayOffset = output.Length;
+        _displayCompleted = true;
+        return beforeExitMarker;
     }
 }

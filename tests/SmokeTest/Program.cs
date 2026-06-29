@@ -1098,14 +1098,29 @@ try
     hiddenOutput = hiddenOutput.Concat(interactiveMonitor.Append(Encoding.UTF8.GetBytes("TOKEN__\nechoed payload\n"))).ToArray();
     await interactiveMonitor.WaitForReadyAsync(TimeSpan.FromMilliseconds(50), CancellationToken.None);
     var visibleOutput = interactiveMonitor.Append(Encoding.UTF8.GetBytes("__JRM_BEGIN_SMOKETOKEN__\nscript output"));
-    visibleOutput = visibleOutput.Concat(interactiveMonitor.Append(Encoding.UTF8.GetBytes("\n__JRM_EXIT_SMOKETOKEN__:105\n"))).ToArray();
+    visibleOutput = visibleOutput.Concat(interactiveMonitor.Append(Encoding.UTF8.GetBytes("\n__JRM_EXIT_SMOKETOKEN__:105\n[root@gz-rocky ~]# "))).ToArray();
     var parsedInteractiveResult = await interactiveMonitor.WaitForExitAsync(CancellationToken.None);
     Check(parsedInteractiveResult.ExitCode == 105
           && parsedInteractiveResult.Output.Contains("script output", StringComparison.Ordinal)
           && Encoding.UTF8.GetString(hiddenOutput).Length == 0
           && Encoding.UTF8.GetString(visibleOutput).Contains("script output", StringComparison.Ordinal)
+          && !Encoding.UTF8.GetString(visibleOutput).Contains("[root@gz-rocky ~]# ", StringComparison.Ordinal)
           && !Encoding.UTF8.GetString(visibleOutput).Contains(interactivePayload.ExitMarkerPrefix, StringComparison.Ordinal),
-          "Interactive shell monitor hides injection echo and parses split ready and exit markers");
+          "Interactive shell monitor hides injection echo, parses exit markers, and hides the stale prompt after exit");
+    var partialExitMonitor = new InteractiveShellPayloadMonitor(interactivePayload);
+    partialExitMonitor.Append(Encoding.UTF8.GetBytes("__JRM_READY_SMOKETOKEN__\n__JRM_BEGIN_SMOKETOKEN__\n"));
+    await partialExitMonitor.WaitForReadyAsync(TimeSpan.FromMilliseconds(50), CancellationToken.None);
+    var partialExitVisible = partialExitMonitor.Append(Encoding.UTF8.GetBytes("partial output\n__JRM_EXIT_SMOKETOKEN__:0"));
+    var pendingExit = partialExitMonitor.WaitForExitAsync(CancellationToken.None);
+    var exitWasPendingBeforeMarkerLineEnd = !pendingExit.IsCompleted;
+    var finalExitVisible = partialExitMonitor.Append(Encoding.UTF8.GetBytes("\n[root@gz-rocky ~]# "));
+    var finalExit = await pendingExit;
+    Check(exitWasPendingBeforeMarkerLineEnd
+          && finalExit.ExitCode == 0
+          && Encoding.UTF8.GetString(partialExitVisible).Contains("partial output", StringComparison.Ordinal)
+          && !Encoding.UTF8.GetString(partialExitVisible).Contains(interactivePayload.ExitMarkerPrefix, StringComparison.Ordinal)
+          && Encoding.UTF8.GetString(finalExitVisible).Length == 0,
+          "Interactive shell monitor waits for a full exit marker line before completing and hides the following stale prompt");
     var terminalPublicKeyPayload = PublicKeyInstaller.BuildTerminalPayload("ssh-ed25519 AAAATEST test");
     Check(terminalPublicKeyPayload.Contains(PublicKeyInstaller.TerminalAlreadyPresentLine)
           && terminalPublicKeyPayload.Contains(PublicKeyInstaller.TerminalAddedLine)
