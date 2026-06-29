@@ -318,7 +318,7 @@ enable_bbr_best_effort
 
 mkdir -p /etc/sing-box
 tmp_config=$(mktemp)
-printf 'Writing sing-box reality config from current PORT and SNI parameters...\n'
+printf 'Writing sing-box reality server config from current PORT and SNI parameters...\n'
 
 cat > "$tmp_config" <<EOF_CONFIG
 {
@@ -407,7 +407,7 @@ case "$server_address" in
         ;;
 esac
 
-vless_uri="vless://${uuid}@${uri_host}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${SNI}&fp=chrome&pbk=${public_key}&sid=${short_id}&type=tcp#sing-box-reality"
+vless_uri="vless://${uuid}@${uri_host}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${SNI}&fp=chrome&pbk=${public_key}&sid=${short_id}&type=tcp#sing-box-reality-server"
 link_info_file=/etc/sing-box/jeekremote-reality-link.conf
 tmp_link_info=$(mktemp)
 cat > "$tmp_link_info" <<EOF_LINK_INFO
@@ -423,7 +423,7 @@ mv "$tmp_link_info" "$link_info_file"
 tmp_link_info=
 
 printf '\n'
-printf 'sing-box reality install/update completed.\n'
+printf 'sing-box reality server install/update completed.\n'
 printf 'Repeated runs update sing-box and replace the config with the current PORT and SNI.\n'
 printf 'Server address: %s\n' "$server_address"
 printf 'Port: %s\n' "$PORT"

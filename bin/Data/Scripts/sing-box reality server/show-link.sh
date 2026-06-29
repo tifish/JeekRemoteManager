@@ -20,7 +20,7 @@ if [ "$(id -u)" != "0" ]; then
 fi
 
 if [ ! -r "$link_info_file" ]; then
-    fail "Link metadata was not found. Run install.sh once to create or refresh the sing-box reality link."
+    fail "Link metadata was not found. Run install.sh once to create or refresh the sing-box reality server link."
 fi
 
 read_link_value() {
@@ -42,7 +42,7 @@ read_required_link_value() {
     key=$1
     value=$(read_link_value "$key" || true)
     if [ -z "$value" ]; then
-        fail "Link metadata is missing $key. Run install.sh once to refresh the sing-box reality link."
+        fail "Link metadata is missing $key. Run install.sh once to refresh the sing-box reality server link."
     fi
     printf '%s\n' "$value"
 }
@@ -103,7 +103,7 @@ case "$server_address" in
         ;;
 esac
 
-vless_uri="vless://${uuid}@${uri_host}:${port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${sni}&fp=chrome&pbk=${public_key}&sid=${short_id}&type=tcp#sing-box-reality"
+vless_uri="vless://${uuid}@${uri_host}:${port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${sni}&fp=chrome&pbk=${public_key}&sid=${short_id}&type=tcp#sing-box-reality-server"
 
 printf 'sing-box reality client link:\n'
 printf '%s\n' "$vless_uri"

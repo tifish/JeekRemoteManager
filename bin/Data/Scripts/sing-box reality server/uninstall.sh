@@ -73,7 +73,7 @@ backup_and_remove_config() {
 
     if [ -f "$link_info_file" ]; then
         rm -f "$link_info_file"
-        printf 'sing-box reality link metadata removed: %s\n' "$link_info_file"
+        printf 'sing-box reality server link metadata removed: %s\n' "$link_info_file"
     fi
 
     rmdir /etc/sing-box 2>/dev/null || true
@@ -128,6 +128,6 @@ systemctl daemon-reload
 rm -rf /var/lib/sing-box /var/log/sing-box 2>/dev/null || true
 
 printf '\n'
-printf 'sing-box reality uninstall completed.\n'
+printf 'sing-box reality server uninstall completed.\n'
 printf 'BBR settings were left unchanged.\n'
 printf 'If the server is behind a cloud security group, remove %s/tcp there manually if needed.\n' "${PORT:-the sing-box port}"

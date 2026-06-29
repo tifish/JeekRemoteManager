@@ -567,7 +567,7 @@ try
     var runtimeBbrDir = Path.Combine(FindRepoRoot(), "bin", "Data", "Scripts", "BBR");
     Check(!Directory.Exists(runtimeBbrDir),
           "Standalone BBR script suite is removed");
-    var runtimeSingBoxDir = Path.Combine(FindRepoRoot(), "bin", "Data", "Scripts", "sing-box reality");
+    var runtimeSingBoxDir = Path.Combine(FindRepoRoot(), "bin", "Data", "Scripts", "sing-box reality server");
     var runtimeSingBoxSuite = RemoteScriptStore.LoadSuite(runtimeSingBoxDir, RemoteScriptSuiteSource.BuiltIn);
     var runtimeSingBoxInstallPath = Path.Combine(runtimeSingBoxDir, "install.sh");
     var runtimeSingBoxInstall = File.Exists(runtimeSingBoxInstallPath)
@@ -582,16 +582,18 @@ try
         ? File.ReadAllText(runtimeSingBoxShowLinkPath)
         : "";
     Check(runtimeSingBoxSuite.Errors.Count == 0
+          && runtimeSingBoxSuite.Name == "sing-box reality server"
+          && runtimeSingBoxSuite.RelativePath == "sing-box reality server"
           && runtimeSingBoxSuite.Scripts.Any(s => s.Name == "install.sh")
           && runtimeSingBoxSuite.Scripts.Any(s => s.Name == "show-link.sh")
           && runtimeSingBoxSuite.Scripts.Any(s => s.Name == "uninstall.sh"),
-          "Bundled sing-box reality install, show-link, and uninstall scripts are discoverable");
+          "Bundled sing-box reality server install, show-link, and uninstall scripts are discoverable");
     Check(runtimeSingBoxSuite.Parameters.Count == 2
           && runtimeSingBoxSuite.Parameters[0].Name == "PORT"
           && runtimeSingBoxSuite.Parameters[0].Type == RemoteScriptParameterType.Number
           && runtimeSingBoxSuite.Parameters[1].Name == "SNI"
           && runtimeSingBoxSuite.Parameters[1].Type == RemoteScriptParameterType.String,
-          "Bundled sing-box reality script exposes only PORT and SNI");
+          "Bundled sing-box reality server script exposes only PORT and SNI");
     Check(runtimeSingBoxInstall.Contains("https://sing-box.app/install.sh")
           && runtimeSingBoxInstall.Contains("curl -fsSL")
           && runtimeSingBoxInstall.Contains("wget -qO")
@@ -602,7 +604,7 @@ try
           && runtimeSingBoxInstall.Contains("pacman -Sy --noconfirm --needed curl ca-certificates")
           && runtimeSingBoxInstall.Contains("curl is required by the official sing-box install script")
           && runtimeSingBoxInstall.Contains("ensure_official_installer_dependencies"),
-          "Bundled sing-box reality install/update script ensures official installer dependencies");
+          "Bundled sing-box reality server install/update script ensures official installer dependencies");
     Check(runtimeSingBoxInstall.Contains("/etc/sysctl.d/99-jeekremote-bbr.conf")
           && runtimeSingBoxInstall.Contains("modprobe tcp_bbr")
           && runtimeSingBoxInstall.Contains("net.core.default_qdisc=fq")
@@ -611,16 +613,16 @@ try
           && runtimeSingBoxInstall.Contains("sysctl -w net.ipv4.tcp_congestion_control=bbr")
           && runtimeSingBoxInstall.Contains("BBR is enabled.")
           && !runtimeSingBoxInstall.Contains("set_sysctl_conf_value_strict /etc/sysctl.conf"),
-          "Bundled sing-box reality install script writes BBR settings to an independent sysctl file");
+          "Bundled sing-box reality server install script writes BBR settings to an independent sysctl file");
     Check(runtimeSingBoxInstall.Contains("\"type\": \"vless\"")
           && runtimeSingBoxInstall.Contains("\"listen\": \"0.0.0.0\"")
           && runtimeSingBoxInstall.Contains("xtls-rprx-vision")
           && runtimeSingBoxInstall.Contains("\"reality\"")
           && runtimeSingBoxInstall.Contains("\"server\": \"$SNI\"")
-          && runtimeSingBoxInstall.Contains("Writing sing-box reality config from current PORT and SNI parameters")
+          && runtimeSingBoxInstall.Contains("Writing sing-box reality server config from current PORT and SNI parameters")
           && runtimeSingBoxInstall.Contains("\"$sing_box\" check -c")
           && runtimeSingBoxInstall.Contains("systemctl restart sing-box"),
-          "Bundled sing-box reality install/update script writes and checks a REALITY config");
+          "Bundled sing-box reality server install/update script writes and checks a REALITY config");
     Check(runtimeSingBoxInstall.Contains("https://api.ipify.org")
           && runtimeSingBoxInstall.Contains("ufw allow \"${PORT}/tcp\"")
           && runtimeSingBoxInstall.Contains("firewall-cmd --permanent --add-port=\"${PORT}/tcp\"")
@@ -631,7 +633,7 @@ try
           && runtimeSingBoxInstall.Contains("install/update completed")
           && runtimeSingBoxInstall.Contains("Repeated runs update sing-box and replace the config with the current PORT and SNI")
           && runtimeSingBoxInstall.Contains("cloud security group"),
-          "Bundled sing-box reality install/update script detects address and handles supported firewalls");
+          "Bundled sing-box reality server install/update script detects address and handles supported firewalls");
     Check(runtimeSingBoxShowLink.Contains("/etc/sing-box/jeekremote-reality-link.conf")
           && runtimeSingBoxShowLink.Contains("Run install.sh once")
           && runtimeSingBoxShowLink.Contains("https://api.ipify.org")
@@ -640,20 +642,20 @@ try
           && runtimeSingBoxShowLink.Contains("pbk=${public_key}")
           && runtimeSingBoxShowLink.Contains("sid=${short_id}")
           && runtimeSingBoxShowLink.Contains("sing-box reality client link"),
-          "Bundled sing-box reality show-link script prints the saved client URI");
+          "Bundled sing-box reality server show-link script prints the saved client URI");
     Check(runtimeSingBoxUninstall.Contains("systemctl stop sing-box")
           && runtimeSingBoxUninstall.Contains("apt-get purge -y sing-box")
           && runtimeSingBoxUninstall.Contains("dnf remove -y sing-box")
           && runtimeSingBoxUninstall.Contains("zypper --non-interactive remove sing-box")
           && runtimeSingBoxUninstall.Contains("pacman -Rns --noconfirm sing-box"),
-          "Bundled sing-box reality uninstall script removes service and package");
+          "Bundled sing-box reality server uninstall script removes service and package");
     Check(runtimeSingBoxUninstall.Contains("ufw --force delete allow \"${PORT}/tcp\"")
           && runtimeSingBoxUninstall.Contains("firewall-cmd --permanent --remove-port=\"${PORT}/tcp\"")
           && runtimeSingBoxUninstall.Contains("sing-box-config-backup-before-uninstall")
           && runtimeSingBoxUninstall.Contains("jeekremote-reality-link.conf")
           && runtimeSingBoxUninstall.Contains("BBR settings were left unchanged")
           && !runtimeSingBoxUninstall.Contains("built-in BBR disable script"),
-          "Bundled sing-box reality uninstall script cleans local state without disabling BBR");
+          "Bundled sing-box reality server uninstall script cleans local state without disabling BBR");
     var runtimeServerOptimizationDir = Path.Combine(FindRepoRoot(), "bin", "Data", "Scripts", "Optimization");
     var runtimeServerOptimizationSuite = RemoteScriptStore.LoadSuite(runtimeServerOptimizationDir, RemoteScriptSuiteSource.BuiltIn);
     var runtimeServerOptimizationScriptPath = Path.Combine(runtimeServerOptimizationDir, "apply.sh");
