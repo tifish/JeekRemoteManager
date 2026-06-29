@@ -1,14 +1,14 @@
 set -eu
 
 tmp_config=
-tmp_install=
+tmp_package_dir=
 
 cleanup() {
     if [ -n "$tmp_config" ]; then
         rm -f "$tmp_config"
     fi
-    if [ -n "$tmp_install" ]; then
-        rm -f "$tmp_install"
+    if [ -n "$tmp_package_dir" ]; then
+        rm -rf "$tmp_package_dir"
     fi
 }
 
@@ -27,6 +27,10 @@ SERVER_LINK=${SERVER_LINK:-}
 LISTEN_PORT=${LISTEN_PORT:-}
 ALLOW_EXTERNAL=${ALLOW_EXTERNAL:-false}
 ENABLE_TUN=${ENABLE_TUN:-false}
+UPDATE_SING_BOX=${UPDATE_SING_BOX:-true}
+download_connect_timeout_seconds=5
+download_stall_timeout_seconds=8
+download_min_speed_bytes=1024
 
 if [ "$(uname -s)" != "Linux" ]; then
     fail "This deployment script only supports Linux."
@@ -63,6 +67,14 @@ case "$ENABLE_TUN" in
         ;;
     *)
         fail "ENABLE_TUN must be true or false."
+        ;;
+esac
+
+case "$UPDATE_SING_BOX" in
+    true|false)
+        ;;
+    *)
+        fail "UPDATE_SING_BOX must be true or false."
         ;;
 esac
 
@@ -252,19 +264,19 @@ install_downloader_packages() {
     fi
 }
 
-ensure_official_installer_dependencies() {
-    if command -v curl >/dev/null 2>&1; then
+ensure_download_tools() {
+    if command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1; then
         return 0
     fi
 
-    printf 'curl is required by the official sing-box install script. Trying to install curl and ca-certificates...\n'
+    printf 'curl or wget is required to download sing-box. Trying to install curl and ca-certificates...\n'
     install_downloader_packages || true
 
-    if command -v curl >/dev/null 2>&1; then
+    if command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1; then
         return 0
     fi
 
-    fail "curl is required by the official sing-box install script, and curl could not be installed."
+    return 1
 }
 
 download_to_file() {
@@ -272,12 +284,61 @@ download_to_file() {
     target=$2
 
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL -o "$target" "$url"
+        curl -fsSL \
+            --connect-timeout "$download_connect_timeout_seconds" \
+            --retry 0 \
+            --speed-limit "$download_min_speed_bytes" \
+            --speed-time "$download_stall_timeout_seconds" \
+            -o "$target" \
+            "$url"
     elif command -v wget >/dev/null 2>&1; then
-        wget -qO "$target" "$url"
+        wget \
+            --connect-timeout="$download_connect_timeout_seconds" \
+            --read-timeout="$download_stall_timeout_seconds" \
+            --timeout="$download_stall_timeout_seconds" \
+            --tries=1 \
+            -qO "$target" \
+            "$url"
     else
         return 1
     fi
+}
+
+download_to_stdout() {
+    url=$1
+
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL \
+            --connect-timeout "$download_connect_timeout_seconds" \
+            --max-time "$download_stall_timeout_seconds" \
+            --retry 0 \
+            "$url"
+    elif command -v wget >/dev/null 2>&1; then
+        wget \
+            --connect-timeout="$download_connect_timeout_seconds" \
+            --read-timeout="$download_stall_timeout_seconds" \
+            --timeout="$download_stall_timeout_seconds" \
+            --tries=1 \
+            -qO- \
+            "$url"
+    else
+        return 1
+    fi
+}
+
+download_first_available() {
+    target=$1
+    shift
+
+    for url in "$@"; do
+        printf 'Trying sing-box download: %s\n' "$url"
+        if download_to_file "$url" "$target"; then
+            return 0
+        fi
+        warn "Download failed from $url"
+    done
+
+    return 1
 }
 
 find_sing_box() {
@@ -292,17 +353,128 @@ find_sing_box() {
     fi
 }
 
-ensure_official_installer_dependencies
+detect_sing_box_package_target() {
+    if command -v pacman >/dev/null 2>&1; then
+        package_manager=pacman
+        package_os=linux
+        package_arch=$(uname -m)
+        package_suffix=.pkg.tar.zst
+    elif command -v dpkg >/dev/null 2>&1; then
+        package_manager=dpkg
+        package_os=linux
+        package_arch=$(dpkg --print-architecture)
+        package_suffix=.deb
+    elif command -v dnf >/dev/null 2>&1; then
+        package_manager=dnf
+        package_os=linux
+        package_arch=$(uname -m)
+        package_suffix=.rpm
+    elif command -v yum >/dev/null 2>&1; then
+        package_manager=yum
+        package_os=linux
+        package_arch=$(uname -m)
+        package_suffix=.rpm
+    elif command -v zypper >/dev/null 2>&1; then
+        package_manager=zypper
+        package_os=linux
+        package_arch=$(uname -m)
+        package_suffix=.rpm
+    elif command -v rpm >/dev/null 2>&1; then
+        package_manager=rpm
+        package_os=linux
+        package_arch=$(uname -m)
+        package_suffix=.rpm
+    else
+        return 1
+    fi
+}
+
+install_package_file() {
+    package_file=$1
+
+    case "$package_manager" in
+        pacman) pacman -U --noconfirm "$package_file" ;;
+        dpkg) dpkg -i "$package_file" ;;
+        dnf) dnf install -y "$package_file" ;;
+        yum) yum install -y "$package_file" ;;
+        zypper) zypper --non-interactive install "$package_file" ;;
+        rpm) rpm -Uvh --replacepkgs "$package_file" ;;
+        *) return 1 ;;
+    esac
+}
+
+get_latest_sing_box_version() {
+    for url in \
+        https://api.github.com/repos/SagerNet/sing-box/releases/latest \
+        https://ghfast.top/https://api.github.com/repos/SagerNet/sing-box/releases/latest \
+        https://gh-proxy.com/https://api.github.com/repos/SagerNet/sing-box/releases/latest
+    do
+        printf 'Checking latest sing-box release: %s\n' "$url" >&2
+        latest_release=$(download_to_stdout "$url" 2>/dev/null || true)
+        tag=$(printf '%s\n' "$latest_release" | grep '"tag_name"' | head -n 1 | awk -F: '{print $2}' | sed 's/[", ]//g')
+        version=${tag#v}
+        case "$version" in
+            ""|*[!0-9A-Za-z._-]*)
+                warn "Could not read a valid sing-box release tag from $url"
+                ;;
+            *)
+                printf '%s\n' "$version"
+                return 0
+                ;;
+        esac
+    done
+
+    return 1
+}
+
+install_or_update_sing_box() {
+    if [ "$UPDATE_SING_BOX" = "false" ]; then
+        printf 'Skipping sing-box install/update because UPDATE_SING_BOX=false.\n'
+        return 0
+    fi
+
+    if ! ensure_download_tools; then
+        warn "curl or wget could not be installed, so sing-box cannot be downloaded."
+        return 1
+    fi
+
+    if ! detect_sing_box_package_target; then
+        warn "No supported package manager was found for installing sing-box."
+        return 1
+    fi
+
+    version=$(get_latest_sing_box_version) ||
+        return 1
+
+    package_name="sing-box_${version}_${package_os}_${package_arch}${package_suffix}"
+    package_url="https://github.com/SagerNet/sing-box/releases/download/v${version}/${package_name}"
+    package_url_ghfast="https://ghfast.top/${package_url}"
+    package_url_ghproxy="https://gh-proxy.com/github.com/SagerNet/sing-box/releases/download/v${version}/${package_name}"
+
+    tmp_package_dir=$(mktemp -d)
+    package_file="${tmp_package_dir}/${package_name}"
+
+    download_first_available "$package_file" \
+        "$package_url" \
+        "$package_url_ghfast" \
+        "$package_url_ghproxy" ||
+        return 1
+
+    printf 'Installing sing-box package with %s...\n' "$package_manager"
+    install_package_file "$package_file"
+}
 
 printf 'Installing or updating sing-box to the latest available version...\n'
-tmp_install=$(mktemp)
-download_to_file https://sing-box.app/install.sh "$tmp_install" ||
-    fail "Could not download the official sing-box install script."
-sh "$tmp_install" ||
-    fail "The official sing-box install script failed."
+if ! install_or_update_sing_box; then
+    if existing_sing_box=$(find_sing_box); then
+        warn "Could not download or install the latest sing-box. Continuing with existing sing-box: $existing_sing_box"
+    else
+        fail "Could not download or install sing-box, and no existing sing-box binary was found. Check access to api.github.com and github.com, or install sing-box manually and rerun with UPDATE_SING_BOX=false."
+    fi
+fi
 
 sing_box=$(find_sing_box) ||
-    fail "sing-box was installed, but the sing-box command could not be found."
+    fail "sing-box is required, but the sing-box command could not be found."
 
 tun_inbound=
 if [ "$ENABLE_TUN" = "true" ]; then
@@ -432,6 +604,7 @@ printf 'SNI: %s\n' "$sni"
 printf 'Mixed (SOCKS/HTTP) proxy: %s:%s\n' "$listen_address" "$LISTEN_PORT"
 printf 'Allow external connections: %s\n' "$ALLOW_EXTERNAL"
 printf 'TUN: %s\n' "$ENABLE_TUN"
+printf 'Update sing-box: %s\n' "$UPDATE_SING_BOX"
 
 if [ "$ALLOW_EXTERNAL" = "true" ]; then
     printf '\n'

@@ -656,6 +656,51 @@ try
           && runtimeSingBoxUninstall.Contains("BBR settings were left unchanged")
           && !runtimeSingBoxUninstall.Contains("built-in BBR disable script"),
           "Bundled sing-box reality server uninstall script cleans local state without disabling BBR");
+    var runtimeSingBoxClientDir = Path.Combine(FindRepoRoot(), "bin", "Data", "Scripts", "sing-box reality client");
+    var runtimeSingBoxClientSuite = RemoteScriptStore.LoadSuite(runtimeSingBoxClientDir, RemoteScriptSuiteSource.BuiltIn);
+    var runtimeSingBoxClientInstallPath = Path.Combine(runtimeSingBoxClientDir, "install.sh");
+    var runtimeSingBoxClientInstall = File.Exists(runtimeSingBoxClientInstallPath)
+        ? File.ReadAllText(runtimeSingBoxClientInstallPath)
+        : "";
+    Check(runtimeSingBoxClientSuite.Errors.Count == 0
+          && runtimeSingBoxClientSuite.Name == "sing-box reality client"
+          && runtimeSingBoxClientSuite.Scripts.Any(s => s.Name == "install.sh")
+          && runtimeSingBoxClientSuite.Scripts.Any(s => s.Name == "uninstall.sh"),
+          "Bundled sing-box reality client install and uninstall scripts are discoverable");
+    Check(runtimeSingBoxClientSuite.Parameters.Count == 5
+          && runtimeSingBoxClientSuite.Parameters.Single(p => p.Name == "SERVER_LINK").Type == RemoteScriptParameterType.String
+          && runtimeSingBoxClientSuite.Parameters.Single(p => p.Name == "LISTEN_PORT").Type == RemoteScriptParameterType.Number
+          && runtimeSingBoxClientSuite.Parameters.Single(p => p.Name == "LISTEN_PORT").DefaultValue == "1080"
+          && runtimeSingBoxClientSuite.Parameters.Single(p => p.Name == "ALLOW_EXTERNAL").Type == RemoteScriptParameterType.Bool
+          && runtimeSingBoxClientSuite.Parameters.Single(p => p.Name == "ALLOW_EXTERNAL").DefaultValue == "false"
+          && runtimeSingBoxClientSuite.Parameters.Single(p => p.Name == "ENABLE_TUN").Type == RemoteScriptParameterType.Bool
+          && runtimeSingBoxClientSuite.Parameters.Single(p => p.Name == "ENABLE_TUN").DefaultValue == "false"
+          && runtimeSingBoxClientSuite.Parameters.Single(p => p.Name == "UPDATE_SING_BOX").Type == RemoteScriptParameterType.Bool
+          && runtimeSingBoxClientSuite.Parameters.Single(p => p.Name == "UPDATE_SING_BOX").DefaultValue == "true",
+          "Bundled sing-box reality client script exposes update toggle parameters");
+    Check(runtimeSingBoxClientInstall.Contains("https://api.github.com/repos/SagerNet/sing-box/releases/latest")
+          && runtimeSingBoxClientInstall.Contains("https://github.com/SagerNet/sing-box/releases/download/v${version}/${package_name}")
+          && runtimeSingBoxClientInstall.Contains("https://ghfast.top/${package_url}")
+          && runtimeSingBoxClientInstall.Contains("https://gh-proxy.com/github.com/SagerNet/sing-box/releases/download/v${version}/${package_name}")
+          && runtimeSingBoxClientInstall.Contains("download_first_available")
+          && runtimeSingBoxClientInstall.Contains("Checking latest sing-box release")
+          && runtimeSingBoxClientInstall.Contains("Trying sing-box download")
+          && runtimeSingBoxClientInstall.Contains("download_connect_timeout_seconds=5")
+          && runtimeSingBoxClientInstall.Contains("download_stall_timeout_seconds=8")
+          && runtimeSingBoxClientInstall.Contains("--retry 0")
+          && runtimeSingBoxClientInstall.Contains("--tries=1")
+          && runtimeSingBoxClientInstall.Contains("--speed-time \"$download_stall_timeout_seconds\"")
+          && !runtimeSingBoxClientInstall.Contains("https://sing-box.app/install.sh"),
+          "Bundled sing-box reality client install script downloads sing-box releases with fast GitHub mirror fallback");
+    Check(runtimeSingBoxClientInstall.Contains("UPDATE_SING_BOX=${UPDATE_SING_BOX:-true}")
+          && runtimeSingBoxClientInstall.Contains("Skipping sing-box install/update because UPDATE_SING_BOX=false")
+          && runtimeSingBoxClientInstall.Contains("Continuing with existing sing-box")
+          && runtimeSingBoxClientInstall.Contains("install_or_update_sing_box")
+          && runtimeSingBoxClientInstall.Contains("\"$sing_box\" check -c")
+          && runtimeSingBoxClientInstall.Contains("systemctl restart sing-box")
+          && !runtimeSingBoxClientInstall.Contains("SING_BOX_VERSION")
+          && !runtimeSingBoxClientInstall.Contains("SING_BOX_PACKAGE_URL"),
+          "Bundled sing-box reality client install script can skip updates or fall back to an existing sing-box binary");
     var runtimeServerOptimizationDir = Path.Combine(FindRepoRoot(), "bin", "Data", "Scripts", "Optimization");
     var runtimeServerOptimizationSuite = RemoteScriptStore.LoadSuite(runtimeServerOptimizationDir, RemoteScriptSuiteSource.BuiltIn);
     var runtimeServerOptimizationScriptPath = Path.Combine(runtimeServerOptimizationDir, "apply.sh");
