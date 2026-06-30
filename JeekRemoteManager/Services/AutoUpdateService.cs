@@ -37,6 +37,7 @@ public static class AutoUpdateService
         "https://github.com/tifish/JeekRemoteManager/releases/download/latest_release/version.txt";
 
     private const string UpdateScriptName = "AutoUpdate.ps1";
+    private static readonly TimeSpan VersionCheckTimeout = TimeSpan.FromSeconds(5);
 
     public static string DownloadUrl { get; private set; } = "";
     public static IReadOnlyList<string> DownloadUrls { get; private set; } = [ReleaseZipUrl];
@@ -54,26 +55,16 @@ public static class AutoUpdateService
 
         try
         {
-            // github.com is unreachable in some regions, so pick the fastest
-            // reachable mirror by probing the tiny version.txt, then reuse the
-            // same mirror for the much larger release zip.
-            GitHubMirrors.ResetFastestMirror();
-            var versionUrl = await GitHubMirrors.GetFastestMirror(VersionTxtUrl).ConfigureAwait(false);
-            if (string.IsNullOrEmpty(versionUrl))
-                versionUrl = VersionTxtUrl;
+            // Race version.txt mirrors directly. The first successful response
+            // gives us both the remote version and the preferred release mirror,
+            // avoiding a separate probe and a second version.txt request.
+            var versionCheck = await DownloadFirstVersionTextAsync().ConfigureAwait(false);
+            if (versionCheck is null)
+                return Fail("version.txt unavailable or invalid from all mirrors");
 
-            var remote = await DownloadTextAsync(versionUrl).ConfigureAwait(false);
-            if (string.IsNullOrWhiteSpace(remote))
-                return Fail($"empty version.txt from {versionUrl}");
+            RemoteCommitCount = versionCheck.RemoteCommitCount;
 
-            if (!int.TryParse(remote.Trim(), out var remoteCount) || remoteCount <= 0)
-                return Fail($"version.txt did not contain a positive integer: '{remote.Trim()}'");
-            RemoteCommitCount = remoteCount;
-
-            // Reuses the cached fastest-mirror index from the probe above.
-            var zipUrl = await GitHubMirrors.GetFastestMirror(ReleaseZipUrl).ConfigureAwait(false);
-            if (!string.IsNullOrEmpty(zipUrl))
-                DownloadUrl = zipUrl;
+            DownloadUrl = versionCheck.DownloadUrl;
             DownloadUrls = BuildDownloadUrls(DownloadUrl);
 
             // Treat anything below this as a local dev build — CI bakes in the
@@ -153,6 +144,51 @@ public static class AutoUpdateService
             .ToArray();
     }
 
+    private sealed record VersionCheckResult(string DownloadUrl, int RemoteCommitCount);
+
+    private static async Task<VersionCheckResult?> DownloadFirstVersionTextAsync()
+    {
+        var versionUrls = GitHubMirrors.GetMirrors(VersionTxtUrl);
+        var downloadUrls = GitHubMirrors.GetMirrors(ReleaseZipUrl);
+        using var cts = new CancellationTokenSource();
+        var tasks = versionUrls
+            .Select((url, index) => DownloadVersionTextAsync(url, downloadUrls[index], cts.Token))
+            .ToList();
+
+        try
+        {
+            while (tasks.Count > 0)
+            {
+                var finished = await Task.WhenAny(tasks).ConfigureAwait(false);
+                tasks.Remove(finished);
+                var result = await finished.ConfigureAwait(false);
+                if (result is null)
+                    continue;
+
+                cts.Cancel();
+                return result;
+            }
+        }
+        finally
+        {
+            cts.Cancel();
+        }
+
+        return null;
+    }
+
+    private static async Task<VersionCheckResult?> DownloadVersionTextAsync(
+        string versionUrl,
+        string downloadUrl,
+        CancellationToken cancellationToken)
+    {
+        var text = await DownloadTextAsync(versionUrl, VersionCheckTimeout, cancellationToken).ConfigureAwait(false);
+        if (!int.TryParse(text?.Trim(), out var remoteCount) || remoteCount <= 0)
+            return null;
+
+        return new VersionCheckResult(downloadUrl, remoteCount);
+    }
+
     private static string QuoteProcessArgument(string value)
     {
         return "\"" + value.Replace("\"", "\\\"") + "\"";
@@ -177,16 +213,19 @@ public static class AutoUpdateService
         return UpdateCheckOutcome.Failed;
     }
 
-    private static async Task<string?> DownloadTextAsync(string url)
+    private static async Task<string?> DownloadTextAsync(
+        string url,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
     {
         try
         {
-            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            using var client = new HttpClient { Timeout = timeout };
             client.DefaultRequestHeaders.UserAgent.ParseAdd("JeekRemoteManager-Updater/1.0");
-            using var response = await client.GetAsync(url).ConfigureAwait(false);
+            using var response = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
                 return null;
-            return await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         }
         catch
         {
