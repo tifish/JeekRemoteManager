@@ -23,6 +23,7 @@ public static class InteractiveShellPayloadRunner
 {
     public static readonly TimeSpan ReadyTimeout = TimeSpan.FromSeconds(10);
     public const int EncodedPayloadLineLength = 3000;
+    public const string CurrentShellHookVariable = "JEEKREMOTE_CURRENT_SHELL_HOOK";
 
     public static InteractiveShellPayload Build(string payload, string? token = null)
     {
@@ -43,10 +44,26 @@ public static class InteractiveShellPayloadRunner
         var executeCommand =
             "__jrm_old_ps2=${PS2-}\n" +
             "PS2=\n" +
+            "__jrm_current_shell_hook=${TMPDIR:-/tmp}/jeekremote-current-shell-" + token + "-$$.sh\n" +
+            "if ( umask 077 && : > \"$__jrm_current_shell_hook\" ) 2>/dev/null; then\n" +
+            "    " + CurrentShellHookVariable + "=$__jrm_current_shell_hook\n" +
+            "    export " + CurrentShellHookVariable + "\n" +
+            "else\n" +
+            "    __jrm_current_shell_hook=\n" +
+            "    " + CurrentShellHookVariable + "=\n" +
+            "    export " + CurrentShellHookVariable + "\n" +
+            "fi\n" +
             "base64 -d <<'" + payloadDelimiter + "' | gzip -dc | { printf '\\n%s%s\\n' '__JRM_BEGIN_' '" + token + "__'; sh -s; }\n" +
             string.Join('\n', encodedPayloadLines) + "\n" +
             payloadDelimiter + "\n" +
             "__jrm_status=$?\n" +
+            "if [ \"$__jrm_status\" -eq 0 ] && [ -n \"${__jrm_current_shell_hook:-}\" ] && [ -s \"$__jrm_current_shell_hook\" ]; then\n" +
+            "    . \"$__jrm_current_shell_hook\" >/dev/null 2>&1 || true\n" +
+            "fi\n" +
+            "if [ -n \"${__jrm_current_shell_hook:-}\" ]; then\n" +
+            "    rm -f \"$__jrm_current_shell_hook\" 2>/dev/null || true\n" +
+            "fi\n" +
+            "unset " + CurrentShellHookVariable + "\n" +
             "PS2=$__jrm_old_ps2\n" +
             "stty echo 2>/dev/null || true\n" +
             "printf '\\n%s%s:%s\\n' '__JRM_EXIT_' '" + token + "__' \"$__jrm_status\"\n";

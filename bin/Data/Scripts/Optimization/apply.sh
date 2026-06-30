@@ -419,6 +419,13 @@ fi
 export PS1
 EOF
     chmod 0644 /etc/profile.d/jeekremote-command-colors.sh
+    if [ -n "${JEEKREMOTE_CURRENT_SHELL_HOOK:-}" ]; then
+        {
+            printf '%s\n' "if [ -r /etc/profile.d/jeekremote-command-colors.sh ]; then"
+            printf '%s\n' "    . /etc/profile.d/jeekremote-command-colors.sh >/dev/null 2>&1 || true"
+            printf '%s\n' "fi"
+        } >> "$JEEKREMOTE_CURRENT_SHELL_HOOK" 2>/dev/null || true
+    fi
     info "Command color profile is installed at /etc/profile.d/jeekremote-command-colors.sh."
 }
 

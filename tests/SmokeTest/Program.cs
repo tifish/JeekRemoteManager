@@ -859,6 +859,10 @@ try
           && runtimeServerOptimizationScript.Contains("\\w")
           && runtimeServerOptimizationScript.Contains("export PS1"),
           "Bundled server optimization script installs interactive command color defaults");
+    Check(runtimeServerOptimizationScript.Contains("JEEKREMOTE_CURRENT_SHELL_HOOK")
+          && runtimeServerOptimizationScript.Contains(">> \"$JEEKREMOTE_CURRENT_SHELL_HOOK\"")
+          && runtimeServerOptimizationScript.Contains(". /etc/profile.d/jeekremote-command-colors.sh >/dev/null 2>&1 || true"),
+          "Bundled server optimization command colors use the generic current-shell hook");
     Check(!runtimeServerOptimizationScript.Contains("PasswordAuthentication")
           && !runtimeServerOptimizationScript.Contains("PermitRootLogin"),
           "Bundled server optimization script does not harden SSH login policy");
@@ -1140,8 +1144,12 @@ try
           && interactivePayload.ExecuteCommand.Contains("'__JRM_BEGIN_' 'SMOKETOKEN__'", StringComparison.Ordinal)
           && interactivePayload.ExecuteCommand.Contains("'__JRM_EXIT_' 'SMOKETOKEN__'", StringComparison.Ordinal)
           && !interactivePayload.ExecuteCommand.Contains(payload, StringComparison.Ordinal)
+          && interactivePayload.ExecuteCommand.Contains("jeekremote-current-shell-SMOKETOKEN-$$.sh", StringComparison.Ordinal)
+          && interactivePayload.ExecuteCommand.Contains(InteractiveShellPayloadRunner.CurrentShellHookVariable, StringComparison.Ordinal)
+          && interactivePayload.ExecuteCommand.Contains(". \"$__jrm_current_shell_hook\" >/dev/null 2>&1 || true", StringComparison.Ordinal)
+          && interactivePayload.ExecuteCommand.Contains("rm -f \"$__jrm_current_shell_hook\" 2>/dev/null || true", StringComparison.Ordinal)
           && !interactivePayload.ExecuteCommand.Contains('\r'),
-          "Interactive shell runner sends compressed base64 payload to sh stdin and wraps it with ready and exit markers");
+          "Interactive shell runner sends compressed base64 payload and exposes a generic current-shell hook");
     var interactiveMonitor = new InteractiveShellPayloadMonitor(interactivePayload);
     var hiddenOutput = interactiveMonitor.Append(Encoding.UTF8.GetBytes("echoed command\n__JRM_READY_SMOKE"));
     hiddenOutput = hiddenOutput.Concat(interactiveMonitor.Append(Encoding.UTF8.GetBytes("TOKEN__\nechoed payload\n"))).ToArray();
