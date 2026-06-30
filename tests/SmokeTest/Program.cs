@@ -4,6 +4,8 @@ using System.Text.Json;
 using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
 using JeekRemoteManager.ViewModels;
+using SvcSystems.UI.Terminal;
+using XTerm.Selection;
 
 int failures = 0;
 void Check(bool cond, string label)
@@ -76,6 +78,24 @@ try
     }), "SSH options are emitted before the target host");
     Check(ConnectionType.Ssh.ToDisplayName() == "SSH" && ConnectionType.Rdp.ToDisplayName() == "RDP",
           "Connection types display as uppercase acronyms");
+
+    // --- Terminal clipboard text ---
+    var softWrapTerminal = new TerminalControlModel(new TerminalOptions { Cols = 10, Rows = 5, Scrollback = 10 });
+    softWrapTerminal.Feed("abcdefghijklmnop\r\nXYZ");
+    softWrapTerminal.Terminal.Selection.StartSelection(0, 0, SelectionMode.Normal);
+    softWrapTerminal.Terminal.Selection.UpdateSelection(5, 1);
+    Check(softWrapTerminal.Terminal.Selection.GetSelectionText() == "abcdefghij\r\nklmnop",
+          "XTerm selection includes CRLF at a soft wrap boundary");
+    Check(TerminalClipboardText.BuildSelectedTextWithoutSoftWraps(softWrapTerminal.Terminal) == "abcdefghijklmnop",
+          "Terminal clipboard text joins soft-wrapped rows");
+
+    var hardWrapTerminal = new TerminalControlModel(new TerminalOptions { Cols = 10, Rows = 5, Scrollback = 10 });
+    hardWrapTerminal.Feed("abc\r\nXYZ");
+    hardWrapTerminal.Terminal.Selection.StartSelection(0, 0, SelectionMode.Normal);
+    hardWrapTerminal.Terminal.Selection.UpdateSelection(2, 1);
+    Check(TerminalClipboardText.BuildSelectedTextWithoutSoftWraps(hardWrapTerminal.Terminal)
+          == hardWrapTerminal.Terminal.Selection.GetSelectionText(),
+          "Terminal clipboard text preserves hard line breaks");
 
     // --- Portability: a connection file alone (no vault, no cache) suffices ---
     // Carry just the EncryptedPassword to a fresh "machine" and decrypt with the

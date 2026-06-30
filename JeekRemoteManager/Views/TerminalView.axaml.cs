@@ -6,6 +6,9 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Input.Platform;
+using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using JeekRemoteManager.Models;
@@ -74,6 +77,8 @@ public partial class TerminalView : UserControl
         InitializeComponent();
 
         Term.Model = _model;
+        Term.ContextRequested += OnTerminalContextRequested;
+        Term.AddHandler(InputElement.KeyDownEvent, OnTerminalPreviewKeyDown, RoutingStrategies.Tunnel);
 
         _model.UserInput += (_, e) =>
         {
@@ -417,6 +422,39 @@ public partial class TerminalView : UserControl
     }
 
     private void WriteToShell(string text) => WriteToShell(Encoding.UTF8.GetBytes(text));
+
+    private async void OnTerminalContextRequested(object? sender, TerminalContextRequestedEventArgs e)
+    {
+        if (e.HasSelection)
+        {
+            await CopyTerminalSelectionToClipboardAsync(e.SelectedText);
+            _model.ClearSelection();
+            return;
+        }
+
+        await Term.PasteFromClipboardAsync();
+    }
+
+    private async void OnTerminalPreviewKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.C
+            || !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            || !e.KeyModifiers.HasFlag(KeyModifiers.Shift)
+            || !Term.HasSelection)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        await CopyTerminalSelectionToClipboardAsync(Term.SelectedText);
+    }
+
+    private Task CopyTerminalSelectionToClipboardAsync(string selectedText)
+    {
+        var text = TerminalClipboardText.BuildSelectedTextWithoutSoftWraps(_model.Terminal) ?? selectedText;
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        return clipboard?.SetTextAsync(text) ?? Task.CompletedTask;
+    }
 
     private async Task<RemotePayloadResult> ExecuteRemotePayloadAsync(
         string payload,

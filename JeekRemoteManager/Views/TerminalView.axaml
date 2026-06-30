@@ -9,7 +9,7 @@
              x:DataType="vm:MainWindowViewModel">
     <Grid>
         <terminal:TerminalControl x:Name="Term"
-                                  RightClickAction="CopyOrPaste" />
+                                  RightClickAction="ContextMenu" />
 
         <Border x:Name="ScriptPanelOverlay"
                 IsVisible="False"
