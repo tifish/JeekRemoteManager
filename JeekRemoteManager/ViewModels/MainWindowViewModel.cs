@@ -34,6 +34,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private DispatcherTimer? _autoSaveTimer;
     private bool _editorHasPendingChanges;
     private static readonly TimeSpan AutoSaveDelay = TimeSpan.FromMilliseconds(600);
+    private TreeNodeViewModel? _renamingNode;
 
     // Watches external configuration changes. Portable mode watches the whole
     // Config folder because settings, connections, and custom scripts may all
@@ -247,6 +248,12 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>Asks the view to put keyboard focus on the tree so it receives shortcuts.</summary>
     public Action? RequestFocusTree { get; set; }
+
+    /// <summary>Asks the view to put keyboard focus on a concrete tree node.</summary>
+    public Action<TreeNodeViewModel>? RequestFocusTreeNode { get; set; }
+
+    /// <summary>Asks the view to focus the inline tree name editor for a node.</summary>
+    public Action<TreeNodeViewModel>? RequestFocusTreeNameEditor { get; set; }
 
     public string RootPath => _store.RootPath;
 
@@ -622,7 +629,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     // --- Tree building ---
 
-    private void ReloadTree(string? pathToSelect = null)
+    private void ReloadTree(string? pathToSelect = null, bool requestFocus = true)
     {
         // Folder expand/collapse state is persisted in AppSettings.CollapsedFolderPaths
         // and applied as each folder node is built, so it survives both in-session
@@ -663,8 +670,8 @@ public partial class MainWindowViewModel : ViewModelBase
                 // When ReloadTree was triggered by a user action (paste, new, rename,
                 // refresh), put keyboard focus on the tree so the new item is ready
                 // to receive Enter/F2/Delete/Ctrl+C etc.
-                if (pathToSelect != null)
-                    RequestFocusTree?.Invoke();
+                if (pathToSelect != null && requestFocus)
+                    RequestTreeFocus(node);
             }
             else
             {
@@ -1010,7 +1017,7 @@ public partial class MainWindowViewModel : ViewModelBase
             // parent == root, which leaves SelectedNode null — correct behavior
             // for "keep targeting root".
             SelectedNode = FindNode(Nodes, parent);
-            RequestFocusTree?.Invoke();
+            RequestTreeFocus(SelectedNode);
 
             StatusMessage = L("StatusCreatedFolder", Path.GetFileName(path));
         }
@@ -1055,13 +1062,13 @@ public partial class MainWindowViewModel : ViewModelBase
         // Make sure unsaved edits land on disk before we read the connection.
         FlushPendingAutoSave();
 
-        if (SelectedNode is not { IsConnection: true, Connection: not null } node)
+        if (SelectedNode is not { IsConnection: true, IsNameEditing: false, Connection: not null } node)
             return Task.CompletedTask;
 
         return LaunchAsync(node);
     }
 
-    private bool CanConnect() => SelectedNode is { IsConnection: true };
+    private bool CanConnect() => SelectedNode is { IsConnection: true, IsNameEditing: false };
 
     // --- Recent group: reveal / remove / clear ---
 
@@ -1080,7 +1087,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         ExpandAncestors(real);
         SelectedNode = real;
-        RequestFocusTree?.Invoke();
+        RequestTreeFocus(real);
     }
 
     [RelayCommand(CanExecute = nameof(IsRecentConnectionContextMethod))]
@@ -1249,48 +1256,105 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     [RelayCommand(CanExecute = nameof(CanModifySelection))]
-    private async Task Rename()
+    private void Rename()
     {
-        if (SelectedNode is not { } node || PromptAsync is null)
+        if (SelectedNode is not { } node)
+            return;
+
+        BeginNodeNameEdit(node);
+    }
+
+    private void BeginNodeNameEdit(TreeNodeViewModel node)
+    {
+        if (node.IsRecent)
             return;
 
         FlushPendingAutoSave();
 
-        var newName = await PromptAsync(L("DialogRenameTitle"), L("DialogRenamePrompt"), node.Name);
-        if (string.IsNullOrWhiteSpace(newName) || newName == node.Name)
+        if (_renamingNode is not null && !ReferenceEquals(_renamingNode, node))
+            CancelNodeNameEdit(_renamingNode, requestFocus: false);
+
+        _renamingNode = node;
+        node.EditName = node.Name;
+        node.IsNameEditing = true;
+        NotifyTreeActionCanExecuteChanged();
+        RequestFocusTreeNameEditor?.Invoke(node);
+    }
+
+    public void CommitNodeNameEdit(TreeNodeViewModel node, bool requestFocus = true)
+    {
+        if (!node.IsNameEditing)
             return;
+
+        node.IsNameEditing = false;
+        if (ReferenceEquals(_renamingNode, node))
+            _renamingNode = null;
+        NotifyTreeActionCanExecuteChanged();
+
+        var newName = node.EditName.Trim();
+        if (string.IsNullOrWhiteSpace(newName) || newName == node.Name)
+        {
+            node.EditName = node.Name;
+            if (requestFocus)
+                RequestTreeFocus(node);
+            return;
+        }
 
         var oldPath = node.FullPath;
 
         try
         {
-            string newPath;
-            if (node.IsFolder)
-            {
-                newPath = _store.RenameFolder(node.FullPath, newName);
-            }
-            else if (node.Connection is not null)
-            {
-                node.Connection.Name = newName;
-                var folder = Path.GetDirectoryName(node.FullPath) ?? _store.RootPath;
-                newPath = _store.Save(node.Connection, folder, node.FullPath);
-            }
-            else
-            {
-                return;
-            }
+            var newPath = RenameNode(node, newName);
 
             DetachEditorIfEditingPath(oldPath);
-            ReloadTree(newPath);
+            ReloadTree(newPath, requestFocus);
             StatusMessage = L("StatusRenamed");
         }
         catch (Exception ex)
         {
             StatusMessage = L("StatusCouldNotRename", ex.Message);
+            _renamingNode = node;
+            node.IsNameEditing = true;
+            NotifyTreeActionCanExecuteChanged();
+            RequestFocusTreeNameEditor?.Invoke(node);
         }
     }
 
-    private bool CanModifySelection() => SelectedNode is { IsRecent: false };
+    public void CancelNodeNameEdit(TreeNodeViewModel node, bool requestFocus = true)
+    {
+        node.EditName = node.Name;
+        node.IsNameEditing = false;
+        if (ReferenceEquals(_renamingNode, node))
+            _renamingNode = null;
+        NotifyTreeActionCanExecuteChanged();
+
+        if (requestFocus)
+            RequestTreeFocus(node);
+    }
+
+    private string RenameNode(TreeNodeViewModel node, string newName)
+    {
+        if (node.IsFolder)
+            return _store.RenameFolder(node.FullPath, newName);
+
+        if (node.Connection is null)
+            return node.FullPath;
+
+        var oldName = node.Connection.Name;
+        try
+        {
+            node.Connection.Name = newName;
+            var folder = Path.GetDirectoryName(node.FullPath) ?? _store.RootPath;
+            return _store.Save(node.Connection, folder, node.FullPath);
+        }
+        catch
+        {
+            node.Connection.Name = oldName;
+            throw;
+        }
+    }
+
+    private bool CanModifySelection() => SelectedNode is { IsRecent: false, IsNameEditing: false };
 
     // --- Copy / cut / paste ---
 
@@ -1398,7 +1462,25 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private bool CanPaste() => HasClipboard;
+    private bool CanPaste() => HasClipboard && SelectedNode is not { IsNameEditing: true };
+
+    private void RequestTreeFocus(TreeNodeViewModel? node)
+    {
+        if (node is not null && RequestFocusTreeNode is not null)
+            RequestFocusTreeNode(node);
+        else
+            RequestFocusTree?.Invoke();
+    }
+
+    private void NotifyTreeActionCanExecuteChanged()
+    {
+        ConnectCommand.NotifyCanExecuteChanged();
+        DeleteCommand.NotifyCanExecuteChanged();
+        RenameCommand.NotifyCanExecuteChanged();
+        CopyCommand.NotifyCanExecuteChanged();
+        CutCommand.NotifyCanExecuteChanged();
+        PasteCommand.NotifyCanExecuteChanged();
+    }
 
     private void ClearClipboard()
     {

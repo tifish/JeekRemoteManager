@@ -221,6 +221,35 @@ try
           && PasswordProtector.Decrypt(autoSaveAAfterPasswordEdit.EncryptedPassword) == "changed-autosave-password",
           "Editing the password writes a new decryptable password blob");
 
+    var renamePromptCalled = false;
+    var inlineRenameFocusRequested = false;
+    vm.PromptAsync = (_, _, _) =>
+    {
+        renamePromptCalled = true;
+        return Task.FromResult<string?>("prompt-rename");
+    };
+    vm.RequestFocusTreeNameEditor = node => inlineRenameFocusRequested = ReferenceEquals(node, vm.SelectedNode);
+    TreeNodeViewModel? inlineRenameCommittedFocusNode = null;
+    vm.RequestFocusTreeNode = node => inlineRenameCommittedFocusNode = node;
+    vm.SelectedNode = vm.Nodes.Single(n => n.Name == "autosave-a");
+    vm.RenameCommand.Execute(null);
+    Check(vm.SelectedNode is { IsNameEditing: true, EditName: "autosave-a" },
+          "RenameCommand starts inline tree name editing");
+    Check(inlineRenameFocusRequested, "Inline tree rename requests editor focus");
+    Check(!renamePromptCalled, "RenameCommand does not use the prompt dialog");
+    Check(!vm.ConnectCommand.CanExecute(null), "Connection cannot launch while inline tree rename is active");
+
+    vm.SelectedNode!.EditName = "autosave-inline";
+    vm.CommitNodeNameEdit(vm.SelectedNode);
+    var inlineRenamedPath = Path.Combine(vmStore.RootPath, "autosave-inline.json");
+    Check(File.Exists(inlineRenamedPath) && !File.Exists(autoSaveAPath),
+          "Committing inline tree rename moves the connection file");
+    Check(vm.SelectedNode is { Name: "autosave-inline", IsNameEditing: false },
+          "Inline tree rename selects the renamed node");
+    Check(vm.ConnectCommand.CanExecute(null), "Connection launch is re-enabled after inline tree rename");
+    Check(ReferenceEquals(inlineRenameCommittedFocusNode, vm.SelectedNode),
+          "Committing inline tree rename requests focus on the renamed node");
+
     // --- Rename via Save (file follows the name) ---
     loaded.Name = "web01-renamed";
     var renamedPath = store.Save(loaded, folder, sshPath);

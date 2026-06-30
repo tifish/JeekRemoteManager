@@ -28,12 +28,15 @@ public partial class MainWindow : Window
     private double _defaultMinWidth;
     private double _defaultMinHeight;
     private DispatcherTimer? _windowSizeSaveTimer;
+    private string? _pendingTreeFocusPath;
+    private DispatcherTimer? _pendingTreeFocusClearTimer;
 
     // Auto-locks "Show password" after a stretch of inactivity in the main
     // window, so a revealed password isn't left on screen when the user
     // walks away. Any pointer or key input resets the timer.
     private static readonly TimeSpan ShowPasswordIdleTimeout = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan WindowSizeSaveDelay = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan PendingTreeFocusRestoreWindow = TimeSpan.FromSeconds(20);
     private DispatcherTimer? _showPasswordIdleTimer;
 
     public MainWindow()
@@ -50,6 +53,11 @@ public partial class MainWindow : Window
             InputElement.DoubleTappedEvent,
             OnTreeDoubleTapped,
             RoutingStrategies.Bubble,
+            handledEventsToo: true);
+        Tree.AddHandler(
+            InputElement.KeyDownEvent,
+            OnTreeKeyDown,
+            RoutingStrategies.Tunnel,
             handledEventsToo: true);
         AddHandler(
             InputElement.PointerPressedEvent,
@@ -110,6 +118,8 @@ public partial class MainWindow : Window
         vm.ApplyTerminalFontSize = ApplyTerminalFontToOpenTabs;
         vm.ConfirmHostKeyTrust = HostKeyDialog.PromptTrust;
         vm.RequestFocusTree = FocusSelectedTreeItem;
+        vm.RequestFocusTreeNode = FocusTreeItem;
+        vm.RequestFocusTreeNameEditor = FocusTreeNameEditor;
         vm.PropertyChanged -= OnViewModelPropertyChanged;
         vm.PropertyChanged += OnViewModelPropertyChanged;
         RestoreWindowSize(vm);
@@ -318,7 +328,7 @@ public partial class MainWindow : Window
     }
 
     private static bool PathEquals(string a, string b) =>
-        string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
+        string.Equals(NormalizePath(a), NormalizePath(b), StringComparison.OrdinalIgnoreCase);
 
     // Right-click menu on an SSH terminal tab: install the local public key on the
     // host (ssh-copy-id), or run one of the connection's SSH scripts.
@@ -610,6 +620,9 @@ public partial class MainWindow : Window
         else if (e.PropertyName == nameof(MainWindowViewModel.ScriptPanel)
                  && sender is MainWindowViewModel { ScriptPanel: null })
             HideScriptPanels();
+        else if (e.PropertyName == nameof(MainWindowViewModel.SelectedNode)
+                 && sender is MainWindowViewModel vm)
+            RestorePendingTreeFocus(vm.SelectedNode);
     }
 
     /// <summary>
@@ -648,9 +661,101 @@ public partial class MainWindow : Window
             vm.ShowPassword = true;
     }
 
-    private void OnPointerActivity(object? sender, PointerEventArgs e) => NoteUserActivity();
+    private void OnPointerActivity(object? sender, PointerEventArgs e)
+    {
+        if (e is PointerPressedEventArgs && !IsTreeSource(e.Source))
+            ClearPendingTreeFocusRestore();
 
-    private void OnKeyActivity(object? sender, KeyEventArgs e) => NoteUserActivity();
+        NoteUserActivity();
+    }
+
+    private void OnKeyActivity(object? sender, KeyEventArgs e)
+    {
+        if (TryHandlePendingTreeNavigation(e))
+        {
+            NoteUserActivity();
+            return;
+        }
+
+        if (!IsTreeSource(e.Source))
+            ClearPendingTreeFocusRestore();
+
+        NoteUserActivity();
+    }
+
+    private bool TryHandlePendingTreeNavigation(KeyEventArgs e)
+    {
+        if (_pendingTreeFocusPath is null
+            || e.Handled
+            || !IsTreeNavigationKey(e.Key)
+            || DataContext is not MainWindowViewModel vm)
+        {
+            return false;
+        }
+
+        var visibleNodes = FlattenVisibleTreeNodes(vm.Nodes).ToList();
+        if (visibleNodes.Count == 0)
+            return false;
+
+        var currentIndex = FindVisibleTreeNodeIndex(visibleNodes, vm.SelectedNode);
+        if (currentIndex < 0)
+            currentIndex = visibleNodes.FindIndex(n =>
+                !n.IsRecent && PathEquals(_pendingTreeFocusPath, n.FullPath));
+        if (currentIndex < 0)
+            currentIndex = 0;
+
+        var nextIndex = e.Key switch
+        {
+            Key.Up => Math.Max(0, currentIndex - 1),
+            Key.Down => Math.Min(visibleNodes.Count - 1, currentIndex + 1),
+            Key.Home => 0,
+            Key.End => visibleNodes.Count - 1,
+            Key.PageUp => Math.Max(0, currentIndex - 10),
+            Key.PageDown => Math.Min(visibleNodes.Count - 1, currentIndex + 10),
+            _ => currentIndex,
+        };
+
+        vm.SelectedNode = visibleNodes[nextIndex];
+        TrackPendingTreeFocusRestore(vm.SelectedNode);
+        e.Handled = true;
+        return true;
+    }
+
+    private static bool IsTreeNavigationKey(Key key) =>
+        key is Key.Up or Key.Down or Key.Home or Key.End or Key.PageUp or Key.PageDown;
+
+    private static int FindVisibleTreeNodeIndex(
+        System.Collections.Generic.IReadOnlyList<TreeNodeViewModel> visibleNodes,
+        TreeNodeViewModel? node)
+    {
+        if (node is null)
+            return -1;
+
+        for (var i = 0; i < visibleNodes.Count; i++)
+            if (ReferenceEquals(visibleNodes[i], node))
+                return i;
+
+        for (var i = 0; i < visibleNodes.Count; i++)
+            if (visibleNodes[i].IsRecent == node.IsRecent
+                && PathEquals(visibleNodes[i].FullPath, node.FullPath))
+                return i;
+
+        return -1;
+    }
+
+    private static System.Collections.Generic.IEnumerable<TreeNodeViewModel> FlattenVisibleTreeNodes(
+        System.Collections.Generic.IEnumerable<TreeNodeViewModel> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            yield return node;
+            if (!node.IsExpanded)
+                continue;
+
+            foreach (var child in FlattenVisibleTreeNodes(node.Children))
+                yield return child;
+        }
+    }
 
     private void NoteUserActivity()
     {
@@ -688,17 +793,33 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Focuses the TreeViewItem container of the current selection so subsequent
-    /// keystrokes (Enter, F2, Delete, Ctrl+C/X/V) hit the new item. Falls back
-    /// to focusing the TreeView itself if the container isn't realized yet.
+    /// keystrokes (Enter, F2, Delete, Ctrl+C/X/V) hit the new item.
     /// </summary>
     private void FocusSelectedTreeItem()
+    {
+        var item = Tree.SelectedItem as TreeNodeViewModel;
+        FocusTreeItem(item);
+    }
+
+    private void FocusTreeItem(TreeNodeViewModel? node)
+    {
+        FocusTreeItem(node, attemptsRemaining: 4);
+    }
+
+    private void FocusTreeItem(TreeNodeViewModel? node, int attemptsRemaining)
     {
         // Defer until after the TreeView has materialised the container.
         Dispatcher.UIThread.Post(() =>
         {
-            var item = Tree.SelectedItem;
+            var item = node ?? Tree.SelectedItem as TreeNodeViewModel;
             if (item != null)
             {
+                if (_pendingTreeFocusPath is not null
+                    && !PathEquals(_pendingTreeFocusPath, item.FullPath))
+                {
+                    return;
+                }
+
                 var container = FindTreeViewItem(Tree, item);
                 if (container != null)
                 {
@@ -706,8 +827,60 @@ public partial class MainWindow : Window
                     return;
                 }
             }
+
+            if (attemptsRemaining > 0)
+            {
+                FocusTreeItem(node, attemptsRemaining - 1);
+                return;
+            }
+
             Tree.Focus();
         }, DispatcherPriority.Background);
+    }
+
+    private void TrackPendingTreeFocusRestore(TreeNodeViewModel? node)
+    {
+        if (node is null)
+            return;
+
+        _pendingTreeFocusPath = NormalizePath(node.FullPath);
+        FocusTreeItem(node);
+        RestartPendingTreeFocusTimer();
+    }
+
+    private void RestorePendingTreeFocus(TreeNodeViewModel? node)
+    {
+        if (_pendingTreeFocusPath is null)
+            return;
+
+        if (node is null)
+            return;
+
+        if (!PathEquals(_pendingTreeFocusPath, node.FullPath))
+        {
+            _pendingTreeFocusPath = NormalizePath(node.FullPath);
+            RestartPendingTreeFocusTimer();
+        }
+
+        FocusTreeItem(node);
+    }
+
+    private void RestartPendingTreeFocusTimer()
+    {
+        if (_pendingTreeFocusClearTimer is null)
+        {
+            _pendingTreeFocusClearTimer = new DispatcherTimer { Interval = PendingTreeFocusRestoreWindow };
+            _pendingTreeFocusClearTimer.Tick += (_, _) => ClearPendingTreeFocusRestore();
+        }
+
+        _pendingTreeFocusClearTimer.Stop();
+        _pendingTreeFocusClearTimer.Start();
+    }
+
+    private void ClearPendingTreeFocusRestore()
+    {
+        _pendingTreeFocusPath = null;
+        _pendingTreeFocusClearTimer?.Stop();
     }
 
     private static TreeViewItem? FindTreeViewItem(ItemsControl items, object data)
@@ -720,9 +893,90 @@ public partial class MainWindow : Window
         return null;
     }
 
+    private void FocusTreeNameEditor(TreeNodeViewModel node)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            foreach (var visual in Tree.GetVisualDescendants())
+            {
+                if (visual is TextBox editor
+                    && editor.Classes.Contains("tree-name-editor")
+                    && ReferenceEquals(editor.DataContext, node))
+                {
+                    editor.Focus();
+                    editor.SelectAll();
+                    return;
+                }
+            }
+
+            FocusSelectedTreeItem();
+        }, DispatcherPriority.Background);
+    }
+
+    private void OnTreeNameEditorKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (sender is not TextBox { DataContext: TreeNodeViewModel node }
+            || DataContext is not MainWindowViewModel vm)
+            return;
+
+        if (HandleTreeNameEditorKey(vm, node, e.Key))
+        {
+            e.Handled = true;
+        }
+    }
+
+    private void OnTreeNameEditorLostFocus(object? sender, RoutedEventArgs e)
+    {
+        if (sender is TextBox { DataContext: TreeNodeViewModel node }
+            && DataContext is MainWindowViewModel vm)
+        {
+            vm.CommitNodeNameEdit(node, requestFocus: false);
+        }
+    }
+
+    private void OnTreeKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Handled || DataContext is not MainWindowViewModel vm)
+            return;
+
+        if (TryGetTreeNameEditorNode(e.Source, out var editingNode) && editingNode is not null)
+        {
+            if (HandleTreeNameEditorKey(vm, editingNode, e.Key))
+                e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Enter && vm.ConnectCommand.CanExecute(null))
+        {
+            e.Handled = true;
+            vm.ConnectCommand.Execute(null);
+        }
+    }
+
+    private bool HandleTreeNameEditorKey(MainWindowViewModel vm, TreeNodeViewModel node, Key key)
+    {
+        if (key == Key.Enter)
+        {
+            vm.CommitNodeNameEdit(node);
+            TrackPendingTreeFocusRestore(vm.SelectedNode);
+            return true;
+        }
+
+        if (key == Key.Escape)
+        {
+            vm.CancelNodeNameEdit(node);
+            return true;
+        }
+
+        return false;
+    }
+
     private void OnTreeDoubleTapped(object? sender, TappedEventArgs e)
     {
         if (DataContext is not MainWindowViewModel vm)
+            return;
+
+        if (IsTreeNameEditorSource(e.Source))
             return;
 
         var hitItem = e.Source is Visual source
@@ -758,6 +1012,9 @@ public partial class MainWindow : Window
     private void OnTreePointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (DataContext is not MainWindowViewModel vm)
+            return;
+
+        if (IsTreeNameEditorSource(e.Source))
             return;
 
         if (TryToggleFolderFromSource(e, out var toggledNode) && toggledNode is not null)
@@ -797,6 +1054,42 @@ public partial class MainWindow : Window
         {
             // Empty area → clear selection so the next New/Paste targets root.
             vm.SelectedNode = null;
+        }
+    }
+
+    private static bool IsTreeNameEditorSource(object? source) =>
+        TryGetTreeNameEditorNode(source, out _);
+
+    private bool IsTreeSource(object? source) =>
+        source is Visual visual
+        && visual.FindAncestorOfType<TreeView>(includeSelf: true) is { } tree
+        && ReferenceEquals(tree, Tree);
+
+    private static bool TryGetTreeNameEditorNode(object? source, out TreeNodeViewModel? node)
+    {
+        node = null;
+        if (source is not Visual visual)
+            return false;
+
+        var editor = visual.FindAncestorOfType<TextBox>(includeSelf: true);
+        if (editor is null
+            || !editor.Classes.Contains("tree-name-editor")
+            || editor.DataContext is not TreeNodeViewModel editorNode)
+            return false;
+
+        node = editorNode;
+        return true;
+    }
+
+    private static string NormalizePath(string path)
+    {
+        try
+        {
+            return Path.GetFullPath(path);
+        }
+        catch
+        {
+            return path;
         }
     }
 

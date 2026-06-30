@@ -81,6 +81,7 @@ public class ConnectionStore
     public void SaveInPlace(Connection connection, string filePath)
     {
         var json = JsonSerializer.Serialize(connection, JsonOptions);
+        Touch();
         File.WriteAllText(filePath, json);
         Touch();
     }
@@ -107,6 +108,7 @@ public class ConnectionStore
     /// </summary>
     public string Save(Connection connection, string folderPath, string? previousFilePath = null)
     {
+        Touch();
         Directory.CreateDirectory(folderPath);
 
         var targetName = SanitizeName(connection.Name);
@@ -136,6 +138,7 @@ public class ConnectionStore
     {
         if (File.Exists(filePath))
         {
+            Touch();
             File.Delete(filePath);
             Touch();
         }
@@ -145,6 +148,7 @@ public class ConnectionStore
     {
         if (Directory.Exists(folderPath))
         {
+            Touch();
             Directory.Delete(folderPath, recursive: true);
             Touch();
         }
@@ -153,6 +157,7 @@ public class ConnectionStore
     /// <summary>Creates a new sub-folder with a unique name; returns its path.</summary>
     public string CreateFolder(string parentPath, string desiredName)
     {
+        Touch();
         Directory.CreateDirectory(parentPath);
         var path = UniqueFolderPath(parentPath, SanitizeName(desiredName));
         Directory.CreateDirectory(path);
@@ -171,6 +176,7 @@ public class ConnectionStore
         if (Directory.Exists(target))
             target = UniqueFolderPath(parent, SanitizeName(newName));
 
+        Touch();
         Directory.Move(folderPath, target);
         Touch();
         return target;
@@ -181,6 +187,7 @@ public class ConnectionStore
     /// <summary>Copies a connection file into a folder, giving it a unique name. Returns the new path.</summary>
     public string CopyFileInto(string filePath, string targetFolder)
     {
+        Touch();
         Directory.CreateDirectory(targetFolder);
         var baseName = Path.GetFileNameWithoutExtension(filePath);
         var target = UniqueFilePath(targetFolder, baseName);
@@ -200,6 +207,7 @@ public class ConnectionStore
         if (PathsEqual(sourceFolder, targetFolder))
             return filePath;
 
+        Touch();
         Directory.CreateDirectory(targetFolder);
         var baseName = Path.GetFileNameWithoutExtension(filePath);
         var target = UniqueFilePath(targetFolder, baseName);
@@ -211,6 +219,7 @@ public class ConnectionStore
     /// <summary>Recursively copies a folder into a parent folder, with a unique name. Returns the new path.</summary>
     public string CopyFolderInto(string folderPath, string targetParent)
     {
+        Touch();
         Directory.CreateDirectory(targetParent);
         var name = Path.GetFileName(folderPath.TrimEnd(Path.DirectorySeparatorChar));
         var target = UniqueFolderPath(targetParent, name);
@@ -229,6 +238,7 @@ public class ConnectionStore
         if (PathsEqual(currentParent, targetParent))
             return folderPath;
 
+        Touch();
         Directory.CreateDirectory(targetParent);
         var name = Path.GetFileName(folderPath.TrimEnd(Path.DirectorySeparatorChar));
         var target = UniqueFolderPath(targetParent, name);

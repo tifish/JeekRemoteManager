@@ -18,6 +18,7 @@ public partial class TreeNodeViewModel : ViewModelBase
         _name = System.IO.Path.GetFileNameWithoutExtension(fullPath);
         if (isFolder)
             _name = System.IO.Path.GetFileName(fullPath.TrimEnd(System.IO.Path.DirectorySeparatorChar));
+        _editName = _name;
     }
 
     public bool IsFolder { get; }
@@ -43,6 +44,12 @@ public partial class TreeNodeViewModel : ViewModelBase
 
     [ObservableProperty]
     private string _name;
+
+    [ObservableProperty]
+    private string _editName = string.Empty;
+
+    [ObservableProperty]
+    private bool _isNameEditing;
 
     [ObservableProperty]
     private bool _isExpanded = true;

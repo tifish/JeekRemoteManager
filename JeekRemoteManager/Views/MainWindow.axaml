@@ -224,6 +224,12 @@
             <Setter Property="Foreground" Value="{DynamicResource TerminalForegroundBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushStrong}" />
         </Style>
+        <Style Selector="TextBox.tree-name-editor">
+            <Setter Property="MinHeight" Value="26" />
+            <Setter Property="Height" Value="26" />
+            <Setter Property="Padding" Value="6,2" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
         <Style Selector="ComboBox">
             <Setter Property="MinHeight" Value="34" />
             <Setter Property="CornerRadius" Value="6" />
@@ -491,7 +497,6 @@
                             </Style>
                         </TreeView.Styles>
                         <TreeView.KeyBindings>
-                            <KeyBinding Gesture="Enter" Command="{Binding ConnectCommand}" />
                             <KeyBinding Gesture="Ctrl+C" Command="{Binding CopyCommand}" />
                             <KeyBinding Gesture="Ctrl+X" Command="{Binding CutCommand}" />
                             <KeyBinding Gesture="Ctrl+V" Command="{Binding PasteCommand}" />
@@ -546,7 +551,14 @@
                                         <TextBlock Grid.Column="1"
                                                    Text="{Binding Name}"
                                                    TextTrimming="CharacterEllipsis"
-                                                   VerticalAlignment="Center" />
+                                                   VerticalAlignment="Center"
+                                                   IsVisible="{Binding !IsNameEditing}" />
+                                        <TextBox Grid.Column="1"
+                                                 Classes="tree-name-editor"
+                                                 Text="{Binding EditName, Mode=TwoWay}"
+                                                 IsVisible="{Binding IsNameEditing}"
+                                                 KeyDown="OnTreeNameEditorKeyDown"
+                                                 LostFocus="OnTreeNameEditorLostFocus" />
                                     </Grid>
                                 </Border>
                             </TreeDataTemplate>
