@@ -54,6 +54,7 @@ public partial class TerminalView : UserControl
     private bool _connectInProgress;
     private bool _shellClosed;
     private bool _suppressUserInput;
+    private string? _pendingKeyboardCopyText;
     private volatile bool _disposed;
 
     private sealed record RemotePayloadResult(int ExitCode, string Output);
@@ -79,6 +80,7 @@ public partial class TerminalView : UserControl
         Term.Model = _model;
         Term.ContextRequested += OnTerminalContextRequested;
         Term.AddHandler(InputElement.KeyDownEvent, OnTerminalPreviewKeyDown, RoutingStrategies.Tunnel);
+        Term.AddHandler(InputElement.KeyUpEvent, OnTerminalPreviewKeyUp, RoutingStrategies.Tunnel);
 
         _model.UserInput += (_, e) =>
         {
@@ -437,24 +439,66 @@ public partial class TerminalView : UserControl
 
     private async void OnTerminalPreviewKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key != Key.C
-            || !e.KeyModifiers.HasFlag(KeyModifiers.Control)
-            || !e.KeyModifiers.HasFlag(KeyModifiers.Shift)
-            || !Term.HasSelection)
+        if (Term.HasSelection && IsTerminalCopyGestureKey(e.Key))
+            _pendingKeyboardCopyText = GetTerminalSelectionText(Term.SelectedText);
+
+        if (IsTerminalPasteGesture(e))
+        {
+            e.Handled = true;
+            _pendingKeyboardCopyText = null;
+            await Term.PasteFromClipboardAsync();
+            return;
+        }
+
+        if (!IsTerminalCopyGesture(e))
         {
             return;
         }
 
+        var text = Term.HasSelection
+            ? GetTerminalSelectionText(Term.SelectedText)
+            : _pendingKeyboardCopyText;
+        if (string.IsNullOrEmpty(text))
+            return;
+
         e.Handled = true;
-        await CopyTerminalSelectionToClipboardAsync(Term.SelectedText);
+        _pendingKeyboardCopyText = null;
+        await SetTerminalClipboardTextAsync(text);
+    }
+
+    private void OnTerminalPreviewKeyUp(object? sender, KeyEventArgs e)
+    {
+        if (e.Key is Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift)
+            _pendingKeyboardCopyText = null;
     }
 
     private Task CopyTerminalSelectionToClipboardAsync(string selectedText)
     {
-        var text = TerminalClipboardText.BuildSelectedTextWithoutSoftWraps(_model.Terminal) ?? selectedText;
+        var text = GetTerminalSelectionText(selectedText);
+        return SetTerminalClipboardTextAsync(text);
+    }
+
+    private string GetTerminalSelectionText(string selectedText) =>
+        TerminalClipboardText.BuildSelectedTextWithoutSoftWraps(_model.Terminal) ?? selectedText;
+
+    private Task SetTerminalClipboardTextAsync(string text)
+    {
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         return clipboard?.SetTextAsync(text) ?? Task.CompletedTask;
     }
+
+    private static bool IsTerminalCopyGesture(KeyEventArgs e) =>
+        e.Key == Key.C
+        && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+        && e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+
+    private static bool IsTerminalPasteGesture(KeyEventArgs e) =>
+        e.Key == Key.V
+        && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+        && e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+
+    private static bool IsTerminalCopyGestureKey(Key key) =>
+        key is Key.C or Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift;
 
     private async Task<RemotePayloadResult> ExecuteRemotePayloadAsync(
         string payload,
