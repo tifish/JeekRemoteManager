@@ -47,6 +47,8 @@ public partial class TerminalView : UserControl
     private ZmodemByteQueue? _activeZmodemQueue;
     private ZmodemTraceLog? _activeZmodemTrace;
     private CancellationTokenSource? _activeZmodemCancellation;
+    private int _connectionGeneration;
+    private bool _connectInProgress;
     private bool _shellClosed;
     private bool _suppressUserInput;
     private volatile bool _disposed;
@@ -60,6 +62,13 @@ public partial class TerminalView : UserControl
 
     public string? SourcePath => _sourcePath;
 
+    public bool CanReuseSession => !_disposed && (_connectInProgress || IsConnected);
+
+    private bool IsConnected =>
+        _shell is not null
+        && !_shellClosed
+        && _client?.IsConnected == true;
+
     public TerminalView()
     {
         InitializeComponent();
@@ -69,7 +78,7 @@ public partial class TerminalView : UserControl
         _model.UserInput += (_, e) =>
         {
             if (!_suppressUserInput)
-                SendToShell(e.Data);
+                HandleUserInput(e.Data);
         };
         _model.SizeChanged += (_, _) => SyncWindowSize();
         _model.Terminal.TitleChanged += (_, _) => Dispatcher.UIThread.Post(() =>
@@ -85,10 +94,8 @@ public partial class TerminalView : UserControl
     {
         _connection = connection;
         _sourcePath = sourcePath;
-        _connected = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _shellClosed = false;
         FocusTerminal();
-        _ = ConnectAsync();
+        BeginConnectionAttempt();
     }
 
     public async Task WaitUntilConnectedAsync(CancellationToken cancellationToken = default)
@@ -194,6 +201,62 @@ public partial class TerminalView : UserControl
         ScriptPanelOverlay.IsVisible = false;
     }
 
+    private void HandleUserInput(ReadOnlyMemory<byte> data)
+    {
+        if (CanReconnectFromInput(data))
+        {
+            Reconnect();
+            return;
+        }
+
+        SendToShell(data);
+    }
+
+    private bool CanReconnectFromInput(ReadOnlyMemory<byte> data) =>
+        _connection is not null
+        && !_disposed
+        && !_connectInProgress
+        && !IsConnected
+        && IsEnterInput(data);
+
+    private static bool IsEnterInput(ReadOnlyMemory<byte> data)
+    {
+        if (data.IsEmpty)
+            return false;
+
+        var span = data.Span;
+        for (var i = 0; i < span.Length; i++)
+        {
+            if (span[i] != (byte)'\r' && span[i] != (byte)'\n')
+                return false;
+        }
+
+        return true;
+    }
+
+    private void Reconnect()
+    {
+        if (_connection is null || _disposed || _connectInProgress || IsConnected)
+            return;
+
+        _activePayloadMonitor?.Fail(new InvalidOperationException("SSH terminal is reconnecting."));
+        _activePayloadMonitor = null;
+        _suppressUserInput = false;
+        Interlocked.Increment(ref _connectionGeneration);
+        DisposeTransport();
+
+        FeedLine("\r\n\u001b[36m[reconnect]\u001b[0m");
+        BeginConnectionAttempt();
+    }
+
+    private void BeginConnectionAttempt()
+    {
+        var generation = Interlocked.Increment(ref _connectionGeneration);
+        _connected = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _shellClosed = false;
+        _ = ConnectAsync(generation);
+    }
+
     /// <summary>Sets the terminal font size in points.</summary>
     public void SetFontSize(double size)
     {
@@ -205,7 +268,7 @@ public partial class TerminalView : UserControl
         Dispatcher.UIThread.Post(SyncWindowSize, DispatcherPriority.Background);
     }
 
-    private async Task ConnectAsync()
+    private async Task ConnectAsync(int generation)
     {
         var connection = _connection!;
         var host = connection.Host.Trim();
@@ -213,6 +276,7 @@ public partial class TerminalView : UserControl
         FeedLine($"Connecting to {host}:{port} ...");
 
         SshClient client;
+        _connectInProgress = true;
         try
         {
             // Build (which may query ssh-agent / Pageant over IPC) and Connect both
@@ -223,7 +287,7 @@ public partial class TerminalView : UserControl
                 var sshClient = new SshClient(SshConnectionFactory.Build(connection));
                 SshHostKey.Attach(sshClient, host, port,
                 onUnknown: (keyType, fingerprint) => HostKeyDialog.PromptTrust(host, port, keyType, fingerprint),
-                onRejected: message => Dispatcher.UIThread.Post(() => FeedLine($"\r\n[31m[{message}][0m\r\n")));
+                onRejected: message => Dispatcher.UIThread.Post(() => FeedLine($"\r\n\u001b[31m[{message}]\u001b[0m\r\n")));
                 sshClient.Connect();
                 return sshClient;
             });
@@ -231,39 +295,70 @@ public partial class TerminalView : UserControl
         catch (Exception ex)
         {
             _connected?.TrySetException(new InvalidOperationException($"Connection failed: {ex.Message}", ex));
-            FeedLine($"[31m[connect failed] {ex.Message}[0m\r\n");
+            _connectInProgress = false;
+            FeedLine($"\u001b[31m[connect failed] {ex.Message}\u001b[0m");
+            FeedReconnectHint();
             return;
         }
 
-        if (_disposed)
+        if (_disposed || generation != _connectionGeneration)
         {
             _connected?.TrySetCanceled();
+            _connectInProgress = false;
             try { client.Dispose(); } catch { /* ignore */ }
             return;
         }
-
-        _client = client;
 
         var cols = (uint)Math.Max(20, _model.Terminal.Cols);
         var rows = (uint)Math.Max(5, _model.Terminal.Rows);
         var terminalType = string.IsNullOrWhiteSpace(connection.TerminalType)
             ? Connection.DefaultTerminalType
             : connection.TerminalType.Trim();
-        var shell = client.CreateShellStream(terminalType, cols, rows, 0, 0, 4096);
+
+        ShellStream shell;
+        try
+        {
+            shell = client.CreateShellStream(terminalType, cols, rows, 0, 0, 4096);
+        }
+        catch (Exception ex)
+        {
+            _connected?.TrySetException(new InvalidOperationException($"Connection failed: {ex.Message}", ex));
+            _connectInProgress = false;
+            FeedLine($"\u001b[31m[connect failed] {ex.Message}\u001b[0m");
+            FeedReconnectHint();
+            try { client.Dispose(); } catch { /* ignore */ }
+            return;
+        }
+
+        _client = client;
         _shell = shell;
 
-        shell.DataReceived += (_, e) => OnShellData(e.Data);
+        shell.DataReceived += (_, e) =>
+        {
+            if (generation == _connectionGeneration)
+                OnShellData(e.Data);
+        };
         shell.ErrorOccurred += (_, e) => Dispatcher.UIThread.Post(() =>
-            FeedLine($"\r\n[31m[error] {e.Exception.Message}[0m"));
+        {
+            if (generation == _connectionGeneration && !_disposed)
+                FeedLine($"\r\n\u001b[31m[error] {e.Exception.Message}\u001b[0m");
+        });
         shell.Closed += (_, _) =>
         {
+            if (generation != _connectionGeneration || _disposed)
+                return;
+
             _shellClosed = true;
             _activePayloadMonitor?.Fail(new InvalidOperationException("SSH terminal closed during script execution."));
             Dispatcher.UIThread.Post(() =>
-                FeedLine("\r\n[33m[session closed][0m\r\n"));
+            {
+                FeedLine("\r\n\u001b[33m[session closed]\u001b[0m");
+                FeedReconnectHint();
+            });
         };
 
         _connected?.TrySetResult(true);
+        _connectInProgress = false;
 
         // Push the current (laid-out) size in case SizeChanged fired before connect.
         SyncWindowSize();
@@ -640,20 +735,29 @@ public partial class TerminalView : UserControl
 
     private void FeedLine(string text) => _model.Feed(text + "\r\n");
 
+    private void FeedReconnectHint() => FeedLine("\u001b[90m[press Enter to reconnect]\u001b[0m");
+
+    private void DisposeTransport()
+    {
+        try { _shell?.Dispose(); } catch { /* ignore */ }
+        try { _client?.Disconnect(); } catch { /* ignore */ }
+        try { _client?.Dispose(); } catch { /* ignore */ }
+        _shell = null;
+        _client = null;
+    }
+
     /// <summary>Tears down the SSH session. Safe to call multiple times.</summary>
     public void Close()
     {
         _disposed = true;
+        Interlocked.Increment(ref _connectionGeneration);
+        _connectInProgress = false;
         _connected?.TrySetCanceled();
         _activePayloadMonitor?.Fail(new ObjectDisposedException(nameof(TerminalView)));
         _activeZmodemCancellation?.Cancel();
         _activeZmodemQueue?.Complete(new ObjectDisposedException(nameof(TerminalView)));
         _activeZmodemTrace?.Dispose();
         _zmodemDetectionFlushTimer?.Dispose();
-        try { _shell?.Dispose(); } catch { /* ignore */ }
-        try { _client?.Disconnect(); } catch { /* ignore */ }
-        try { _client?.Dispose(); } catch { /* ignore */ }
-        _shell = null;
-        _client = null;
+        DisposeTransport();
     }
 }

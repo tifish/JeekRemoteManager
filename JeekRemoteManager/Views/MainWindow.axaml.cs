@@ -239,11 +239,17 @@ public partial class MainWindow : Window
         if (!forceNew)
         {
             var existing = FindTerminalTab(connection, sourcePath);
-            if (existing is not null)
+            while (existing is not null)
             {
-                RightTabs.SelectedItem = existing.Value.Tab;
-                existing.Value.View.FocusTerminal();
-                return Task.FromResult<TerminalScriptSession?>(CreateTerminalScriptSession(existing.Value.View, existing.Value.Tab));
+                if (existing.Value.View.CanReuseSession)
+                {
+                    RightTabs.SelectedItem = existing.Value.Tab;
+                    existing.Value.View.FocusTerminal();
+                    return Task.FromResult<TerminalScriptSession?>(CreateTerminalScriptSession(existing.Value.View, existing.Value.Tab));
+                }
+
+                CloseTerminalTab(existing.Value.Tab);
+                existing = FindTerminalTab(connection, sourcePath);
             }
         }
 
