@@ -1127,6 +1127,70 @@ try
           && !terminalPublicKeyPayload.Contains("__JRM_KEY_PRESENT__"),
           "Terminal public key payload prints user-facing status lines");
 
+    var zmodemDetector = new ZmodemTriggerDetector();
+    _ = zmodemDetector.Append(Encoding.ASCII.GetBytes("prompt **"), out var zmodemPromptBytes);
+    var zmodemDetected = zmodemDetector.Append(
+        new byte[] { 0x18, (byte)'B', (byte)'0', (byte)'0', (byte)'0', (byte)'0' },
+        out var zmodemDisplayBytes);
+    var zmodemVisiblePrefix = zmodemPromptBytes.Concat(zmodemDetected?.DisplayBytes ?? []).ToArray();
+    Check(zmodemDetected is { Direction: ZmodemTransferDirection.Download }
+          && Encoding.ASCII.GetString(zmodemVisiblePrefix).EndsWith("prompt ", StringComparison.Ordinal)
+          && zmodemDetected.ProtocolBytes.Length >= 6
+          && zmodemDisplayBytes.Length == 0
+          && zmodemDetected.ProtocolBytes[0] == (byte)'*',
+          "ZMODEM detector recognizes a split sz download trigger and keeps protocol bytes out of the terminal");
+
+    var zmodemInitWrites = new List<byte[]>();
+    var zmodemInitQueue = new ZmodemByteQueue();
+    using (var zmodemInitCancel = new CancellationTokenSource())
+    {
+        var zmodemInitReceiver = new ZmodemSession(
+            (bytes, _) =>
+            {
+                zmodemInitWrites.Add(bytes);
+                zmodemInitCancel.Cancel();
+                return Task.CompletedTask;
+            },
+            zmodemInitQueue.ReadByteAsync);
+        try
+        {
+            await zmodemInitReceiver.ReceiveAsync(root, zmodemInitCancel.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected after capturing the initial receiver header.
+        }
+    }
+    var zmodemReceiverInitText = Encoding.ASCII.GetString(zmodemInitWrites.Single());
+    Check(zmodemReceiverInitText.Contains($"**{(char)0x18}B0100000027fed4", StringComparison.Ordinal),
+          "ZMODEM receiver advertises capability flags in ZF0 with a compatible CRC16");
+
+    var zmodemSource = Path.Combine(root, "zmodem-source.bin");
+    var zmodemDest = Path.Combine(root, "zmodem-dest");
+    Directory.CreateDirectory(zmodemDest);
+    var zmodemPayload = Enumerable.Range(0, 4096).Select(i => (byte)(i % 251)).ToArray();
+    zmodemPayload[17] = 0x18;
+    zmodemPayload[18] = 0x11;
+    zmodemPayload[19] = 0x13;
+    File.WriteAllBytes(zmodemSource, zmodemPayload);
+
+    var senderToReceiver = new ZmodemByteQueue();
+    var receiverToSender = new ZmodemByteQueue();
+    var zmodemSender = new ZmodemSession(
+        (bytes, _) => { senderToReceiver.Append(bytes); return Task.CompletedTask; },
+        receiverToSender.ReadByteAsync);
+    var zmodemReceiver = new ZmodemSession(
+        (bytes, _) => { receiverToSender.Append(bytes); return Task.CompletedTask; },
+        senderToReceiver.ReadByteAsync);
+    var zmodemSendTask = zmodemSender.SendAsync([zmodemSource], CancellationToken.None);
+    var zmodemReceiveTask = zmodemReceiver.ReceiveAsync(zmodemDest, CancellationToken.None);
+    await Task.WhenAll(zmodemSendTask, zmodemReceiveTask);
+    var zmodemReceivedFile = zmodemReceiveTask.Result.Files.Single();
+    Check(zmodemSendTask.Result.Files.Single() == zmodemSource
+          && Path.GetFileName(zmodemReceivedFile) == Path.GetFileName(zmodemSource)
+          && File.ReadAllBytes(zmodemReceivedFile).SequenceEqual(zmodemPayload),
+          "ZMODEM sender and receiver transfer binary data through the SSH byte-stream adapter");
+
     var auditSuite = suites.Single(s => s.Name == "Audit");
     var sortedChoices = MainWindowViewModel.SortScriptSuiteChoices(
         suites,

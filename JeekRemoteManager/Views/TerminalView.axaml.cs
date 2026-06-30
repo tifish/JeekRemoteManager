@@ -1,8 +1,12 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
@@ -36,7 +40,13 @@ public partial class TerminalView : UserControl
     private TaskCompletionSource<bool>? _connected;
     private readonly SemaphoreSlim _scriptLock = new(1, 1);
     private readonly object _shellWriteGate = new();
+    private readonly object _zmodemDetectionGate = new();
+    private readonly ZmodemTriggerDetector _zmodemDetector = new();
     private InteractiveShellPayloadMonitor? _activePayloadMonitor;
+    private Timer? _zmodemDetectionFlushTimer;
+    private ZmodemByteQueue? _activeZmodemQueue;
+    private ZmodemTraceLog? _activeZmodemTrace;
+    private CancellationTokenSource? _activeZmodemCancellation;
     private bool _shellClosed;
     private bool _suppressUserInput;
     private volatile bool _disposed;
@@ -263,15 +273,37 @@ public partial class TerminalView : UserControl
     {
         if (_disposed || data.Length == 0)
             return;
-        var displayData = _activePayloadMonitor?.Append(data) ?? data;
-        if (displayData.Length == 0)
-            return;
 
-        Dispatcher.UIThread.Post(() =>
+        if (_activeZmodemQueue is { } zmodemQueue)
         {
-            if (!_disposed)
-                _model.Feed(displayData, displayData.Length);
-        });
+            _activeZmodemTrace?.WriteBytes("RX raw", data);
+            zmodemQueue.Append(data);
+            return;
+        }
+
+        if (_activePayloadMonitor is not null)
+        {
+            var payloadDisplayData = _activePayloadMonitor.Append(data);
+            FeedBytes(payloadDisplayData);
+            return;
+        }
+
+        ZmodemDetection? detection;
+        byte[] displayData;
+        lock (_zmodemDetectionGate)
+        {
+            detection = _zmodemDetector.Append(data, out displayData);
+        }
+
+        FeedBytes(displayData);
+        if (detection is not null)
+        {
+            FeedBytes(detection.DisplayBytes);
+            StartZmodemTransfer(detection);
+            return;
+        }
+
+        ScheduleZmodemDetectionFlush();
     }
 
     private void SendToShell(ReadOnlyMemory<byte> data)
@@ -339,6 +371,226 @@ public partial class TerminalView : UserControl
         }
     }
 
+    private void FeedBytes(byte[] data)
+    {
+        if (data.Length == 0)
+            return;
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!_disposed)
+                _model.Feed(data, data.Length);
+        });
+    }
+
+    private void ScheduleZmodemDetectionFlush()
+    {
+        if (_disposed || _activeZmodemQueue is not null)
+            return;
+
+        _zmodemDetectionFlushTimer ??= new Timer(_ => FlushZmodemDetectionBuffer());
+        _zmodemDetectionFlushTimer.Change(80, Timeout.Infinite);
+    }
+
+    private void FlushZmodemDetectionBuffer()
+    {
+        byte[] data;
+        lock (_zmodemDetectionGate)
+        {
+            if (_activeZmodemQueue is not null)
+                return;
+            data = _zmodemDetector.Flush();
+        }
+
+        FeedBytes(data);
+    }
+
+    private void StartZmodemTransfer(ZmodemDetection detection)
+    {
+        var queue = new ZmodemByteQueue();
+        queue.Append(detection.ProtocolBytes);
+        var trace = ZmodemTraceLog.CreateIfEnabled();
+        trace?.Write($"detected direction={detection.Direction}");
+        trace?.WriteBytes("RX trigger protocol", detection.ProtocolBytes);
+        trace?.WriteBytes("RX trigger display", detection.DisplayBytes);
+
+        var cancellation = new CancellationTokenSource();
+        _activeZmodemQueue = queue;
+        _activeZmodemTrace = trace;
+        _activeZmodemCancellation = cancellation;
+        _suppressUserInput = true;
+
+        _ = Task.Run(() => RunZmodemTransferAsync(detection.Direction, queue, trace, cancellation));
+    }
+
+    private async Task RunZmodemTransferAsync(
+        ZmodemTransferDirection direction,
+        ZmodemByteQueue queue,
+        ZmodemTraceLog? trace,
+        CancellationTokenSource cancellation)
+    {
+        Action<string>? traceWriter = trace is null ? null : trace.Write;
+        var session = new ZmodemSession(WriteZmodemBytesAsync, queue.ReadByteAsync, traceWriter);
+        if (trace is not null)
+            FeedLineOnUiThread($"\r\n\u001b[36m[zmodem trace]\u001b[0m {trace.FilePath}");
+        try
+        {
+            if (direction == ZmodemTransferDirection.Download)
+            {
+                FeedLineOnUiThread("\r\n\u001b[36m[zmodem download]\u001b[0m Choose a local folder.");
+                var folder = await PickZmodemDownloadFolderAsync().ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(folder))
+                {
+                    await session.CancelAsync(CancellationToken.None).ConfigureAwait(false);
+                    FeedLineOnUiThread("\u001b[33m[zmodem cancelled]\u001b[0m");
+                    return;
+                }
+
+                FeedLineOnUiThread($"\u001b[36m[zmodem download]\u001b[0m Receiving to {folder}");
+                var result = await session.ReceiveAsync(folder, cancellation.Token).ConfigureAwait(false);
+                FeedZmodemComplete(direction, result.Files);
+                return;
+            }
+
+            FeedLineOnUiThread("\r\n\u001b[36m[zmodem upload]\u001b[0m Choose local file(s).");
+            var files = await PickZmodemUploadFilesAsync().ConfigureAwait(false);
+            if (files.Count == 0)
+            {
+                await session.CancelAsync(CancellationToken.None).ConfigureAwait(false);
+                FeedLineOnUiThread("\u001b[33m[zmodem cancelled]\u001b[0m");
+                return;
+            }
+
+            FeedLineOnUiThread($"\u001b[36m[zmodem upload]\u001b[0m Sending {files.Count} file(s).");
+            var uploadResult = await session.SendAsync(files, cancellation.Token).ConfigureAwait(false);
+            FeedZmodemComplete(direction, uploadResult.Files);
+        }
+        catch (ZmodemTransferCanceledException ex)
+        {
+            trace?.WriteException(ex);
+            FeedLineOnUiThread($"\u001b[33m[zmodem cancelled] {ex.Message}\u001b[0m");
+        }
+        catch (OperationCanceledException)
+        {
+            trace?.Write("operation cancelled");
+            FeedLineOnUiThread("\u001b[33m[zmodem cancelled]\u001b[0m");
+        }
+        catch (Exception ex)
+        {
+            trace?.WriteException(ex);
+            try { await session.CancelAsync(CancellationToken.None).ConfigureAwait(false); } catch { /* ignore */ }
+            FeedLineOnUiThread($"\u001b[31m[zmodem failed] {ex.Message}\u001b[0m");
+            if (trace is not null)
+                FeedLineOnUiThread($"\u001b[31m[zmodem trace] {trace.FilePath}\u001b[0m");
+        }
+        finally
+        {
+            var leftover = queue.DrainAvailable();
+            trace?.WriteBytes("RX leftover", leftover);
+            if (ReferenceEquals(_activeZmodemQueue, queue))
+                _activeZmodemQueue = null;
+            if (ReferenceEquals(_activeZmodemTrace, trace))
+                _activeZmodemTrace = null;
+            if (ReferenceEquals(_activeZmodemCancellation, cancellation))
+                _activeZmodemCancellation = null;
+
+            queue.Complete();
+            FeedBytes(leftover);
+            cancellation.Dispose();
+            trace?.Dispose();
+            _suppressUserInput = _activePayloadMonitor is not null;
+            FocusTerminal();
+        }
+    }
+
+    private Task WriteZmodemBytesAsync(byte[] bytes, CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested)
+            return Task.FromCanceled(cancellationToken);
+
+        _activeZmodemTrace?.WriteBytes("TX raw", bytes);
+        WriteToShell(bytes);
+        return Task.CompletedTask;
+    }
+
+    private async Task<string?> PickZmodemDownloadFolderAsync()
+    {
+        var tcs = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Dispatcher.UIThread.Post(async () =>
+        {
+            try
+            {
+                var topLevel = TopLevel.GetTopLevel(this);
+                if (topLevel is null)
+                {
+                    tcs.TrySetResult(null);
+                    return;
+                }
+
+                var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+                {
+                    Title = "Select ZMODEM download folder",
+                    AllowMultiple = false,
+                });
+                tcs.TrySetResult(folders.Count > 0 ? folders[0].TryGetLocalPath() : null);
+            }
+            catch (Exception ex)
+            {
+                tcs.TrySetException(ex);
+            }
+        });
+        return await tcs.Task.ConfigureAwait(false);
+    }
+
+    private async Task<IReadOnlyList<string>> PickZmodemUploadFilesAsync()
+    {
+        var tcs = new TaskCompletionSource<IReadOnlyList<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Dispatcher.UIThread.Post(async () =>
+        {
+            try
+            {
+                var topLevel = TopLevel.GetTopLevel(this);
+                if (topLevel is null)
+                {
+                    tcs.TrySetResult([]);
+                    return;
+                }
+
+                var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+                {
+                    Title = "Select ZMODEM upload files",
+                    AllowMultiple = true,
+                });
+                tcs.TrySetResult(files
+                    .Select(file => file.TryGetLocalPath())
+                    .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
+                    .Cast<string>()
+                    .ToArray());
+            }
+            catch (Exception ex)
+            {
+                tcs.TrySetException(ex);
+            }
+        });
+        return await tcs.Task.ConfigureAwait(false);
+    }
+
+    private void FeedZmodemComplete(ZmodemTransferDirection direction, IReadOnlyList<string> files)
+    {
+        var label = direction == ZmodemTransferDirection.Download ? "download" : "upload";
+        var summary = files.Count == 1
+            ? Path.GetFileName(files[0])
+            : $"{files.Count} files";
+        FeedLineOnUiThread($"\u001b[32m[zmodem {label} complete]\u001b[0m {summary}");
+    }
+
+    private void FeedLineOnUiThread(string text) =>
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!_disposed)
+                FeedLine(text);
+        });
+
     private void TryRestoreShellEcho()
     {
         try
@@ -394,6 +646,10 @@ public partial class TerminalView : UserControl
         _disposed = true;
         _connected?.TrySetCanceled();
         _activePayloadMonitor?.Fail(new ObjectDisposedException(nameof(TerminalView)));
+        _activeZmodemCancellation?.Cancel();
+        _activeZmodemQueue?.Complete(new ObjectDisposedException(nameof(TerminalView)));
+        _activeZmodemTrace?.Dispose();
+        _zmodemDetectionFlushTimer?.Dispose();
         try { _shell?.Dispose(); } catch { /* ignore */ }
         try { _client?.Disconnect(); } catch { /* ignore */ }
         try { _client?.Dispose(); } catch { /* ignore */ }
