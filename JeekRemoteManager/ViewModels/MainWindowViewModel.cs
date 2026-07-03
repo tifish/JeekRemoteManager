@@ -235,6 +235,29 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Persisted AI panel options (provider, model, effort, checkboxes), shared
+    /// across terminal tabs and remembered across runs.</summary>
+    public AiPanelOptions AiPanelOptions
+    {
+        get => new(
+            _settings.Settings.AiProvider,
+            _settings.Settings.AiModel,
+            _settings.Settings.AiEffort,
+            _settings.Settings.AiAutoRun,
+            _settings.Settings.AiShowCommandOutput,
+            _settings.Settings.AiIncludeTerminalSelection);
+        set
+        {
+            _settings.Settings.AiProvider = value.Provider;
+            _settings.Settings.AiModel = value.Model;
+            _settings.Settings.AiEffort = value.Effort;
+            _settings.Settings.AiAutoRun = value.AutoRun;
+            _settings.Settings.AiShowCommandOutput = value.ShowCommandOutput;
+            _settings.Settings.AiIncludeTerminalSelection = value.IncludeTerminalSelection;
+            _settings.SaveIfChanged();
+        }
+    }
+
     /// <summary>True when a terminal tab is the active right-pane tab. Drives the
     /// visibility of the terminal font-size toolbar buttons.</summary>
     [ObservableProperty]

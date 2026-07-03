@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -69,19 +70,156 @@ public sealed class CodexChatSession : IAgentChatSession
     public event Action<string>? Errored;
     public event Action? Exited;
 
-    public void Start()
+    private static Task<IReadOnlyList<AgentModelInfo>?>? _modelListCache;
+
+    /// <summary>
+    /// Queries the models Codex advertises (id, display name, supported reasoning efforts)
+    /// by driving a short-lived <c>codex app-server</c> through initialize → model/list.
+    /// The result is cached process-wide (a failed probe is retried on the next call);
+    /// returns <c>null</c> on any failure so callers can keep their static fallback.
+    /// </summary>
+    public static Task<IReadOnlyList<AgentModelInfo>?> ListModelsCachedAsync(string executablePath)
     {
-        if (_started)
-            return;
-        _started = true;
+        var cache = _modelListCache;
+        if (cache is null
+            || cache.IsCanceled
+            || cache.IsFaulted
+            || (cache.IsCompletedSuccessfully && cache.Result is null))
+        {
+            _modelListCache = cache = ListModelsAsync(executablePath);
+        }
 
-        Directory.CreateDirectory(_workingDirectory);
+        return cache;
+    }
 
+    private static async Task<IReadOnlyList<AgentModelInfo>?> ListModelsAsync(string executablePath)
+    {
+        using var process = new Process { StartInfo = CreateAppServerStartInfo(executablePath, null) };
+        try
+        {
+            process.Start();
+
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var ct = timeout.Token;
+
+            async Task WriteAsync(object message)
+            {
+                var line = JsonSerializer.Serialize(message, WireOptions);
+                await process.StandardInput.WriteAsync(line.AsMemory(), ct).ConfigureAwait(false);
+                await process.StandardInput.WriteAsync("\n".AsMemory(), ct).ConfigureAwait(false);
+                await process.StandardInput.FlushAsync(ct).ConfigureAwait(false);
+            }
+
+            await WriteAsync(new
+            {
+                jsonrpc = "2.0",
+                id = 1,
+                method = "initialize",
+                @params = new { clientInfo = new { name = "jeek-remote-manager", version = "1.0" } },
+            }).ConfigureAwait(false);
+
+            var listRequested = false;
+            while (await process.StandardOutput.ReadLineAsync(ct).ConfigureAwait(false) is { } line)
+            {
+                if (line.Length == 0)
+                    continue;
+
+                JsonDocument doc;
+                try
+                {
+                    doc = JsonDocument.Parse(line);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                using (doc)
+                {
+                    var root = doc.RootElement;
+                    if (root.ValueKind != JsonValueKind.Object
+                        || !root.TryGetProperty("id", out var idProp)
+                        || !idProp.TryGetInt32(out var id)
+                        || !root.TryGetProperty("result", out var result))
+                    {
+                        continue;
+                    }
+
+                    if (id == 1 && !listRequested)
+                    {
+                        listRequested = true;
+                        await WriteAsync(new { jsonrpc = "2.0", method = "initialized" }).ConfigureAwait(false);
+                        await WriteAsync(new { jsonrpc = "2.0", id = 2, method = "model/list", @params = new { } }).ConfigureAwait(false);
+                    }
+                    else if (id == 2)
+                    {
+                        return ParseModelList(result);
+                    }
+                }
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+        finally
+        {
+            try
+            {
+                if (!process.HasExited)
+                    process.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+                // Best-effort teardown.
+            }
+        }
+    }
+
+    private static IReadOnlyList<AgentModelInfo>? ParseModelList(JsonElement result)
+    {
+        if (!result.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+            return null;
+
+        var models = new List<AgentModelInfo>();
+        foreach (var model in data.EnumerateArray())
+        {
+            if (!model.TryGetProperty("id", out var idProp) || idProp.GetString() is not { Length: > 0 } id)
+                continue;
+            if (model.TryGetProperty("hidden", out var hidden) && hidden.ValueKind == JsonValueKind.True)
+                continue;
+
+            var displayName = model.TryGetProperty("displayName", out var dn) ? dn.GetString() : null;
+            var isDefault = model.TryGetProperty("isDefault", out var def) && def.ValueKind == JsonValueKind.True;
+
+            var efforts = new List<string>();
+            if (model.TryGetProperty("supportedReasoningEfforts", out var supported)
+                && supported.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var effort in supported.EnumerateArray())
+                {
+                    if (effort.TryGetProperty("reasoningEffort", out var re)
+                        && re.GetString() is { Length: > 0 } value)
+                    {
+                        efforts.Add(value);
+                    }
+                }
+            }
+
+            models.Add(new AgentModelInfo(id, string.IsNullOrWhiteSpace(displayName) ? id : displayName, isDefault, efforts));
+        }
+
+        return models.Count > 0 ? models : null;
+    }
+
+    private static ProcessStartInfo CreateAppServerStartInfo(string executablePath, string? workingDirectory)
+    {
         var psi = new ProcessStartInfo
         {
-            FileName = _executablePath,
+            FileName = executablePath,
             ArgumentList = { "app-server" },
-            WorkingDirectory = _workingDirectory,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -91,6 +229,20 @@ public sealed class CodexChatSession : IAgentChatSession
             StandardOutputEncoding = new UTF8Encoding(false),
             StandardErrorEncoding = new UTF8Encoding(false),
         };
+        if (workingDirectory is not null)
+            psi.WorkingDirectory = workingDirectory;
+        return psi;
+    }
+
+    public void Start()
+    {
+        if (_started)
+            return;
+        _started = true;
+
+        Directory.CreateDirectory(_workingDirectory);
+
+        var psi = CreateAppServerStartInfo(_executablePath, _workingDirectory);
 
         var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
         process.Exited += (_, _) =>

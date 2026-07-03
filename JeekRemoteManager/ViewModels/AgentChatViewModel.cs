@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
 
 namespace JeekRemoteManager.ViewModels;
@@ -20,14 +21,17 @@ public sealed record AgentOption(string Label, string? Value);
 /// One selectable AI backend (Claude / Codex): its display label, the model/effort choices
 /// it supports, and a factory that creates a session for a (model, effort) pair. A null
 /// <paramref name="SessionFactory"/> means the CLI is not installed; the provider still
-/// appears in the picker so the user learns it exists.
+/// appears in the picker so the user learns it exists. <paramref name="CatalogFetcher"/>
+/// optionally queries the CLI for its live model catalog; the static option lists remain
+/// the fallback when it is null or fails.
 /// </summary>
 public sealed record AgentProvider(
     string Label,
     string UnavailableMessage,
     IReadOnlyList<AgentOption> ModelOptions,
     IReadOnlyList<AgentOption> EffortOptions,
-    Func<string?, string?, IAgentChatSession?>? SessionFactory)
+    Func<string?, string?, IAgentChatSession?>? SessionFactory,
+    Func<Task<IReadOnlyList<AgentModelInfo>?>>? CatalogFetcher = null)
 {
     public bool IsAvailable => SessionFactory is not null;
 }
@@ -52,30 +56,60 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     private readonly Func<string, CancellationToken, Task<string>>? _runCaptured;
     private readonly CancellationTokenSource _cts = new();
 
+    private readonly Dictionary<AgentProvider, (IReadOnlyList<AgentOption> Models, IReadOnlyList<AgentOption> Efforts)> _fetchedCatalogs = new();
+    private readonly Action<AiPanelOptions>? _persistOptions;
+
     private IAgentChatSession? _session;
     private ChatMessageViewModel? _pendingAssistant;
     private bool _sessionStarted;
     private int _autoStepsRemaining;
     private bool _switchingProvider;
 
+    // The saved model/effort values the user last chose for the current provider. They may
+    // refer to options that only exist in the dynamically fetched catalog, so selection is
+    // re-resolved against these when the catalog arrives.
+    private string? _desiredModelValue;
+    private string? _desiredEffortValue;
+
     public AgentChatViewModel(
         IReadOnlyList<AgentProvider> providers,
         Func<string?> readSelection,
-        Func<string, CancellationToken, Task<string>>? runCaptured)
+        Func<string, CancellationToken, Task<string>>? runCaptured,
+        AiPanelOptions? initialOptions = null,
+        Action<AiPanelOptions>? persistOptions = null)
     {
         _readSelection = readSelection;
         _runCaptured = runCaptured;
+        _persistOptions = persistOptions;
         Providers = providers;
 
-        var provider = providers.FirstOrDefault(p => p.IsAvailable) ?? providers[0];
+        var provider = providers.FirstOrDefault(p => p.Label == initialOptions?.Provider && p.IsAvailable)
+            ?? providers.FirstOrDefault(p => p.IsAvailable)
+            ?? providers[0];
         _selectedProvider = provider;
         _isAvailable = provider.IsAvailable;
         _statusText = provider.IsAvailable ? "" : provider.UnavailableMessage;
         _unavailableText = provider.UnavailableMessage;
         _modelOptions = provider.ModelOptions;
         _effortOptions = provider.EffortOptions;
-        _selectedModel = provider.ModelOptions[0];
-        _selectedEffort = provider.EffortOptions[0];
+
+        // Saved model/effort only apply to the provider they were saved with.
+        if (initialOptions is not null && initialOptions.Provider == provider.Label)
+        {
+            _desiredModelValue = initialOptions.Model;
+            _desiredEffortValue = initialOptions.Effort;
+        }
+        _selectedModel = provider.ModelOptions.FirstOrDefault(o => o.Value == _desiredModelValue) ?? provider.ModelOptions[0];
+        _selectedEffort = provider.EffortOptions.FirstOrDefault(o => o.Value == _desiredEffortValue) ?? provider.EffortOptions[0];
+
+        if (initialOptions is not null)
+        {
+            _autoRun = initialOptions.AutoRun;
+            _showCommandOutput = initialOptions.ShowCommandOutput;
+            _includeTerminalSelection = initialOptions.IncludeTerminalSelection;
+        }
+
+        _ = RefreshProviderCatalogAsync(provider);
     }
 
     /// <summary>Builds the Claude provider descriptor; pass a null factory when the CLI is missing.</summary>
@@ -99,8 +133,12 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         ],
         sessionFactory);
 
-    /// <summary>Builds the Codex provider descriptor; pass a null factory when the CLI is missing.</summary>
-    public static AgentProvider CreateCodexProvider(Func<string?, string?, IAgentChatSession?>? sessionFactory) => new(
+    /// <summary>Builds the Codex provider descriptor; pass null factories when the CLI is missing.
+    /// The model list here is a snapshot fallback — <paramref name="catalogFetcher"/> refreshes it
+    /// from the CLI at runtime.</summary>
+    public static AgentProvider CreateCodexProvider(
+        Func<string?, string?, IAgentChatSession?>? sessionFactory,
+        Func<Task<IReadOnlyList<AgentModelInfo>?>>? catalogFetcher = null) => new(
         "Codex",
         L("AiNotAvailableCodex"),
         [
@@ -117,7 +155,8 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             new AgentOption("High", "high"),
             new AgentOption("xHigh", "xhigh"),
         ],
-        sessionFactory);
+        sessionFactory,
+        catalogFetcher);
 
     public ObservableCollection<ChatMessageViewModel> Messages { get; } = new();
 
@@ -171,25 +210,45 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     // Model/effort are process-launch flags, so changing them requires a fresh session.
     partial void OnSelectedModelChanged(AgentOption value)
     {
-        if (!_switchingProvider)
-            ResetSessionForSettingsChange();
+        if (_switchingProvider)
+            return;
+        _desiredModelValue = value?.Value;
+        ResetSessionForSettingsChange();
+        PersistOptions();
     }
 
     partial void OnSelectedEffortChanged(AgentOption value)
     {
-        if (!_switchingProvider)
-            ResetSessionForSettingsChange();
+        if (_switchingProvider)
+            return;
+        _desiredEffortValue = value?.Value;
+        ResetSessionForSettingsChange();
+        PersistOptions();
     }
+
+    partial void OnAutoRunChanged(bool value) => PersistOptions();
+
+    partial void OnShowCommandOutputChanged(bool value) => PersistOptions();
+
+    partial void OnIncludeTerminalSelectionChanged(bool value) => PersistOptions();
 
     partial void OnSelectedProviderChanged(AgentProvider value)
     {
+        var (models, efforts) = _fetchedCatalogs.TryGetValue(value, out var fetched)
+            ? fetched
+            : (value.ModelOptions, value.EffortOptions);
+
+        // The saved model/effort belonged to the previous provider.
+        _desiredModelValue = null;
+        _desiredEffortValue = null;
+
         _switchingProvider = true;
         try
         {
-            ModelOptions = value.ModelOptions;
-            EffortOptions = value.EffortOptions;
-            SelectedModel = value.ModelOptions[0];
-            SelectedEffort = value.EffortOptions[0];
+            ModelOptions = models;
+            EffortOptions = efforts;
+            SelectedModel = models[0];
+            SelectedEffort = efforts[0];
             UnavailableText = value.UnavailableMessage;
             IsAvailable = value.IsAvailable;
         }
@@ -197,6 +256,8 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         {
             _switchingProvider = false;
         }
+
+        PersistOptions();
 
         if (!value.IsAvailable)
         {
@@ -207,7 +268,98 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
         StatusText = "";
         ResetSessionForSettingsChange();
+        _ = RefreshProviderCatalogAsync(value);
     }
+
+    private void PersistOptions() => _persistOptions?.Invoke(new AiPanelOptions(
+        SelectedProvider.Label,
+        SelectedModel?.Value,
+        SelectedEffort?.Value,
+        AutoRun,
+        ShowCommandOutput,
+        IncludeTerminalSelection));
+
+    /// <summary>
+    /// Asks the provider's CLI for its live model catalog and swaps the option lists in
+    /// place, keeping the user's current selection when it still exists. The static lists
+    /// stay as fallback on failure, so this is silent best-effort.
+    /// </summary>
+    private async Task RefreshProviderCatalogAsync(AgentProvider provider)
+    {
+        if (provider.CatalogFetcher is null || !provider.IsAvailable || _fetchedCatalogs.ContainsKey(provider))
+            return;
+
+        IReadOnlyList<AgentModelInfo>? models;
+        try
+        {
+            models = await provider.CatalogFetcher().WaitAsync(_cts.Token);
+        }
+        catch
+        {
+            return;
+        }
+
+        if (models is null || models.Count == 0 || _cts.IsCancellationRequested)
+            return;
+
+        var modelOptions = new List<AgentOption> { new(L("AiOptionDefault"), null) };
+        foreach (var model in models)
+            modelOptions.Add(new AgentOption(model.DisplayName, model.Id));
+
+        // Efforts are per-model in the catalog but identical across models in practice;
+        // offer the union in first-seen order.
+        var effortOptions = new List<AgentOption> { new(L("AiOptionDefault"), null) };
+        var seenEfforts = new HashSet<string>();
+        foreach (var model in models)
+        foreach (var effort in model.ReasoningEfforts)
+        {
+            if (seenEfforts.Add(effort))
+                effortOptions.Add(new AgentOption(EffortLabel(effort), effort));
+        }
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            _fetchedCatalogs[provider] = (modelOptions, effortOptions);
+            if (SelectedProvider != provider)
+                return;
+
+            var previousModel = SelectedModel?.Value;
+            var previousEffort = SelectedEffort?.Value;
+
+            _switchingProvider = true;
+            try
+            {
+                ModelOptions = modelOptions;
+                EffortOptions = effortOptions;
+                // Prefer the remembered choice — it may only exist in the fetched catalog.
+                SelectedModel = modelOptions.FirstOrDefault(o => o.Value == _desiredModelValue)
+                    ?? modelOptions.FirstOrDefault(o => o.Value == previousModel)
+                    ?? modelOptions[0];
+                SelectedEffort = effortOptions.FirstOrDefault(o => o.Value == _desiredEffortValue)
+                    ?? effortOptions.FirstOrDefault(o => o.Value == previousEffort)
+                    ?? effortOptions[0];
+            }
+            finally
+            {
+                _switchingProvider = false;
+            }
+
+            // Only restart the session if the refresh actually invalidated a selection.
+            if (SelectedModel?.Value != previousModel || SelectedEffort?.Value != previousEffort)
+                ResetSessionForSettingsChange();
+        });
+    }
+
+    private static string EffortLabel(string effort) => effort switch
+    {
+        "minimal" => "Minimal",
+        "low" => "Low",
+        "medium" => "Medium",
+        "high" => "High",
+        "xhigh" => "xHigh",
+        "max" => "Max",
+        _ => effort,
+    };
 
     [RelayCommand(CanExecute = nameof(CanSend))]
     private async Task SendAsync()

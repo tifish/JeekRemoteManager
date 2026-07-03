@@ -160,6 +160,12 @@ public class SettingsService
             UpdateCheckIntervalHours = roamingSettings.UpdateCheckIntervalHours,
             TerminalFontSize = roamingSettings.TerminalFontSize,
             AiPanelWidth = roamingSettings.AiPanelWidth,
+            AiProvider = roamingSettings.AiProvider,
+            AiModel = roamingSettings.AiModel,
+            AiEffort = roamingSettings.AiEffort,
+            AiAutoRun = roamingSettings.AiAutoRun,
+            AiShowCommandOutput = roamingSettings.AiShowCommandOutput,
+            AiIncludeTerminalSelection = roamingSettings.AiIncludeTerminalSelection,
         };
 
     private static MachineAppSettings ToMachineSettings(AppSettings settings)
@@ -189,6 +195,12 @@ public class SettingsService
             UpdateCheckIntervalHours = settings.UpdateCheckIntervalHours,
             TerminalFontSize = settings.TerminalFontSize,
             AiPanelWidth = settings.AiPanelWidth,
+            AiProvider = settings.AiProvider,
+            AiModel = settings.AiModel,
+            AiEffort = settings.AiEffort,
+            AiAutoRun = settings.AiAutoRun,
+            AiShowCommandOutput = settings.AiShowCommandOutput,
+            AiIncludeTerminalSelection = settings.AiIncludeTerminalSelection,
         };
         NormalizeRoamingSettings(roamingSettings);
         return roamingSettings;
@@ -214,6 +226,12 @@ public class SettingsService
         settings.UpdateCheckIntervalHours = normalized.UpdateCheckIntervalHours;
         settings.TerminalFontSize = normalized.TerminalFontSize;
         settings.AiPanelWidth = normalized.AiPanelWidth;
+        settings.AiProvider = normalized.AiProvider;
+        settings.AiModel = normalized.AiModel;
+        settings.AiEffort = normalized.AiEffort;
+        settings.AiAutoRun = normalized.AiAutoRun;
+        settings.AiShowCommandOutput = normalized.AiShowCommandOutput;
+        settings.AiIncludeTerminalSelection = normalized.AiIncludeTerminalSelection;
     }
 
     private static void NormalizeMachineSettings(MachineAppSettings settings)
@@ -247,6 +265,12 @@ public class SettingsService
         settings.AiPanelWidth = double.IsFinite(settings.AiPanelWidth)
             ? Math.Clamp(settings.AiPanelWidth, 240, 1200)
             : 380;
+        if (string.IsNullOrWhiteSpace(settings.AiProvider))
+            settings.AiProvider = null;
+        if (string.IsNullOrWhiteSpace(settings.AiModel))
+            settings.AiModel = null;
+        if (string.IsNullOrWhiteSpace(settings.AiEffort))
+            settings.AiEffort = null;
     }
 
     private static StorageLocation NormalizeStorageLocation(StorageLocation location) =>

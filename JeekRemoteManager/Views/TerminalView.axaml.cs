@@ -287,15 +287,25 @@ public partial class TerminalView : UserControl
             AgentChatViewModel.CreateClaudeProvider(claudePath is null
                 ? null
                 : (model, effort) => new ClaudeChatSession(claudePath, workingDir, systemPrompt, model: model, effort: effort)),
-            AgentChatViewModel.CreateCodexProvider(codexPath is null
-                ? null
-                : (model, effort) => new CodexChatSession(codexPath, workingDir, systemPrompt, model: model, effort: effort)),
+            AgentChatViewModel.CreateCodexProvider(
+                codexPath is null
+                    ? null
+                    : (model, effort) => new CodexChatSession(codexPath, workingDir, systemPrompt, model: model, effort: effort),
+                codexPath is null
+                    ? null
+                    : () => CodexChatSession.ListModelsCachedAsync(codexPath)),
         };
 
         var vm = new AgentChatViewModel(
             providers,
             readSelection: () => Term.HasSelection ? GetTerminalSelectionText(Term.SelectedText) : null,
-            runCaptured: RunCapturedAsync);
+            runCaptured: RunCapturedAsync,
+            initialOptions: (DataContext as MainWindowViewModel)?.AiPanelOptions,
+            persistOptions: options =>
+            {
+                if (DataContext is MainWindowViewModel mainVm)
+                    mainVm.AiPanelOptions = options;
+            });
 
         AiPanel.DataContext = vm;
         return vm;

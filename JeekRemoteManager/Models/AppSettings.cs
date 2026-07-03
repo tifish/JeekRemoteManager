@@ -71,6 +71,24 @@ public class AppSettings
 
     /// <summary>Width of the in-terminal AI assistant panel, in device-independent pixels.</summary>
     public double AiPanelWidth { get; set; } = 380;
+
+    /// <summary>AI panel: last-used provider label ("Claude", "Codex"). Null = first available.</summary>
+    public string? AiProvider { get; set; }
+
+    /// <summary>AI panel: last-used model option value under <see cref="AiProvider"/>. Null = CLI default.</summary>
+    public string? AiModel { get; set; }
+
+    /// <summary>AI panel: last-used reasoning-effort option value. Null = CLI default.</summary>
+    public string? AiEffort { get; set; }
+
+    /// <summary>AI panel: whether the assistant auto-runs its suggested commands.</summary>
+    public bool AiAutoRun { get; set; } = true;
+
+    /// <summary>AI panel: whether executed commands and their output show in the chat.</summary>
+    public bool AiShowCommandOutput { get; set; }
+
+    /// <summary>AI panel: whether the terminal selection is attached to sent messages.</summary>
+    public bool AiIncludeTerminalSelection { get; set; }
 }
 
 /// <summary>Settings that are bound to this Windows account and machine.</summary>
@@ -123,7 +141,34 @@ public class RoamingAppSettings
 
     /// <summary>Width of the in-terminal AI assistant panel, in device-independent pixels.</summary>
     public double AiPanelWidth { get; set; } = 380;
+
+    /// <summary>AI panel: last-used provider label ("Claude", "Codex"). Null = first available.</summary>
+    public string? AiProvider { get; set; }
+
+    /// <summary>AI panel: last-used model option value under <see cref="AiProvider"/>. Null = CLI default.</summary>
+    public string? AiModel { get; set; }
+
+    /// <summary>AI panel: last-used reasoning-effort option value. Null = CLI default.</summary>
+    public string? AiEffort { get; set; }
+
+    /// <summary>AI panel: whether the assistant auto-runs its suggested commands.</summary>
+    public bool AiAutoRun { get; set; } = true;
+
+    /// <summary>AI panel: whether executed commands and their output show in the chat.</summary>
+    public bool AiShowCommandOutput { get; set; }
+
+    /// <summary>AI panel: whether the terminal selection is attached to sent messages.</summary>
+    public bool AiIncludeTerminalSelection { get; set; }
 }
+
+/// <summary>Snapshot of the AI panel's user-facing options, as persisted in settings.</summary>
+public record AiPanelOptions(
+    string? Provider,
+    string? Model,
+    string? Effort,
+    bool AutoRun,
+    bool ShowCommandOutput,
+    bool IncludeTerminalSelection);
 
 /// <summary>Outcome of the Settings dialog. <see cref="Language"/> and <see cref="Theme"/>
 /// are null when "follow system" is chosen.</summary>

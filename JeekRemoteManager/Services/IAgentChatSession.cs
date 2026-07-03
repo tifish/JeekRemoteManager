@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -6,6 +7,9 @@ namespace JeekRemoteManager.Services;
 
 /// <summary>Result of one completed assistant turn.</summary>
 public readonly record struct AgentTurnResult(string Text, double CostUsd, long OutputTokens, int NumTurns, bool IsError);
+
+/// <summary>One model advertised by a provider's CLI, with the reasoning efforts it supports.</summary>
+public sealed record AgentModelInfo(string Id, string DisplayName, bool IsDefault, IReadOnlyList<string> ReasoningEfforts);
 
 /// <summary>
 /// One multi-turn AI chat session backed by an agent CLI subprocess. Implementations wrap
