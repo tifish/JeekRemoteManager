@@ -217,3 +217,7 @@ AiAutoRunHint	The assistant runs its own commands on the server and reads their 
 AiShowOutput	Show output	显示命令输出
 AiShowOutputHint	Show the executed commands and their output in this chat (they always appear in the terminal too).	在对话中显示执行的命令及其输出（它们始终也会显示在终端里）。
 AiAutoLimit	Auto-run limit reached ({0} commands). Send another message to continue.	已达到自动执行上限（{0} 条命令），发送新消息以继续。
+AiModel	Model	模型
+AiEffort	Effort	强度
+AiOptionDefault	Default	默认
+AiSettingsChanged	Settings changed; applies to a new conversation.	设置已更改，将用于新对话。

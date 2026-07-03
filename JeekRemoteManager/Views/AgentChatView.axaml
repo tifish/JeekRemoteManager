@@ -84,16 +84,44 @@
                 BorderBrush="{DynamicResource BorderBrushSoft}"
                 BorderThickness="0,1,0,0">
             <StackPanel Spacing="8">
+                <!-- All options flow on one row and wrap only when the panel is too narrow. -->
                 <WrapPanel Orientation="Horizontal">
-                    <CheckBox Margin="0,0,16,0"
+                    <TextBlock Classes="label" Text="{l:Localize AiModel}"
+                               VerticalAlignment="Center" Margin="0,0,6,6" />
+                    <ComboBox ItemsSource="{Binding ModelOptions}"
+                              SelectedItem="{Binding SelectedModel, Mode=TwoWay}"
+                              IsEnabled="{Binding !IsBusy}"
+                              VerticalAlignment="Center"
+                              MinWidth="104" Margin="0,0,16,6">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:AgentOption">
+                                <TextBlock Text="{Binding Label}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <TextBlock Classes="label" Text="{l:Localize AiEffort}"
+                               VerticalAlignment="Center" Margin="0,0,6,6" />
+                    <ComboBox ItemsSource="{Binding EffortOptions}"
+                              SelectedItem="{Binding SelectedEffort, Mode=TwoWay}"
+                              IsEnabled="{Binding !IsBusy}"
+                              VerticalAlignment="Center"
+                              MinWidth="96" Margin="0,0,16,6">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:AgentOption">
+                                <TextBlock Text="{Binding Label}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <CheckBox Margin="0,0,16,6" VerticalAlignment="Center"
                               Content="{l:Localize AiAutoRun}"
                               IsChecked="{Binding AutoRun, Mode=TwoWay}"
                               ToolTip.Tip="{l:Localize AiAutoRunHint}" />
-                    <CheckBox Margin="0,0,16,0"
+                    <CheckBox Margin="0,0,16,6" VerticalAlignment="Center"
                               Content="{l:Localize AiShowOutput}"
                               IsChecked="{Binding ShowCommandOutput, Mode=TwoWay}"
                               ToolTip.Tip="{l:Localize AiShowOutputHint}" />
-                    <CheckBox Content="{l:Localize AiIncludeSelection}"
+                    <CheckBox Margin="0,0,0,6" VerticalAlignment="Center"
+                              Content="{l:Localize AiIncludeSelection}"
                               IsChecked="{Binding IncludeTerminalSelection, Mode=TwoWay}" />
                 </WrapPanel>
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">

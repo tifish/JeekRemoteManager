@@ -263,15 +263,16 @@ public partial class TerminalView : UserControl
     private AgentChatViewModel CreateAgentChatViewModel()
     {
         var exePath = AgentCliLocator.FindClaude();
-        AgentChatSession? session = null;
-        if (exePath is not null)
-        {
-            var workingDir = Path.Combine(Path.GetTempPath(), "JeekRemoteManager", "agent");
-            session = new AgentChatSession(exePath, workingDir, BuildAssistantSystemPrompt());
-        }
+        var workingDir = Path.Combine(Path.GetTempPath(), "JeekRemoteManager", "agent");
+        var systemPrompt = BuildAssistantSystemPrompt();
+
+        Func<string?, string?, AgentChatSession?> factory = exePath is null
+            ? (_, _) => null
+            : (model, effort) => new AgentChatSession(exePath, workingDir, systemPrompt, model: model, effort: effort);
 
         var vm = new AgentChatViewModel(
-            session,
+            available: exePath is not null,
+            sessionFactory: factory,
             readSelection: () => Term.HasSelection ? GetTerminalSelectionText(Term.SelectedText) : null,
             runCaptured: RunCapturedAsync);
 

@@ -34,6 +34,8 @@ public sealed class AgentChatSession : IAsyncDisposable
     private readonly string _workingDirectory;
     private readonly string? _appendSystemPrompt;
     private readonly string? _resumeSessionId;
+    private readonly string? _model;
+    private readonly string? _effort;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly StringBuilder _currentText = new();
 
@@ -45,12 +47,16 @@ public sealed class AgentChatSession : IAsyncDisposable
         string executablePath,
         string workingDirectory,
         string? appendSystemPrompt = null,
-        string? resumeSessionId = null)
+        string? resumeSessionId = null,
+        string? model = null,
+        string? effort = null)
     {
         _executablePath = executablePath;
         _workingDirectory = workingDirectory;
         _appendSystemPrompt = appendSystemPrompt;
         _resumeSessionId = resumeSessionId;
+        _model = model;
+        _effort = effort;
     }
 
     /// <summary>The session id reported by the CLI's <c>init</c> event; use it to resume later.</summary>
@@ -104,6 +110,16 @@ public sealed class AgentChatSession : IAsyncDisposable
         psi.ArgumentList.Add("bypassPermissions");
         psi.ArgumentList.Add("--disallowedTools");
         psi.ArgumentList.Add(DisallowedTools);
+        if (!string.IsNullOrWhiteSpace(_model))
+        {
+            psi.ArgumentList.Add("--model");
+            psi.ArgumentList.Add(_model);
+        }
+        if (!string.IsNullOrWhiteSpace(_effort))
+        {
+            psi.ArgumentList.Add("--effort");
+            psi.ArgumentList.Add(_effort);
+        }
         if (!string.IsNullOrWhiteSpace(_appendSystemPrompt))
         {
             psi.ArgumentList.Add("--append-system-prompt");
