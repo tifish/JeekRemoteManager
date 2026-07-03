@@ -59,6 +59,8 @@ public partial class TerminalView : UserControl
     private string? _pendingKeyboardCopyText;
     private AgentChatViewModel? _aiViewModel;
     private double _aiPanelWidth = 380;
+    private MainWindowViewModel? _customProvidersOwner;
+    private Action? _customProvidersChangedHandler;
     private volatile bool _disposed;
 
     // The terminal and AI panel live in grid columns 0 and 2; named ColumnDefinitions don't
@@ -307,12 +309,11 @@ public partial class TerminalView : UserControl
             vm.AiPanelWidth = _aiPanelWidth;
     }
 
-    private AgentChatViewModel CreateAgentChatViewModel()
+    private List<AgentProvider> BuildAgentProviders(string systemPrompt)
     {
         var claudePath = AgentCliLocator.FindClaude();
         var codexPath = AgentCliLocator.FindCodex();
         var workingDir = Path.Combine(Path.GetTempPath(), "JeekRemoteManager", "agent");
-        var systemPrompt = BuildAssistantSystemPrompt();
 
         var providers = new List<AgentProvider>
         {
@@ -327,6 +328,40 @@ public partial class TerminalView : UserControl
                     ? null
                     : () => CodexChatSession.ListModelsCachedAsync(codexPath)),
         };
+
+        if (DataContext is MainWindowViewModel mainVm)
+        {
+            foreach (var config in mainVm.CustomAiProviders)
+            {
+                var cfg = config;
+                var apiKey = DecryptApiKey(cfg.ApiKey);
+                var configured = !string.IsNullOrEmpty(apiKey) && cfg.Models.Count > 0;
+                providers.Add(AgentChatViewModel.CreateCustomProvider(cfg, !configured
+                    ? null
+                    : (model, effort) => cfg.ApiType == CustomAiApiType.Anthropic
+                        ? new AnthropicChatSession(cfg.BaseUrl, apiKey!, model ?? cfg.Models[0], systemPrompt)
+                        : new OpenAiChatSession(cfg.BaseUrl, apiKey!, model ?? cfg.Models[0], systemPrompt, effort)));
+            }
+        }
+
+        return providers;
+    }
+
+    /// <summary>Returns the clear-text API key: jrm1 blobs are decrypted with the master
+    /// password (null when that fails), legacy plaintext values pass through unchanged.</summary>
+    private static string? DecryptApiKey(string? stored)
+    {
+        if (string.IsNullOrWhiteSpace(stored))
+            return null;
+        if (!MasterKeyService.IsPasswordBlob(stored))
+            return stored;
+        return PasswordProtector.TryDecrypt(stored, out var clear) ? clear : null;
+    }
+
+    private AgentChatViewModel CreateAgentChatViewModel()
+    {
+        var systemPrompt = BuildAssistantSystemPrompt();
+        var providers = BuildAgentProviders(systemPrompt);
 
         var vm = new AgentChatViewModel(
             providers,
@@ -346,6 +381,32 @@ public partial class TerminalView : UserControl
                 if (DataContext is MainWindowViewModel mainVm)
                     mainVm.AiPanelOptions = options;
             });
+
+        // The gear button: edit the custom providers, persist them, and let the changed
+        // event below rebuild the picker in every open terminal tab (including this one).
+        vm.ManageProvidersInteraction = async () =>
+        {
+            if (DataContext is not MainWindowViewModel mainVm
+                || TopLevel.GetTopLevel(this) is not Window owner)
+            {
+                return;
+            }
+
+            var edited = await CustomAiProvidersDialog.ShowAsync(owner, mainVm.CustomAiProviders);
+            if (edited is not null)
+                mainVm.SetCustomAiProviders(edited);
+        };
+
+        if (DataContext is MainWindowViewModel providersOwner)
+        {
+            _customProvidersChangedHandler = () =>
+            {
+                if (!_disposed)
+                    vm.ReplaceProviders(BuildAgentProviders(systemPrompt));
+            };
+            providersOwner.CustomAiProvidersChanged += _customProvidersChangedHandler;
+            _customProvidersOwner = providersOwner;
+        }
 
         // Keep the panel's "selection will be attached" hint in sync with the terminal.
         vm.HasTerminalSelection = Term.HasSelection;
@@ -1076,6 +1137,11 @@ public partial class TerminalView : UserControl
         _activeZmodemTrace?.Dispose();
         _zmodemDetectionFlushTimer?.Dispose();
         DisposeTransport();
+
+        if (_customProvidersOwner is not null && _customProvidersChangedHandler is not null)
+            _customProvidersOwner.CustomAiProvidersChanged -= _customProvidersChangedHandler;
+        _customProvidersOwner = null;
+        _customProvidersChangedHandler = null;
 
         var ai = _aiViewModel;
         _aiViewModel = null;

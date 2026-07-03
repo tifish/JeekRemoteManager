@@ -227,3 +227,15 @@ AiOptionDefault	Default	默认
 AiSettingsChanged	Settings changed; applies to a new conversation.	设置已更改，将用于新对话。
 AiAgentMode	Agent mode	Agent 模式
 AiAgentModeHint	Hide the SSH terminal and let the assistant fill the whole tab. Commands still run on the server.	隐藏 SSH 终端面板，AI 助手占满整个页面。命令仍会在服务器上执行。
+AiManageProviders	Manage custom providers…	管理自定义提供方…
+AiCustomProvidersTitle	Custom AI providers	自定义 AI 提供方
+AiCustomNotConfigured	This provider needs an API key and at least one model. Configure it with the gear button.	该提供方缺少 API 密钥或模型列表，请点击齿轮按钮配置。
+AiProviderName	Name	名称
+AiApiType	API type	API 类型
+AiBaseUrl	Base URL (blank = official endpoint)	接口地址（留空使用官方地址）
+AiApiKey	API key	API 密钥
+AiShowApiKey	Show key	显示密钥
+AiModelsLabel	Models (one per line, first is the default)	模型（每行一个，第一个为默认）
+AiAddProvider	Add	添加
+AiRemoveProvider	Remove	移除
+AiProviderUnnamed	(unnamed)	（未命名）

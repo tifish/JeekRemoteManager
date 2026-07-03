@@ -110,13 +110,20 @@
                               IsEnabled="{Binding !IsBusy}"
                               ToolTip.Tip="{l:Localize AiEffort}"
                               VerticalAlignment="Center"
-                              MinWidth="88" Margin="0,3,0,3">
+                              MinWidth="88" Margin="0,3,8,3">
                         <ComboBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:AgentOption">
                                 <TextBlock Text="{Binding Label}" />
                             </DataTemplate>
                         </ComboBox.ItemTemplate>
                     </ComboBox>
+                    <Button MinHeight="28" MinWidth="32" Padding="6,2"
+                            FontSize="14"
+                            VerticalAlignment="Center" Margin="0,3,0,3"
+                            Content="⚙"
+                            Command="{Binding ManageProvidersCommand}"
+                            IsEnabled="{Binding !IsBusy}"
+                            ToolTip.Tip="{l:Localize AiManageProviders}" />
                 </WrapPanel>
                 <TextBlock Classes="hint" Text="{Binding StatusText}" IsVisible="{Binding StatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
             </StackPanel>

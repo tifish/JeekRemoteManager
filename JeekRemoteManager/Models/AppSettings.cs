@@ -87,6 +87,9 @@ public class AppSettings
 
     /// <summary>AI panel: agent mode — the AI panel fills the tab and the terminal is hidden.</summary>
     public bool AiAgentMode { get; set; }
+
+    /// <summary>AI panel: user-defined API providers, shown after the built-in CLI ones.</summary>
+    public List<CustomAiProvider> CustomAiProviders { get; set; } = new();
 }
 
 /// <summary>Last-used model and reasoning effort for one AI provider. Null = CLI default.</summary>
@@ -95,6 +98,46 @@ public class AiProviderChoice
     public string? Model { get; set; }
 
     public string? Effort { get; set; }
+}
+
+/// <summary>Which wire protocol a user-defined AI provider speaks.</summary>
+public enum CustomAiApiType
+{
+    /// <summary>OpenAI-compatible chat completions API (/chat/completions).</summary>
+    OpenAI,
+
+    /// <summary>Anthropic messages API (/v1/messages).</summary>
+    Anthropic,
+}
+
+/// <summary>A user-defined AI provider that talks directly to an HTTP API.</summary>
+public class CustomAiProvider
+{
+    /// <summary>Display name; also the key for remembered model/effort choices.</summary>
+    public string Name { get; set; } = "";
+
+    public CustomAiApiType ApiType { get; set; } = CustomAiApiType.OpenAI;
+
+    /// <summary>API endpoint base. Blank = the official endpoint
+    /// (https://api.openai.com/v1 or https://api.anthropic.com).</summary>
+    public string? BaseUrl { get; set; }
+
+    /// <summary>The API key as a jrm1 blob encrypted with the master password.
+    /// Legacy plaintext values still work and are re-encrypted the next time the
+    /// provider dialog is saved.</summary>
+    public string? ApiKey { get; set; }
+
+    /// <summary>Model ids offered in the model picker; the first one is the default.</summary>
+    public List<string> Models { get; set; } = new();
+
+    public CustomAiProvider Clone() => new()
+    {
+        Name = Name,
+        ApiType = ApiType,
+        BaseUrl = BaseUrl,
+        ApiKey = ApiKey,
+        Models = new List<string>(Models),
+    };
 }
 
 /// <summary>Settings that are bound to this Windows account and machine.</summary>
@@ -163,6 +206,9 @@ public class RoamingAppSettings
 
     /// <summary>AI panel: agent mode — the AI panel fills the tab and the terminal is hidden.</summary>
     public bool AiAgentMode { get; set; }
+
+    /// <summary>AI panel: user-defined API providers, shown after the built-in CLI ones.</summary>
+    public List<CustomAiProvider> CustomAiProviders { get; set; } = new();
 }
 
 /// <summary>Snapshot of the AI panel's user-facing options, as persisted in settings.</summary>

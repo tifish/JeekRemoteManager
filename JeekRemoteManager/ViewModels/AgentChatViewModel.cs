@@ -88,7 +88,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         _takeSelection = takeSelection;
         _runCaptured = runCaptured;
         _persistOptions = persistOptions;
-        Providers = providers;
+        Providers = new ObservableCollection<AgentProvider>(providers);
 
         var provider = providers.FirstOrDefault(p => p.Label == initialOptions?.Provider && p.IsAvailable)
             ?? providers.FirstOrDefault(p => p.IsAvailable)
@@ -166,9 +166,73 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         sessionFactory,
         catalogFetcher);
 
+    /// <summary>Builds the descriptor for a user-defined API provider. Its models come from
+    /// the user's configuration; efforts only apply to the OpenAI API (reasoning_effort).
+    /// Pass a null factory when the provider is missing its API key or model list.</summary>
+    public static AgentProvider CreateCustomProvider(
+        CustomAiProvider config,
+        Func<string?, string?, IAgentChatSession?>? sessionFactory)
+    {
+        var models = new List<AgentOption>();
+        foreach (var model in config.Models)
+            models.Add(new AgentOption(model, model));
+        if (models.Count == 0)
+            models.Add(new AgentOption(L("AiOptionDefault"), null));
+
+        var efforts = config.ApiType == CustomAiApiType.OpenAI
+            ? new List<AgentOption>
+            {
+                new(L("AiOptionDefault"), null),
+                new("Minimal", "minimal"),
+                new("Low", "low"),
+                new("Medium", "medium"),
+                new("High", "high"),
+            }
+            : new List<AgentOption> { new(L("AiOptionDefault"), null) };
+
+        return new AgentProvider(config.Name, L("AiCustomNotConfigured"), models, efforts, sessionFactory);
+    }
+
     public ObservableCollection<ChatMessageViewModel> Messages { get; } = new();
 
-    public IReadOnlyList<AgentProvider> Providers { get; }
+    public ObservableCollection<AgentProvider> Providers { get; }
+
+    /// <summary>Set by the hosting view: opens the custom-providers dialog and, when it is
+    /// saved, rebuilds the provider list (via <see cref="ReplaceProviders"/>).</summary>
+    public Func<Task>? ManageProvidersInteraction { get; set; }
+
+    [RelayCommand]
+    private async Task ManageProvidersAsync()
+    {
+        if (ManageProvidersInteraction is not null)
+            await ManageProvidersInteraction();
+    }
+
+    /// <summary>Swaps the provider list in place (after the custom providers changed),
+    /// keeping the current selection by label when it still exists.</summary>
+    public void ReplaceProviders(IReadOnlyList<AgentProvider> providers)
+    {
+        if (providers.Count == 0)
+            return;
+
+        var currentLabel = SelectedProvider?.Label;
+        _switchingProvider = true;
+        try
+        {
+            _fetchedCatalogs.Clear();
+            Providers.Clear();
+            foreach (var provider in providers)
+                Providers.Add(provider);
+        }
+        finally
+        {
+            _switchingProvider = false;
+        }
+
+        SelectedProvider = providers.FirstOrDefault(p => p.Label == currentLabel && p.IsAvailable)
+            ?? providers.FirstOrDefault(p => p.IsAvailable)
+            ?? providers[0];
+    }
 
     [ObservableProperty]
     private IReadOnlyList<AgentOption> _modelOptions;
@@ -261,6 +325,11 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
     partial void OnSelectedProviderChanged(AgentProvider value)
     {
+        // Null arrives transiently while ReplaceProviders swaps the collection out
+        // under the ComboBox; the swap ends by assigning a real selection.
+        if (value is null || _switchingProvider)
+            return;
+
         var (models, efforts) = _fetchedCatalogs.TryGetValue(value, out var fetched)
             ? fetched
             : (value.ModelOptions, value.EffortOptions);

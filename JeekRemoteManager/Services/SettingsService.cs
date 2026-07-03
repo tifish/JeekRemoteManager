@@ -165,6 +165,7 @@ public class SettingsService
             AiAutoRun = roamingSettings.AiAutoRun,
             AiShowCommandOutput = roamingSettings.AiShowCommandOutput,
             AiAgentMode = roamingSettings.AiAgentMode,
+            CustomAiProviders = roamingSettings.CustomAiProviders,
         };
 
     private static MachineAppSettings ToMachineSettings(AppSettings settings)
@@ -199,6 +200,7 @@ public class SettingsService
             AiAutoRun = settings.AiAutoRun,
             AiShowCommandOutput = settings.AiShowCommandOutput,
             AiAgentMode = settings.AiAgentMode,
+            CustomAiProviders = settings.CustomAiProviders ?? new List<CustomAiProvider>(),
         };
         NormalizeRoamingSettings(roamingSettings);
         return roamingSettings;
@@ -229,6 +231,7 @@ public class SettingsService
         settings.AiAutoRun = normalized.AiAutoRun;
         settings.AiShowCommandOutput = normalized.AiShowCommandOutput;
         settings.AiAgentMode = normalized.AiAgentMode;
+        settings.CustomAiProviders = normalized.CustomAiProviders;
     }
 
     private static void NormalizeMachineSettings(MachineAppSettings settings)
@@ -278,6 +281,20 @@ public class SettingsService
             // Drop empty entries so "both defaults" and "never chosen" serialize the same.
             if (choice is null || (choice.Model is null && choice.Effort is null))
                 settings.AiProviderChoices.Remove(key);
+        }
+        settings.CustomAiProviders ??= new List<CustomAiProvider>();
+        settings.CustomAiProviders.RemoveAll(p => p is null || string.IsNullOrWhiteSpace(p.Name));
+        foreach (var provider in settings.CustomAiProviders)
+        {
+            provider.Name = provider.Name.Trim();
+            if (string.IsNullOrWhiteSpace(provider.BaseUrl))
+                provider.BaseUrl = null;
+            if (string.IsNullOrWhiteSpace(provider.ApiKey))
+                provider.ApiKey = null;
+            provider.Models ??= new List<string>();
+            provider.Models.RemoveAll(string.IsNullOrWhiteSpace);
+            if (!Enum.IsDefined(provider.ApiType))
+                provider.ApiType = CustomAiApiType.OpenAI;
         }
     }
 
