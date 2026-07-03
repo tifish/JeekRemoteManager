@@ -68,6 +68,9 @@ public class AppSettings
 
     /// <summary>Terminal font size in points, adjustable from the toolbar.</summary>
     public int TerminalFontSize { get; set; } = 14;
+
+    /// <summary>Width of the in-terminal AI assistant panel, in device-independent pixels.</summary>
+    public double AiPanelWidth { get; set; } = 380;
 }
 
 /// <summary>Settings that are bound to this Windows account and machine.</summary>
@@ -117,6 +120,9 @@ public class RoamingAppSettings
 
     /// <summary>Terminal font size in points, adjustable from the toolbar.</summary>
     public int TerminalFontSize { get; set; } = 14;
+
+    /// <summary>Width of the in-terminal AI assistant panel, in device-independent pixels.</summary>
+    public double AiPanelWidth { get; set; } = 380;
 }
 
 /// <summary>Outcome of the Settings dialog. <see cref="Language"/> and <see cref="Theme"/>

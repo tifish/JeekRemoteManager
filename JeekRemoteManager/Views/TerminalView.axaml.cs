@@ -106,6 +106,9 @@ public partial class TerminalView : UserControl
         Term.AddHandler(InputElement.KeyDownEvent, OnTerminalPreviewKeyDown, RoutingStrategies.Tunnel);
         Term.AddHandler(InputElement.KeyUpEvent, OnTerminalPreviewKeyUp, RoutingStrategies.Tunnel);
 
+        // Persist the AI panel width whenever the user finishes dragging the splitter.
+        AiSplitter.DragCompleted += (_, _) => PersistAiPanelWidth();
+
         _model.UserInput += (_, e) =>
         {
             if (!_suppressUserInput)
@@ -242,6 +245,9 @@ public partial class TerminalView : UserControl
         var show = !AiPanelHost.IsVisible;
         if (show)
         {
+            // Open at the remembered width (shared across tabs, persisted across runs).
+            _aiPanelWidth = Math.Clamp(
+                (DataContext as MainWindowViewModel)?.AiPanelWidth ?? _aiPanelWidth, 240, 1200);
             AiColumn.MinWidth = 240;
             AiColumn.Width = new GridLength(_aiPanelWidth, GridUnitType.Pixel);
             AiPanelHost.IsVisible = true;
@@ -251,13 +257,22 @@ public partial class TerminalView : UserControl
         else
         {
             // Remember the dragged width, then collapse the column so it leaves no gap.
-            if (AiColumn.Width.IsAbsolute && AiColumn.Width.Value > 0)
-                _aiPanelWidth = AiColumn.Width.Value;
+            PersistAiPanelWidth();
             AiPanelHost.IsVisible = false;
             AiSplitter.IsVisible = false;
             AiColumn.MinWidth = 0;
             AiColumn.Width = new GridLength(0, GridUnitType.Pixel);
         }
+    }
+
+    private void PersistAiPanelWidth()
+    {
+        if (!AiColumn.Width.IsAbsolute || AiColumn.Width.Value <= 0)
+            return;
+
+        _aiPanelWidth = AiColumn.Width.Value;
+        if (DataContext is MainWindowViewModel vm)
+            vm.AiPanelWidth = _aiPanelWidth;
     }
 
     private AgentChatViewModel CreateAgentChatViewModel()

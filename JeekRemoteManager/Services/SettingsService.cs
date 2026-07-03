@@ -159,6 +159,7 @@ public class SettingsService
             CheckUpdateOnStartup = roamingSettings.CheckUpdateOnStartup,
             UpdateCheckIntervalHours = roamingSettings.UpdateCheckIntervalHours,
             TerminalFontSize = roamingSettings.TerminalFontSize,
+            AiPanelWidth = roamingSettings.AiPanelWidth,
         };
 
     private static MachineAppSettings ToMachineSettings(AppSettings settings)
@@ -187,6 +188,7 @@ public class SettingsService
             CheckUpdateOnStartup = settings.CheckUpdateOnStartup,
             UpdateCheckIntervalHours = settings.UpdateCheckIntervalHours,
             TerminalFontSize = settings.TerminalFontSize,
+            AiPanelWidth = settings.AiPanelWidth,
         };
         NormalizeRoamingSettings(roamingSettings);
         return roamingSettings;
@@ -211,6 +213,7 @@ public class SettingsService
         settings.CheckUpdateOnStartup = normalized.CheckUpdateOnStartup;
         settings.UpdateCheckIntervalHours = normalized.UpdateCheckIntervalHours;
         settings.TerminalFontSize = normalized.TerminalFontSize;
+        settings.AiPanelWidth = normalized.AiPanelWidth;
     }
 
     private static void NormalizeMachineSettings(MachineAppSettings settings)
@@ -241,6 +244,9 @@ public class SettingsService
         if (settings.UpdateCheckIntervalHours < 0)
             settings.UpdateCheckIntervalHours = 0;
         settings.TerminalFontSize = Math.Clamp(settings.TerminalFontSize, 8, 36);
+        settings.AiPanelWidth = double.IsFinite(settings.AiPanelWidth)
+            ? Math.Clamp(settings.AiPanelWidth, 240, 1200)
+            : 380;
     }
 
     private static StorageLocation NormalizeStorageLocation(StorageLocation location) =>

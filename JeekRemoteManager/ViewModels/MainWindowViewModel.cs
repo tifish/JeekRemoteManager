@@ -219,6 +219,22 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>Current terminal font size (points); the view sizes terminals with it.</summary>
     public int TerminalFontSize => _settings.Settings.TerminalFontSize;
 
+    /// <summary>Persisted width of the in-terminal AI assistant panel (device-independent
+    /// pixels), shared across terminal tabs and remembered across runs.</summary>
+    public double AiPanelWidth
+    {
+        get => _settings.Settings.AiPanelWidth;
+        set
+        {
+            var clamped = Math.Clamp(value, 240, 1200);
+            if (Math.Abs(clamped - _settings.Settings.AiPanelWidth) < 0.5)
+                return;
+
+            _settings.Settings.AiPanelWidth = clamped;
+            _settings.SaveIfChanged();
+        }
+    }
+
     /// <summary>True when a terminal tab is the active right-pane tab. Drives the
     /// visibility of the terminal font-size toolbar buttons.</summary>
     [ObservableProperty]
