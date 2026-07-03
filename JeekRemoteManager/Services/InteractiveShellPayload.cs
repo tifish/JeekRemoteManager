@@ -37,36 +37,34 @@ public static class InteractiveShellPayloadRunner
         var encodedPayload = Convert.ToBase64String(CompressPayload(normalizedPayload));
         var encodedPayloadLines = SplitLines(encodedPayload, EncodedPayloadLineLength);
 
+        // Everything the interactive shell reads as a separate command makes it print
+        // another prompt (and, once echo is back on, echo the command text) between the
+        // script output and the exit marker. So the setup runs in prepareCommand (its
+        // noise precedes the BEGIN marker and is never displayed), and the entire
+        // epilogue — status capture, hook sourcing, echo restore, exit marker — shares
+        // ONE logical line with the heredoc pipeline, so the shell reads a single
+        // command and nothing is prompted or echoed after the script's own output.
         var prepareCommand =
-            "stty -echo 2>/dev/null || true\n" +
+            "stty -echo 2>/dev/null || true; " +
+            "__jrm_old_ps2=${PS2-}; PS2=; " +
+            "__jrm_current_shell_hook=${TMPDIR:-/tmp}/jeekremote-current-shell-" + token + "-$$.sh; " +
+            "if ( umask 077 && : > \"$__jrm_current_shell_hook\" ) 2>/dev/null; then " +
+            CurrentShellHookVariable + "=$__jrm_current_shell_hook; " +
+            "else __jrm_current_shell_hook=; " + CurrentShellHookVariable + "=; fi; " +
+            "export " + CurrentShellHookVariable + "; " +
             "printf '\\n%s%s\\n' '__JRM_READY_' '" + token + "__'\n";
 
         var executeCommand =
-            "__jrm_old_ps2=${PS2-}\n" +
-            "PS2=\n" +
-            "__jrm_current_shell_hook=${TMPDIR:-/tmp}/jeekremote-current-shell-" + token + "-$$.sh\n" +
-            "if ( umask 077 && : > \"$__jrm_current_shell_hook\" ) 2>/dev/null; then\n" +
-            "    " + CurrentShellHookVariable + "=$__jrm_current_shell_hook\n" +
-            "    export " + CurrentShellHookVariable + "\n" +
-            "else\n" +
-            "    __jrm_current_shell_hook=\n" +
-            "    " + CurrentShellHookVariable + "=\n" +
-            "    export " + CurrentShellHookVariable + "\n" +
-            "fi\n" +
-            "base64 -d <<'" + payloadDelimiter + "' | gzip -dc | { printf '\\n%s%s\\n' '__JRM_BEGIN_' '" + token + "__'; sh -s; }\n" +
+            "base64 -d <<'" + payloadDelimiter + "' | gzip -dc | { printf '\\n%s%s\\n' '__JRM_BEGIN_' '" + token + "__'; sh -s; }; " +
+            "__jrm_status=$?; " +
+            "if [ \"$__jrm_status\" -eq 0 ] && [ -n \"${__jrm_current_shell_hook:-}\" ] && [ -s \"$__jrm_current_shell_hook\" ]; then . \"$__jrm_current_shell_hook\" >/dev/null 2>&1 || true; fi; " +
+            "if [ -n \"${__jrm_current_shell_hook:-}\" ]; then rm -f \"$__jrm_current_shell_hook\" 2>/dev/null || true; fi; " +
+            "unset " + CurrentShellHookVariable + "; " +
+            "PS2=$__jrm_old_ps2; " +
+            "stty echo 2>/dev/null || true; " +
+            "printf '\\n%s%s:%s\\n' '__JRM_EXIT_' '" + token + "__' \"$__jrm_status\"\n" +
             string.Join('\n', encodedPayloadLines) + "\n" +
-            payloadDelimiter + "\n" +
-            "__jrm_status=$?\n" +
-            "if [ \"$__jrm_status\" -eq 0 ] && [ -n \"${__jrm_current_shell_hook:-}\" ] && [ -s \"$__jrm_current_shell_hook\" ]; then\n" +
-            "    . \"$__jrm_current_shell_hook\" >/dev/null 2>&1 || true\n" +
-            "fi\n" +
-            "if [ -n \"${__jrm_current_shell_hook:-}\" ]; then\n" +
-            "    rm -f \"$__jrm_current_shell_hook\" 2>/dev/null || true\n" +
-            "fi\n" +
-            "unset " + CurrentShellHookVariable + "\n" +
-            "PS2=$__jrm_old_ps2\n" +
-            "stty echo 2>/dev/null || true\n" +
-            "printf '\\n%s%s:%s\\n' '__JRM_EXIT_' '" + token + "__' \"$__jrm_status\"\n";
+            payloadDelimiter + "\n";
 
         return new InteractiveShellPayload(
             readyMarker,
@@ -147,6 +145,7 @@ public sealed class InteractiveShellPayloadMonitor
     private int _displayOffset;
     private bool _displayStarted;
     private bool _displayCompleted;
+    private string _pendingDisplayNewlines = "";
 
     public InteractiveShellPayloadMonitor(InteractiveShellPayload payload)
     {
@@ -259,7 +258,7 @@ public sealed class InteractiveShellPayloadMonitor
 
             var displayText = output[_displayOffset..];
             _displayOffset = output.Length;
-            return displayText;
+            return WithholdTrailingNewlines(displayText);
         }
 
         var beforeExitMarker = output[_displayOffset..exitIndex];
@@ -267,11 +266,38 @@ public sealed class InteractiveShellPayloadMonitor
         if (markerLineEnd < 0)
         {
             _displayOffset = exitIndex;
-            return beforeExitMarker;
+            return WithholdTrailingNewlines(beforeExitMarker);
         }
 
         _displayOffset = output.Length;
         _displayCompleted = true;
-        return beforeExitMarker;
+
+        // Drop trailing newlines entirely: the exit-marker printf always injects one,
+        // and the caller's completion line supplies its own line break, so anything
+        // kept here would render as blank lines before the "[... exit N]" status.
+        var completed = _pendingDisplayNewlines + beforeExitMarker;
+        _pendingDisplayNewlines = "";
+        return completed[..LengthWithoutTrailingNewlines(completed)];
+    }
+
+    /// <summary>
+    /// Holds back a trailing run of newline characters instead of emitting it, prepending
+    /// it to the next chunk that carries real content. This lets the completion path drop
+    /// the newlines that would otherwise show as blank lines before the exit status line.
+    /// </summary>
+    private string WithholdTrailingNewlines(string text)
+    {
+        text = _pendingDisplayNewlines + text;
+        var end = LengthWithoutTrailingNewlines(text);
+        _pendingDisplayNewlines = text[end..];
+        return text[..end];
+    }
+
+    private static int LengthWithoutTrailingNewlines(string text)
+    {
+        var end = text.Length;
+        while (end > 0 && text[end - 1] is '\r' or '\n')
+            end--;
+        return end;
     }
 }

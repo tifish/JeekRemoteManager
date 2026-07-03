@@ -1134,23 +1134,24 @@ try
         .Split('\n')
         .Where(line => line.Length > 0 && line.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '+' or '/' or '='))
         .ToArray();
+    var executeCommandFirstLine = interactivePayload.ExecuteCommand.Split('\n')[0];
     Check(interactivePayload.PrepareCommand.Contains("stty -echo", StringComparison.Ordinal)
           && interactivePayload.PrepareCommand.Contains("'__JRM_READY_' 'SMOKETOKEN__'", StringComparison.Ordinal)
+          && interactivePayload.PrepareCommand.Contains("jeekremote-current-shell-SMOKETOKEN-$$.sh", StringComparison.Ordinal)
           && interactivePayload.ExecuteCommand.Contains(
-              "base64 -d <<'__JRM_PAYLOAD_SMOKETOKEN__' | gzip -dc | { printf '\\n%s%s\\n' '__JRM_BEGIN_' 'SMOKETOKEN__'; sh -s; }\n",
+              "base64 -d <<'__JRM_PAYLOAD_SMOKETOKEN__' | gzip -dc | { printf '\\n%s%s\\n' '__JRM_BEGIN_' 'SMOKETOKEN__'; sh -s; }; ",
               StringComparison.Ordinal)
           && interactivePayload.ExecuteCommand.Contains(interactivePayload.PayloadDelimiter, StringComparison.Ordinal)
           && interactivePayload.ExecuteCommand.Contains(encodedPayloadFirstLine, StringComparison.Ordinal)
           && encodedPayloadLines.All(line => line.Length <= InteractiveShellPayloadRunner.EncodedPayloadLineLength)
-          && interactivePayload.ExecuteCommand.Contains("'__JRM_BEGIN_' 'SMOKETOKEN__'", StringComparison.Ordinal)
-          && interactivePayload.ExecuteCommand.Contains("'__JRM_EXIT_' 'SMOKETOKEN__'", StringComparison.Ordinal)
+          && executeCommandFirstLine.Contains("'__JRM_BEGIN_' 'SMOKETOKEN__'", StringComparison.Ordinal)
+          && executeCommandFirstLine.Contains("'__JRM_EXIT_' 'SMOKETOKEN__'", StringComparison.Ordinal)
           && !interactivePayload.ExecuteCommand.Contains(payload, StringComparison.Ordinal)
-          && interactivePayload.ExecuteCommand.Contains("jeekremote-current-shell-SMOKETOKEN-$$.sh", StringComparison.Ordinal)
-          && interactivePayload.ExecuteCommand.Contains(InteractiveShellPayloadRunner.CurrentShellHookVariable, StringComparison.Ordinal)
-          && interactivePayload.ExecuteCommand.Contains(". \"$__jrm_current_shell_hook\" >/dev/null 2>&1 || true", StringComparison.Ordinal)
-          && interactivePayload.ExecuteCommand.Contains("rm -f \"$__jrm_current_shell_hook\" 2>/dev/null || true", StringComparison.Ordinal)
+          && executeCommandFirstLine.Contains(InteractiveShellPayloadRunner.CurrentShellHookVariable, StringComparison.Ordinal)
+          && executeCommandFirstLine.Contains(". \"$__jrm_current_shell_hook\" >/dev/null 2>&1 || true", StringComparison.Ordinal)
+          && executeCommandFirstLine.Contains("rm -f \"$__jrm_current_shell_hook\" 2>/dev/null || true", StringComparison.Ordinal)
           && !interactivePayload.ExecuteCommand.Contains('\r'),
-          "Interactive shell runner sends compressed base64 payload and exposes a generic current-shell hook");
+          "Interactive shell runner keeps the whole epilogue on the heredoc command line so the shell reads a single command");
     var interactiveMonitor = new InteractiveShellPayloadMonitor(interactivePayload);
     var hiddenOutput = interactiveMonitor.Append(Encoding.UTF8.GetBytes("echoed command\n__JRM_READY_SMOKE"));
     hiddenOutput = hiddenOutput.Concat(interactiveMonitor.Append(Encoding.UTF8.GetBytes("TOKEN__\nechoed payload\n"))).ToArray();
