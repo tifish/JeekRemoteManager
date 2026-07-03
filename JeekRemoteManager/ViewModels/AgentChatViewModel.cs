@@ -69,6 +69,9 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     private int _autoStepsRemaining;
     private bool _switchingProvider;
 
+    // Each provider's last-chosen model/effort, restored when switching back to it.
+    private readonly Dictionary<string, AiProviderChoice> _providerChoices = new();
+
     // The saved model/effort values the user last chose for the current provider. They may
     // refer to options that only exist in the dynamically fetched catalog, so selection is
     // re-resolved against these when the catalog arrives.
@@ -97,21 +100,22 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         _modelOptions = provider.ModelOptions;
         _effortOptions = provider.EffortOptions;
 
-        // Saved model/effort only apply to the provider they were saved with.
-        if (initialOptions is not null && initialOptions.Provider == provider.Label)
-        {
-            _desiredModelValue = initialOptions.Model;
-            _desiredEffortValue = initialOptions.Effort;
-        }
-        _selectedModel = provider.ModelOptions.FirstOrDefault(o => o.Value == _desiredModelValue) ?? provider.ModelOptions[0];
-        _selectedEffort = provider.EffortOptions.FirstOrDefault(o => o.Value == _desiredEffortValue) ?? provider.EffortOptions[0];
-
         if (initialOptions is not null)
         {
+            foreach (var (label, choice) in initialOptions.ProviderChoices)
+                _providerChoices[label] = new AiProviderChoice { Model = choice.Model, Effort = choice.Effort };
             _autoRun = initialOptions.AutoRun;
             _showCommandOutput = initialOptions.ShowCommandOutput;
             _agentMode = initialOptions.AgentMode;
         }
+
+        if (_providerChoices.TryGetValue(provider.Label, out var savedChoice))
+        {
+            _desiredModelValue = savedChoice.Model;
+            _desiredEffortValue = savedChoice.Effort;
+        }
+        _selectedModel = provider.ModelOptions.FirstOrDefault(o => o.Value == _desiredModelValue) ?? provider.ModelOptions[0];
+        _selectedEffort = provider.EffortOptions.FirstOrDefault(o => o.Value == _desiredEffortValue) ?? provider.EffortOptions[0];
 
         _ = RefreshProviderCatalogAsync(provider);
     }
@@ -225,6 +229,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         if (_switchingProvider)
             return;
         _desiredModelValue = value?.Value;
+        RememberProviderChoice();
         ResetSessionForSettingsChange();
         PersistOptions();
     }
@@ -234,8 +239,18 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         if (_switchingProvider)
             return;
         _desiredEffortValue = value?.Value;
+        RememberProviderChoice();
         ResetSessionForSettingsChange();
         PersistOptions();
+    }
+
+    private void RememberProviderChoice()
+    {
+        if (_desiredModelValue is null && _desiredEffortValue is null)
+            _providerChoices.Remove(SelectedProvider.Label);
+        else
+            _providerChoices[SelectedProvider.Label] =
+                new AiProviderChoice { Model = _desiredModelValue, Effort = _desiredEffortValue };
     }
 
     partial void OnAutoRunChanged(bool value) => PersistOptions();
@@ -250,17 +265,26 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             ? fetched
             : (value.ModelOptions, value.EffortOptions);
 
-        // The saved model/effort belonged to the previous provider.
-        _desiredModelValue = null;
-        _desiredEffortValue = null;
+        // Restore this provider's own remembered model/effort (it may only resolve once
+        // the dynamic catalog arrives; RefreshProviderCatalogAsync re-applies it then).
+        if (_providerChoices.TryGetValue(value.Label, out var savedChoice))
+        {
+            _desiredModelValue = savedChoice.Model;
+            _desiredEffortValue = savedChoice.Effort;
+        }
+        else
+        {
+            _desiredModelValue = null;
+            _desiredEffortValue = null;
+        }
 
         _switchingProvider = true;
         try
         {
             ModelOptions = models;
             EffortOptions = efforts;
-            SelectedModel = models[0];
-            SelectedEffort = efforts[0];
+            SelectedModel = models.FirstOrDefault(o => o.Value == _desiredModelValue) ?? models[0];
+            SelectedEffort = efforts.FirstOrDefault(o => o.Value == _desiredEffortValue) ?? efforts[0];
             UnavailableText = value.UnavailableMessage;
             IsAvailable = value.IsAvailable;
         }
@@ -285,8 +309,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
     private void PersistOptions() => _persistOptions?.Invoke(new AiPanelOptions(
         SelectedProvider.Label,
-        SelectedModel?.Value,
-        SelectedEffort?.Value,
+        new Dictionary<string, AiProviderChoice>(_providerChoices),
         AutoRun,
         ShowCommandOutput,
         AgentMode));

@@ -75,11 +75,9 @@ public class AppSettings
     /// <summary>AI panel: last-used provider label ("Claude", "Codex"). Null = first available.</summary>
     public string? AiProvider { get; set; }
 
-    /// <summary>AI panel: last-used model option value under <see cref="AiProvider"/>. Null = CLI default.</summary>
-    public string? AiModel { get; set; }
-
-    /// <summary>AI panel: last-used reasoning-effort option value. Null = CLI default.</summary>
-    public string? AiEffort { get; set; }
+    /// <summary>AI panel: last-used model/effort per provider label, so switching providers
+    /// restores each one's own choice.</summary>
+    public Dictionary<string, AiProviderChoice> AiProviderChoices { get; set; } = new();
 
     /// <summary>AI panel: whether the assistant auto-runs its suggested commands.</summary>
     public bool AiAutoRun { get; set; } = true;
@@ -89,6 +87,14 @@ public class AppSettings
 
     /// <summary>AI panel: agent mode — the AI panel fills the tab and the terminal is hidden.</summary>
     public bool AiAgentMode { get; set; }
+}
+
+/// <summary>Last-used model and reasoning effort for one AI provider. Null = CLI default.</summary>
+public class AiProviderChoice
+{
+    public string? Model { get; set; }
+
+    public string? Effort { get; set; }
 }
 
 /// <summary>Settings that are bound to this Windows account and machine.</summary>
@@ -145,11 +151,9 @@ public class RoamingAppSettings
     /// <summary>AI panel: last-used provider label ("Claude", "Codex"). Null = first available.</summary>
     public string? AiProvider { get; set; }
 
-    /// <summary>AI panel: last-used model option value under <see cref="AiProvider"/>. Null = CLI default.</summary>
-    public string? AiModel { get; set; }
-
-    /// <summary>AI panel: last-used reasoning-effort option value. Null = CLI default.</summary>
-    public string? AiEffort { get; set; }
+    /// <summary>AI panel: last-used model/effort per provider label, so switching providers
+    /// restores each one's own choice.</summary>
+    public Dictionary<string, AiProviderChoice> AiProviderChoices { get; set; } = new();
 
     /// <summary>AI panel: whether the assistant auto-runs its suggested commands.</summary>
     public bool AiAutoRun { get; set; } = true;
@@ -164,8 +168,7 @@ public class RoamingAppSettings
 /// <summary>Snapshot of the AI panel's user-facing options, as persisted in settings.</summary>
 public record AiPanelOptions(
     string? Provider,
-    string? Model,
-    string? Effort,
+    IReadOnlyDictionary<string, AiProviderChoice> ProviderChoices,
     bool AutoRun,
     bool ShowCommandOutput,
     bool AgentMode);

@@ -161,8 +161,7 @@ public class SettingsService
             TerminalFontSize = roamingSettings.TerminalFontSize,
             AiPanelWidth = roamingSettings.AiPanelWidth,
             AiProvider = roamingSettings.AiProvider,
-            AiModel = roamingSettings.AiModel,
-            AiEffort = roamingSettings.AiEffort,
+            AiProviderChoices = roamingSettings.AiProviderChoices,
             AiAutoRun = roamingSettings.AiAutoRun,
             AiShowCommandOutput = roamingSettings.AiShowCommandOutput,
             AiAgentMode = roamingSettings.AiAgentMode,
@@ -196,8 +195,7 @@ public class SettingsService
             TerminalFontSize = settings.TerminalFontSize,
             AiPanelWidth = settings.AiPanelWidth,
             AiProvider = settings.AiProvider,
-            AiModel = settings.AiModel,
-            AiEffort = settings.AiEffort,
+            AiProviderChoices = settings.AiProviderChoices ?? new Dictionary<string, AiProviderChoice>(),
             AiAutoRun = settings.AiAutoRun,
             AiShowCommandOutput = settings.AiShowCommandOutput,
             AiAgentMode = settings.AiAgentMode,
@@ -227,8 +225,7 @@ public class SettingsService
         settings.TerminalFontSize = normalized.TerminalFontSize;
         settings.AiPanelWidth = normalized.AiPanelWidth;
         settings.AiProvider = normalized.AiProvider;
-        settings.AiModel = normalized.AiModel;
-        settings.AiEffort = normalized.AiEffort;
+        settings.AiProviderChoices = normalized.AiProviderChoices;
         settings.AiAutoRun = normalized.AiAutoRun;
         settings.AiShowCommandOutput = normalized.AiShowCommandOutput;
         settings.AiAgentMode = normalized.AiAgentMode;
@@ -267,10 +264,21 @@ public class SettingsService
             : 380;
         if (string.IsNullOrWhiteSpace(settings.AiProvider))
             settings.AiProvider = null;
-        if (string.IsNullOrWhiteSpace(settings.AiModel))
-            settings.AiModel = null;
-        if (string.IsNullOrWhiteSpace(settings.AiEffort))
-            settings.AiEffort = null;
+        settings.AiProviderChoices ??= new Dictionary<string, AiProviderChoice>();
+        foreach (var key in new List<string>(settings.AiProviderChoices.Keys))
+        {
+            var choice = settings.AiProviderChoices[key];
+            if (choice is not null)
+            {
+                if (string.IsNullOrWhiteSpace(choice.Model))
+                    choice.Model = null;
+                if (string.IsNullOrWhiteSpace(choice.Effort))
+                    choice.Effort = null;
+            }
+            // Drop empty entries so "both defaults" and "never chosen" serialize the same.
+            if (choice is null || (choice.Model is null && choice.Effort is null))
+                settings.AiProviderChoices.Remove(key);
+        }
     }
 
     private static StorageLocation NormalizeStorageLocation(StorageLocation location) =>
