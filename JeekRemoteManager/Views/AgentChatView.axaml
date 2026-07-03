@@ -130,9 +130,13 @@
                               Content="{l:Localize AiShowOutput}"
                               IsChecked="{Binding ShowCommandOutput, Mode=TwoWay}"
                               ToolTip.Tip="{l:Localize AiShowOutputHint}" />
-                    <CheckBox Margin="0,0,0,6" VerticalAlignment="Center"
+                    <CheckBox Margin="0,0,16,6" VerticalAlignment="Center"
                               Content="{l:Localize AiIncludeSelection}"
                               IsChecked="{Binding IncludeTerminalSelection, Mode=TwoWay}" />
+                    <CheckBox Margin="0,0,0,6" VerticalAlignment="Center"
+                              Content="{l:Localize AiAgentMode}"
+                              IsChecked="{Binding AgentMode, Mode=TwoWay}"
+                              ToolTip.Tip="{l:Localize AiAgentModeHint}" />
                 </WrapPanel>
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                     <TextBox Grid.Column="0"

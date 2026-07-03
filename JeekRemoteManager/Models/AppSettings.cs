@@ -89,6 +89,9 @@ public class AppSettings
 
     /// <summary>AI panel: whether the terminal selection is attached to sent messages.</summary>
     public bool AiIncludeTerminalSelection { get; set; }
+
+    /// <summary>AI panel: agent mode — the AI panel fills the tab and the terminal is hidden.</summary>
+    public bool AiAgentMode { get; set; }
 }
 
 /// <summary>Settings that are bound to this Windows account and machine.</summary>
@@ -159,6 +162,9 @@ public class RoamingAppSettings
 
     /// <summary>AI panel: whether the terminal selection is attached to sent messages.</summary>
     public bool AiIncludeTerminalSelection { get; set; }
+
+    /// <summary>AI panel: agent mode — the AI panel fills the tab and the terminal is hidden.</summary>
+    public bool AiAgentMode { get; set; }
 }
 
 /// <summary>Snapshot of the AI panel's user-facing options, as persisted in settings.</summary>
@@ -168,7 +174,8 @@ public record AiPanelOptions(
     string? Effort,
     bool AutoRun,
     bool ShowCommandOutput,
-    bool IncludeTerminalSelection);
+    bool IncludeTerminalSelection,
+    bool AgentMode);
 
 /// <summary>Outcome of the Settings dialog. <see cref="Language"/> and <see cref="Theme"/>
 /// are null when "follow system" is chosen.</summary>

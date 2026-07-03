@@ -61,8 +61,9 @@ public partial class TerminalView : UserControl
     private double _aiPanelWidth = 380;
     private volatile bool _disposed;
 
-    // The AI panel lives in the 3rd grid column; a named ColumnDefinition doesn't generate a
-    // field, so reach it through the grid.
+    // The terminal and AI panel live in grid columns 0 and 2; named ColumnDefinitions don't
+    // generate fields, so reach them through the grid.
+    private ColumnDefinition TerminalColumn => RootGrid.ColumnDefinitions[0];
     private ColumnDefinition AiColumn => RootGrid.ColumnDefinitions[2];
 
     private sealed record RemotePayloadResult(int ExitCode, string Output);
@@ -243,25 +244,56 @@ public partial class TerminalView : UserControl
             _aiViewModel = CreateAgentChatViewModel();
 
         var show = !AiPanelHost.IsVisible;
+        if (!show)
+            PersistAiPanelWidth();
+
+        AiPanelHost.IsVisible = show;
+        ApplyAiPanelLayout();
+
         if (show)
+            Dispatcher.UIThread.Post(() => AiPanel.FocusInput(), DispatcherPriority.Background);
+        else
+            FocusTerminal();
+    }
+
+    /// <summary>
+    /// Lays out the terminal/AI columns for the current panel state. Three states: panel
+    /// hidden (terminal full width), side panel (terminal + splitter + fixed-width panel),
+    /// and agent mode (terminal fully hidden, panel takes the whole tab).
+    /// </summary>
+    private void ApplyAiPanelLayout()
+    {
+        var show = AiPanelHost.IsVisible;
+        var agentMode = show && _aiViewModel?.AgentMode == true;
+
+        // Hiding the terminal control (not just collapsing the column) keeps its pty size
+        // stable, so remote command output isn't rewrapped to a zero-width window.
+        Term.IsVisible = !agentMode;
+        TerminalColumn.MinWidth = agentMode ? 0 : 200;
+        TerminalColumn.Width = agentMode
+            ? new GridLength(0, GridUnitType.Pixel)
+            : new GridLength(1, GridUnitType.Star);
+
+        AiSplitter.IsVisible = show && !agentMode;
+
+        if (!show)
+        {
+            // Collapse the column so it leaves no gap.
+            AiColumn.MinWidth = 0;
+            AiColumn.Width = new GridLength(0, GridUnitType.Pixel);
+        }
+        else if (agentMode)
+        {
+            AiColumn.MinWidth = 0;
+            AiColumn.Width = new GridLength(1, GridUnitType.Star);
+        }
+        else
         {
             // Open at the remembered width (shared across tabs, persisted across runs).
             _aiPanelWidth = Math.Clamp(
                 (DataContext as MainWindowViewModel)?.AiPanelWidth ?? _aiPanelWidth, 240, 1200);
             AiColumn.MinWidth = 240;
             AiColumn.Width = new GridLength(_aiPanelWidth, GridUnitType.Pixel);
-            AiPanelHost.IsVisible = true;
-            AiSplitter.IsVisible = true;
-            Dispatcher.UIThread.Post(() => AiPanel.FocusInput(), DispatcherPriority.Background);
-        }
-        else
-        {
-            // Remember the dragged width, then collapse the column so it leaves no gap.
-            PersistAiPanelWidth();
-            AiPanelHost.IsVisible = false;
-            AiSplitter.IsVisible = false;
-            AiColumn.MinWidth = 0;
-            AiColumn.Width = new GridLength(0, GridUnitType.Pixel);
         }
     }
 
@@ -306,6 +338,17 @@ public partial class TerminalView : UserControl
                 if (DataContext is MainWindowViewModel mainVm)
                     mainVm.AiPanelOptions = options;
             });
+
+        // Relayout when the user flips agent mode: remember the side-panel width first (a
+        // no-op when the column is already star-sized), then switch the columns over.
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(AgentChatViewModel.AgentMode))
+            {
+                PersistAiPanelWidth();
+                ApplyAiPanelLayout();
+            }
+        };
 
         AiPanel.DataContext = vm;
         return vm;

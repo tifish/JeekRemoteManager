@@ -166,6 +166,7 @@ public class SettingsService
             AiAutoRun = roamingSettings.AiAutoRun,
             AiShowCommandOutput = roamingSettings.AiShowCommandOutput,
             AiIncludeTerminalSelection = roamingSettings.AiIncludeTerminalSelection,
+            AiAgentMode = roamingSettings.AiAgentMode,
         };
 
     private static MachineAppSettings ToMachineSettings(AppSettings settings)
@@ -201,6 +202,7 @@ public class SettingsService
             AiAutoRun = settings.AiAutoRun,
             AiShowCommandOutput = settings.AiShowCommandOutput,
             AiIncludeTerminalSelection = settings.AiIncludeTerminalSelection,
+            AiAgentMode = settings.AiAgentMode,
         };
         NormalizeRoamingSettings(roamingSettings);
         return roamingSettings;
@@ -232,6 +234,7 @@ public class SettingsService
         settings.AiAutoRun = normalized.AiAutoRun;
         settings.AiShowCommandOutput = normalized.AiShowCommandOutput;
         settings.AiIncludeTerminalSelection = normalized.AiIncludeTerminalSelection;
+        settings.AiAgentMode = normalized.AiAgentMode;
     }
 
     private static void NormalizeMachineSettings(MachineAppSettings settings)

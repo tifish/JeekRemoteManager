@@ -223,3 +223,5 @@ AiModel	Model	模型
 AiEffort	Effort	强度
 AiOptionDefault	Default	默认
 AiSettingsChanged	Settings changed; applies to a new conversation.	设置已更改，将用于新对话。
+AiAgentMode	Agent mode	Agent 模式
+AiAgentModeHint	Hide the SSH terminal and let the assistant fill the whole tab. Commands still run on the server.	隐藏 SSH 终端面板，AI 助手占满整个页面。命令仍会在服务器上执行。

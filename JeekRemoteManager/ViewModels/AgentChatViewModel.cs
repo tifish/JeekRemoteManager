@@ -107,6 +107,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             _autoRun = initialOptions.AutoRun;
             _showCommandOutput = initialOptions.ShowCommandOutput;
             _includeTerminalSelection = initialOptions.IncludeTerminalSelection;
+            _agentMode = initialOptions.AgentMode;
         }
 
         _ = RefreshProviderCatalogAsync(provider);
@@ -192,6 +193,11 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     [ObservableProperty]
     private bool _showCommandOutput;
 
+    /// <summary>Agent mode: the AI panel takes over the whole tab and the terminal is hidden,
+    /// so executed commands always show in the chat. The view reacts to this to relayout.</summary>
+    [ObservableProperty]
+    private bool _agentMode;
+
     [ObservableProperty]
     private AgentOption _selectedModel;
 
@@ -229,6 +235,8 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     partial void OnAutoRunChanged(bool value) => PersistOptions();
 
     partial void OnShowCommandOutputChanged(bool value) => PersistOptions();
+
+    partial void OnAgentModeChanged(bool value) => PersistOptions();
 
     partial void OnIncludeTerminalSelectionChanged(bool value) => PersistOptions();
 
@@ -277,7 +285,8 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         SelectedEffort?.Value,
         AutoRun,
         ShowCommandOutput,
-        IncludeTerminalSelection));
+        IncludeTerminalSelection,
+        AgentMode));
 
     /// <summary>
     /// Asks the provider's CLI for its live model catalog and swaps the option lists in
