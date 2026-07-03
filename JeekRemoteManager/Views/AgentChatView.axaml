@@ -49,6 +49,12 @@
             <Setter Property="FontSize" Value="12" />
             <Setter Property="Foreground" Value="{DynamicResource TerminalForegroundBrush}" />
         </Style>
+        <!-- Compact selectors that live in the header bar. -->
+        <Style Selector="ComboBox.header-option">
+            <Setter Property="MinHeight" Value="28" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="8,4" />
+        </Style>
     </UserControl.Styles>
 
     <DockPanel Background="{DynamicResource SurfaceBrush}">
@@ -58,8 +64,60 @@
                 Background="{DynamicResource ChromeSurfaceBrush}"
                 BorderBrush="{DynamicResource BorderBrushSoft}"
                 BorderThickness="0,0,0,1">
-            <StackPanel Spacing="2">
-                <TextBlock Classes="section-title" Text="{l:Localize AiAssistant}" />
+            <StackPanel Spacing="3">
+                <!-- Title plus the session options; the options wrap below the title when the panel is narrow. -->
+                <WrapPanel Orientation="Horizontal">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="0,3,14,3">
+                        <Border Width="26" Height="26" CornerRadius="7"
+                                Background="{DynamicResource AccentSoftBrush}"
+                                BorderBrush="{DynamicResource SelectedBorderBrush}"
+                                BorderThickness="1">
+                            <TextBlock Text="✦" FontSize="14"
+                                       Foreground="{DynamicResource AccentBrush}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <TextBlock Classes="section-title" Text="{l:Localize AiAssistant}" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <ComboBox Classes="header-option"
+                              ItemsSource="{Binding Providers}"
+                              SelectedItem="{Binding SelectedProvider, Mode=TwoWay}"
+                              IsEnabled="{Binding !IsBusy}"
+                              ToolTip.Tip="{l:Localize AiProvider}"
+                              VerticalAlignment="Center"
+                              MinWidth="88" Margin="0,3,8,3">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:AgentProvider">
+                                <TextBlock Text="{Binding Label}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <ComboBox Classes="header-option"
+                              ItemsSource="{Binding ModelOptions}"
+                              SelectedItem="{Binding SelectedModel, Mode=TwoWay}"
+                              IsEnabled="{Binding !IsBusy}"
+                              ToolTip.Tip="{l:Localize AiModel}"
+                              VerticalAlignment="Center"
+                              MinWidth="96" Margin="0,3,8,3">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:AgentOption">
+                                <TextBlock Text="{Binding Label}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <ComboBox Classes="header-option"
+                              ItemsSource="{Binding EffortOptions}"
+                              SelectedItem="{Binding SelectedEffort, Mode=TwoWay}"
+                              IsEnabled="{Binding !IsBusy}"
+                              ToolTip.Tip="{l:Localize AiEffort}"
+                              VerticalAlignment="Center"
+                              MinWidth="88" Margin="0,3,0,3">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:AgentOption">
+                                <TextBlock Text="{Binding Label}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </WrapPanel>
                 <TextBlock Classes="hint" Text="{Binding StatusText}" IsVisible="{Binding StatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
             </StackPanel>
         </Border>
@@ -83,45 +141,8 @@
                 BorderBrush="{DynamicResource BorderBrushSoft}"
                 BorderThickness="0,1,0,0">
             <StackPanel Spacing="8">
-                <!-- All options flow on one row and wrap only when the panel is too narrow. -->
+                <!-- Toggles flow on one row and wrap only when the panel is too narrow. -->
                 <WrapPanel Orientation="Horizontal">
-                    <ComboBox ItemsSource="{Binding Providers}"
-                              SelectedItem="{Binding SelectedProvider, Mode=TwoWay}"
-                              IsEnabled="{Binding !IsBusy}"
-                              VerticalAlignment="Center"
-                              MinWidth="96" Margin="0,0,16,6">
-                        <ComboBox.ItemTemplate>
-                            <DataTemplate x:DataType="vm:AgentProvider">
-                                <TextBlock Text="{Binding Label}" />
-                            </DataTemplate>
-                        </ComboBox.ItemTemplate>
-                    </ComboBox>
-                    <TextBlock Classes="label" Text="{l:Localize AiModel}"
-                               VerticalAlignment="Center" Margin="0,0,6,6" />
-                    <ComboBox ItemsSource="{Binding ModelOptions}"
-                              SelectedItem="{Binding SelectedModel, Mode=TwoWay}"
-                              IsEnabled="{Binding !IsBusy}"
-                              VerticalAlignment="Center"
-                              MinWidth="104" Margin="0,0,16,6">
-                        <ComboBox.ItemTemplate>
-                            <DataTemplate x:DataType="vm:AgentOption">
-                                <TextBlock Text="{Binding Label}" />
-                            </DataTemplate>
-                        </ComboBox.ItemTemplate>
-                    </ComboBox>
-                    <TextBlock Classes="label" Text="{l:Localize AiEffort}"
-                               VerticalAlignment="Center" Margin="0,0,6,6" />
-                    <ComboBox ItemsSource="{Binding EffortOptions}"
-                              SelectedItem="{Binding SelectedEffort, Mode=TwoWay}"
-                              IsEnabled="{Binding !IsBusy}"
-                              VerticalAlignment="Center"
-                              MinWidth="96" Margin="0,0,16,6">
-                        <ComboBox.ItemTemplate>
-                            <DataTemplate x:DataType="vm:AgentOption">
-                                <TextBlock Text="{Binding Label}" />
-                            </DataTemplate>
-                        </ComboBox.ItemTemplate>
-                    </ComboBox>
                     <CheckBox Margin="0,0,16,6" VerticalAlignment="Center"
                               Content="{l:Localize AiAutoRun}"
                               IsChecked="{Binding AutoRun, Mode=TwoWay}"
