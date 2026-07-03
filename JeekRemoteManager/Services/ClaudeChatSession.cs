@@ -9,20 +9,14 @@ using System.Threading.Tasks;
 
 namespace JeekRemoteManager.Services;
 
-/// <summary>Result of one completed assistant turn (from the CLI <c>result</c> message).</summary>
-public readonly record struct AgentTurnResult(string Text, double CostUsd, long OutputTokens, int NumTurns, bool IsError);
-
 /// <summary>
 /// Wraps a long-lived <c>claude</c> CLI subprocess in headless stream-json mode as a
 /// single multi-turn chat session. One process stays alive for the whole conversation:
 /// each user message is written to stdin as one NDJSON line, and stdout events are parsed
 /// and surfaced as strongly-typed events. This is the same protocol the official Agent SDK
 /// speaks; there is no .NET SDK, so we drive the CLI directly.
-///
-/// Events are raised on the background read-loop thread — consumers must marshal to the UI
-/// thread themselves (e.g. via <c>Dispatcher.UIThread.Post</c>).
 /// </summary>
-public sealed class AgentChatSession : IAsyncDisposable
+public sealed class ClaudeChatSession : IAgentChatSession
 {
     // Neutralize Claude Code's built-in agent tools: this is a conversational advisor, not
     // an agent that should run Bash / edit files on the user's Windows machine. Deny rules
@@ -43,7 +37,7 @@ public sealed class AgentChatSession : IAsyncDisposable
     private volatile bool _disposed;
     private bool _started;
 
-    public AgentChatSession(
+    public ClaudeChatSession(
         string executablePath,
         string workingDirectory,
         string? appendSystemPrompt = null,

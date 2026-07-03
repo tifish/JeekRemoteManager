@@ -73,19 +73,29 @@
                 BorderThickness="1"
                 CornerRadius="6"
                 Margin="8">
-            <TextBlock Classes="hint" Text="{l:Localize AiNotAvailable}" />
+            <TextBlock Classes="hint" Text="{Binding UnavailableText}" />
         </Border>
 
         <!-- Input area -->
         <Border DockPanel.Dock="Bottom"
                 Padding="10"
-                IsVisible="{Binding IsAvailable}"
                 Background="{DynamicResource ChromeSurfaceBrush}"
                 BorderBrush="{DynamicResource BorderBrushSoft}"
                 BorderThickness="0,1,0,0">
             <StackPanel Spacing="8">
                 <!-- All options flow on one row and wrap only when the panel is too narrow. -->
                 <WrapPanel Orientation="Horizontal">
+                    <ComboBox ItemsSource="{Binding Providers}"
+                              SelectedItem="{Binding SelectedProvider, Mode=TwoWay}"
+                              IsEnabled="{Binding !IsBusy}"
+                              VerticalAlignment="Center"
+                              MinWidth="96" Margin="0,0,16,6">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:AgentProvider">
+                                <TextBlock Text="{Binding Label}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
                     <TextBlock Classes="label" Text="{l:Localize AiModel}"
                                VerticalAlignment="Center" Margin="0,0,6,6" />
                     <ComboBox ItemsSource="{Binding ModelOptions}"

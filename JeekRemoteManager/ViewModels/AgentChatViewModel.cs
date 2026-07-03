@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,6 +15,22 @@ namespace JeekRemoteManager.ViewModels;
 /// <summary>A selectable model or effort choice: the label shown in the UI plus the value
 /// passed to the CLI (<c>null</c> = don't pass the flag, use the CLI's own default).</summary>
 public sealed record AgentOption(string Label, string? Value);
+
+/// <summary>
+/// One selectable AI backend (Claude / Codex): its display label, the model/effort choices
+/// it supports, and a factory that creates a session for a (model, effort) pair. A null
+/// <paramref name="SessionFactory"/> means the CLI is not installed; the provider still
+/// appears in the picker so the user learns it exists.
+/// </summary>
+public sealed record AgentProvider(
+    string Label,
+    string UnavailableMessage,
+    IReadOnlyList<AgentOption> ModelOptions,
+    IReadOnlyList<AgentOption> EffortOptions,
+    Func<string?, string?, IAgentChatSession?>? SessionFactory)
+{
+    public bool IsAvailable => SessionFactory is not null;
+}
 
 /// <summary>
 /// Drives one AI chat conversation scoped to a single terminal tab, and runs an autonomous
@@ -31,53 +48,92 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         "```[^\\n`]*\\n(.*?)```",
         RegexOptions.Singleline | RegexOptions.Compiled);
 
-    private readonly Func<string?, string?, AgentChatSession?> _sessionFactory;
     private readonly Func<string?> _readSelection;
     private readonly Func<string, CancellationToken, Task<string>>? _runCaptured;
     private readonly CancellationTokenSource _cts = new();
 
-    private AgentChatSession? _session;
+    private IAgentChatSession? _session;
     private ChatMessageViewModel? _pendingAssistant;
     private bool _sessionStarted;
     private int _autoStepsRemaining;
+    private bool _switchingProvider;
 
-    /// <param name="available">Whether the Claude CLI was found.</param>
-    /// <param name="sessionFactory">Creates a session for a (model, effort) pair; returns null if unavailable.</param>
     public AgentChatViewModel(
-        bool available,
-        Func<string?, string?, AgentChatSession?> sessionFactory,
+        IReadOnlyList<AgentProvider> providers,
         Func<string?> readSelection,
         Func<string, CancellationToken, Task<string>>? runCaptured)
     {
-        _sessionFactory = sessionFactory;
         _readSelection = readSelection;
         _runCaptured = runCaptured;
-        _isAvailable = available;
-        _statusText = available ? "" : L("AiNotAvailable");
-        _selectedModel = ModelOptions[0];
-        _selectedEffort = EffortOptions[0];
+        Providers = providers;
+
+        var provider = providers.FirstOrDefault(p => p.IsAvailable) ?? providers[0];
+        _selectedProvider = provider;
+        _isAvailable = provider.IsAvailable;
+        _statusText = provider.IsAvailable ? "" : provider.UnavailableMessage;
+        _unavailableText = provider.UnavailableMessage;
+        _modelOptions = provider.ModelOptions;
+        _effortOptions = provider.EffortOptions;
+        _selectedModel = provider.ModelOptions[0];
+        _selectedEffort = provider.EffortOptions[0];
     }
+
+    /// <summary>Builds the Claude provider descriptor; pass a null factory when the CLI is missing.</summary>
+    public static AgentProvider CreateClaudeProvider(Func<string?, string?, IAgentChatSession?>? sessionFactory) => new(
+        "Claude",
+        L("AiNotAvailable"),
+        [
+            new AgentOption(L("AiOptionDefault"), null),
+            new AgentOption("Fable", "fable"),
+            new AgentOption("Opus", "opus"),
+            new AgentOption("Sonnet", "sonnet"),
+            new AgentOption("Haiku", "haiku"),
+        ],
+        [
+            new AgentOption(L("AiOptionDefault"), null),
+            new AgentOption("Low", "low"),
+            new AgentOption("Medium", "medium"),
+            new AgentOption("High", "high"),
+            new AgentOption("xHigh", "xhigh"),
+            new AgentOption("Max", "max"),
+        ],
+        sessionFactory);
+
+    /// <summary>Builds the Codex provider descriptor; pass a null factory when the CLI is missing.</summary>
+    public static AgentProvider CreateCodexProvider(Func<string?, string?, IAgentChatSession?>? sessionFactory) => new(
+        "Codex",
+        L("AiNotAvailableCodex"),
+        [
+            new AgentOption(L("AiOptionDefault"), null),
+            new AgentOption("GPT-5.5", "gpt-5.5"),
+            new AgentOption("GPT-5.4", "gpt-5.4"),
+            new AgentOption("GPT-5.4 Mini", "gpt-5.4-mini"),
+            new AgentOption("GPT-5.3 Codex Spark", "gpt-5.3-codex-spark"),
+        ],
+        [
+            new AgentOption(L("AiOptionDefault"), null),
+            new AgentOption("Low", "low"),
+            new AgentOption("Medium", "medium"),
+            new AgentOption("High", "high"),
+            new AgentOption("xHigh", "xhigh"),
+        ],
+        sessionFactory);
 
     public ObservableCollection<ChatMessageViewModel> Messages { get; } = new();
 
-    public IReadOnlyList<AgentOption> ModelOptions { get; } =
-    [
-        new AgentOption(L("AiOptionDefault"), null),
-        new AgentOption("Fable", "fable"),
-        new AgentOption("Opus", "opus"),
-        new AgentOption("Sonnet", "sonnet"),
-        new AgentOption("Haiku", "haiku"),
-    ];
+    public IReadOnlyList<AgentProvider> Providers { get; }
 
-    public IReadOnlyList<AgentOption> EffortOptions { get; } =
-    [
-        new AgentOption(L("AiOptionDefault"), null),
-        new AgentOption("Low", "low"),
-        new AgentOption("Medium", "medium"),
-        new AgentOption("High", "high"),
-        new AgentOption("xHigh", "xhigh"),
-        new AgentOption("Max", "max"),
-    ];
+    [ObservableProperty]
+    private IReadOnlyList<AgentOption> _modelOptions;
+
+    [ObservableProperty]
+    private IReadOnlyList<AgentOption> _effortOptions;
+
+    [ObservableProperty]
+    private AgentProvider _selectedProvider;
+
+    [ObservableProperty]
+    private string _unavailableText;
 
     [ObservableProperty]
     private string _inputText = "";
@@ -113,9 +169,45 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     partial void OnIsAvailableChanged(bool value) => SendCommand.NotifyCanExecuteChanged();
 
     // Model/effort are process-launch flags, so changing them requires a fresh session.
-    partial void OnSelectedModelChanged(AgentOption value) => ResetSessionForSettingsChange();
+    partial void OnSelectedModelChanged(AgentOption value)
+    {
+        if (!_switchingProvider)
+            ResetSessionForSettingsChange();
+    }
 
-    partial void OnSelectedEffortChanged(AgentOption value) => ResetSessionForSettingsChange();
+    partial void OnSelectedEffortChanged(AgentOption value)
+    {
+        if (!_switchingProvider)
+            ResetSessionForSettingsChange();
+    }
+
+    partial void OnSelectedProviderChanged(AgentProvider value)
+    {
+        _switchingProvider = true;
+        try
+        {
+            ModelOptions = value.ModelOptions;
+            EffortOptions = value.EffortOptions;
+            SelectedModel = value.ModelOptions[0];
+            SelectedEffort = value.EffortOptions[0];
+            UnavailableText = value.UnavailableMessage;
+            IsAvailable = value.IsAvailable;
+        }
+        finally
+        {
+            _switchingProvider = false;
+        }
+
+        if (!value.IsAvailable)
+        {
+            StatusText = value.UnavailableMessage;
+            DetachAndDisposeSession();
+            return;
+        }
+
+        StatusText = "";
+        ResetSessionForSettingsChange();
+    }
 
     [RelayCommand(CanExecute = nameof(CanSend))]
     private async Task SendAsync()
@@ -157,12 +249,12 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         {
             if (_session is null)
             {
-                _session = _sessionFactory(SelectedModel?.Value, SelectedEffort?.Value);
+                _session = SelectedProvider.SessionFactory?.Invoke(SelectedModel?.Value, SelectedEffort?.Value);
                 if (_session is null)
                 {
                     IsAvailable = false;
                     IsBusy = false;
-                    StatusText = L("AiNotAvailable");
+                    StatusText = SelectedProvider.UnavailableMessage;
                     return;
                 }
 
@@ -231,9 +323,12 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             _pendingAssistant = null;
         }
 
+        // Codex reports token usage but no dollar cost; omit the $0.0000.
         StatusText = result.IsError
             ? L("AiTurnError")
-            : L("AiTurnCost", result.OutputTokens, result.CostUsd);
+            : result.CostUsd > 0
+                ? L("AiTurnCost", result.OutputTokens, result.CostUsd)
+                : L("AiTurnTokens", result.OutputTokens);
 
         var command = AutoRun && !result.IsError ? ExtractFirstCommand(answer) : null;
         if (command is not null && _runCaptured is not null)
