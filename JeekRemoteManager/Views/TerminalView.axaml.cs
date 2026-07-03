@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -13,6 +14,7 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
+using JeekRemoteManager.ViewModels;
 using Renci.SshNet;
 using SvcSystems.UI.Terminal;
 
@@ -55,9 +57,31 @@ public partial class TerminalView : UserControl
     private bool _shellClosed;
     private bool _suppressUserInput;
     private string? _pendingKeyboardCopyText;
+    private AgentChatViewModel? _aiViewModel;
+    private double _aiPanelWidth = 380;
     private volatile bool _disposed;
 
+    // The AI panel lives in the 3rd grid column; a named ColumnDefinition doesn't generate a
+    // field, so reach it through the grid.
+    private ColumnDefinition AiColumn => RootGrid.ColumnDefinitions[2];
+
     private sealed record RemotePayloadResult(int ExitCode, string Output);
+
+    // Strips ANSI escape sequences (CSI colors/cursor, OSC titles, other Fe escapes) and
+    // stray control characters so captured shell output reads as plain text in the AI panel
+    // and when fed back to the model. Keeps tab/newline.
+    private static readonly Regex AnsiAndControlChars = new(
+        "\u001b\\[[0-9;?]*[ -/]*[@-~]" +
+        "|\u001b\\][\\s\\S]*?(?:\u0007|\u001b\\\\)" +
+        "|\u001b[@-_]" +
+        "|[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]",
+        RegexOptions.Compiled);
+
+    private static string CleanShellOutput(string text)
+    {
+        text = AnsiAndControlChars.Replace(text, string.Empty);
+        return text.Replace("\r\n", "\n").Replace('\r', '\n');
+    }
 
     /// <summary>Raised on the UI thread when the remote shell sets its title (OSC).</summary>
     public event EventHandler<string>? TitleChanged;
@@ -206,6 +230,123 @@ public partial class TerminalView : UserControl
     public void HideScriptPanel()
     {
         ScriptPanelOverlay.IsVisible = false;
+    }
+
+    /// <summary>Shows or hides the AI assistant side panel for this terminal, creating its
+    /// per-connection chat session on first open.</summary>
+    public void ToggleAiPanel()
+    {
+        if (_aiViewModel is null)
+            _aiViewModel = CreateAgentChatViewModel();
+
+        var show = !AiPanelHost.IsVisible;
+        if (show)
+        {
+            AiColumn.MinWidth = 240;
+            AiColumn.Width = new GridLength(_aiPanelWidth, GridUnitType.Pixel);
+            AiPanelHost.IsVisible = true;
+            AiSplitter.IsVisible = true;
+            Dispatcher.UIThread.Post(() => AiPanel.FocusInput(), DispatcherPriority.Background);
+        }
+        else
+        {
+            // Remember the dragged width, then collapse the column so it leaves no gap.
+            if (AiColumn.Width.IsAbsolute && AiColumn.Width.Value > 0)
+                _aiPanelWidth = AiColumn.Width.Value;
+            AiPanelHost.IsVisible = false;
+            AiSplitter.IsVisible = false;
+            AiColumn.MinWidth = 0;
+            AiColumn.Width = new GridLength(0, GridUnitType.Pixel);
+        }
+    }
+
+    private AgentChatViewModel CreateAgentChatViewModel()
+    {
+        var exePath = AgentCliLocator.FindClaude();
+        AgentChatSession? session = null;
+        if (exePath is not null)
+        {
+            var workingDir = Path.Combine(Path.GetTempPath(), "JeekRemoteManager", "agent");
+            session = new AgentChatSession(exePath, workingDir, BuildAssistantSystemPrompt());
+        }
+
+        var vm = new AgentChatViewModel(
+            session,
+            readSelection: () => Term.HasSelection ? GetTerminalSelectionText(Term.SelectedText) : null,
+            runCaptured: RunCapturedAsync);
+
+        AiPanel.DataContext = vm;
+        return vm;
+    }
+
+    private string BuildAssistantSystemPrompt()
+    {
+        var name = _connection?.Name;
+        var host = _connection?.Host;
+        var target = !string.IsNullOrWhiteSpace(name)
+            ? $"\"{name}\" ({host})"
+            : host ?? "a remote server";
+
+        return
+            $"You are an assistant embedded inside JeekRemoteManager, operating an interactive SSH " +
+            $"terminal connected to {target}. " +
+            "To run a shell command on the server, output exactly ONE ```bash fenced code block " +
+            "containing a single non-interactive command (or short script). It will be executed on the " +
+            "server automatically, WITHOUT asking the user, and its output returned to you as the next " +
+            "message. Run one command at a time and wait for its output before deciding the next step. " +
+            "When the task is done, reply with a short summary and NO command block. " +
+            "Commands run without confirmation, so avoid destructive actions unless explicitly asked, and " +
+            "prefer non-interactive flags (e.g. `-y`). Assume a Linux server unless told otherwise.";
+    }
+
+    /// <summary>
+    /// Runs a command on the server's interactive shell and returns its captured output
+    /// (exit code + stdout/stderr), so the AI assistant can act on the result. Reuses the
+    /// same payload runner as script execution, and echoes the command into the terminal so
+    /// the user sees exactly what the assistant ran.
+    /// </summary>
+    internal async Task<string> RunCapturedAsync(string command, CancellationToken cancellationToken)
+    {
+        if (_disposed)
+            return "[terminal closed]";
+
+        try
+        {
+            await WaitUntilConnectedAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            return $"[not connected: {ex.Message}]";
+        }
+
+        await _scriptLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_disposed || _shellClosed || _shell is null)
+                return "[not connected]";
+
+            Dispatcher.UIThread.Post(() =>
+                FeedLine($"\r\n\u001b[35m[AI]\u001b[0m $ {command}"));
+
+            var result = await ExecuteRemotePayloadAsync(command, cancellationToken);
+            await FeedCompletionLineAndRefreshPromptAsync(
+                $"\u001b[35m[AI exit {result.ExitCode}]\u001b[0m");
+
+            var output = CleanShellOutput(result.Output ?? string.Empty).Trim();
+            return $"[exit {result.ExitCode}]\n{output}";
+        }
+        catch (OperationCanceledException)
+        {
+            return "[command cancelled or timed out]";
+        }
+        catch (Exception ex)
+        {
+            return $"[command failed: {ex.Message}]";
+        }
+        finally
+        {
+            _scriptLock.Release();
+        }
     }
 
     private void HandleUserInput(ReadOnlyMemory<byte> data)
@@ -841,5 +982,10 @@ public partial class TerminalView : UserControl
         _activeZmodemTrace?.Dispose();
         _zmodemDetectionFlushTimer?.Dispose();
         DisposeTransport();
+
+        var ai = _aiViewModel;
+        _aiViewModel = null;
+        if (ai is not null)
+            _ = ai.DisposeAsync();
     }
 }

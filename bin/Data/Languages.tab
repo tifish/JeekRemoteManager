@@ -202,3 +202,18 @@ HostKeyTrust	Trust	信任
 HostKeyReject	Reject	拒绝
 Passphrase	Key passphrase	私钥口令
 PassphraseWatermark	optional, only if the key is encrypted	可选，仅在私钥已加密时填写
+AiAssistant	AI assistant	AI 助手
+AiSend	Send	发送
+AiInputWatermark	Ask about this server…	询问关于这台服务器…
+AiIncludeSelection	Include terminal selection	附带终端选中内容
+AiRunInTerminal	Run	执行
+AiNotAvailable	Claude CLI not found. Install it (claude.ai/install) and reopen this panel.	未检测到 Claude CLI，请先安装（claude.ai/install）后重新打开此面板。
+AiWaiting	Thinking…	思考中…
+AiTurnCost	{0} tokens · ${1:F4}	{0} tokens · ${1:F4}
+AiTurnError	The assistant hit an error.	助手执行出错。
+AiSessionEnded	Session ended.	会话已结束。
+AiAutoRun	Auto-run	自动执行
+AiAutoRunHint	The assistant runs its own commands on the server and reads their output — no confirmation.	助手自动在服务器上执行命令并读取输出，无需确认。
+AiShowOutput	Show output	显示命令输出
+AiShowOutputHint	Show the executed commands and their output in this chat (they always appear in the terminal too).	在对话中显示执行的命令及其输出（它们始终也会显示在终端里）。
+AiAutoLimit	Auto-run limit reached ({0} commands). Send another message to continue.	已达到自动执行上限（{0} 条命令），发送新消息以继续。

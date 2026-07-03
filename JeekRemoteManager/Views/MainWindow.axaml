@@ -364,6 +364,15 @@
                             <TextBlock Text="{l:Localize RunScript}" />
                         </StackPanel>
                     </Button>
+                    <Button Click="OnAiPanelToolbarClick"
+                            ToolTip.Tip="{l:Localize AiAssistant}"
+                            IsVisible="{Binding IsTerminalActive}"
+                            Classes="toolbar">
+                        <StackPanel Orientation="Horizontal" Spacing="7">
+                            <TextBlock Classes="icon" Text="&#xE99A;" />
+                            <TextBlock Text="{l:Localize AiAssistant}" />
+                        </StackPanel>
+                    </Button>
                     <Button Click="OnCopyPublicKeyTerminalToolbarClick"
                             ToolTip.Tip="{l:Localize CopyPublicKeyToServer}"
                             IsVisible="{Binding IsTerminalActive}"

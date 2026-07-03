@@ -3,15 +3,41 @@
              xmlns:models="using:JeekRemoteManager.Models"
              xmlns:terminal="using:SvcSystems.UI.Terminal"
              xmlns:vm="using:JeekRemoteManager.ViewModels"
+             xmlns:views="using:JeekRemoteManager.Views"
              xmlns:l="using:Jeek.Avalonia.Localization"
              x:Class="JeekRemoteManager.Views.TerminalView"
              x:Name="TerminalRoot"
              x:DataType="vm:MainWindowViewModel">
-    <Grid>
+    <Grid x:Name="RootGrid">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" MinWidth="200" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="0" MinWidth="0" />
+        </Grid.ColumnDefinitions>
+
         <terminal:TerminalControl x:Name="Term"
+                                  Grid.Column="0"
                                   RightClickAction="ContextMenu" />
 
+        <GridSplitter x:Name="AiSplitter"
+                      Grid.Column="1"
+                      Width="5"
+                      ResizeDirection="Columns"
+                      ResizeBehavior="PreviousAndNext"
+                      Background="Transparent"
+                      IsVisible="False" />
+
+        <Border x:Name="AiPanelHost"
+                Grid.Column="2"
+                IsVisible="False"
+                BorderBrush="{DynamicResource BorderBrushSoft}"
+                BorderThickness="1,0,0,0">
+            <views:AgentChatView x:Name="AiPanel" />
+        </Border>
+
         <Border x:Name="ScriptPanelOverlay"
+                Grid.Column="0"
+                Grid.ColumnSpan="3"
                 IsVisible="False"
                 Background="#88000000"
                 Padding="14">

@@ -1,0 +1,320 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace JeekRemoteManager.Services;
+
+/// <summary>Result of one completed assistant turn (from the CLI <c>result</c> message).</summary>
+public readonly record struct AgentTurnResult(string Text, double CostUsd, long OutputTokens, int NumTurns, bool IsError);
+
+/// <summary>
+/// Wraps a long-lived <c>claude</c> CLI subprocess in headless stream-json mode as a
+/// single multi-turn chat session. One process stays alive for the whole conversation:
+/// each user message is written to stdin as one NDJSON line, and stdout events are parsed
+/// and surfaced as strongly-typed events. This is the same protocol the official Agent SDK
+/// speaks; there is no .NET SDK, so we drive the CLI directly.
+///
+/// Events are raised on the background read-loop thread — consumers must marshal to the UI
+/// thread themselves (e.g. via <c>Dispatcher.UIThread.Post</c>).
+/// </summary>
+public sealed class AgentChatSession : IAsyncDisposable
+{
+    // Neutralize Claude Code's built-in agent tools: this is a conversational advisor, not
+    // an agent that should run Bash / edit files on the user's Windows machine. Deny rules
+    // take precedence over the (headless-default) bypassPermissions mode.
+    private static readonly string DisallowedTools =
+        "Bash,PowerShell,Edit,Write,NotebookEdit,Read,Glob,Grep,Task,WebFetch,WebSearch";
+
+    private readonly string _executablePath;
+    private readonly string _workingDirectory;
+    private readonly string? _appendSystemPrompt;
+    private readonly string? _resumeSessionId;
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
+    private readonly StringBuilder _currentText = new();
+
+    private Process? _process;
+    private volatile bool _disposed;
+    private bool _started;
+
+    public AgentChatSession(
+        string executablePath,
+        string workingDirectory,
+        string? appendSystemPrompt = null,
+        string? resumeSessionId = null)
+    {
+        _executablePath = executablePath;
+        _workingDirectory = workingDirectory;
+        _appendSystemPrompt = appendSystemPrompt;
+        _resumeSessionId = resumeSessionId;
+    }
+
+    /// <summary>The session id reported by the CLI's <c>init</c> event; use it to resume later.</summary>
+    public string? SessionId { get; private set; }
+
+    /// <summary>Raised once, when the CLI reports its <c>system/init</c> event.</summary>
+    public event Action<string>? SessionInitialized;
+
+    /// <summary>Incremental assistant answer text (a <c>text_delta</c>). Thinking is ignored.</summary>
+    public event Action<string>? TextDelta;
+
+    /// <summary>A turn finished; carries the final text plus cost/usage.</summary>
+    public event Action<AgentTurnResult>? TurnCompleted;
+
+    /// <summary>A protocol or process error (stderr line, parse failure, or crash).</summary>
+    public event Action<string>? Errored;
+
+    /// <summary>The subprocess exited.</summary>
+    public event Action? Exited;
+
+    /// <summary>Launches the subprocess. Call once before the first <see cref="SendAsync"/>.</summary>
+    public void Start()
+    {
+        if (_started)
+            return;
+        _started = true;
+
+        Directory.CreateDirectory(_workingDirectory);
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = _executablePath,
+            WorkingDirectory = _workingDirectory,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            StandardInputEncoding = new UTF8Encoding(false),
+            StandardOutputEncoding = new UTF8Encoding(false),
+            StandardErrorEncoding = new UTF8Encoding(false),
+        };
+
+        psi.ArgumentList.Add("-p");
+        psi.ArgumentList.Add("--input-format");
+        psi.ArgumentList.Add("stream-json");
+        psi.ArgumentList.Add("--output-format");
+        psi.ArgumentList.Add("stream-json");
+        psi.ArgumentList.Add("--verbose");
+        psi.ArgumentList.Add("--permission-mode");
+        psi.ArgumentList.Add("bypassPermissions");
+        psi.ArgumentList.Add("--disallowedTools");
+        psi.ArgumentList.Add(DisallowedTools);
+        if (!string.IsNullOrWhiteSpace(_appendSystemPrompt))
+        {
+            psi.ArgumentList.Add("--append-system-prompt");
+            psi.ArgumentList.Add(_appendSystemPrompt);
+        }
+        if (!string.IsNullOrWhiteSpace(_resumeSessionId))
+        {
+            psi.ArgumentList.Add("--resume");
+            psi.ArgumentList.Add(_resumeSessionId);
+        }
+
+        var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
+        process.Exited += (_, _) =>
+        {
+            if (!_disposed)
+                Exited?.Invoke();
+        };
+
+        try
+        {
+            process.Start();
+        }
+        catch (Exception ex)
+        {
+            Errored?.Invoke($"Failed to start Claude CLI: {ex.Message}");
+            return;
+        }
+
+        _process = process;
+        _ = Task.Run(() => ReadStdoutLoopAsync(process));
+        _ = Task.Run(() => ReadStderrLoopAsync(process));
+    }
+
+    /// <summary>Sends one user message as an NDJSON line on stdin.</summary>
+    public async Task SendAsync(string text, CancellationToken cancellationToken = default)
+    {
+        var process = _process;
+        if (_disposed || process is null || process.HasExited)
+            throw new InvalidOperationException("The Claude CLI session is not running.");
+
+        var line = JsonSerializer.Serialize(new
+        {
+            type = "user",
+            message = new
+            {
+                role = "user",
+                content = new[] { new { type = "text", text } },
+            },
+        });
+
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _currentText.Clear();
+            await process.StandardInput.WriteAsync(line.AsMemory(), cancellationToken).ConfigureAwait(false);
+            await process.StandardInput.WriteAsync("\n".AsMemory(), cancellationToken).ConfigureAwait(false);
+            await process.StandardInput.FlushAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    private async Task ReadStdoutLoopAsync(Process process)
+    {
+        try
+        {
+            var reader = process.StandardOutput;
+            while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line)
+            {
+                if (_disposed)
+                    return;
+                if (line.Length == 0)
+                    continue;
+                try
+                {
+                    HandleLine(line);
+                }
+                catch
+                {
+                    // A single malformed line must not kill the read loop.
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            if (!_disposed)
+                Errored?.Invoke($"Reading Claude CLI output failed: {ex.Message}");
+        }
+    }
+
+    private async Task ReadStderrLoopAsync(Process process)
+    {
+        try
+        {
+            var reader = process.StandardError;
+            while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line)
+            {
+                if (_disposed)
+                    return;
+                if (!string.IsNullOrWhiteSpace(line))
+                    Errored?.Invoke(line);
+            }
+        }
+        catch
+        {
+            // stderr drain is best-effort.
+        }
+    }
+
+    private void HandleLine(string line)
+    {
+        using var doc = JsonDocument.Parse(line);
+        var root = doc.RootElement;
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("type", out var typeProp))
+            return;
+
+        switch (typeProp.GetString())
+        {
+            case "system":
+                if (root.TryGetProperty("subtype", out var subtype)
+                    && subtype.GetString() == "init"
+                    && root.TryGetProperty("session_id", out var sid))
+                {
+                    SessionId = sid.GetString();
+                    if (SessionId is not null)
+                        SessionInitialized?.Invoke(SessionId);
+                }
+                break;
+
+            case "stream_event":
+                HandleStreamEvent(root);
+                break;
+
+            case "result":
+                HandleResult(root);
+                break;
+        }
+    }
+
+    private void HandleStreamEvent(JsonElement root)
+    {
+        if (!root.TryGetProperty("event", out var evt)
+            || !evt.TryGetProperty("type", out var evtType)
+            || evtType.GetString() != "content_block_delta"
+            || !evt.TryGetProperty("delta", out var delta)
+            || !delta.TryGetProperty("type", out var deltaType)
+            || deltaType.GetString() != "text_delta"
+            || !delta.TryGetProperty("text", out var textProp))
+        {
+            return;
+        }
+
+        var text = textProp.GetString();
+        if (string.IsNullOrEmpty(text))
+            return;
+
+        _currentText.Append(text);
+        TextDelta?.Invoke(text);
+    }
+
+    private void HandleResult(JsonElement root)
+    {
+        var isError = root.TryGetProperty("is_error", out var err) && err.ValueKind == JsonValueKind.True;
+        var text = root.TryGetProperty("result", out var resultProp) ? resultProp.GetString() ?? "" : "";
+        if (string.IsNullOrEmpty(text))
+            text = _currentText.ToString();
+
+        var cost = root.TryGetProperty("total_cost_usd", out var costProp) && costProp.TryGetDouble(out var c) ? c : 0;
+        var numTurns = root.TryGetProperty("num_turns", out var ntProp) && ntProp.TryGetInt32(out var nt) ? nt : 0;
+
+        long outputTokens = 0;
+        if (root.TryGetProperty("usage", out var usage)
+            && usage.TryGetProperty("output_tokens", out var ot)
+            && ot.TryGetInt64(out var otv))
+        {
+            outputTokens = otv;
+        }
+
+        TurnCompleted?.Invoke(new AgentTurnResult(text, cost, outputTokens, numTurns, isError));
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+            return;
+        _disposed = true;
+
+        var process = _process;
+        if (process is null)
+            return;
+
+        try
+        {
+            if (!process.HasExited)
+            {
+                try { process.StandardInput.Close(); } catch { /* ignore */ }
+                if (!process.WaitForExit(1500))
+                    process.Kill(entireProcessTree: true);
+            }
+        }
+        catch
+        {
+            // Best-effort teardown.
+        }
+        finally
+        {
+            process.Dispose();
+        }
+
+        await Task.CompletedTask;
+    }
+}

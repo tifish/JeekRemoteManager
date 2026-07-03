@@ -532,6 +532,13 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    private void OnAiPanelToolbarClick(object? sender, RoutedEventArgs e)
+    {
+        if (RightTabs.SelectedItem is TabItem { Content: TerminalView view })
+            view.ToggleAiPanel();
+        e.Handled = true;
+    }
+
     private async void OnCopyPublicKeyTerminalToolbarClick(object? sender, RoutedEventArgs e)
     {
         if (DataContext is not MainWindowViewModel vm
