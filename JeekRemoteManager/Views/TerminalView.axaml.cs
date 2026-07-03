@@ -386,6 +386,9 @@ public partial class TerminalView : UserControl
             "server automatically, WITHOUT asking the user, and its output returned to you as the next " +
             "message. Run one command at a time and wait for its output before deciding the next step. " +
             "When the task is done, reply with a short summary and NO command block. " +
+            "Only ```bash blocks are executed; for any text that is not a command to run " +
+            "(translations, quotes, examples, file contents), use plain prose or a plain ``` block " +
+            "without a language tag. " +
             "Commands run without confirmation, so avoid destructive actions unless explicitly asked, and " +
             "prefer non-interactive flags (e.g. `-y`). Assume a Linux server unless told otherwise.";
     }

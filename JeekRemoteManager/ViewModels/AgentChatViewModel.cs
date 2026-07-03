@@ -48,9 +48,11 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     private const int MaxAutoSteps = 8;
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromMinutes(2);
 
+    // Only blocks explicitly tagged as shell are executable; plain ``` blocks (quotes,
+    // translations, sample output) must never reach the server.
     private static readonly Regex FencedBlock = new(
-        "```[^\\n`]*\\n(.*?)```",
-        RegexOptions.Singleline | RegexOptions.Compiled);
+        "```(?:bash|sh|shell)[ \\t]*\\n(.*?)```",
+        RegexOptions.Singleline | RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     // Returns the terminal selection and clears it, so the same selection isn't
     // silently re-attached to the next message.
