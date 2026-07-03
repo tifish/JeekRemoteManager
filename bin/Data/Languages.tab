@@ -205,7 +205,8 @@ PassphraseWatermark	optional, only if the key is encrypted	可选，仅在私钥
 AiAssistant	AI assistant	AI 助手
 AiSend	Send	发送
 AiInputWatermark	Ask about this server…	询问关于这台服务器…
-AiIncludeSelection	Include terminal selection	附带终端选中内容
+AiSelectionHint	The terminal selection will be sent with your message.	发送时将附带终端中选中的内容。
+AiSelectionAttached	[+ terminal selection]	[+ 终端选中内容]
 AiRunInTerminal	Run	执行
 AiNotAvailable	Claude CLI not found. Install it (claude.ai/install) and reopen this panel.	未检测到 Claude CLI，请先安装（claude.ai/install）后重新打开此面板。
 AiNotAvailableCodex	Codex CLI not found. Install it (developers.openai.com/codex/cli) and reopen this panel.	未检测到 Codex CLI，请先安装（developers.openai.com/codex/cli）后重新打开此面板。

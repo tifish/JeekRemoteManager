@@ -52,7 +52,9 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         "```[^\\n`]*\\n(.*?)```",
         RegexOptions.Singleline | RegexOptions.Compiled);
 
-    private readonly Func<string?> _readSelection;
+    // Returns the terminal selection and clears it, so the same selection isn't
+    // silently re-attached to the next message.
+    private readonly Func<string?> _takeSelection;
     private readonly Func<string, CancellationToken, Task<string>>? _runCaptured;
     private readonly CancellationTokenSource _cts = new();
 
@@ -73,12 +75,12 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
     public AgentChatViewModel(
         IReadOnlyList<AgentProvider> providers,
-        Func<string?> readSelection,
+        Func<string?> takeSelection,
         Func<string, CancellationToken, Task<string>>? runCaptured,
         AiPanelOptions? initialOptions = null,
         Action<AiPanelOptions>? persistOptions = null)
     {
-        _readSelection = readSelection;
+        _takeSelection = takeSelection;
         _runCaptured = runCaptured;
         _persistOptions = persistOptions;
         Providers = providers;
@@ -106,7 +108,6 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         {
             _autoRun = initialOptions.AutoRun;
             _showCommandOutput = initialOptions.ShowCommandOutput;
-            _includeTerminalSelection = initialOptions.IncludeTerminalSelection;
             _agentMode = initialOptions.AgentMode;
         }
 
@@ -184,8 +185,11 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     [ObservableProperty]
     private bool _isAvailable;
 
+    /// <summary>Whether the terminal currently has a selection; kept up to date by the
+    /// hosting view. Only drives the "selection will be attached" hint — the selection
+    /// text itself is read fresh at send time.</summary>
     [ObservableProperty]
-    private bool _includeTerminalSelection;
+    private bool _hasTerminalSelection;
 
     [ObservableProperty]
     private bool _autoRun = true;
@@ -238,8 +242,6 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
     partial void OnAgentModeChanged(bool value) => PersistOptions();
 
-    partial void OnIncludeTerminalSelectionChanged(bool value) => PersistOptions();
-
     partial void OnSelectedProviderChanged(AgentProvider value)
     {
         var (models, efforts) = _fetchedCatalogs.TryGetValue(value, out var fetched)
@@ -285,7 +287,6 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         SelectedEffort?.Value,
         AutoRun,
         ShowCommandOutput,
-        IncludeTerminalSelection,
         AgentMode));
 
     /// <summary>
@@ -380,16 +381,15 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         if (prompt.Length == 0)
             return;
 
+        // A terminal selection always rides along when present; the panel shows a hint
+        // (bound to HasTerminalSelection) so the user knows it will be attached.
         var displayText = prompt;
         var payload = prompt;
-        if (IncludeTerminalSelection)
+        var selection = _takeSelection()?.Trim();
+        if (!string.IsNullOrEmpty(selection))
         {
-            var selection = _readSelection()?.Trim();
-            if (!string.IsNullOrEmpty(selection))
-            {
-                displayText = $"{prompt}\n\n[+ 终端选中内容]";
-                payload = $"{prompt}\n\nHere is the relevant terminal output:\n```\n{selection}\n```";
-            }
+            displayText = $"{prompt}\n\n{L("AiSelectionAttached")}";
+            payload = $"{prompt}\n\nHere is the relevant terminal output:\n```\n{selection}\n```";
         }
 
         Messages.Add(new ChatMessageViewModel(ChatRole.User, displayText));

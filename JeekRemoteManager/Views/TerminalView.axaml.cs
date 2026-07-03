@@ -330,7 +330,15 @@ public partial class TerminalView : UserControl
 
         var vm = new AgentChatViewModel(
             providers,
-            readSelection: () => Term.HasSelection ? GetTerminalSelectionText(Term.SelectedText) : null,
+            takeSelection: () =>
+            {
+                if (!Term.HasSelection)
+                    return null;
+                var text = GetTerminalSelectionText(Term.SelectedText);
+                // Consume the selection: clearing it also hides the panel's hint.
+                _model.ClearSelection();
+                return text;
+            },
             runCaptured: RunCapturedAsync,
             initialOptions: (DataContext as MainWindowViewModel)?.AiPanelOptions,
             persistOptions: options =>
@@ -338,6 +346,14 @@ public partial class TerminalView : UserControl
                 if (DataContext is MainWindowViewModel mainVm)
                     mainVm.AiPanelOptions = options;
             });
+
+        // Keep the panel's "selection will be attached" hint in sync with the terminal.
+        vm.HasTerminalSelection = Term.HasSelection;
+        _model.Terminal.Selection.SelectionChanged += () => Dispatcher.UIThread.Post(() =>
+        {
+            if (!_disposed)
+                vm.HasTerminalSelection = Term.HasSelection;
+        });
 
         // Relayout when the user flips agent mode: remember the side-panel width first (a
         // no-op when the column is already star-sized), then switch the columns over.

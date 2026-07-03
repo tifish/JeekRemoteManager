@@ -87,9 +87,6 @@ public class AppSettings
     /// <summary>AI panel: whether executed commands and their output show in the chat.</summary>
     public bool AiShowCommandOutput { get; set; }
 
-    /// <summary>AI panel: whether the terminal selection is attached to sent messages.</summary>
-    public bool AiIncludeTerminalSelection { get; set; }
-
     /// <summary>AI panel: agent mode — the AI panel fills the tab and the terminal is hidden.</summary>
     public bool AiAgentMode { get; set; }
 }
@@ -160,9 +157,6 @@ public class RoamingAppSettings
     /// <summary>AI panel: whether executed commands and their output show in the chat.</summary>
     public bool AiShowCommandOutput { get; set; }
 
-    /// <summary>AI panel: whether the terminal selection is attached to sent messages.</summary>
-    public bool AiIncludeTerminalSelection { get; set; }
-
     /// <summary>AI panel: agent mode — the AI panel fills the tab and the terminal is hidden.</summary>
     public bool AiAgentMode { get; set; }
 }
@@ -174,7 +168,6 @@ public record AiPanelOptions(
     string? Effort,
     bool AutoRun,
     bool ShowCommandOutput,
-    bool IncludeTerminalSelection,
     bool AgentMode);
 
 /// <summary>Outcome of the Settings dialog. <see cref="Language"/> and <see cref="Theme"/>

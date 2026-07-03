@@ -245,7 +245,6 @@ public partial class MainWindowViewModel : ViewModelBase
             _settings.Settings.AiEffort,
             _settings.Settings.AiAutoRun,
             _settings.Settings.AiShowCommandOutput,
-            _settings.Settings.AiIncludeTerminalSelection,
             _settings.Settings.AiAgentMode);
         set
         {
@@ -254,7 +253,6 @@ public partial class MainWindowViewModel : ViewModelBase
             _settings.Settings.AiEffort = value.Effort;
             _settings.Settings.AiAutoRun = value.AutoRun;
             _settings.Settings.AiShowCommandOutput = value.ShowCommandOutput;
-            _settings.Settings.AiIncludeTerminalSelection = value.IncludeTerminalSelection;
             _settings.Settings.AiAgentMode = value.AgentMode;
             _settings.SaveIfChanged();
         }

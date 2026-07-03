@@ -165,7 +165,6 @@ public class SettingsService
             AiEffort = roamingSettings.AiEffort,
             AiAutoRun = roamingSettings.AiAutoRun,
             AiShowCommandOutput = roamingSettings.AiShowCommandOutput,
-            AiIncludeTerminalSelection = roamingSettings.AiIncludeTerminalSelection,
             AiAgentMode = roamingSettings.AiAgentMode,
         };
 
@@ -201,7 +200,6 @@ public class SettingsService
             AiEffort = settings.AiEffort,
             AiAutoRun = settings.AiAutoRun,
             AiShowCommandOutput = settings.AiShowCommandOutput,
-            AiIncludeTerminalSelection = settings.AiIncludeTerminalSelection,
             AiAgentMode = settings.AiAgentMode,
         };
         NormalizeRoamingSettings(roamingSettings);
@@ -233,7 +231,6 @@ public class SettingsService
         settings.AiEffort = normalized.AiEffort;
         settings.AiAutoRun = normalized.AiAutoRun;
         settings.AiShowCommandOutput = normalized.AiShowCommandOutput;
-        settings.AiIncludeTerminalSelection = normalized.AiIncludeTerminalSelection;
         settings.AiAgentMode = normalized.AiAgentMode;
     }
 
