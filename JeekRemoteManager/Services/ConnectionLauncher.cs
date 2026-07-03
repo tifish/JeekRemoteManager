@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -9,8 +8,9 @@ using JeekRemoteManager.Models;
 namespace JeekRemoteManager.Services;
 
 /// <summary>
-/// Launches connections using the operating system's own clients:
-/// <c>ssh.exe</c> for SSH and <c>mstsc.exe</c> for RDP.
+/// Launches RDP connections via the operating system's <c>mstsc.exe</c>.
+/// SSH is not handled here: it always runs in the in-app terminal backed by
+/// SSH.NET (see <see cref="SshConnectionFactory"/>).
 /// </summary>
 public class ConnectionLauncher
 {
@@ -19,54 +19,15 @@ public class ConnectionLauncher
     {
         switch (connection.Type)
         {
-            case ConnectionType.Ssh:
-                LaunchSsh(connection);
-                break;
             case ConnectionType.Rdp:
                 LaunchRdp(connection);
                 break;
+            case ConnectionType.Ssh:
+                throw new NotSupportedException(
+                    "SSH connections are handled by the in-app terminal, not the OS client.");
             default:
                 throw new NotSupportedException($"Unknown connection type: {connection.Type}");
         }
-    }
-
-    private static void LaunchSsh(Connection connection)
-    {
-        var psi = new ProcessStartInfo("ssh.exe")
-        {
-            // A console application started with UseShellExecute gets its own window.
-            UseShellExecute = true,
-        };
-
-        foreach (var arg in BuildSshArguments(connection))
-            psi.ArgumentList.Add(arg);
-
-        Process.Start(psi);
-    }
-
-    public static IReadOnlyList<string> BuildSshArguments(Connection connection)
-    {
-        var args = new List<string>();
-
-        if (!string.IsNullOrWhiteSpace(connection.PrivateKeyPath))
-        {
-            args.Add("-i");
-            args.Add(connection.PrivateKeyPath);
-        }
-
-        var port = connection.Port > 0 ? connection.Port : 22;
-        if (port != 22)
-        {
-            args.Add("-p");
-            args.Add(port.ToString());
-        }
-
-        var target = string.IsNullOrWhiteSpace(connection.Username)
-            ? connection.Host
-            : $"{connection.Username}@{connection.Host}";
-        args.Add(target);
-
-        return args;
     }
 
     private static void LaunchRdp(Connection connection)

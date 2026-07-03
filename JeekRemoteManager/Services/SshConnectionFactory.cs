@@ -17,8 +17,8 @@ namespace JeekRemoteManager.Services;
 public static class SshConnectionFactory
 {
     // Default key file names tried under ~/.ssh, in preference order, when a
-    // connection has neither a password nor an explicit key path — mirrors what
-    // ssh.exe does out of the box.
+    // connection has neither a password nor an explicit key path — mirrors the
+    // OpenSSH client's default lookup convention.
     private static readonly string[] DefaultKeyNames = { "id_ed25519", "id_ecdsa", "id_rsa" };
 
     /// <summary>
@@ -70,8 +70,9 @@ public static class SshConnectionFactory
         }
         else
         {
-            // 3. No password: fall back to key-based auth like ssh.exe — ssh-agent /
-            //    Pageant identities, then the default ~/.ssh keys. Gated on "no
+            // 3. No password: fall back to key-based auth following the OpenSSH client
+            //    convention — ssh-agent / Pageant identities, then the default
+            //    ~/.ssh keys. Gated on "no
             //    password" so a connection that does use a password isn't sprayed
             //    with extra key attempts (which can trip the server's MaxAuthTries).
             var agentKeys = TryGetAgentKeys();

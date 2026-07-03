@@ -1156,20 +1156,19 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            // Interactive SSH renders in an in-app terminal with programmatic auth
-            // (no console window, no clipboard-password handoff).
-            if (connection.Type == ConnectionType.Ssh && OpenSshTerminalAsync is not null)
+            // SSH always renders in the in-app terminal (SSH.NET) with programmatic
+            // auth — there is no external-client path for it.
+            if (connection.Type == ConnectionType.Ssh)
             {
+                if (OpenSshTerminalAsync is null)
+                    throw new InvalidOperationException("The in-app SSH terminal is not available.");
                 StatusMessage = L("StatusLaunching", connection.Type.ToDisplayName(), connection.Host);
                 await OpenSshTerminalAsync(connection, node.FullPath);
                 RecordRecent(node.FullPath);
                 return;
             }
 
-            // Fallback when no in-app terminal hook is wired (RDP, or the XAML
-            // designer VM): launch the OS client directly. Interactive SSH with
-            // the in-app terminal is handled by the early return above and needs
-            // no clipboard-password handoff.
+            // RDP launches the OS client (mstsc).
             StatusMessage = L("StatusLaunching", connection.Type.ToDisplayName(), connection.Host);
             _launcher.Launch(connection);
             RecordRecent(node.FullPath);

@@ -61,21 +61,22 @@ try
     Check(PasswordProtector.Decrypt(enc) == secret, "Decrypt round-trips the password");
     Check(PasswordProtector.Encrypt("") == "", "Empty password encrypts to empty");
 
-    // --- SSH command-line shape ---
-    var sshArgs = ConnectionLauncher.BuildSshArguments(new Connection
+    // --- SSH never goes through the OS-client launcher (in-app terminal only) ---
+    var sshLaunchRejected = false;
+    try
     {
-        Type = ConnectionType.Ssh,
-        Host = "example.com",
-        Username = "root",
-        Port = 2200,
-        PrivateKeyPath = @"C:\keys\id_rsa",
-    });
-    Check(sshArgs.SequenceEqual(new[]
+        new ConnectionLauncher().Launch(new Connection
+        {
+            Type = ConnectionType.Ssh,
+            Host = "example.com",
+            Username = "root",
+        });
+    }
+    catch (NotSupportedException)
     {
-        "-i", @"C:\keys\id_rsa",
-        "-p", "2200",
-        "root@example.com",
-    }), "SSH options are emitted before the target host");
+        sshLaunchRejected = true;
+    }
+    Check(sshLaunchRejected, "ConnectionLauncher rejects SSH connections");
     Check(ConnectionType.Ssh.ToDisplayName() == "SSH" && ConnectionType.Rdp.ToDisplayName() == "RDP",
           "Connection types display as uppercase acronyms");
 
