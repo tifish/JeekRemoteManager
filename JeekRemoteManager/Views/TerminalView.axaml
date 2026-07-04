@@ -15,9 +15,33 @@
             <ColumnDefinition Width="0" MinWidth="0" />
         </Grid.ColumnDefinitions>
 
-        <terminal:TerminalControl x:Name="Term"
-                                  Grid.Column="0"
-                                  RightClickAction="ContextMenu" />
+        <Grid x:Name="TerminalArea" Grid.Column="0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" MinHeight="120" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="0" MinHeight="0" />
+            </Grid.RowDefinitions>
+
+            <terminal:TerminalControl x:Name="Term"
+                                      Grid.Row="0"
+                                      RightClickAction="ContextMenu" />
+
+            <GridSplitter x:Name="FileSplitter"
+                          Grid.Row="1"
+                          Height="5"
+                          ResizeDirection="Rows"
+                          ResizeBehavior="PreviousAndNext"
+                          Background="Transparent"
+                          IsVisible="False" />
+
+            <Border x:Name="FileBrowserHost"
+                    Grid.Row="2"
+                    IsVisible="False"
+                    BorderBrush="{DynamicResource BorderBrushSoft}"
+                    BorderThickness="0,1,0,0">
+                <views:FileBrowserView x:Name="FileBrowser" />
+            </Border>
+        </Grid>
 
         <GridSplitter x:Name="AiSplitter"
                       Grid.Column="1"

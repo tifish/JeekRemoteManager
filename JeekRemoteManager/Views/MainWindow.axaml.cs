@@ -416,6 +416,14 @@ public partial class MainWindow : Window
         var duplicate = new MenuItem { Header = Localizer.Get("DuplicateSession") };
         duplicate.Click += (_, _) => DuplicateTerminalTab(tab);
 
+        var fileBrowser = new MenuItem { Header = Localizer.Get("FileBrowser") };
+        fileBrowser.Click += (_, _) =>
+        {
+            RightTabs.SelectedItem = tab;
+            if (tab.Content is TerminalView view)
+                view.ToggleFileBrowserPanel();
+        };
+
         var aiPanel = new MenuItem { Header = Localizer.Get("AiAssistant") };
         aiPanel.Click += (_, _) =>
         {
@@ -457,6 +465,7 @@ public partial class MainWindow : Window
         var menu = new ContextMenu();
         menu.Items.Add(duplicate);
         menu.Items.Add(runScript);
+        menu.Items.Add(fileBrowser);
         menu.Items.Add(aiPanel);
         menu.Items.Add(copyKey);
         menu.Items.Add(new Separator());
@@ -591,6 +600,12 @@ public partial class MainWindow : Window
     // straight to the remote shell.
     private void OnRightTabsSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
+        // SelectionChanged bubbles: a selection change in any list INSIDE a tab
+        // (e.g. the file browser's list) reaches this handler too, and refocusing
+        // the terminal for those would yank keyboard focus out of that list.
+        if (!ReferenceEquals(e.Source, sender))
+            return;
+
         // Use sender, not the RightTabs field: this can fire during XAML init
         // (the TabControl auto-selects the first tab) before the field is assigned.
         var view = (sender as TabControl)?.SelectedItem is TabItem { Content: TerminalView v } ? v : null;
@@ -635,6 +650,13 @@ public partial class MainWindow : Window
     {
         if (RightTabs.SelectedItem is TabItem { Content: TerminalView view })
             view.ToggleAiPanel();
+        e.Handled = true;
+    }
+
+    private void OnFileBrowserToolbarClick(object? sender, RoutedEventArgs e)
+    {
+        if (RightTabs.SelectedItem is TabItem { Content: TerminalView view })
+            view.ToggleFileBrowserPanel();
         e.Handled = true;
     }
 

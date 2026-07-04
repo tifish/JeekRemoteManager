@@ -1,0 +1,181 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:JeekRemoteManager.ViewModels"
+             xmlns:l="using:Jeek.Avalonia.Localization"
+             x:Class="JeekRemoteManager.Views.FileBrowserView"
+             x:DataType="vm:FileBrowserViewModel">
+    <UserControl.Styles>
+        <Style Selector="ListBox#FileList ListBoxItem">
+            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="MinHeight" Value="0" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto">
+
+        <!-- Path bar -->
+        <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto" ColumnSpacing="4"
+              Margin="6,5,6,3">
+            <Button Grid.Column="0" Classes="toolbar icon-button"
+                    ToolTip.Tip="{l:Localize FileBrowserUp}"
+                    Command="{Binding GoUpCommand}">
+                <TextBlock Classes="icon" Text="&#xE74A;" />
+            </Button>
+            <Button Grid.Column="1" Classes="toolbar icon-button"
+                    ToolTip.Tip="{l:Localize FileBrowserHome}"
+                    Command="{Binding GoHomeCommand}">
+                <TextBlock Classes="icon" Text="&#xE80F;" />
+            </Button>
+            <Button Grid.Column="2" Classes="toolbar icon-button"
+                    ToolTip.Tip="{l:Localize FileBrowserRefresh}"
+                    Command="{Binding RefreshCommand}">
+                <TextBlock Classes="icon" Text="&#xE72C;" />
+            </Button>
+            <TextBox Grid.Column="3" x:Name="PathBox"
+                     Text="{Binding PathInput, Mode=TwoWay}"
+                     VerticalContentAlignment="Center"
+                     KeyDown="OnPathBoxKeyDown" />
+            <Button Grid.Column="4" Classes="toolbar icon-button"
+                    ToolTip.Tip="{l:Localize NewFolder}"
+                    Command="{Binding NewFolderCommand}">
+                <TextBlock Classes="icon" Text="&#xE8F4;" />
+            </Button>
+            <Button Grid.Column="5" Classes="toolbar icon-button"
+                    ToolTip.Tip="{l:Localize FileBrowserUpload}"
+                    Command="{Binding UploadCommand}">
+                <TextBlock Classes="icon" Text="&#xE898;" />
+            </Button>
+        </Grid>
+
+        <ProgressBar Grid.Row="1" Height="2" MinHeight="2" Margin="6,0"
+                     IsIndeterminate="True"
+                     IsVisible="{Binding IsBusy}" />
+
+        <!-- Column headers, aligned with the item template below -->
+        <Grid Grid.Row="2" ColumnDefinitions="26,*,90,140,100" Margin="14,2,24,2">
+            <TextBlock Grid.Column="1" Classes="hint" Text="{l:Localize Name}" />
+            <TextBlock Grid.Column="2" Classes="hint" Text="{l:Localize FileBrowserSize}"
+                       HorizontalAlignment="Right" />
+            <TextBlock Grid.Column="3" Classes="hint" Text="{l:Localize FileBrowserModified}"
+                       Margin="12,0,0,0" />
+            <TextBlock Grid.Column="4" Classes="hint" Text="{l:Localize FileBrowserPermissionsColumn}"
+                       Margin="12,0,0,0" />
+        </Grid>
+
+        <!-- File list -->
+        <!-- Focusable: an Avalonia ListBox is not focusable by default (only its
+             items are), and this one must take keyboard focus for type-ahead. -->
+        <ListBox Grid.Row="3" x:Name="FileList"
+                 ItemsSource="{Binding Items}"
+                 SelectionMode="Multiple"
+                 Focusable="True"
+                 Background="Transparent"
+                 DoubleTapped="OnFileListDoubleTapped">
+            <ListBox.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="{l:Localize FileBrowserOpen}"
+                              Command="{Binding OpenSelectedCommand}" />
+                    <MenuItem Header="{l:Localize FileBrowserDownload}"
+                              Command="{Binding DownloadSelectedCommand}" />
+                    <MenuItem Header="{l:Localize FileBrowserUpload}"
+                              Command="{Binding UploadCommand}" />
+                    <Separator />
+                    <MenuItem Header="{l:Localize NewFolder}"
+                              Command="{Binding NewFolderCommand}" />
+                    <MenuItem Header="{l:Localize Rename}"
+                              Command="{Binding RenameSelectedCommand}" />
+                    <MenuItem Header="{l:Localize FileBrowserPermissions}"
+                              Command="{Binding ChangePermissionsCommand}" />
+                    <MenuItem Header="{l:Localize Delete}"
+                              Command="{Binding DeleteSelectedCommand}" />
+                    <Separator />
+                    <MenuItem Header="{l:Localize FileBrowserOpenInTerminal}"
+                              Command="{Binding OpenInTerminalCommand}" />
+                    <MenuItem Header="{l:Localize FileBrowserCopyPath}"
+                              Command="{Binding CopyPathCommand}" />
+                    <MenuItem Header="{l:Localize FileBrowserRefresh}"
+                              Command="{Binding RefreshCommand}" />
+                </ContextMenu>
+            </ListBox.ContextMenu>
+            <ListBox.ItemTemplate>
+                <DataTemplate DataType="vm:RemoteFileEntry">
+                    <Grid ColumnDefinitions="26,*,90,140,100">
+                        <TextBlock Grid.Column="0" Classes="emoji"
+                                   Text="{Binding IconGlyph}"
+                                   FontSize="13"
+                                   VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="{Binding Name}"
+                                   TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2" Text="{Binding SizeText}"
+                                   HorizontalAlignment="Right"
+                                   VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="3" Text="{Binding ModifiedText}"
+                                   Margin="12,0,0,0"
+                                   VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="4" Text="{Binding Permissions}"
+                                   Margin="12,0,0,0"
+                                   FontFamily="Cascadia Mono, Consolas"
+                                   VerticalAlignment="Center" />
+                    </Grid>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <!-- Status line (connect errors, empty-dir hint) -->
+        <TextBlock Grid.Row="4" Classes="hint"
+                   Margin="10,2,10,4"
+                   TextWrapping="Wrap"
+                   Text="{Binding StatusText}"
+                   IsVisible="{Binding HasStatus}" />
+
+        <!-- Transfer queue -->
+        <Border Grid.Row="5"
+                BorderBrush="{DynamicResource BorderBrushSoft}"
+                BorderThickness="0,1,0,0"
+                IsVisible="{Binding HasTransfers}">
+            <Grid RowDefinitions="Auto,Auto">
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="10,4,10,0">
+                    <TextBlock Grid.Column="0" Classes="hint"
+                               Text="{l:Localize FileBrowserTransfers}"
+                               VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Classes="toolbar"
+                            Command="{Binding ClearFinishedTransfersCommand}">
+                        <TextBlock Classes="hint" Text="{l:Localize FileBrowserClearFinished}" />
+                    </Button>
+                </Grid>
+                <ScrollViewer Grid.Row="1" MaxHeight="120"
+                              HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding Transfers}" Margin="10,2,10,6">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="vm:FileTransferItem">
+                                <Grid ColumnDefinitions="Auto,2*,3*,Auto,Auto" ColumnSpacing="8"
+                                      Margin="0,2">
+                                    <TextBlock Grid.Column="0" Classes="icon"
+                                               Text="{Binding DirectionGlyph}" />
+                                    <TextBlock Grid.Column="1" Text="{Binding FileName}"
+                                               TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center" />
+                                    <ProgressBar Grid.Column="2" Minimum="0" Maximum="100"
+                                                 Value="{Binding Progress}"
+                                                 VerticalAlignment="Center" />
+                                    <TextBlock Grid.Column="3" Classes="hint"
+                                               Text="{Binding StatusText}"
+                                               MinWidth="90"
+                                               VerticalAlignment="Center" />
+                                    <Button Grid.Column="4" Classes="toolbar icon-button"
+                                            ToolTip.Tip="{l:Localize DialogCancel}"
+                                            Command="{Binding CancelCommand}"
+                                            IsVisible="{Binding !IsFinished}">
+                                        <TextBlock Classes="icon" FontSize="10" Text="&#xE711;" />
+                                    </Button>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

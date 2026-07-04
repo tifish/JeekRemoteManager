@@ -12,6 +12,7 @@ using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
 using JeekRemoteManager.ViewModels;
@@ -65,6 +66,8 @@ public partial class TerminalView : UserControl
     private string? _pendingKeyboardCopyText;
     private AgentChatViewModel? _aiViewModel;
     private double _aiPanelWidth = 380;
+    private FileBrowserViewModel? _fileBrowserViewModel;
+    private double _fileBrowserHeight = 260;
     private MainWindowViewModel? _customProvidersOwner;
     private Action? _customProvidersChangedHandler;
     private volatile bool _disposed;
@@ -73,6 +76,9 @@ public partial class TerminalView : UserControl
     // generate fields, so reach them through the grid.
     private ColumnDefinition TerminalColumn => RootGrid.ColumnDefinitions[0];
     private ColumnDefinition AiColumn => RootGrid.ColumnDefinitions[2];
+
+    // The file browser lives in row 2 of the terminal-area grid.
+    private RowDefinition FileBrowserRow => TerminalArea.RowDefinitions[2];
 
     private sealed record RemotePayloadResult(int ExitCode, string Output);
 
@@ -121,6 +127,7 @@ public partial class TerminalView : UserControl
 
         // Persist the AI panel width whenever the user finishes dragging the splitter.
         AiSplitter.DragCompleted += (_, _) => PersistAiPanelWidth();
+        FileSplitter.DragCompleted += (_, _) => PersistFileBrowserHeight();
 
         _model.UserInput += (_, e) =>
         {
@@ -294,6 +301,93 @@ public partial class TerminalView : UserControl
             FocusTerminal();
     }
 
+    /// <summary>Shows or hides the SFTP file browser panel below the terminal, dialing
+    /// its own SFTP connection on first open (lazy: tabs that never open it never pay).</summary>
+    public void ToggleFileBrowserPanel()
+    {
+        if (_connection is null)
+            return;
+
+        _fileBrowserViewModel ??= CreateFileBrowserViewModel();
+
+        var show = !FileBrowserHost.IsVisible;
+        if (!show)
+            PersistFileBrowserHeight();
+
+        FileBrowserHost.IsVisible = show;
+        FileSplitter.IsVisible = show;
+
+        if (show)
+        {
+            // Open at the remembered height (shared across tabs, persisted across runs).
+            _fileBrowserHeight = Math.Clamp(
+                (DataContext as MainWindowViewModel)?.FileBrowserPanelHeight ?? _fileBrowserHeight, 120, 1600);
+            FileBrowserRow.MinHeight = 120;
+            FileBrowserRow.Height = new GridLength(_fileBrowserHeight, GridUnitType.Pixel);
+            // Focus the list so typing locates files instead of reaching the shell.
+            Dispatcher.UIThread.Post(() => FileBrowser.FocusList(), DispatcherPriority.Background);
+            _ = LoadFileBrowserAndRefocusAsync(_fileBrowserViewModel);
+        }
+        else
+        {
+            // Collapse the row so it leaves no gap.
+            FileBrowserRow.MinHeight = 0;
+            FileBrowserRow.Height = new GridLength(0, GridUnitType.Pixel);
+            FocusTerminal();
+        }
+    }
+
+    /// <summary>Waits for the panel's first directory listing, then focuses the list
+    /// again so the first row is selected — unless the user has deliberately clicked
+    /// back into the terminal in the meantime.</summary>
+    private async Task LoadFileBrowserAndRefocusAsync(FileBrowserViewModel vm)
+    {
+        try
+        {
+            await vm.EnsureLoadedAsync();
+        }
+        catch
+        {
+            return;
+        }
+
+        if (_disposed || !FileBrowserHost.IsVisible)
+            return;
+
+        var focused = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement();
+        if (focused is Avalonia.Visual visual && Term.IsVisualAncestorOf(visual))
+            return;
+
+        FileBrowser.FocusList();
+    }
+
+    private FileBrowserViewModel CreateFileBrowserViewModel()
+    {
+        var connection = _connection!;
+        var vm = new FileBrowserViewModel(
+            // Each SFTP session dials its own connection; build fresh auth methods
+            // per dial (they hold per-attempt state).
+            () => SshConnectionFactory.Build(connection),
+            path =>
+            {
+                // Ctrl+U discards anything half-typed at the prompt so `cd` runs clean.
+                WriteToShell("\u0015cd " + QuoteForRemoteShell(path) + "\r");
+                FocusTerminal();
+            });
+        FileBrowser.DataContext = vm;
+        return vm;
+    }
+
+    private void PersistFileBrowserHeight()
+    {
+        if (!FileBrowserRow.Height.IsAbsolute || FileBrowserRow.Height.Value <= 0)
+            return;
+
+        _fileBrowserHeight = FileBrowserRow.Height.Value;
+        if (DataContext is MainWindowViewModel vm)
+            vm.FileBrowserPanelHeight = _fileBrowserHeight;
+    }
+
     /// <summary>
     /// Lays out the terminal/AI columns for the current panel state. Three states: panel
     /// hidden (terminal full width), side panel (terminal + splitter + fixed-width panel),
@@ -304,9 +398,9 @@ public partial class TerminalView : UserControl
         var show = AiPanelHost.IsVisible;
         var agentMode = show && _aiViewModel?.AgentMode == true;
 
-        // Hiding the terminal control (not just collapsing the column) keeps its pty size
+        // Hiding the terminal area (not just collapsing the column) keeps the pty size
         // stable, so remote command output isn't rewrapped to a zero-width window.
-        Term.IsVisible = !agentMode;
+        TerminalArea.IsVisible = !agentMode;
         TerminalColumn.MinWidth = agentMode ? 0 : 200;
         TerminalColumn.Width = agentMode
             ? new GridLength(0, GridUnitType.Pixel)
@@ -1391,6 +1485,9 @@ public partial class TerminalView : UserControl
             _customProvidersOwner.CustomAiProvidersChanged -= _customProvidersChangedHandler;
         _customProvidersOwner = null;
         _customProvidersChangedHandler = null;
+
+        _fileBrowserViewModel?.Dispose();
+        _fileBrowserViewModel = null;
 
         var ai = _aiViewModel;
         _aiViewModel = null;

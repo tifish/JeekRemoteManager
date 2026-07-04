@@ -235,6 +235,22 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Persisted height of the in-terminal SFTP file browser panel
+    /// (device-independent pixels), shared across terminal tabs.</summary>
+    public double FileBrowserPanelHeight
+    {
+        get => _settings.Settings.FileBrowserPanelHeight;
+        set
+        {
+            var clamped = Math.Clamp(value, 120, 1600);
+            if (Math.Abs(clamped - _settings.Settings.FileBrowserPanelHeight) < 0.5)
+                return;
+
+            _settings.Settings.FileBrowserPanelHeight = clamped;
+            _settings.SaveIfChanged();
+        }
+    }
+
     /// <summary>Persisted AI panel options (provider, per-provider model/effort, checkboxes),
     /// shared across terminal tabs and remembered across runs.</summary>
     public AiPanelOptions AiPanelOptions

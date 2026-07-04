@@ -72,6 +72,9 @@ public class AppSettings
     /// <summary>Width of the in-terminal AI assistant panel, in device-independent pixels.</summary>
     public double AiPanelWidth { get; set; } = 380;
 
+    /// <summary>Height of the in-terminal SFTP file browser panel, in device-independent pixels.</summary>
+    public double FileBrowserPanelHeight { get; set; } = 260;
+
     /// <summary>AI panel: last-used provider label ("Claude", "Codex"). Null = first available.</summary>
     public string? AiProvider { get; set; }
 
@@ -190,6 +193,9 @@ public class RoamingAppSettings
 
     /// <summary>Width of the in-terminal AI assistant panel, in device-independent pixels.</summary>
     public double AiPanelWidth { get; set; } = 380;
+
+    /// <summary>Height of the in-terminal SFTP file browser panel, in device-independent pixels.</summary>
+    public double FileBrowserPanelHeight { get; set; } = 260;
 
     /// <summary>AI panel: last-used provider label ("Claude", "Codex"). Null = first available.</summary>
     public string? AiProvider { get; set; }

@@ -160,6 +160,7 @@ public class SettingsService
             UpdateCheckIntervalHours = roamingSettings.UpdateCheckIntervalHours,
             TerminalFontSize = roamingSettings.TerminalFontSize,
             AiPanelWidth = roamingSettings.AiPanelWidth,
+            FileBrowserPanelHeight = roamingSettings.FileBrowserPanelHeight,
             AiProvider = roamingSettings.AiProvider,
             AiProviderChoices = roamingSettings.AiProviderChoices,
             AiAutoRun = roamingSettings.AiAutoRun,
@@ -195,6 +196,7 @@ public class SettingsService
             UpdateCheckIntervalHours = settings.UpdateCheckIntervalHours,
             TerminalFontSize = settings.TerminalFontSize,
             AiPanelWidth = settings.AiPanelWidth,
+            FileBrowserPanelHeight = settings.FileBrowserPanelHeight,
             AiProvider = settings.AiProvider,
             AiProviderChoices = settings.AiProviderChoices ?? new Dictionary<string, AiProviderChoice>(),
             AiAutoRun = settings.AiAutoRun,
@@ -226,6 +228,7 @@ public class SettingsService
         settings.UpdateCheckIntervalHours = normalized.UpdateCheckIntervalHours;
         settings.TerminalFontSize = normalized.TerminalFontSize;
         settings.AiPanelWidth = normalized.AiPanelWidth;
+        settings.FileBrowserPanelHeight = normalized.FileBrowserPanelHeight;
         settings.AiProvider = normalized.AiProvider;
         settings.AiProviderChoices = normalized.AiProviderChoices;
         settings.AiAutoRun = normalized.AiAutoRun;
@@ -265,6 +268,9 @@ public class SettingsService
         settings.AiPanelWidth = double.IsFinite(settings.AiPanelWidth)
             ? Math.Clamp(settings.AiPanelWidth, 240, 1200)
             : 380;
+        settings.FileBrowserPanelHeight = double.IsFinite(settings.FileBrowserPanelHeight)
+            ? Math.Clamp(settings.FileBrowserPanelHeight, 120, 1600)
+            : 260;
         if (string.IsNullOrWhiteSpace(settings.AiProvider))
             settings.AiProvider = null;
         settings.AiProviderChoices ??= new Dictionary<string, AiProviderChoice>();
