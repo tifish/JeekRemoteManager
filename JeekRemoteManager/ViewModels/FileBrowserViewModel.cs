@@ -118,11 +118,17 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
 
     public FileBrowserViewModel(
         Func<ConnectionInfo> buildConnectionInfo,
-        Action<string> openDirectoryInTerminal)
+        Action<string> openDirectoryInTerminal,
+        string connectionLabel)
     {
         _buildConnectionInfo = buildConnectionInfo;
         _openDirectoryInTerminal = openDirectoryInTerminal;
+        ConnectionLabel = connectionLabel;
     }
+
+    /// <summary>"user@host" of the direct SFTP target, shown in the path bar so it
+    /// stays obvious the panel does not follow jumps made inside the terminal.</summary>
+    public string ConnectionLabel { get; }
 
     public ObservableCollection<RemoteFileEntry> Items { get; } = new();
     public ObservableCollection<FileTransferItem> Transfers { get; } = new();

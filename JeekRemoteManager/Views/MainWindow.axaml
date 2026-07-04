@@ -379,15 +379,6 @@
                             <TextBlock Classes="toolbar-label" Text="{l:Localize RunScript}" />
                         </StackPanel>
                     </Button>
-                    <Button Click="OnFileBrowserToolbarClick"
-                            ToolTip.Tip="{l:Localize FileBrowser}"
-                            IsVisible="{Binding IsTerminalActive}"
-                            Classes="toolbar">
-                        <StackPanel Orientation="Horizontal" Spacing="7">
-                            <TextBlock Classes="icon" Text="&#xE8B7;" />
-                            <TextBlock Classes="toolbar-label" Text="{l:Localize FileBrowser}" />
-                        </StackPanel>
-                    </Button>
                     <Button Click="OnAiPanelToolbarClick"
                             ToolTip.Tip="{l:Localize AiAssistant}"
                             IsVisible="{Binding IsTerminalActive}"
@@ -397,8 +388,17 @@
                             <TextBlock Classes="toolbar-label" Text="{l:Localize AiAssistant}" />
                         </StackPanel>
                     </Button>
+                    <Button Click="OnFileBrowserToolbarClick"
+                            ToolTip.Tip="{l:Localize FileBrowserTooltip}"
+                            IsVisible="{Binding IsTerminalActive}"
+                            Classes="toolbar">
+                        <StackPanel Orientation="Horizontal" Spacing="7">
+                            <TextBlock Classes="icon" Text="&#xE8B7;" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize FileBrowser}" />
+                        </StackPanel>
+                    </Button>
                     <Button Click="OnCopyPublicKeyTerminalToolbarClick"
-                            ToolTip.Tip="{l:Localize CopyPublicKeyToServer}"
+                            ToolTip.Tip="{l:Localize CopyPublicKeyToServerTooltip}"
                             IsVisible="{Binding IsTerminalActive}"
                             Classes="toolbar">
                         <StackPanel Orientation="Horizontal" Spacing="7">

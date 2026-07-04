@@ -465,8 +465,8 @@ public partial class MainWindow : Window
         var menu = new ContextMenu();
         menu.Items.Add(duplicate);
         menu.Items.Add(runScript);
-        menu.Items.Add(fileBrowser);
         menu.Items.Add(aiPanel);
+        menu.Items.Add(fileBrowser);
         menu.Items.Add(copyKey);
         menu.Items.Add(new Separator());
         menu.Items.Add(close);

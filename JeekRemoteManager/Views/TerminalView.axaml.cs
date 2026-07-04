@@ -364,6 +364,10 @@ public partial class TerminalView : UserControl
     private FileBrowserViewModel CreateFileBrowserViewModel()
     {
         var connection = _connection!;
+        var host = connection.Host.Trim();
+        var label = string.IsNullOrWhiteSpace(connection.Username)
+            ? host
+            : $"{connection.Username.Trim()}@{host}";
         var vm = new FileBrowserViewModel(
             // Each SFTP session dials its own connection; build fresh auth methods
             // per dial (they hold per-attempt state).
@@ -373,7 +377,8 @@ public partial class TerminalView : UserControl
                 // Ctrl+U discards anything half-typed at the prompt so `cd` runs clean.
                 WriteToShell("\u0015cd " + QuoteForRemoteShell(path) + "\r");
                 FocusTerminal();
-            });
+            },
+            label);
         FileBrowser.DataContext = vm;
         return vm;
     }

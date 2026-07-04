@@ -131,7 +131,7 @@ RunScript	Run script	运行脚本
 DuplicateSession	Duplicate session	复制会话
 CopyPublicKeyToServer	Copy public key to server	复制公钥到服务器
 DialogCopyPublicKeyTitle	Copy public key	复制公钥
-DialogCopyPublicKeyMessage	Install local public key on {1}?\n\nKey: {0}	将本地公钥安装到 {1}？\n\n公钥：{0}
+DialogCopyPublicKeyMessage	Install local public key on {1}?\n\nKey: {0}\n\nThis applies to the host configured above — not to servers reached by jumping inside the terminal.	将本地公钥安装到 {1}？\n\n公钥：{0}\n\n此操作作用于上述配置的主机本身，不作用于终端中跳转后的服务器。
 StatusNoPublicKey	No local public key found. Generate one with ssh-keygen, or set a private key whose .pub sibling exists.	未找到本地公钥。请用 ssh-keygen 生成，或设置一个存在对应 .pub 文件的私钥。
 StatusCopyingPublicKey	Installing public key on {0}…	正在将公钥安装到 {0}…
 StatusPublicKeyInstalled	Public key installed on {0}.	公钥已安装到 {0}。
@@ -263,6 +263,9 @@ FileBrowserTransfers	Transfers	传输
 FileBrowserClearFinished	Clear finished	清除已完成
 FileBrowserPickDownloadFolder	Select download folder	选择下载文件夹
 FileBrowserPickUploadFiles	Select files to upload	选择要上传的文件
+FileBrowserTargetTip	The file browser connects directly to this host. Servers reached by jumping inside the terminal are not accessible here.	文件浏览器直连此主机。在终端中跳转到的服务器无法在此访问。
+FileBrowserTooltip	File browser — connects directly to this connection's host (does not follow jumps made inside the terminal)	文件浏览器 —— 直连连接配置中的主机（不跟随终端内的跳转）
+CopyPublicKeyToServerTooltip	Copy public key to server — applies to this connection's host, not to servers jumped to inside the terminal	复制公钥到服务器 —— 作用于连接配置中的主机，不作用于终端中跳转后的服务器
 TransferQueued	Queued	排队中
 TransferCompleted	Completed	已完成
 TransferCanceled	Canceled	已取消
