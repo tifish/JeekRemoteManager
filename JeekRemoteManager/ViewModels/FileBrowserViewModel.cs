@@ -106,10 +106,15 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     private readonly Func<ConnectionInfo> _buildConnectionInfo;
     private readonly Action<string> _openDirectoryInTerminal;
     private readonly SemaphoreSlim _transferPump = new(1, 1);
+    // Listings of directories visited this session: navigation into a cached
+    // directory renders instantly and revalidates in the background.
+    private readonly Dictionary<string, List<RemoteFileEntry>> _listingCache = new();
     private SftpSession? _browseSession;
     private SftpSession? _transferSession;
     private bool _loadedOnce;
     private bool _disposed;
+
+    private const int ListingCacheCapacity = 256;
 
     public FileBrowserViewModel(
         Func<ConnectionInfo> buildConnectionInfo,
@@ -192,11 +197,13 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     }
 
     [RelayCommand]
-    private Task GoHomeAsync() => LoadDirectoryAsync(null);
+    private Task GoHomeAsync() => LoadDirectoryAsync(_browseSession?.HomePath);
 
     [RelayCommand]
     private Task RefreshAsync() =>
-        string.IsNullOrEmpty(CurrentPath) ? EnsureLoadedAsync() : LoadDirectoryAsync(CurrentPath);
+        string.IsNullOrEmpty(CurrentPath)
+            ? EnsureLoadedAsync()
+            : LoadDirectoryAsync(CurrentPath, bypassCache: true);
 
     [RelayCommand]
     private async Task NavigateToInputAsync()
@@ -238,12 +245,28 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>Loads <paramref name="path"/> (null = remote home) into the list,
-    /// selecting the entry named <paramref name="selectName"/> when given.
+    /// selecting the entry named <paramref name="selectName"/> when given. A cached
+    /// listing renders instantly and revalidates in the background; explicit
+    /// refreshes and post-mutation reloads set <paramref name="bypassCache"/>.
     /// Returns false and keeps the current listing when it fails.</summary>
-    private async Task<bool> LoadDirectoryAsync(string? path, string? selectName = null)
+    private async Task<bool> LoadDirectoryAsync(
+        string? path, string? selectName = null, bool bypassCache = false)
     {
         if (_disposed)
             return false;
+
+        // Rebuilding the rows destroys a focused row's container and loses
+        // keyboard focus, so remember whether the list had it and restore after.
+        var hadFocus = IsListFocused?.Invoke() == true;
+
+        if (path is not null && !bypassCache && _listingCache.TryGetValue(path, out var cached))
+        {
+            ApplyListing(path, cached, selectName);
+            if (hadFocus)
+                RequestFocusList?.Invoke();
+            QueueRevalidate(path);
+            return true;
+        }
 
         IsBusy = true;
         if (!_loadedOnce)
@@ -251,10 +274,6 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
 
         try
         {
-            // Rebuilding the rows destroys a focused row's container and loses
-            // keyboard focus, so remember whether the list had it and restore after.
-            var hadFocus = IsListFocused?.Invoke() == true;
-
             var session = _browseSession ??= new SftpSession(_buildConnectionInfo);
             var (target, entries) = await session.RunAsync(client =>
             {
@@ -265,20 +284,8 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
             if (_disposed)
                 return false;
 
-            Items.Clear();
-            foreach (var entry in entries)
-                Items.Add(entry);
-
-            CurrentPath = target;
-            PathInput = target;
-            _loadedOnce = true;
-            StatusText = entries.Count == 0 ? L("FileBrowserEmptyDir") : null;
-
-            if (selectName is not null
-                && Items.FirstOrDefault(e => e.Name == selectName) is { } match)
-            {
-                RequestSelectEntry?.Invoke(match);
-            }
+            CacheListing(target, entries);
+            ApplyListing(target, entries, selectName);
 
             if (hadFocus)
                 RequestFocusList?.Invoke();
@@ -299,6 +306,121 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
             if (!_disposed)
                 IsBusy = false;
         }
+    }
+
+    private void ApplyListing(string path, List<RemoteFileEntry> entries, string? selectName)
+    {
+        // Don't clobber a path the user is in the middle of typing.
+        var pathBoxUntouched = PathInput == CurrentPath;
+
+        Items.Clear();
+        foreach (var entry in entries)
+            Items.Add(entry);
+
+        CurrentPath = path;
+        if (pathBoxUntouched)
+            PathInput = path;
+        _loadedOnce = true;
+        StatusText = entries.Count == 0 ? L("FileBrowserEmptyDir") : null;
+
+        if (selectName is not null
+            && Items.FirstOrDefault(e => e.Name == selectName) is { } match)
+        {
+            RequestSelectEntry?.Invoke(match);
+        }
+    }
+
+    private void CacheListing(string path, List<RemoteFileEntry> entries)
+    {
+        // Crude cap: visiting this many distinct directories in one session is
+        // rare, and a full reset is simpler than LRU bookkeeping.
+        if (_listingCache.Count >= ListingCacheCapacity)
+            _listingCache.Clear();
+        _listingCache[path] = entries;
+    }
+
+    // Background revalidation is coalesced: rapid navigation through several cached
+    // directories must not pile one listing request per hop onto the serialized
+    // session queue. Only the most recent target is (re)validated; intermediate
+    // stops keep their cached listing until the next visit. Both fields are touched
+    // on the UI thread only.
+    private string? _revalidateTarget;
+    private bool _revalidateRunning;
+
+    private void QueueRevalidate(string path)
+    {
+        _revalidateTarget = path;
+        if (_revalidateRunning)
+            return;
+        _revalidateRunning = true;
+        _ = RunRevalidateLoopAsync();
+    }
+
+    private async Task RunRevalidateLoopAsync()
+    {
+        try
+        {
+            while (!_disposed && _revalidateTarget is { } path)
+            {
+                _revalidateTarget = null;
+                await RevalidateListingAsync(path);
+            }
+        }
+        finally
+        {
+            _revalidateRunning = false;
+        }
+    }
+
+    /// <summary>Refreshes a cached listing in the background; when the fresh data
+    /// differs and the user is still in that directory, swaps it in while keeping
+    /// selection and focus.</summary>
+    private async Task RevalidateListingAsync(string path)
+    {
+        try
+        {
+            var session = _browseSession ??= new SftpSession(_buildConnectionInfo);
+            var entries = await session.RunAsync(client => ListEntries(client, path));
+            if (_disposed)
+                return;
+
+            CacheListing(path, entries);
+            if (CurrentPath != path || ListingMatchesItems(entries))
+                return;
+
+            var hadFocus = IsListFocused?.Invoke() == true;
+            ApplyListing(path, entries, Selection.FirstOrDefault()?.Name);
+            if (hadFocus)
+                RequestFocusList?.Invoke();
+        }
+        catch
+        {
+            // Best-effort refresh: the cached view stays; a real failure will
+            // surface on the next explicit operation.
+        }
+    }
+
+    private bool ListingMatchesItems(List<RemoteFileEntry> entries)
+    {
+        if (entries.Count != Items.Count)
+            return false;
+
+        for (var i = 0; i < entries.Count; i++)
+        {
+            var a = entries[i];
+            var b = Items[i];
+            if (a.Name != b.Name
+                || a.IsDirectory != b.IsDirectory
+                || a.IsSymlink != b.IsSymlink
+                || a.Length != b.Length
+                || a.Modified != b.Modified
+                || a.Permissions != b.Permissions)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static List<RemoteFileEntry> ListEntries(SftpClient client, string path)
@@ -525,7 +647,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         if (string.IsNullOrEmpty(CurrentPath))
             await EnsureLoadedAsync();
         else
-            await LoadDirectoryAsync(CurrentPath, selectName);
+            await LoadDirectoryAsync(CurrentPath, selectName, bypassCache: true);
 
         if (refocusList)
             RequestFocusList?.Invoke();
