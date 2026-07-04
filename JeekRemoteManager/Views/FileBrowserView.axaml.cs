@@ -44,6 +44,8 @@ public partial class FileBrowserView : UserControl
         // Tunnel: ListBox's own key handling consumes Enter (selection commit)
         // before bubbling handlers would see it, so intercept on the way down.
         FileList.AddHandler(KeyDownEvent, OnFileListKeyDown, RoutingStrategies.Tunnel);
+        // Panel-wide function keys (safe from anywhere, including the path box).
+        AddHandler(KeyDownEvent, OnPanelKeyDown, RoutingStrategies.Tunnel);
     }
 
     private FileBrowserViewModel? Vm => DataContext as FileBrowserViewModel;
@@ -58,9 +60,57 @@ public partial class FileBrowserView : UserControl
         FileList.Focus();
     }
 
+    private void OnRenameEditorKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (sender is not TextBox { DataContext: RemoteFileEntry entry } || Vm is not { } vm)
+            return;
+
+        if (e.Key == Key.Enter)
+        {
+            e.Handled = true;
+            _ = vm.CommitRenameAsync(entry);
+        }
+        else if (e.Key == Key.Escape)
+        {
+            e.Handled = true;
+            vm.CancelRename(entry);
+        }
+    }
+
+    private void OnRenameEditorLostFocus(object? sender, RoutedEventArgs e)
+    {
+        // Commit on focus loss, like Explorer; CommitRenameAsync no-ops when the
+        // editor was already closed by Enter or Escape.
+        if (sender is TextBox { DataContext: RemoteFileEntry entry } && Vm is { } vm)
+            _ = vm.CommitRenameAsync(entry);
+    }
+
+    /// <summary>True when the event originates from a row's inline rename editor —
+    /// list/panel shortcuts must not fire while the user is typing a name.</summary>
+    private static bool IsFromRenameEditor(RoutedEventArgs e) =>
+        e.Source is TextBox { DataContext: RemoteFileEntry };
+
+    private void OnPanelKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (Vm is not { } vm || IsFromRenameEditor(e))
+            return;
+
+        switch (e.Key)
+        {
+            case Key.F5:
+                e.Handled = true;
+                vm.RefreshCommand.Execute(null);
+                break;
+            case Key.F7:
+                e.Handled = true;
+                vm.NewFolderCommand.Execute(null);
+                break;
+        }
+    }
+
     private void OnFileListKeyDown(object? sender, KeyEventArgs e)
     {
-        if (Vm is not { } vm)
+        if (Vm is not { } vm || IsFromRenameEditor(e))
             return;
 
         switch (e.Key)
@@ -72,6 +122,14 @@ public partial class FileBrowserView : UserControl
             case Key.Back:
                 e.Handled = true;
                 vm.GoUpCommand.Execute(null);
+                break;
+            case Key.F2:
+                e.Handled = true;
+                vm.RenameSelectedCommand.Execute(null);
+                break;
+            case Key.Delete:
+                e.Handled = true;
+                vm.DeleteSelectedCommand.Execute(null);
                 break;
             // The ListBox only scrolls the viewport for these; move the selection
             // with them, like a file manager.
@@ -132,6 +190,9 @@ public partial class FileBrowserView : UserControl
 
     private void OnFileListTextInput(object? sender, TextInputEventArgs e)
     {
+        if (IsFromRenameEditor(e))
+            return;
+
         var text = e.Text;
         if (string.IsNullOrEmpty(text) || Vm is not { } vm || vm.Items.Count == 0)
             return;
@@ -193,7 +254,9 @@ public partial class FileBrowserView : UserControl
         vm.IsListFocused = () =>
             TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is Avalonia.Visual focused
             && (ReferenceEquals(focused, FileList) || FileList.IsVisualAncestorOf(focused));
-        vm.RequestFocusList = FocusList;
+        // Posted: when invoked right after a dialog closes, the window is still
+        // restoring its own focus; a direct call would lose that race.
+        vm.RequestFocusList = () => Dispatcher.UIThread.Post(FocusList, DispatcherPriority.Background);
         vm.RequestSelectEntry = entry =>
         {
             FileList.SelectedItem = entry;
@@ -204,6 +267,23 @@ public partial class FileBrowserView : UserControl
             PathBox.Focus();
             PathBox.SelectAll();
         };
+        // Posted so the editor TextBox exists (IsNameEditing was set this instant).
+        vm.RequestBeginRename = entry => Dispatcher.UIThread.Post(() =>
+        {
+            FileList.ScrollIntoView(entry);
+            var editor = (FileList.ContainerFromItem(entry) as Avalonia.Visual)?
+                .GetVisualDescendants()
+                .OfType<TextBox>()
+                .FirstOrDefault();
+            if (editor is null)
+                return;
+
+            editor.Focus();
+            // Select the name without its extension, the Explorer convention.
+            var stem = entry.IsDirectory ? -1 : entry.EditName.LastIndexOf('.');
+            editor.SelectionStart = 0;
+            editor.SelectionEnd = stem > 0 ? stem : entry.EditName.Length;
+        }, DispatcherPriority.Background);
     }
 
     private void OnPathBoxKeyDown(object? sender, KeyEventArgs e)

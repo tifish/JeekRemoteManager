@@ -19,7 +19,7 @@ using Renci.SshNet.Common;
 namespace JeekRemoteManager.ViewModels;
 
 /// <summary>One row in the remote file list.</summary>
-public sealed class RemoteFileEntry
+public sealed partial class RemoteFileEntry : ObservableObject
 {
     public RemoteFileEntry(
         string name, string fullPath, bool isDirectory, bool isSymlink,
@@ -32,7 +32,15 @@ public sealed class RemoteFileEntry
         Length = length;
         Modified = modified;
         Permissions = permissions;
+        _editName = name;
     }
+
+    /// <summary>True while this row shows the inline rename editor.</summary>
+    [ObservableProperty]
+    private bool _isNameEditing;
+
+    [ObservableProperty]
+    private string _editName;
 
     public string Name { get; }
     public string FullPath { get; }
@@ -155,6 +163,10 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     /// <summary>Focuses the path box and selects its text (view-supplied), so a failed
     /// navigation leaves the bad path ready to correct instead of dropping focus.</summary>
     public Action? RequestFocusPathInput { get; set; }
+
+    /// <summary>Focuses the row's inline rename editor and selects the name stem
+    /// (view-supplied).</summary>
+    public Action<RemoteFileEntry>? RequestBeginRename { get; set; }
 
     private IReadOnlyList<RemoteFileEntry> Selection =>
         GetSelection?.Invoke() ?? Array.Empty<RemoteFileEntry>();
@@ -339,25 +351,64 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         if (PromptAsync is null || string.IsNullOrEmpty(CurrentPath))
             return;
 
+        var hadFocus = IsListFocused?.Invoke() == true;
         var name = (await PromptAsync(L("NewFolder"), L("FileBrowserNewFolderPrompt"), ""))?.Trim();
         if (string.IsNullOrEmpty(name) || name.Contains('/'))
+        {
+            // A closing dialog drops focus to the window's first focusable control;
+            // the cancel path must hand it back to the list too.
+            RestoreListFocus(hadFocus);
             return;
+        }
 
-        await RunBrowseOperationAsync(client => client.CreateDirectory(CombineRemote(CurrentPath, name)));
+        await RunBrowseOperationAsync(
+            client => client.CreateDirectory(CombineRemote(CurrentPath, name)),
+            refocusList: hadFocus,
+            selectName: name);
     }
 
+    /// <summary>Starts Explorer-style inline renaming on the selected row; the view
+    /// focuses the row's editor via <see cref="RequestBeginRename"/>.</summary>
     [RelayCommand]
-    private async Task RenameSelectedAsync()
+    private void RenameSelected()
     {
-        if (PromptAsync is null || Selection.FirstOrDefault() is not { } entry)
+        if (Selection.FirstOrDefault() is not { } entry)
             return;
 
-        var name = (await PromptAsync(L("DialogRenameTitle"), L("DialogRenamePrompt"), entry.Name))?.Trim();
-        if (string.IsNullOrEmpty(name) || name == entry.Name || name.Contains('/'))
+        foreach (var item in Items)
+            item.IsNameEditing = false;
+
+        entry.EditName = entry.Name;
+        entry.IsNameEditing = true;
+        RequestBeginRename?.Invoke(entry);
+    }
+
+    /// <summary>Applies the inline rename editor's text. No-op when editing already
+    /// ended (Escape hides the editor, which also fires its LostFocus).</summary>
+    public async Task CommitRenameAsync(RemoteFileEntry entry)
+    {
+        if (!entry.IsNameEditing)
             return;
+        entry.IsNameEditing = false;
+
+        var name = entry.EditName?.Trim();
+        if (string.IsNullOrEmpty(name) || name == entry.Name || name.Contains('/'))
+        {
+            RestoreListFocus(true);
+            return;
+        }
 
         var target = CombineRemote(ParentOf(entry.FullPath), name);
-        await RunBrowseOperationAsync(client => client.RenameFile(entry.FullPath, target));
+        await RunBrowseOperationAsync(
+            client => client.RenameFile(entry.FullPath, target),
+            refocusList: true,
+            selectName: name);
+    }
+
+    public void CancelRename(RemoteFileEntry entry)
+    {
+        entry.IsNameEditing = false;
+        RestoreListFocus(true);
     }
 
     [RelayCommand]
@@ -367,17 +418,21 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         if (ConfirmAsync is null || selection.Count == 0)
             return;
 
+        var hadFocus = IsListFocused?.Invoke() == true;
         var what = selection.Count == 1
             ? $"'{selection[0].Name}'"
             : L("FileBrowserDeleteMany", selection.Count);
         if (!await ConfirmAsync(L("DialogDeleteTitle"), L("FileBrowserDeletePrompt", what)))
+        {
+            RestoreListFocus(hadFocus);
             return;
+        }
 
         await RunBrowseOperationAsync(client =>
         {
             foreach (var entry in selection)
                 DeleteRecursive(client, entry.FullPath, entry.IsDirectory, entry.IsSymlink);
-        });
+        }, refocusList: hadFocus);
     }
 
     [RelayCommand]
@@ -387,17 +442,21 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         if (PromptAsync is null || selection.Count == 0)
             return;
 
+        var hadFocus = IsListFocused?.Invoke() == true;
         var initial = OctalFromPermissions(selection[0].Permissions);
         var input = (await PromptAsync(L("FileBrowserPermissions"), L("FileBrowserPermissionsPrompt"), initial))?.Trim();
         if (string.IsNullOrEmpty(input) || !Regex.IsMatch(input, "^[0-7]{3,4}$"))
+        {
+            RestoreListFocus(hadFocus);
             return;
+        }
 
         var mode = Convert.ToInt16(input, 8);
         await RunBrowseOperationAsync(client =>
         {
             foreach (var entry in selection)
                 client.ChangePermissions(entry.FullPath, mode);
-        });
+        }, refocusList: hadFocus, selectName: selection[0].Name);
     }
 
     [RelayCommand]
@@ -425,9 +484,18 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
             _openDirectoryInTerminal(path);
     }
 
-    /// <summary>Runs a mutation on the browse session and refreshes the listing;
+    private void RestoreListFocus(bool hadFocus)
+    {
+        if (hadFocus)
+            RequestFocusList?.Invoke();
+    }
+
+    /// <summary>Runs a mutation on the browse session and refreshes the listing,
+    /// optionally selecting <paramref name="selectName"/> and putting focus back on
+    /// the list (dialogs shown before the operation take focus away from it);
     /// failures land in the status line.</summary>
-    private async Task RunBrowseOperationAsync(Action<SftpClient> operation)
+    private async Task RunBrowseOperationAsync(
+        Action<SftpClient> operation, bool refocusList = false, string? selectName = null)
     {
         if (_disposed)
             return;
@@ -454,7 +522,13 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
                 IsBusy = false;
         }
 
-        await RefreshAsync();
+        if (string.IsNullOrEmpty(CurrentPath))
+            await EnsureLoadedAsync();
+        else
+            await LoadDirectoryAsync(CurrentPath, selectName);
+
+        if (refocusList)
+            RequestFocusList?.Invoke();
     }
 
     private static void DeleteRecursive(SftpClient client, string path, bool isDirectory, bool isSymlink)

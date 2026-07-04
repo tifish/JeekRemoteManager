@@ -104,9 +104,19 @@
                                    Text="{Binding IconGlyph}"
                                    FontSize="13"
                                    VerticalAlignment="Center" />
-                        <TextBlock Grid.Column="1" Text="{Binding Name}"
-                                   TextTrimming="CharacterEllipsis"
-                                   VerticalAlignment="Center" />
+                        <Grid Grid.Column="1">
+                            <TextBlock Text="{Binding Name}"
+                                       TextTrimming="CharacterEllipsis"
+                                       VerticalAlignment="Center"
+                                       IsVisible="{Binding !IsNameEditing}" />
+                            <TextBox Text="{Binding EditName, Mode=TwoWay}"
+                                     IsVisible="{Binding IsNameEditing}"
+                                     MinHeight="0"
+                                     Padding="4,1"
+                                     VerticalContentAlignment="Center"
+                                     KeyDown="OnRenameEditorKeyDown"
+                                     LostFocus="OnRenameEditorLostFocus" />
+                        </Grid>
                         <TextBlock Grid.Column="2" Text="{Binding SizeText}"
                                    HorizontalAlignment="Right"
                                    VerticalAlignment="Center" />
