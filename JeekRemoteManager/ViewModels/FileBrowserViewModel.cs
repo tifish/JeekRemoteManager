@@ -5,6 +5,8 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -79,6 +81,8 @@ public sealed partial class FileTransferItem : ObservableObject
     internal string? TargetRemoteDirectory;
     internal long TotalBytes;
     internal bool OpenWhenDone;
+    /// <summary>After a download completes, watch the local file and auto-upload saves.</summary>
+    internal bool WatchForEdits;
     internal readonly CancellationTokenSource Cancellation = new();
 
     [ObservableProperty]
@@ -109,6 +113,9 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     // Listings of directories visited this session: navigation into a cached
     // directory renders instantly and revalidates in the background.
     private readonly Dictionary<string, List<RemoteFileEntry>> _listingCache = new();
+    // Live remote-edit sessions, keyed by remote path: local file watched, saves
+    // auto-uploaded. Torn down with the panel.
+    private readonly Dictionary<string, RemoteEditSession> _editSessions = new();
     private SftpSession? _browseSession;
     private SftpSession? _transferSession;
     private bool _loadedOnce;
@@ -824,6 +831,99 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         EnqueueDownload(entry.FullPath, Path.Combine(tempDir, entry.Name), entry.Length, openWhenDone: true);
     }
 
+    // ---- Remote editing (F3): download, open locally, auto-upload saves ----
+
+    [RelayCommand]
+    private void EditSelected()
+    {
+        if (Selection.FirstOrDefault() is not { IsDirectory: false } entry)
+            return;
+
+        // Already being edited: just bring the local copy up again.
+        if (_editSessions.TryGetValue(entry.FullPath, out var existing))
+        {
+            TryOpenLocalFile(existing.LocalPath);
+            return;
+        }
+
+        var item = new FileTransferItem(entry.Name, isUpload: false)
+        {
+            RemotePath = entry.FullPath,
+            LocalPath = BuildEditLocalPath(entry.FullPath, entry.Name),
+            TotalBytes = entry.Length,
+            OpenWhenDone = true,
+            WatchForEdits = true,
+        };
+        Enqueue(item);
+    }
+
+    /// <summary>Stable per-remote-file local path, so re-editing the same file reuses
+    /// one working copy instead of littering the temp directory.</summary>
+    private string BuildEditLocalPath(string remotePath, string name)
+    {
+        var hash = Convert.ToHexString(
+            MD5.HashData(Encoding.UTF8.GetBytes(ConnectionLabel + ":" + remotePath)))[..12];
+        return Path.Combine(Path.GetTempPath(), "JeekRemoteManager", "edit", hash, name);
+    }
+
+    private void StartEditWatch(string remotePath, string localPath)
+    {
+        if (_disposed || _editSessions.ContainsKey(remotePath))
+            return;
+
+        var watcher = new FileSystemWatcher(
+            Path.GetDirectoryName(localPath)!, Path.GetFileName(localPath))
+        {
+            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName,
+        };
+
+        _editSessions[remotePath] = new RemoteEditSession(watcher, localPath, () =>
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (!_disposed && File.Exists(localPath))
+                    EnqueueUpload(localPath, remotePath, null, ParentOf(remotePath));
+            }));
+
+        watcher.EnableRaisingEvents = true;
+        StatusText = L("FileBrowserEditing", Path.GetFileName(localPath));
+    }
+
+    /// <summary>Watches one locally-edited file and requests an upload shortly after
+    /// the last write settles — editors save in bursts (truncate+write, or a temp
+    /// file renamed over the target), so the signal is debounced.</summary>
+    private sealed class RemoteEditSession : IDisposable
+    {
+        private readonly FileSystemWatcher _watcher;
+        private readonly Timer _debounce;
+
+        public RemoteEditSession(FileSystemWatcher watcher, string localPath, Action uploadRequested)
+        {
+            _watcher = watcher;
+            LocalPath = localPath;
+            _debounce = new Timer(_ => uploadRequested(), null, Timeout.Infinite, Timeout.Infinite);
+            watcher.Changed += (_, _) => Touch();
+            watcher.Created += (_, _) => Touch();
+            watcher.Renamed += (_, _) => Touch();
+        }
+
+        public string LocalPath { get; }
+
+        private void Touch() => _debounce.Change(600, Timeout.Infinite);
+
+        public void Dispose()
+        {
+            _debounce.Dispose();
+            try
+            {
+                _watcher.Dispose();
+            }
+            catch
+            {
+                // Watcher teardown is best-effort.
+            }
+        }
+    }
+
     private void EnqueueDownload(string remotePath, string localPath, long length, bool openWhenDone)
     {
         var item = new FileTransferItem(Path.GetFileName(localPath), isUpload: false)
@@ -871,6 +971,11 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
             else if (item.OpenWhenDone)
             {
                 TryOpenLocalFile(item.LocalPath);
+                if (item.WatchForEdits)
+                {
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                        StartEditWatch(item.RemotePath, item.LocalPath));
+                }
             }
         }
         catch (OperationCanceledException)
@@ -1100,6 +1205,10 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
 
         foreach (var transfer in Transfers)
             transfer.Cancellation.Cancel();
+
+        foreach (var session in _editSessions.Values)
+            session.Dispose();
+        _editSessions.Clear();
 
         _browseSession?.Dispose();
         _transferSession?.Dispose();

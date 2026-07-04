@@ -127,6 +127,10 @@ public partial class FileBrowserView : UserControl
                 e.Handled = true;
                 vm.RenameSelectedCommand.Execute(null);
                 break;
+            case Key.F4:
+                e.Handled = true;
+                vm.EditSelectedCommand.Execute(null);
+                break;
             case Key.Delete:
                 e.Handled = true;
                 vm.DeleteSelectedCommand.Execute(null);

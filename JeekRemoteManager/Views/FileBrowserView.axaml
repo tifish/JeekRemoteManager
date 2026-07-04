@@ -85,6 +85,8 @@
                 <ContextMenu>
                     <MenuItem Header="{l:Localize FileBrowserOpen}"
                               Command="{Binding OpenSelectedCommand}" />
+                    <MenuItem Header="{l:Localize FileBrowserEdit}"
+                              Command="{Binding EditSelectedCommand}" />
                     <MenuItem Header="{l:Localize FileBrowserDownload}"
                               Command="{Binding DownloadSelectedCommand}" />
                     <MenuItem Header="{l:Localize FileBrowserUpload}"
