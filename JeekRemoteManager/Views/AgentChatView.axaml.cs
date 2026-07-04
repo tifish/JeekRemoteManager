@@ -1,8 +1,12 @@
 using System.Collections.Specialized;
+using System.Linq;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
+using ColorTextBlock.Avalonia;
 using JeekRemoteManager.ViewModels;
 
 namespace JeekRemoteManager.Views;
@@ -19,6 +23,28 @@ public partial class AgentChatView : UserControl
         // Handle Enter on the tunnel (preview) route so it fires before the multi-line
         // TextBox consumes Enter to insert a newline.
         InputBox.AddHandler(KeyDownEvent, OnInputKeyDown, RoutingStrategies.Tunnel);
+
+        // Each bubble keeps its own text selection; starting a selection in one bubble
+        // should drop the highlight left in the others.
+        MessagesList.AddHandler(PointerPressedEvent, OnMessagesPointerPressed, RoutingStrategies.Tunnel);
+    }
+
+    private void OnMessagesPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.Source is not Visual source)
+            return;
+
+        foreach (var text in MessagesList.GetVisualDescendants().OfType<SelectableTextBlock>())
+        {
+            if (text != source && !text.IsVisualAncestorOf(source))
+                text.ClearSelection();
+        }
+
+        foreach (var text in MessagesList.GetVisualDescendants().OfType<CTextBlock>())
+        {
+            if (text != source && !text.IsVisualAncestorOf(source))
+                text.ClearSelection();
+        }
     }
 
     private void OnDataContextChanged(object? sender, System.EventArgs e)
