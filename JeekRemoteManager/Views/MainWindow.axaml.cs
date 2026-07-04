@@ -351,13 +351,20 @@ public partial class MainWindow : Window
     private static bool PathEquals(string a, string b) =>
         string.Equals(NormalizePath(a), NormalizePath(b), StringComparison.OrdinalIgnoreCase);
 
-    // Right-click menu on an SSH terminal tab: duplicate the session, install the
-    // local public key on the host (ssh-copy-id), or run one of the connection's
-    // SSH scripts.
+    // Right-click menu on an SSH terminal tab. Mirrors the terminal toolbar
+    // (duplicate session, run script, AI assistant, copy public key) plus Close.
     private ContextMenu BuildTerminalTabContextMenu(Connection connection, TabItem tab)
     {
         var duplicate = new MenuItem { Header = Localizer.Get("DuplicateSession") };
         duplicate.Click += (_, _) => DuplicateTerminalTab(tab);
+
+        var aiPanel = new MenuItem { Header = Localizer.Get("AiAssistant") };
+        aiPanel.Click += (_, _) =>
+        {
+            RightTabs.SelectedItem = tab;
+            if (tab.Content is TerminalView view)
+                view.ToggleAiPanel();
+        };
 
         var copyKey = new MenuItem { Header = Localizer.Get("CopyPublicKeyToServer") };
         copyKey.Click += async (_, _) =>
@@ -391,8 +398,9 @@ public partial class MainWindow : Window
 
         var menu = new ContextMenu();
         menu.Items.Add(duplicate);
-        menu.Items.Add(copyKey);
         menu.Items.Add(runScript);
+        menu.Items.Add(aiPanel);
+        menu.Items.Add(copyKey);
         menu.Items.Add(new Separator());
         menu.Items.Add(close);
         return menu;
@@ -555,6 +563,13 @@ public partial class MainWindow : Window
         }
 
         ShowTerminalScriptChooser(tab, sender as Control);
+        e.Handled = true;
+    }
+
+    private void OnDuplicateSessionToolbarClick(object? sender, RoutedEventArgs e)
+    {
+        if (RightTabs.SelectedItem is TabItem { Content: TerminalView } tab)
+            DuplicateTerminalTab(tab);
         e.Handled = true;
     }
 
