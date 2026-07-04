@@ -52,6 +52,8 @@ public partial class TerminalView : UserControl
     private ZmodemByteQueue? _activeZmodemQueue;
     private ZmodemTraceLog? _activeZmodemTrace;
     private CancellationTokenSource? _activeZmodemCancellation;
+    private IReadOnlyList<string>? _pendingDropUploadFiles;
+    private int _dropUploadGeneration;
     private int _connectionGeneration;
     private bool _connectInProgress;
     private bool _shellClosed;
@@ -108,6 +110,10 @@ public partial class TerminalView : UserControl
         Term.ContextRequested += OnTerminalContextRequested;
         Term.AddHandler(InputElement.KeyDownEvent, OnTerminalPreviewKeyDown, RoutingStrategies.Tunnel);
         Term.AddHandler(InputElement.KeyUpEvent, OnTerminalPreviewKeyUp, RoutingStrategies.Tunnel);
+
+        DragDrop.SetAllowDrop(Term, true);
+        Term.AddHandler(DragDrop.DragOverEvent, OnTerminalDragOver);
+        Term.AddHandler(DragDrop.DropEvent, OnTerminalDrop);
 
         // Persist the AI panel width whenever the user finishes dragging the splitter.
         AiSplitter.DragCompleted += (_, _) => PersistAiPanelWidth();
@@ -768,6 +774,81 @@ public partial class TerminalView : UserControl
             _pendingKeyboardCopyText = null;
     }
 
+    // Dropping local files onto the terminal launches `rz` on the remote shell and
+    // feeds the dropped files into the existing ZMODEM upload path, so it works
+    // through jump hosts exactly like a manually typed `rz`. Shift+drop pastes the
+    // local path(s) instead (the Windows Terminal convention).
+    private void OnTerminalDragOver(object? sender, DragEventArgs e)
+    {
+        e.DragEffects = CanAcceptFileDrop(e) ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void OnTerminalDrop(object? sender, DragEventArgs e)
+    {
+        e.Handled = true;
+        if (!CanAcceptFileDrop(e))
+            return;
+
+        var paths = (e.DataTransfer.TryGetFiles() ?? [])
+            .Select(item => item.TryGetLocalPath())
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Cast<string>()
+            .ToList();
+        if (paths.Count == 0)
+            return;
+
+        FocusTerminal();
+
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+        {
+            WriteToShell(string.Join(" ", paths.Select(QuoteForRemoteShell)));
+            return;
+        }
+
+        var files = paths.Where(File.Exists).ToList();
+        if (files.Count < paths.Count)
+            FeedLine("\r\n\u001b[33m[zmodem upload]\u001b[0m Folders cannot be uploaded and were skipped.");
+        if (files.Count == 0)
+            return;
+
+        StartDropUpload(files);
+    }
+
+    private bool CanAcceptFileDrop(DragEventArgs e) =>
+        IsConnected
+        && !_suppressUserInput
+        && _activeZmodemQueue is null
+        && _pendingDropUploadFiles is null
+        && e.DataTransfer.Contains(DataFormat.File);
+
+    private void StartDropUpload(IReadOnlyList<string> files)
+    {
+        var generation = Interlocked.Increment(ref _dropUploadGeneration);
+        _pendingDropUploadFiles = files;
+
+        // Ctrl+U discards anything half-typed at the prompt so `rz` runs clean.
+        WriteToShell("\u0015rz\r");
+
+        _ = ExpireDropUploadAsync(generation);
+    }
+
+    private async Task ExpireDropUploadAsync(int generation)
+    {
+        // If the ZMODEM handshake never arrives (rz missing, shell busy inside a
+        // full-screen app, session dropped), release the queued files and explain.
+        await Task.Delay(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        if (generation != _dropUploadGeneration)
+            return;
+        if (Interlocked.Exchange(ref _pendingDropUploadFiles, null) is not null)
+            FeedLineOnUiThread("\u001b[33m[zmodem upload]\u001b[0m rz did not respond. Is lrzsz installed on the remote host?");
+    }
+
+    private static string QuoteForRemoteShell(string path) =>
+        Regex.IsMatch(path, "^[A-Za-z0-9_@%+=:,./-]+$")
+            ? path
+            : "'" + path.Replace("'", "'\\''") + "'";
+
     private Task CopyTerminalSelectionToClipboardAsync(string selectedText)
     {
         var text = GetTerminalSelectionText(selectedText);
@@ -925,8 +1006,19 @@ public partial class TerminalView : UserControl
                 return;
             }
 
-            FeedLineOnUiThread("\r\n\u001b[36m[zmodem upload]\u001b[0m Choose local file(s).");
-            var files = await PickZmodemUploadFilesAsync().ConfigureAwait(false);
+            // Files queued by drag-drop skip the picker; a manually typed `rz` asks.
+            var files = Interlocked.Exchange(ref _pendingDropUploadFiles, null);
+            if (files is null)
+            {
+                FeedLineOnUiThread("\r\n\u001b[36m[zmodem upload]\u001b[0m Choose local file(s).");
+                files = await PickZmodemUploadFilesAsync().ConfigureAwait(false);
+            }
+            else
+            {
+                // Move past the echoed `rz` command line.
+                FeedLineOnUiThread(string.Empty);
+            }
+
             if (files.Count == 0)
             {
                 await session.CancelAsync(CancellationToken.None).ConfigureAwait(false);
