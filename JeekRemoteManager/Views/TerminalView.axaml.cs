@@ -58,6 +58,9 @@ public partial class TerminalView : UserControl
     private bool _connectInProgress;
     private bool _shellClosed;
     private bool _suppressUserInput;
+    private int _lastFedCursorRow;
+    private DispatcherTimer? _windowSizeSyncTimer;
+    private (uint Cols, uint Rows)? _lastSentWindowSize;
     private string? _pendingKeyboardCopyText;
     private AgentChatViewModel? _aiViewModel;
     private double _aiPanelWidth = 380;
@@ -123,7 +126,12 @@ public partial class TerminalView : UserControl
             if (!_suppressUserInput)
                 HandleUserInput(e.Data);
         };
-        _model.SizeChanged += (_, _) => SyncWindowSize();
+        _model.SizeChanged += (_, e) =>
+        {
+            RepairBufferAfterResize(e.Rows);
+            RecordCursorRow();
+            SyncWindowSize();
+        };
         _model.Terminal.TitleChanged += (_, _) => Dispatcher.UIThread.Post(() =>
         {
             var title = _model.Terminal.Title;
@@ -641,6 +649,7 @@ public partial class TerminalView : UserControl
 
         _client = client;
         _shell = shell;
+        _lastSentWindowSize = (cols, rows);
 
         shell.DataReceived += (_, e) =>
         {
@@ -932,8 +941,10 @@ public partial class TerminalView : UserControl
 
         Dispatcher.UIThread.Post(() =>
         {
-            if (!_disposed)
-                _model.Feed(data, data.Length);
+            if (_disposed)
+                return;
+            _model.Feed(data, data.Length);
+            RecordCursorRow();
         });
     }
 
@@ -1186,15 +1197,73 @@ public partial class TerminalView : UserControl
         }
     }
 
+    /// <summary>
+    /// Works around a resize bug in XTerm.NET's TerminalBuffer.Resize: when the viewport
+    /// loses rows it merely clamps the cursor row instead of scrolling content into the
+    /// scrollback, so the cursor lands on a line that still shows older output and the
+    /// shell's prompt redraw overwrites that text. Scroll the screen up so the cursor
+    /// keeps pointing at the line it was on before the resize.
+    /// </summary>
+    private void RepairBufferAfterResize(int newRows)
+    {
+        var terminal = _model.Terminal;
+        // Full-screen apps (alt buffer or a custom scroll region) repaint themselves
+        // after a resize, and ScrollUp would splice inside the scroll region.
+        if (terminal.IsAlternateBufferActive || terminal.Buffer.ScrollTop != 0)
+            return;
+
+        var shift = _lastFedCursorRow - (newRows - 1);
+        if (shift <= 0)
+            return;
+
+        var buffer = terminal.Buffer;
+        buffer.ScrollUp(shift);
+        buffer.SetCursorRaw(buffer.X, newRows - 1);
+        _model.UpdateDisplay();
+    }
+
+    /// <summary>Remembers the cursor row so <see cref="RepairBufferAfterResize"/> knows
+    /// where the cursor was before the library's resize clamped it.</summary>
+    private void RecordCursorRow() => _lastFedCursorRow = _model.Terminal.Buffer.Y;
+
+    /// <summary>
+    /// Schedules the remote pty resize after the local size settles. An interactive
+    /// drag produces dozens of size events per second; sending each one makes the
+    /// remote shell emit prompt redraws computed for widths that are stale by the
+    /// time they arrive over the network, which strews wrongly-wrapped prompt copies
+    /// across the screen. Debouncing sends a single window-change per gesture.
+    /// </summary>
     private void SyncWindowSize()
     {
+        if (_disposed)
+            return;
+
+        if (_windowSizeSyncTimer is null)
+        {
+            _windowSizeSyncTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+            _windowSizeSyncTimer.Tick += (_, _) =>
+            {
+                _windowSizeSyncTimer!.Stop();
+                SendWindowSizeNow();
+            };
+        }
+
+        _windowSizeSyncTimer.Stop();
+        _windowSizeSyncTimer.Start();
+    }
+
+    private void SendWindowSizeNow()
+    {
         var shell = _shell;
-        if (shell is null || _disposed)
+        if (shell is null || _disposed || _shellClosed)
             return;
         try
         {
             var cols = (uint)Math.Max(20, _model.Terminal.Cols);
             var rows = (uint)Math.Max(5, _model.Terminal.Rows);
+            if (_lastSentWindowSize == (cols, rows))
+                return;
+            _lastSentWindowSize = (cols, rows);
             shell.ChangeWindowSize(cols, rows, 0, 0);
         }
         catch
@@ -1203,7 +1272,11 @@ public partial class TerminalView : UserControl
         }
     }
 
-    private void FeedLine(string text) => _model.Feed(text + "\r\n");
+    private void FeedLine(string text)
+    {
+        _model.Feed(text + "\r\n");
+        RecordCursorRow();
+    }
 
     private void FeedReconnectHint() => FeedLine("\u001b[90m[press Enter to reconnect]\u001b[0m");
 
@@ -1228,6 +1301,7 @@ public partial class TerminalView : UserControl
         _activeZmodemQueue?.Complete(new ObjectDisposedException(nameof(TerminalView)));
         _activeZmodemTrace?.Dispose();
         _zmodemDetectionFlushTimer?.Dispose();
+        _windowSizeSyncTimer?.Stop();
         DisposeTransport();
 
         if (_customProvidersOwner is not null && _customProvidersChangedHandler is not null)
