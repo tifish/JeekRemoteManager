@@ -263,6 +263,13 @@ public partial class MainWindow : Window
             }
         }
 
+        var (view, tab) = CreateTerminalTab(connection);
+        view.Start(connection, sourcePath);
+        return Task.FromResult<TerminalScriptSession?>(CreateTerminalScriptSession(view, tab));
+    }
+
+    private (TerminalView View, TabItem Tab) CreateTerminalTab(Connection connection)
+    {
         var view = new TerminalView();
         var tab = new TabItem
         {
@@ -285,8 +292,22 @@ public partial class MainWindow : Window
         RightTabs.SelectedItem = tab;
 
         view.SetFontSize((DataContext as MainWindowViewModel)?.TerminalFontSize ?? 14);
-        view.Start(connection, sourcePath);
-        return Task.FromResult<TerminalScriptSession?>(CreateTerminalScriptSession(view, tab));
+        return (view, tab);
+    }
+
+    /// <summary>
+    /// Opens a new terminal tab on the same connection. When the source tab's SSH
+    /// transport is live, the new tab piggybacks on it (a new channel on the
+    /// authenticated connection — instant, no re-login); otherwise it connects fresh.
+    /// </summary>
+    private void DuplicateTerminalTab(TabItem sourceTab)
+    {
+        if (sourceTab.Content is not TerminalView source || source.Connection is not { } connection)
+            return;
+
+        var shared = source.ShareClientForDuplicate();
+        var (view, _) = CreateTerminalTab(connection);
+        view.Start(connection, source.SourcePath, shared);
     }
 
     private TerminalScriptSession CreateTerminalScriptSession(TerminalView view, TabItem tab) =>
@@ -330,10 +351,14 @@ public partial class MainWindow : Window
     private static bool PathEquals(string a, string b) =>
         string.Equals(NormalizePath(a), NormalizePath(b), StringComparison.OrdinalIgnoreCase);
 
-    // Right-click menu on an SSH terminal tab: install the local public key on the
-    // host (ssh-copy-id), or run one of the connection's SSH scripts.
+    // Right-click menu on an SSH terminal tab: duplicate the session, install the
+    // local public key on the host (ssh-copy-id), or run one of the connection's
+    // SSH scripts.
     private ContextMenu BuildTerminalTabContextMenu(Connection connection, TabItem tab)
     {
+        var duplicate = new MenuItem { Header = Localizer.Get("DuplicateSession") };
+        duplicate.Click += (_, _) => DuplicateTerminalTab(tab);
+
         var copyKey = new MenuItem { Header = Localizer.Get("CopyPublicKeyToServer") };
         copyKey.Click += async (_, _) =>
         {
@@ -365,6 +390,7 @@ public partial class MainWindow : Window
         close.Click += (_, _) => CloseTerminalTab(tab);
 
         var menu = new ContextMenu();
+        menu.Items.Add(duplicate);
         menu.Items.Add(copyKey);
         menu.Items.Add(runScript);
         menu.Items.Add(new Separator());

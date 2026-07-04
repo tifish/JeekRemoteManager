@@ -128,6 +128,7 @@ DialogPickKeyTitle	Select private key	选择私钥
 DialogPickFinalShellTitle	Select FinalShell conn directory	选择 FinalShell 连接目录
 DialogPickStorageTitle	Select Config location	选择 Config 保存位置
 RunScript	Run script	运行脚本
+DuplicateSession	Duplicate session	复制会话
 CopyPublicKeyToServer	Copy public key to server	复制公钥到服务器
 DialogCopyPublicKeyTitle	Copy public key	复制公钥
 DialogCopyPublicKeyMessage	Install local public key on {1}?\n\nKey: {0}	将本地公钥安装到 {1}？\n\n公钥：{0}

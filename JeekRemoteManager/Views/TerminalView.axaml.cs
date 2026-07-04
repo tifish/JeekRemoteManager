@@ -39,7 +39,8 @@ public partial class TerminalView : UserControl
     });
 
     private Connection? _connection;
-    private SshClient? _client;
+    private SharedSshClient? _client;
+    private SharedSshClient? _pendingSharedClient;
     private ShellStream? _shell;
     private string? _sourcePath;
     private TaskCompletionSource<bool>? _connected;
@@ -140,13 +141,34 @@ public partial class TerminalView : UserControl
         });
     }
 
-    /// <summary>Connects the given connection and starts streaming. Call once.</summary>
-    public void Start(Connection connection, string? sourcePath = null)
+    /// <summary>
+    /// Connects the given connection and starts streaming. Call once. When
+    /// <paramref name="sharedClient"/> is provided (a duplicated tab), the view opens a
+    /// new shell channel on that already-authenticated connection instead of dialing a
+    /// new one; the reference must already be counted for this view (see
+    /// <see cref="ShareClientForDuplicate"/>).
+    /// </summary>
+    public void Start(Connection connection, string? sourcePath = null, SharedSshClient? sharedClient = null)
     {
         _connection = connection;
         _sourcePath = sourcePath;
+        _pendingSharedClient = sharedClient;
         FocusTerminal();
         BeginConnectionAttempt();
+    }
+
+    /// <summary>
+    /// Hands out this view's live SSH connection for a duplicated tab, taking a
+    /// reference on the duplicate's behalf. Returns null when there is nothing
+    /// usable to share (not connected, or already torn down) — the duplicate then
+    /// falls back to a fresh connection.
+    /// </summary>
+    public SharedSshClient? ShareClientForDuplicate()
+    {
+        var client = _client;
+        if (_disposed || client is null || !client.IsConnected)
+            return null;
+        return client.TryAddRef() ? client : null;
     }
 
     public async Task WaitUntilConnectedAsync(CancellationToken cancellationToken = default)
@@ -560,6 +582,10 @@ public partial class TerminalView : UserControl
         _activePayloadMonitor = null;
         _suppressUserInput = false;
         Interlocked.Increment(ref _connectionGeneration);
+        // When only the shell channel died (e.g. the user typed `exit`) but the
+        // transport is still up, reopen a channel on it instead of redialing;
+        // ConnectAsync falls back to a fresh connection if that fails.
+        _pendingSharedClient = _client is { IsConnected: true } live && live.TryAddRef() ? live : null;
         DisposeTransport();
 
         FeedLine("\r\n\u001b[36m[reconnect]\u001b[0m");
@@ -590,10 +616,27 @@ public partial class TerminalView : UserControl
         var connection = _connection!;
         var host = connection.Host.Trim();
         var port = connection.Port > 0 ? connection.Port : 22;
+        _connectInProgress = true;
+
+        // A duplicated tab starts from the source tab's authenticated connection: SSH
+        // multiplexes independent session channels over one transport, so a new shell
+        // channel needs no TCP/auth round-trip. Falls back to a fresh connection when
+        // the shared transport is dead or refuses more channels (e.g. sshd MaxSessions).
+        var shared = Interlocked.Exchange(ref _pendingSharedClient, null);
+        if (shared is not null)
+        {
+            FeedLine($"Opening a new session on the existing connection to {host}:{port} ...");
+            if (await TryOpenShellAsync(shared, generation, reportFailure: false))
+                return;
+
+            shared.Release();
+            if (_disposed || generation != _connectionGeneration)
+                return;
+        }
+
         FeedLine($"Connecting to {host}:{port} ...");
 
-        SshClient client;
-        _connectInProgress = true;
+        SharedSshClient client;
         try
         {
             // Build (which may query ssh-agent / Pageant over IPC) and Connect both
@@ -606,7 +649,7 @@ public partial class TerminalView : UserControl
                 onUnknown: (keyType, fingerprint) => HostKeyDialog.PromptTrust(host, port, keyType, fingerprint),
                 onRejected: message => Dispatcher.UIThread.Post(() => FeedLine($"\r\n\u001b[31m[{message}]\u001b[0m\r\n")));
                 sshClient.Connect();
-                return sshClient;
+                return new SharedSshClient(sshClient);
             });
         }
         catch (Exception ex)
@@ -622,10 +665,25 @@ public partial class TerminalView : UserControl
         {
             _connected?.TrySetCanceled();
             _connectInProgress = false;
-            try { client.Dispose(); } catch { /* ignore */ }
+            client.Release();
             return;
         }
 
+        if (!await TryOpenShellAsync(client, generation, reportFailure: true))
+            client.Release();
+    }
+
+    /// <summary>
+    /// Opens the shell channel on <paramref name="client"/> and wires it to the
+    /// terminal. Returns false without taking ownership when the channel cannot be
+    /// opened or the attempt is stale — the caller still owns releasing the client.
+    /// With <paramref name="reportFailure"/> false (the shared-connection fast path),
+    /// a failure is only noted in the terminal so the caller can fall back to a
+    /// fresh connection.
+    /// </summary>
+    private async Task<bool> TryOpenShellAsync(SharedSshClient client, int generation, bool reportFailure)
+    {
+        var connection = _connection!;
         var cols = (uint)Math.Max(20, _model.Terminal.Cols);
         var rows = (uint)Math.Max(5, _model.Terminal.Rows);
         var terminalType = string.IsNullOrWhiteSpace(connection.TerminalType)
@@ -635,16 +693,38 @@ public partial class TerminalView : UserControl
         ShellStream shell;
         try
         {
-            shell = client.CreateShellStream(terminalType, cols, rows, 0, 0, 4096);
+            // The channel open is a network round-trip; keep it off the UI thread so
+            // a stalled (half-dead) shared transport cannot freeze the window.
+            shell = await Task.Run(() => client.Client.CreateShellStream(terminalType, cols, rows, 0, 0, 4096));
         }
         catch (Exception ex)
         {
+            if (_disposed || generation != _connectionGeneration)
+            {
+                _connected?.TrySetCanceled();
+                _connectInProgress = false;
+                return false;
+            }
+
+            if (!reportFailure)
+            {
+                FeedLine($"\u001b[33m[shared connection unavailable] {ex.Message}\u001b[0m");
+                return false;
+            }
+
             _connected?.TrySetException(new InvalidOperationException($"Connection failed: {ex.Message}", ex));
             _connectInProgress = false;
             FeedLine($"\u001b[31m[connect failed] {ex.Message}\u001b[0m");
             FeedReconnectHint();
-            try { client.Dispose(); } catch { /* ignore */ }
-            return;
+            return false;
+        }
+
+        if (_disposed || generation != _connectionGeneration)
+        {
+            _connected?.TrySetCanceled();
+            _connectInProgress = false;
+            try { shell.Dispose(); } catch { /* ignore */ }
+            return false;
         }
 
         _client = client;
@@ -680,6 +760,7 @@ public partial class TerminalView : UserControl
 
         // Push the current (laid-out) size in case SizeChanged fired before connect.
         SyncWindowSize();
+        return true;
     }
 
     private void OnShellData(byte[] data)
@@ -1283,8 +1364,9 @@ public partial class TerminalView : UserControl
     private void DisposeTransport()
     {
         try { _shell?.Dispose(); } catch { /* ignore */ }
-        try { _client?.Disconnect(); } catch { /* ignore */ }
-        try { _client?.Dispose(); } catch { /* ignore */ }
+        // Drop our reference only: another tab duplicated from this one may still
+        // be using the connection; the last holder tears it down.
+        _client?.Release();
         _shell = null;
         _client = null;
     }
@@ -1302,6 +1384,7 @@ public partial class TerminalView : UserControl
         _activeZmodemTrace?.Dispose();
         _zmodemDetectionFlushTimer?.Dispose();
         _windowSizeSyncTimer?.Stop();
+        Interlocked.Exchange(ref _pendingSharedClient, null)?.Release();
         DisposeTransport();
 
         if (_customProvidersOwner is not null && _customProvidersChangedHandler is not null)
