@@ -248,6 +248,9 @@ FileBrowserUpload	Upload files…	上传文件…
 FileBrowserDownload	Download…	下载…
 FileBrowserOpen	Open	打开
 FileBrowserEdit	Edit (F4)	编辑 (F4)
+SettingsEditorLabel	Remote editing editor	远程编辑用编辑器
+SettingsEditorWatermark	blank = system default program	留空使用系统关联程序
+DialogPickEditorTitle	Select editor	选择编辑器
 FileBrowserEditing	Editing {0} — local saves upload automatically	正在编辑 {0} —— 本地保存后自动上传
 FileBrowserOpenInTerminal	Open in terminal	在终端中打开
 FileBrowserCopyPath	Copy path	复制路径

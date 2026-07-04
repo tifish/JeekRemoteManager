@@ -75,6 +75,10 @@ public class AppSettings
     /// <summary>Height of the in-terminal SFTP file browser panel, in device-independent pixels.</summary>
     public double FileBrowserPanelHeight { get; set; } = 260;
 
+    /// <summary>Editor executable used by the file browser's remote editing (F4).
+    /// Null/blank = open with the system file association.</summary>
+    public string? FileBrowserEditorPath { get; set; }
+
     /// <summary>AI panel: last-used provider label ("Claude", "Codex"). Null = first available.</summary>
     public string? AiProvider { get; set; }
 
@@ -197,6 +201,10 @@ public class RoamingAppSettings
     /// <summary>Height of the in-terminal SFTP file browser panel, in device-independent pixels.</summary>
     public double FileBrowserPanelHeight { get; set; } = 260;
 
+    /// <summary>Editor executable used by the file browser's remote editing (F4).
+    /// Null/blank = open with the system file association.</summary>
+    public string? FileBrowserEditorPath { get; set; }
+
     /// <summary>AI panel: last-used provider label ("Claude", "Codex"). Null = first available.</summary>
     public string? AiProvider { get; set; }
 
@@ -233,4 +241,5 @@ public record SettingsDialogResult(
     string? Language,
     string? Theme,
     bool CheckUpdateOnStartup,
-    int UpdateCheckIntervalHours);
+    int UpdateCheckIntervalHours,
+    string? FileBrowserEditorPath);

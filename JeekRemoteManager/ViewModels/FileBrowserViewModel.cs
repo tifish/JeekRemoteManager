@@ -126,12 +126,16 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     public FileBrowserViewModel(
         Func<ConnectionInfo> buildConnectionInfo,
         Action<string> openDirectoryInTerminal,
-        string connectionLabel)
+        string connectionLabel,
+        Func<string?>? getEditorPath = null)
     {
         _buildConnectionInfo = buildConnectionInfo;
         _openDirectoryInTerminal = openDirectoryInTerminal;
+        _getEditorPath = getEditorPath;
         ConnectionLabel = connectionLabel;
     }
+
+    private readonly Func<string?>? _getEditorPath;
 
     /// <summary>"user@host" of the direct SFTP target, shown in the path bar so it
     /// stays obvious the panel does not follow jumps made inside the terminal.</summary>
@@ -1079,10 +1083,21 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         HasTransfers = Transfers.Count > 0;
     }
 
-    private static void TryOpenLocalFile(string path)
+    private void TryOpenLocalFile(string path)
     {
         try
         {
+            // A configured editor takes precedence; blank/missing falls back to
+            // the system file association.
+            var editor = _getEditorPath?.Invoke();
+            if (!string.IsNullOrWhiteSpace(editor) && File.Exists(editor))
+            {
+                var info = new ProcessStartInfo(editor);
+                info.ArgumentList.Add(path);
+                Process.Start(info);
+                return;
+            }
+
             Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
         }
         catch

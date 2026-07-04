@@ -453,14 +453,15 @@ try
         noMovePromptCount++;
         return Task.FromResult(false);
     };
-    noMoveVm.PickSettingsAsync = (_, _, language, theme, checkOnStartup, intervalHours) =>
+    noMoveVm.PickSettingsAsync = (_, _, language, theme, checkOnStartup, intervalHours, editorPath) =>
         Task.FromResult<SettingsDialogResult?>(new SettingsDialogResult(
             StorageLocation.CustomDirectory,
             noMoveTargetBase,
             language,
             theme,
             checkOnStartup,
-            intervalHours));
+            intervalHours,
+            editorPath));
     await noMoveVm.OpenSettingsCommand.ExecuteAsync(null);
     Check(noMovePromptCount == 1, "Changing Config location asks whether to move files");
     Check(File.Exists(noMoveConnectionPath)

@@ -1379,7 +1379,8 @@ public partial class MainWindow : Window
         string? currentLanguage,
         string? currentTheme,
         bool currentCheckOnStartup,
-        int currentIntervalHours)
+        int currentIntervalHours,
+        string? currentEditorPath)
     {
         var tcs = new TaskCompletionSource<SettingsDialogResult?>();
 
@@ -1513,6 +1514,33 @@ public partial class MainWindow : Window
                 ? ii
                 : 2;
 
+        // Editor for the file browser's remote editing (F4); blank = shell association.
+        var editorBox = new TextBox
+        {
+            Text = currentEditorPath ?? "",
+            Watermark = Localizer.Get("SettingsEditorWatermark"),
+        };
+        var editorBrowse = new Button { Content = Localizer.Get("Browse") };
+        editorBrowse.Click += async (_, _) =>
+        {
+            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = Localizer.Get("DialogPickEditorTitle"),
+                AllowMultiple = false,
+            });
+            if (files.Count > 0 && files[0].TryGetLocalPath() is { } picked)
+                editorBox.Text = picked;
+        };
+        var editorRow = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+            ColumnSpacing = 8,
+        };
+        Grid.SetColumn(editorBox, 0);
+        Grid.SetColumn(editorBrowse, 1);
+        editorRow.Children.Add(editorBox);
+        editorRow.Children.Add(editorBrowse);
+
         var ok = new Button { Content = Localizer.Get("DialogOk"), MinWidth = 80, IsDefault = true };
         var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 80, IsCancel = true };
 
@@ -1533,6 +1561,8 @@ public partial class MainWindow : Window
                     languageBox,
                     new TextBlock { Text = Localizer.Get("Theme"), FontWeight = FontWeight.SemiBold },
                     themeBox,
+                    new TextBlock { Text = Localizer.Get("SettingsEditorLabel"), FontWeight = FontWeight.SemiBold },
+                    editorRow,
                     new TextBlock { Text = Localizer.Get("DialogStorageQuestion"), FontWeight = FontWeight.SemiBold },
                     userRadio,
                     programRadio,
@@ -1594,7 +1624,8 @@ public partial class MainWindow : Window
                 language,
                 theme,
                 checkOnStartup,
-                intervalHours));
+                intervalHours,
+                editorBox.Text?.Trim()));
             dialog.Close();
         };
         cancel.Click += (_, _) => { tcs.TrySetResult(null); dialog.Close(); };

@@ -378,7 +378,8 @@ public partial class TerminalView : UserControl
                 WriteToShell("\u0015cd " + QuoteForRemoteShell(path) + "\r");
                 FocusTerminal();
             },
-            label);
+            label,
+            () => (DataContext as MainWindowViewModel)?.FileBrowserEditorPath);
         FileBrowser.DataContext = vm;
         return vm;
     }

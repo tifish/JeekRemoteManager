@@ -196,7 +196,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public Func<string, string, Task<bool>>? ConfirmAsync { get; set; }
     public Func<string, string, string, Task<string?>>? PromptAsync { get; set; }
     public Func<Task<string?>>? PickKeyFileAsync { get; set; }
-    public Func<StorageLocation, string?, string?, string?, bool, int, Task<SettingsDialogResult?>>? PickSettingsAsync { get; set; }
+    public Func<StorageLocation, string?, string?, string?, bool, int, string?, Task<SettingsDialogResult?>>? PickSettingsAsync { get; set; }
     public Func<string, Task<string?>>? PickFolderAsync { get; set; }
 
     /// <summary>Opens an in-app SSH terminal for the connection (set by the view).
@@ -250,6 +250,10 @@ public partial class MainWindowViewModel : ViewModelBase
             _settings.SaveIfChanged();
         }
     }
+
+    /// <summary>Editor executable for the file browser's remote editing (F4);
+    /// null = system file association. Configured in the Settings dialog.</summary>
+    public string? FileBrowserEditorPath => _settings.Settings.FileBrowserEditorPath;
 
     /// <summary>Persisted AI panel options (provider, per-provider model/effort, checkboxes),
     /// shared across terminal tabs and remembered across runs.</summary>
@@ -2316,9 +2320,20 @@ public partial class MainWindowViewModel : ViewModelBase
             _settings.Settings.Language,
             _settings.Settings.Theme,
             _settings.Settings.CheckUpdateOnStartup,
-            _settings.Settings.UpdateCheckIntervalHours);
+            _settings.Settings.UpdateCheckIntervalHours,
+            _settings.Settings.FileBrowserEditorPath);
         if (result is null)
             return;
+
+        // Apply the remote-editing editor; takes effect on the next F4 open.
+        var editorPath = string.IsNullOrWhiteSpace(result.FileBrowserEditorPath)
+            ? null
+            : result.FileBrowserEditorPath.Trim();
+        if (editorPath != _settings.Settings.FileBrowserEditorPath)
+        {
+            _settings.Settings.FileBrowserEditorPath = editorPath;
+            _settings.SaveIfChanged();
+        }
         // Apply the language choice (no-op if unchanged); takes effect immediately.
         if (result.Language != _settings.Settings.Language)
             ApplyLanguage(result.Language);

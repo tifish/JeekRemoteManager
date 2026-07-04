@@ -161,6 +161,7 @@ public class SettingsService
             TerminalFontSize = roamingSettings.TerminalFontSize,
             AiPanelWidth = roamingSettings.AiPanelWidth,
             FileBrowserPanelHeight = roamingSettings.FileBrowserPanelHeight,
+            FileBrowserEditorPath = roamingSettings.FileBrowserEditorPath,
             AiProvider = roamingSettings.AiProvider,
             AiProviderChoices = roamingSettings.AiProviderChoices,
             AiAutoRun = roamingSettings.AiAutoRun,
@@ -197,6 +198,7 @@ public class SettingsService
             TerminalFontSize = settings.TerminalFontSize,
             AiPanelWidth = settings.AiPanelWidth,
             FileBrowserPanelHeight = settings.FileBrowserPanelHeight,
+            FileBrowserEditorPath = settings.FileBrowserEditorPath,
             AiProvider = settings.AiProvider,
             AiProviderChoices = settings.AiProviderChoices ?? new Dictionary<string, AiProviderChoice>(),
             AiAutoRun = settings.AiAutoRun,
@@ -229,6 +231,7 @@ public class SettingsService
         settings.TerminalFontSize = normalized.TerminalFontSize;
         settings.AiPanelWidth = normalized.AiPanelWidth;
         settings.FileBrowserPanelHeight = normalized.FileBrowserPanelHeight;
+        settings.FileBrowserEditorPath = normalized.FileBrowserEditorPath;
         settings.AiProvider = normalized.AiProvider;
         settings.AiProviderChoices = normalized.AiProviderChoices;
         settings.AiAutoRun = normalized.AiAutoRun;
@@ -271,6 +274,8 @@ public class SettingsService
         settings.FileBrowserPanelHeight = double.IsFinite(settings.FileBrowserPanelHeight)
             ? Math.Clamp(settings.FileBrowserPanelHeight, 120, 1600)
             : 260;
+        if (string.IsNullOrWhiteSpace(settings.FileBrowserEditorPath))
+            settings.FileBrowserEditorPath = null;
         if (string.IsNullOrWhiteSpace(settings.AiProvider))
             settings.AiProvider = null;
         settings.AiProviderChoices ??= new Dictionary<string, AiProviderChoice>();
