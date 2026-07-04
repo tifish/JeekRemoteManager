@@ -76,6 +76,7 @@ public partial class MainWindow : Window
             handledEventsToo: true);
         DataContextChanged += (_, _) => WireUp();
         SizeChanged += OnWindowSizeChanged;
+        CommandBar.LayoutUpdated += (_, _) => UpdateToolbarCompactMode();
         Opened += (_, _) =>
         {
             WireUp();
@@ -240,6 +241,63 @@ public partial class MainWindow : Window
 
     private static double ClampWindowDimension(double value, double minimum) =>
         double.IsFinite(minimum) && minimum > 0 ? Math.Max(value, minimum) : value;
+
+    // Natural (label-included) width the command bar wanted when it last switched
+    // to compact; the bar expands back once the window offers at least that much.
+    private double _toolbarFullWidth;
+
+    /// <summary>
+    /// Toggles the command bar's icon-only mode. The bar's sections are plain
+    /// horizontal StackPanels, which do not shrink — on a too-narrow window they
+    /// would just paint over each other. So after every layout pass, compare the
+    /// buttons' natural width against the available width and hide the text labels
+    /// (the "compact" style class) when they no longer fit.
+    /// </summary>
+    private void UpdateToolbarCompactMode()
+    {
+        var available = CommandBar.Bounds.Width;
+        if (available <= 0)
+            return;
+
+        if (!CommandBar.Classes.Contains("compact"))
+        {
+            var needed = NaturalPanelWidth(ToolbarBrand)
+                         + NaturalPanelWidth(ToolbarNew)
+                         + NaturalPanelWidth(ToolbarTerminal)
+                         + CommandBar.ColumnSpacing * 2;
+            if (needed > available)
+            {
+                _toolbarFullWidth = needed;
+                CommandBar.Classes.Add("compact");
+            }
+        }
+        else if (available >= _toolbarFullWidth)
+        {
+            // Optimistic when the cached width is stale (e.g. buttons appeared or
+            // disappeared meanwhile): labels come back, and if they still do not
+            // fit the next pass re-compacts with a fresh measurement.
+            CommandBar.Classes.Remove("compact");
+        }
+    }
+
+    /// <summary>Sum of the visible children's desired widths plus spacing — the width
+    /// the panel paints at, unlike its DesiredSize which the Grid clamps.</summary>
+    private static double NaturalPanelWidth(StackPanel panel)
+    {
+        double width = 0;
+        var visibleCount = 0;
+        foreach (var child in panel.Children)
+        {
+            if (!child.IsVisible)
+                continue;
+            width += child.DesiredSize.Width;
+            visibleCount++;
+        }
+
+        if (visibleCount > 1)
+            width += panel.Spacing * (visibleCount - 1);
+        return width;
+    }
 
     private Task<TerminalScriptSession?> EnsureSshTerminalAsync(Connection connection, string? sourcePath) =>
         EnsureSshTerminalAsync(connection, sourcePath, forceNew: false);
@@ -671,6 +729,11 @@ public partial class MainWindow : Window
         else if (e.PropertyName == nameof(MainWindowViewModel.SelectedNode)
                  && sender is MainWindowViewModel vm)
             RestorePendingTreeFocus(vm.SelectedNode);
+        else if (e.PropertyName == nameof(MainWindowViewModel.IsTerminalActive))
+            // The terminal buttons just appeared or disappeared, so the cached
+            // full width is stale — drop compact and let the next layout pass
+            // re-measure from scratch.
+            CommandBar.Classes.Remove("compact");
     }
 
     /// <summary>

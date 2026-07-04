@@ -313,6 +313,12 @@
             <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
         </Style>
+        <!-- Compact command bar: when the window is too narrow to fit every button
+             with its label, the code-behind adds the "compact" class and the buttons
+             fall back to icon-only (each still has a tooltip). -->
+        <Style Selector="Grid#CommandBar.compact TextBlock.toolbar-label">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
     </Window.Styles>
 
     <DockPanel Background="{DynamicResource AppBackgroundBrush}">
@@ -322,8 +328,8 @@
                 BorderBrush="{DynamicResource BorderBrushSoft}"
                 BorderThickness="0,0,0,1"
                 Padding="18,10">
-            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="18">
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+            <Grid x:Name="CommandBar" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="18">
+                <StackPanel x:Name="ToolbarBrand" Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                     <Border Width="38" Height="38" Classes="icon-tile">
                         <Image Source="/Assets/icon.png"
                                Width="30"
@@ -333,35 +339,35 @@
                     </Border>
                 </StackPanel>
 
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <StackPanel x:Name="ToolbarNew" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                     <Button Command="{Binding NewFolderCommand}" ToolTip.Tip="{l:Localize NewFolder}" Classes="toolbar">
                         <StackPanel Orientation="Horizontal" Spacing="7">
                             <TextBlock Classes="icon" Text="&#xE8F4;" />
-                            <TextBlock Text="{l:Localize Folder}" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize Folder}" />
                         </StackPanel>
                     </Button>
                     <Button Command="{Binding NewSshCommand}" ToolTip.Tip="{l:Localize NewSsh}" Classes="toolbar">
                         <StackPanel Orientation="Horizontal" Spacing="7">
                             <TextBlock Classes="icon" Text="&#xE756;" />
-                            <TextBlock Text="{l:Localize SSH}" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize SSH}" />
                         </StackPanel>
                     </Button>
                     <Button Command="{Binding NewRdpCommand}" ToolTip.Tip="{l:Localize NewRdp}" Classes="toolbar">
                         <StackPanel Orientation="Horizontal" Spacing="7">
                             <TextBlock Classes="icon" Text="&#xE772;" />
-                            <TextBlock Text="{l:Localize RDP}" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize RDP}" />
                         </StackPanel>
                     </Button>
                 </StackPanel>
 
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <StackPanel x:Name="ToolbarTerminal" Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                     <Button Click="OnDuplicateSessionToolbarClick"
                             ToolTip.Tip="{l:Localize DuplicateSession}"
                             IsVisible="{Binding IsTerminalActive}"
                             Classes="toolbar">
                         <StackPanel Orientation="Horizontal" Spacing="7">
                             <TextBlock Classes="icon" Text="&#xE8C8;" />
-                            <TextBlock Text="{l:Localize DuplicateSession}" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize DuplicateSession}" />
                         </StackPanel>
                     </Button>
                     <Button Click="OnRunScriptTerminalToolbarClick"
@@ -370,7 +376,7 @@
                             Classes="toolbar">
                         <StackPanel Orientation="Horizontal" Spacing="7">
                             <TextBlock Classes="icon" Text="&#xE756;" />
-                            <TextBlock Text="{l:Localize RunScript}" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize RunScript}" />
                         </StackPanel>
                     </Button>
                     <Button Click="OnAiPanelToolbarClick"
@@ -379,7 +385,7 @@
                             Classes="toolbar">
                         <StackPanel Orientation="Horizontal" Spacing="7">
                             <TextBlock Classes="icon" Text="&#xE99A;" />
-                            <TextBlock Text="{l:Localize AiAssistant}" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize AiAssistant}" />
                         </StackPanel>
                     </Button>
                     <Button Click="OnCopyPublicKeyTerminalToolbarClick"
@@ -388,7 +394,7 @@
                             Classes="toolbar">
                         <StackPanel Orientation="Horizontal" Spacing="7">
                             <TextBlock Classes="icon" Text="&#xE8D7;" />
-                            <TextBlock Text="{l:Localize CopyPublicKeyToServer}" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize CopyPublicKeyToServer}" />
                         </StackPanel>
                     </Button>
                     <StackPanel Orientation="Horizontal"
