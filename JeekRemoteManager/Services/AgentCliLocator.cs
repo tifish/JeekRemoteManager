@@ -16,10 +16,11 @@ public static class AgentCliLocator
         foreach (var candidate in EnumerateClaudeCandidates())
         {
             if (File.Exists(candidate))
-                return candidate;
+                return ResolveRealPath(candidate);
         }
 
-        return FindOnPath("claude.exe") ?? FindOnPath("claude.cmd") ?? FindOnPath("claude");
+        var found = FindOnPath("claude.exe") ?? FindOnPath("claude.cmd") ?? FindOnPath("claude");
+        return found is null ? null : ResolveRealPath(found);
     }
 
     /// <summary>
@@ -32,10 +33,49 @@ public static class AgentCliLocator
         foreach (var candidate in EnumerateCodexCandidates())
         {
             if (File.Exists(candidate))
-                return candidate;
+                return ResolveRealPath(candidate);
         }
 
-        return FindOnPath("codex.exe") ?? FindOnPath("codex.cmd") ?? FindOnPath("codex");
+        var found = FindOnPath("codex.exe") ?? FindOnPath("codex.cmd") ?? FindOnPath("codex");
+        return found is null ? null : ResolveRealPath(found);
+    }
+
+    /// <summary>
+    /// Resolves symlinks and directory junctions so the CLI runs from its real install
+    /// directory. The Codex standalone installer exposes codex.exe through a junction
+    /// (%LOCALAPPDATA%\Programs\OpenAI\Codex\bin → ~\.codex\packages\standalone\current\bin),
+    /// and codex.exe locates its Windows sandbox helpers in a codex-resources directory
+    /// relative to its own path — launched through the junction that directory does not
+    /// exist and sandboxed commands fail with "program not found".
+    /// </summary>
+    private static string ResolveRealPath(string path)
+    {
+        try
+        {
+            if (new FileInfo(path).ResolveLinkTarget(returnFinalTarget: true) is { } fileTarget)
+                return fileTarget.FullName;
+
+            // The file itself is not a link; resolve the nearest ancestor directory that is.
+            var suffix = Path.GetFileName(path);
+            var dir = Path.GetDirectoryName(Path.GetFullPath(path));
+            while (!string.IsNullOrEmpty(dir))
+            {
+                if (Directory.Exists(dir)
+                    && new DirectoryInfo(dir).ResolveLinkTarget(returnFinalTarget: true) is { } dirTarget)
+                {
+                    return Path.Combine(dirTarget.FullName, suffix);
+                }
+
+                suffix = Path.Combine(Path.GetFileName(dir), suffix);
+                dir = Path.GetDirectoryName(dir);
+            }
+        }
+        catch
+        {
+            // Resolution is best-effort; fall back to the discovered path.
+        }
+
+        return path;
     }
 
     private static System.Collections.Generic.IEnumerable<string> EnumerateClaudeCandidates()
