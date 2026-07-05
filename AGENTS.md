@@ -7,4 +7,14 @@
 
 ## Debug MCP server
 
-Debug builds host an MCP server at `http://127.0.0.1:8737/mcp` (port overridable via `JRM_MCP_PORT`, loopback only, registered in `.mcp.json` as `jrm-debug`). Use it to inspect and drive the running app while debugging: `describe` for an overview, `get_value`/`set_value`/`invoke` for reflection access to `App`/`Desktop`/`MainWindow`/`MainVm` object paths, plus `list_members`, `visual_tree`, `screenshot`, and `read_logs`. Implementation: `JeekRemoteManager/Services/DebugMcpServer.cs` (compiled out of Release builds).
+When debugging or testing the running app, use the debug MCP server (`jrm-debug` in `.mcp.json`) as the primary method — prefer it over synthetic input, temporary harness code, or guessing from logs alone.
+
+Debug builds host it at `http://127.0.0.1:8737/mcp` (port overridable via `JRM_MCP_PORT`, loopback only). Typical workflow after launching the app:
+
+- `describe` — overview of windows, object-path roots, and the log file.
+- `get_value` / `set_value` / `invoke` — reflection access to `App`/`Desktop`/`MainWindow`/`MainVm` object paths to read state, change it, and execute commands or methods on the UI thread (e.g. `invoke MainVm.OpenSettingsCommand`, `get_value MainVm.Nodes[0].Name`).
+- `list_members` — discover what an object exposes.
+- `visual_tree` / `screenshot` — verify what the UI actually shows.
+- `read_logs` — tail the current log file with an optional filter.
+
+Implementation: `JeekRemoteManager/Services/DebugMcpServer.cs` (compiled out of Release builds).
