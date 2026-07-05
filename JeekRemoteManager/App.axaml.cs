@@ -50,6 +50,11 @@ public partial class App : Application
             ApplyStoredLanguage(settings);
             ApplyStoredTheme(settings);
 
+#if DEBUG
+            DebugMcpServer.Start();
+            desktop.Exit += (_, _) => DebugMcpServer.Stop();
+#endif
+
             // Gate the main window behind the master-password setup/unlock flow.
             _ = UnlockThenStartAsync(desktop, settings, store, launcher, master);
         }
