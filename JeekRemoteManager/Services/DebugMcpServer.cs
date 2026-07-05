@@ -45,6 +45,8 @@ internal static class DebugMcpServer
     {
         Converters = { new JsonStringEnumConverter() },
         PropertyNameCaseInsensitive = true,
+        // MCP clients often send every scalar as a string; accept "42" for int etc.
+        NumberHandling = JsonNumberHandling.AllowReadingFromString,
     };
 
     private static readonly JsonSerializerOptions PrettyOptions = new() { WriteIndented = true };
@@ -1041,6 +1043,12 @@ internal static class DebugMcpServer
                 _ => node.Deserialize<object>(ConvertOptions),
             };
         }
+
+        // Same string-leniency for bools ("true"), which NumberHandling doesn't cover.
+        var boolTarget = Nullable.GetUnderlyingType(targetType) ?? targetType;
+        if (boolTarget == typeof(bool) && node is JsonValue v && v.TryGetValue<string>(out var text)
+            && bool.TryParse(text, out var parsedBool))
+            return parsedBool;
 
         return node.Deserialize(targetType, ConvertOptions);
     }
