@@ -707,7 +707,7 @@
                                             IsVisible="{Binding IsSsh}">
                                         <StackPanel Spacing="12">
                                             <TextBlock Classes="section-title" Text="{l:Localize SshOptions}" />
-                                            <Grid ColumnDefinitions="128,*,Auto" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                                            <Grid ColumnDefinitions="128,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                                                 <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="{l:Localize TerminalType}" />
                                                 <ComboBox Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2"
                                                           HorizontalAlignment="Stretch"
@@ -726,6 +726,13 @@
                                                          PasswordChar="&#x2022;"
                                                          RevealPassword="{Binding #Root.((vm:MainWindowViewModel)DataContext).ShowPassword}"
                                                          PlaceholderText="{l:Localize PassphraseWatermark}" />
+
+                                                <TextBlock Grid.Row="3" Grid.Column="0" Classes="label" Text="{l:Localize LoginCommands}"
+                                                           VerticalAlignment="Top" Margin="0,7,0,0" />
+                                                <TextBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2"
+                                                         Text="{Binding LoginCommands, Mode=TwoWay}"
+                                                         AcceptsReturn="True" TextWrapping="NoWrap" MinHeight="82"
+                                                         PlaceholderText="{l:Localize LoginCommandsWatermark}" />
                                             </Grid>
 
                                         </StackPanel>

@@ -43,6 +43,8 @@ SshOptions	SSH options	SSH 选项
 TerminalType	Terminal type	终端类型
 PrivateKey	Private key	私钥
 PrivateKeyWatermark	optional path to key file	可选，私钥文件路径
+LoginCommands	Login commands	登录后执行
+LoginCommandsWatermark	one command per line, typed automatically after login (e.g. bastion menu choice, sudo -i, cd /srv)	每行一条命令，登录后自动键入（如堡垒机菜单选项、sudo -i、cd /srv）
 Browse	Browse…	浏览…
 RdpOptions	RDP options	RDP 选项
 FullScreen	Full screen	全屏

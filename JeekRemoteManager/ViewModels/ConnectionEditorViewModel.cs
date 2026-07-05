@@ -70,6 +70,9 @@ public partial class ConnectionEditorViewModel : ViewModelBase
 
     private bool _passphraseEdited;
 
+    [ObservableProperty]
+    private string _loginCommands = "";
+
     public ObservableCollection<ConnectionScriptBindingViewModel> ScriptBindings { get; } = new();
 
     // RDP
@@ -138,6 +141,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             Username = c.Username,
             TerminalType = string.IsNullOrWhiteSpace(c.TerminalType) ? Connection.DefaultTerminalType : c.TerminalType,
             PrivateKeyPath = c.PrivateKeyPath,
+            LoginCommands = c.LoginCommands,
             RdpFullScreen = c.RdpFullScreen,
             RdpUseAllMonitors = c.RdpUseAllMonitors,
             RdpWidth = c.RdpWidth,
@@ -200,6 +204,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         c.EncryptedPrivateKeyPassphrase = preserveExistingPassphrase
             ? _originalEncryptedPassphrase
             : PasswordProtector.Encrypt(PrivateKeyPassphrase);
+        c.LoginCommands = LoginCommands;
         c.ScriptBindings = ScriptBindings
             .Select(b => b.ToModel())
             .Where(b => !string.IsNullOrWhiteSpace(b.Name))

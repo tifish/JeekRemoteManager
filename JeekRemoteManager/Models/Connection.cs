@@ -47,6 +47,13 @@ public class Connection
     /// </summary>
     public string EncryptedPrivateKeyPassphrase { get; set; } = "";
 
+    /// <summary>
+    /// Commands typed into the shell automatically after login, one per line.
+    /// Each line is sent only after the remote output has gone quiet, so bastion
+    /// menus, sudo prompts, etc. are on screen before their answer is typed.
+    /// </summary>
+    public string LoginCommands { get; set; } = "";
+
     /// <summary>Per-connection parameter bindings for reusable SSH scripts.</summary>
     public List<ConnectionScriptBinding> ScriptBindings { get; set; } = new();
 

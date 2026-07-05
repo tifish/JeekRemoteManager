@@ -57,6 +57,7 @@ public partial class TerminalView : UserControl
     private IReadOnlyList<string>? _pendingDropUploadFiles;
     private int _dropUploadGeneration;
     private int _connectionGeneration;
+    private long _lastShellDataTicks;
     private bool _connectInProgress;
     private bool _shellClosed;
     private bool _suppressUserInput;
@@ -830,6 +831,7 @@ public partial class TerminalView : UserControl
         _client = client;
         _shell = shell;
         _lastSentWindowSize = (cols, rows);
+        Interlocked.Exchange(ref _lastShellDataTicks, 0);
 
         shell.DataReceived += (_, e) =>
         {
@@ -860,13 +862,77 @@ public partial class TerminalView : UserControl
 
         // Push the current (laid-out) size in case SizeChanged fired before connect.
         SyncWindowSize();
+        StartLoginCommands(connection, generation);
         return true;
+    }
+
+    /// <summary>
+    /// Types the connection's login commands into the shell, one line at a time.
+    /// Each line is sent only after the remote has produced output and then gone
+    /// quiet, so bastion menus, sudo prompts, etc. are on screen before their
+    /// answer is typed. Runs on every shell open, including reconnects and
+    /// duplicated tabs (each shell channel is a fresh login shell).
+    /// </summary>
+    private void StartLoginCommands(Connection connection, int generation)
+    {
+        var lines = connection.LoginCommands
+            .Split('\n')
+            .Select(line => line.TrimEnd('\r'))
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .ToArray();
+        if (lines.Length == 0)
+            return;
+
+        _ = Task.Run(async () =>
+        {
+            // Output older than this tick doesn't count as the response to the
+            // previous command; the PTY echoes every typed line, so waiting for
+            // newer data never stalls on a command with no output of its own.
+            long mustBeAfterTicks = 0;
+            const int quietMs = 500;
+            const int timeoutMs = 30000;
+
+            foreach (var line in lines)
+            {
+                var startedAt = Environment.TickCount64;
+                while (true)
+                {
+                    if (_disposed || _shellClosed || generation != _connectionGeneration)
+                        return;
+
+                    var lastData = Interlocked.Read(ref _lastShellDataTicks);
+                    var now = Environment.TickCount64;
+                    // ">=" not ">": on a low-latency link the echo can land in the
+                    // same TickCount64 tick as the send that provoked it.
+                    if (lastData != 0 && lastData >= mustBeAfterTicks && now - lastData >= quietMs)
+                        break;
+                    // Don't stall forever on a server that prints nothing.
+                    if (now - startedAt >= timeoutMs)
+                        break;
+                    await Task.Delay(50);
+                }
+
+                // Stamp before the write so an echo arriving in the same tick counts.
+                mustBeAfterTicks = Environment.TickCount64;
+                try
+                {
+                    WriteToShell(line + "\r");
+                }
+                catch
+                {
+                    // A closed/broken stream is reported via Closed/ErrorOccurred.
+                    return;
+                }
+            }
+        });
     }
 
     private void OnShellData(byte[] data)
     {
         if (_disposed || data.Length == 0)
             return;
+
+        Interlocked.Exchange(ref _lastShellDataTicks, Environment.TickCount64);
 
         if (_activeZmodemQueue is { } zmodemQueue)
         {
