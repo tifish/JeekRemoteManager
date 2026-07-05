@@ -23,7 +23,12 @@ warn() {
     printf 'WARNING: %s\n' "$1" >&2
 }
 
-SERVER_LINK=${SERVER_LINK:-}
+SERVER_LINK_1=${SERVER_LINK_1:-}
+SERVER_LINK_2=${SERVER_LINK_2:-}
+SERVER_LINK_3=${SERVER_LINK_3:-}
+SERVER_LINK_4=${SERVER_LINK_4:-}
+SERVER_LINK_5=${SERVER_LINK_5:-}
+SERVER_LINK_6=${SERVER_LINK_6:-}
 LISTEN_PORT=${LISTEN_PORT:-}
 ALLOW_EXTERNAL=${ALLOW_EXTERNAL:-false}
 ENABLE_TUN=${ENABLE_TUN:-false}
@@ -86,152 +91,245 @@ else
     listen_address=127.0.0.1
 fi
 
-# Parse the vless:// REALITY share link produced by the server install script.
-case "$SERVER_LINK" in
-    "")
-        fail "SERVER_LINK is required. Paste the vless:// REALITY link from the server."
-        ;;
-    vless://*)
-        ;;
-    *)
-        fail "SERVER_LINK must start with vless:// (a REALITY share link)."
-        ;;
-esac
+# Parse the vless:// REALITY share links produced by the server install script.
+# Up to 6 links are supported. Each filled-in link gets its own mixed inbound;
+# the first link listens on LISTEN_PORT and every following link on the next
+# port (+1 per link, in the order the links are filled in).
+max_server_links=6
 
-link_body=${SERVER_LINK#vless://}
+parse_server_link() {
+    link=$1
+    link_label=$2
 
-# Drop the #name fragment.
-case "$link_body" in
-    *#*)
-        link_body=${link_body%%#*}
-        ;;
-esac
-
-# Split off the ?query part.
-link_query=
-case "$link_body" in
-    *\?*)
-        link_query=${link_body#*\?}
-        link_body=${link_body%%\?*}
-        ;;
-esac
-
-case "$link_body" in
-    *@*)
-        ;;
-    *)
-        fail "SERVER_LINK is missing the UUID. Expected vless://UUID@host:port?...."
-        ;;
-esac
-
-uuid=${link_body%%@*}
-authority=${link_body#*@}
-
-case "$authority" in
-    \[*\]:*)
-        host=${authority#\[}
-        host=${host%%\]*}
-        server_port=${authority##*]:}
-        ;;
-    *:*)
-        host=${authority%:*}
-        server_port=${authority##*:}
-        ;;
-    *)
-        fail "SERVER_LINK is missing the server port. Expected vless://UUID@host:port?...."
-        ;;
-esac
-
-flow=
-security=
-sni=
-fingerprint=chrome
-public_key=
-short_id=
-
-old_ifs=$IFS
-IFS='&'
-for kv in $link_query; do
-    key=${kv%%=*}
-    value=${kv#*=}
-    case "$key" in
-        flow) flow=$value ;;
-        security) security=$value ;;
-        sni) sni=$value ;;
-        fp) fingerprint=$value ;;
-        pbk) public_key=$value ;;
-        sid) short_id=$value ;;
-        type) transport_type=$value ;;
-    esac
-done
-IFS=$old_ifs
-transport_type=${transport_type:-tcp}
-
-case "$uuid" in
-    ""|*[!0-9A-Fa-f-]*)
-        fail "SERVER_LINK has an invalid UUID."
-        ;;
-esac
-
-case "$host" in
-    ""|*[!0-9A-Za-z.:_-]*)
-        fail "SERVER_LINK has an invalid server host."
-        ;;
-esac
-
-case "$server_port" in
-    ""|*[!0-9]*)
-        fail "SERVER_LINK has an invalid server port."
-        ;;
-esac
-
-if [ "$server_port" -lt 1 ] || [ "$server_port" -gt 65535 ]; then
-    fail "SERVER_LINK has an invalid server port."
-fi
-
-if [ "$security" != "reality" ]; then
-    fail "SERVER_LINK is not a REALITY link (security='$security'). This script only supports REALITY."
-fi
-
-case "$sni" in
-    ""|*[!A-Za-z0-9.-]*|.*|*.|-*|*-|*..*)
-        fail "SERVER_LINK has an invalid SNI."
-        ;;
-esac
-
-case "$public_key" in
-    ""|*[!0-9A-Za-z_-]*)
-        fail "SERVER_LINK is missing a valid public key (pbk)."
-        ;;
-esac
-
-case "$short_id" in
-    *[!0-9A-Fa-f]*)
-        fail "SERVER_LINK has an invalid short_id (sid)."
-        ;;
-esac
-
-case "$transport_type" in
-    ""|tcp)
-        transport_type=tcp
-        ;;
-    *)
-        fail "SERVER_LINK uses unsupported transport '$transport_type'. Only tcp REALITY is supported."
-        ;;
-esac
-
-case "$fingerprint" in
-    ""|*[!0-9A-Za-z]*)
-        fingerprint=chrome
-        ;;
-esac
-
-if [ -n "$flow" ]; then
-    case "$flow" in
-        *[!A-Za-z-]*)
-            fail "SERVER_LINK has an invalid flow value."
+    case "$link" in
+        vless://*)
+            ;;
+        *)
+            fail "$link_label must start with vless:// (a REALITY share link)."
             ;;
     esac
+
+    link_body=${link#vless://}
+
+    # Drop the #name fragment.
+    case "$link_body" in
+        *#*)
+            link_body=${link_body%%#*}
+            ;;
+    esac
+
+    # Split off the ?query part.
+    link_query=
+    case "$link_body" in
+        *\?*)
+            link_query=${link_body#*\?}
+            link_body=${link_body%%\?*}
+            ;;
+    esac
+
+    case "$link_body" in
+        *@*)
+            ;;
+        *)
+            fail "$link_label is missing the UUID. Expected vless://UUID@host:port?...."
+            ;;
+    esac
+
+    uuid=${link_body%%@*}
+    authority=${link_body#*@}
+
+    case "$authority" in
+        \[*\]:*)
+            host=${authority#\[}
+            host=${host%%\]*}
+            server_port=${authority##*]:}
+            ;;
+        *:*)
+            host=${authority%:*}
+            server_port=${authority##*:}
+            ;;
+        *)
+            fail "$link_label is missing the server port. Expected vless://UUID@host:port?...."
+            ;;
+    esac
+
+    flow=
+    security=
+    sni=
+    fingerprint=chrome
+    public_key=
+    short_id=
+    transport_type=
+
+    old_ifs=$IFS
+    IFS='&'
+    for kv in $link_query; do
+        key=${kv%%=*}
+        value=${kv#*=}
+        case "$key" in
+            flow) flow=$value ;;
+            security) security=$value ;;
+            sni) sni=$value ;;
+            fp) fingerprint=$value ;;
+            pbk) public_key=$value ;;
+            sid) short_id=$value ;;
+            type) transport_type=$value ;;
+        esac
+    done
+    IFS=$old_ifs
+    transport_type=${transport_type:-tcp}
+
+    case "$uuid" in
+        ""|*[!0-9A-Fa-f-]*)
+            fail "$link_label has an invalid UUID."
+            ;;
+    esac
+
+    case "$host" in
+        ""|*[!0-9A-Za-z.:_-]*)
+            fail "$link_label has an invalid server host."
+            ;;
+    esac
+
+    case "$server_port" in
+        ""|*[!0-9]*)
+            fail "$link_label has an invalid server port."
+            ;;
+    esac
+
+    if [ "$server_port" -lt 1 ] || [ "$server_port" -gt 65535 ]; then
+        fail "$link_label has an invalid server port."
+    fi
+
+    if [ "$security" != "reality" ]; then
+        fail "$link_label is not a REALITY link (security='$security'). This script only supports REALITY."
+    fi
+
+    case "$sni" in
+        ""|*[!A-Za-z0-9.-]*|.*|*.|-*|*-|*..*)
+            fail "$link_label has an invalid SNI."
+            ;;
+    esac
+
+    case "$public_key" in
+        ""|*[!0-9A-Za-z_-]*)
+            fail "$link_label is missing a valid public key (pbk)."
+            ;;
+    esac
+
+    case "$short_id" in
+        *[!0-9A-Fa-f]*)
+            fail "$link_label has an invalid short_id (sid)."
+            ;;
+    esac
+
+    case "$transport_type" in
+        ""|tcp)
+            transport_type=tcp
+            ;;
+        *)
+            fail "$link_label uses unsupported transport '$transport_type'. Only tcp REALITY is supported."
+            ;;
+    esac
+
+    case "$fingerprint" in
+        ""|*[!0-9A-Za-z]*)
+            fingerprint=chrome
+            ;;
+    esac
+
+    if [ -n "$flow" ]; then
+        case "$flow" in
+            *[!A-Za-z-]*)
+                fail "$link_label has an invalid flow value."
+                ;;
+        esac
+    fi
+}
+
+server_link_count=0
+mixed_inbounds=
+proxy_outbounds=
+inbound_rules=
+server_summary=
+
+link_index=0
+while [ "$link_index" -lt "$max_server_links" ]; do
+    link_index=$((link_index + 1))
+    eval "server_link=\$SERVER_LINK_$link_index"
+    if [ -z "$server_link" ]; then
+        continue
+    fi
+
+    server_link_count=$((server_link_count + 1))
+    listen_port=$((LISTEN_PORT + server_link_count - 1))
+    if [ "$listen_port" -gt 65535 ]; then
+        fail "Listen port $listen_port for SERVER_LINK_$link_index is above 65535. Use a lower LISTEN_PORT."
+    fi
+
+    parse_server_link "$server_link" "SERVER_LINK_$link_index"
+
+    flow_line=
+    if [ -n "$flow" ]; then
+        flow_line="      \"flow\": \"$flow\",
+"
+    fi
+
+    if [ -n "$mixed_inbounds" ]; then
+        mixed_inbounds="$mixed_inbounds,
+"
+    fi
+    mixed_inbounds="$mixed_inbounds    {
+      \"type\": \"mixed\",
+      \"tag\": \"mixed-in-$server_link_count\",
+      \"listen\": \"$listen_address\",
+      \"listen_port\": $listen_port
+    }"
+
+    proxy_outbounds="$proxy_outbounds    {
+      \"type\": \"vless\",
+      \"tag\": \"proxy-$server_link_count\",
+      \"server\": \"$host\",
+      \"server_port\": $server_port,
+      \"uuid\": \"$uuid\",
+${flow_line}      \"tls\": {
+        \"enabled\": true,
+        \"server_name\": \"$sni\",
+        \"utls\": {
+          \"enabled\": true,
+          \"fingerprint\": \"$fingerprint\"
+        },
+        \"reality\": {
+          \"enabled\": true,
+          \"public_key\": \"$public_key\",
+          \"short_id\": \"$short_id\"
+        }
+      }
+    },
+"
+
+    if [ -n "$inbound_rules" ]; then
+        inbound_rules="$inbound_rules,
+"
+    fi
+    inbound_rules="$inbound_rules      {
+        \"inbound\": \"mixed-in-$server_link_count\",
+        \"outbound\": \"proxy-$server_link_count\"
+      }"
+
+    server_summary="${server_summary}Server $server_link_count (SERVER_LINK_$link_index): $host:$server_port (SNI $sni) <- mixed $listen_address:$listen_port
+"
+done
+
+if [ "$server_link_count" -eq 0 ]; then
+    fail "At least one server link is required. Paste the vless:// REALITY link from the server into SERVER_LINK_1."
+fi
+
+last_listen_port=$((LISTEN_PORT + server_link_count - 1))
+if [ "$server_link_count" -gt 1 ]; then
+    listen_port_text="${LISTEN_PORT}-${last_listen_port}"
+else
+    listen_port_text=$LISTEN_PORT
 fi
 
 # When TUN is enabled, keep the SSH session that runs this script reachable so
@@ -516,12 +614,6 @@ if [ "$ENABLE_TUN" = "true" ]; then
 "
 fi
 
-flow_line=
-if [ -n "$flow" ]; then
-    flow_line="      \"flow\": \"$flow\",
-"
-fi
-
 route_rules=
 if [ "$ENABLE_TUN" = "true" ] && [ -n "$ssh_client_ip" ]; then
     case "$ssh_client_ip" in
@@ -548,35 +640,10 @@ cat > "$tmp_config" <<EOF_CONFIG
     "timestamp": true
   },
   "inbounds": [
-${tun_inbound}    {
-      "type": "mixed",
-      "tag": "mixed-in",
-      "listen": "$listen_address",
-      "listen_port": $LISTEN_PORT
-    }
+${tun_inbound}${mixed_inbounds}
   ],
   "outbounds": [
-    {
-      "type": "vless",
-      "tag": "proxy",
-      "server": "$host",
-      "server_port": $server_port,
-      "uuid": "$uuid",
-${flow_line}      "tls": {
-        "enabled": true,
-        "server_name": "$sni",
-        "utls": {
-          "enabled": true,
-          "fingerprint": "$fingerprint"
-        },
-        "reality": {
-          "enabled": true,
-          "public_key": "$public_key",
-          "short_id": "$short_id"
-        }
-      }
-    },
-    {
+${proxy_outbounds}    {
       "type": "direct",
       "tag": "direct"
     }
@@ -587,9 +654,10 @@ ${flow_line}      "tls": {
 ${route_rules}      {
         "ip_is_private": true,
         "outbound": "direct"
-      }
+      },
+${inbound_rules}
     ],
-    "final": "proxy"
+    "final": "proxy-1"
   }
 }
 EOF_CONFIG
@@ -624,20 +692,22 @@ fi
 printf '\n'
 printf 'sing-box reality client install/update completed.\n'
 printf 'Repeated runs update sing-box and replace the config with the current parameters.\n'
-printf 'Server: %s:%s\n' "$host" "$server_port"
-printf 'SNI: %s\n' "$sni"
-printf 'Mixed (SOCKS/HTTP) proxy: %s:%s\n' "$listen_address" "$LISTEN_PORT"
+printf '%s' "$server_summary"
 printf 'Allow external connections: %s\n' "$ALLOW_EXTERNAL"
 printf 'TUN: %s\n' "$ENABLE_TUN"
 printf 'Update sing-box: %s\n' "$UPDATE_SING_BOX"
 
+if [ "$server_link_count" -gt 1 ]; then
+    printf 'Traffic that does not come from a mixed inbound (for example TUN) uses server 1.\n'
+fi
+
 if [ "$ALLOW_EXTERNAL" = "true" ]; then
     printf '\n'
-    printf 'The mixed inbound listens on all interfaces with no authentication.\n'
-    printf 'Restrict %s/tcp with a firewall so it is not left open to the public network.\n' "$LISTEN_PORT"
+    printf 'The mixed inbounds listen on all interfaces with no authentication.\n'
+    printf 'Restrict %s/tcp with a firewall so they are not left open to the public network.\n' "$listen_port_text"
 else
     printf '\n'
-    printf 'The mixed inbound listens on 127.0.0.1 only and is not reachable from other hosts.\n'
+    printf 'The mixed inbounds listen on 127.0.0.1 only and are not reachable from other hosts.\n'
     printf 'Set ALLOW_EXTERNAL to true to accept connections from the local network.\n'
 fi
 
