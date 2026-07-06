@@ -318,7 +318,7 @@ internal static class DebugMcpServer
             new JsonObject
             {
                 ["path"] = Prop("string", "Object path to write; must end with a property, field, or list index."),
-                ["value"] = new JsonObject { ["description"] = "New value as JSON; deserialized to the member's type (enums accept their string names)." },
+                ["value"] = new JsonObject { ["description"] = "New value as JSON; deserialized to the member's type (enums accept their string names). {\"$path\": \"MainVm.Nodes[0]\"} passes the live object at that path instead of deserializing." },
             },
             ["path", "value"]),
         Tool("invoke",
@@ -329,7 +329,7 @@ internal static class DebugMcpServer
                 ["args"] = new JsonObject
                 {
                     ["type"] = "array",
-                    ["description"] = "Arguments as JSON values. For a command this is the single command parameter; for a method the argument list.",
+                    ["description"] = "Arguments as JSON values. For a command this is the single command parameter; for a method the argument list. {\"$path\": \"MainVm.Nodes[0]\"} passes the live object at that path instead of deserializing.",
                 },
                 ["depth"] = Prop("integer", "Levels of the return value to expand, 0-5 (default 1)."),
             },
@@ -1030,6 +1030,56 @@ internal static class DebugMcpServer
             if (targetType.IsValueType && Nullable.GetUnderlyingType(targetType) == null)
                 throw new InvalidOperationException($"Cannot assign null to {TypeName(targetType)}.");
             return null;
+        }
+
+        // The bridge sometimes delivers structured values as JSON strings (same
+        // client quirk as the string-encoded numbers/bools below); unwrap a
+        // string-encoded $path reference so it hits the branch that follows.
+        if (node is JsonValue stringValue
+            && stringValue.TryGetValue<string>(out var rawText)
+            && rawText.TrimStart().StartsWith('{')
+            && rawText.Contains("$path", StringComparison.Ordinal))
+        {
+            try
+            {
+                if (JsonNode.Parse(rawText) is JsonObject parsed
+                    && parsed.Count == 1
+                    && parsed.ContainsKey("$path"))
+                {
+                    node = parsed;
+                }
+            }
+            catch (JsonException)
+            {
+                // Not actually JSON — leave the string value untouched.
+            }
+        }
+
+        // {"$path": "MainVm.Nodes[0]"} passes the live object at that path, so
+        // setters and methods can receive real instances from the object graph
+        // (references cannot round-trip through JSON). Runs on the UI thread,
+        // like every ConvertJson call site.
+        if (node is JsonObject pathReference
+            && pathReference.Count == 1
+            && pathReference.TryGetPropertyValue("$path", out var pathNode)
+            && pathNode is JsonValue pathValue
+            && pathValue.TryGetValue<string>(out var referencePath))
+        {
+            var resolved = ResolvePath(referencePath);
+            if (resolved is null)
+            {
+                if (targetType.IsValueType && Nullable.GetUnderlyingType(targetType) == null)
+                    throw new InvalidOperationException($"Cannot assign null to {TypeName(targetType)}.");
+                return null;
+            }
+
+            if (!targetType.IsInstanceOfType(resolved))
+            {
+                throw new InvalidOperationException(
+                    $"'$path' resolved to {TypeName(resolved.GetType())}, which is not assignable to {TypeName(targetType)}.");
+            }
+
+            return resolved;
         }
 
         if (targetType == typeof(object))
