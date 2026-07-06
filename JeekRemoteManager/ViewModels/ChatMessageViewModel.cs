@@ -30,6 +30,23 @@ public sealed partial class ChatMessageViewModel : ObservableObject
 
     public bool IsTool => Role == ChatRole.Tool;
 
+    public bool HasText => !string.IsNullOrEmpty(Text);
+
+    public bool ShowsThinking => IsAssistant && IsThinking && !HasText;
+
+    public bool ShowsAssistantMarkdown => IsAssistant && !ShowsThinking;
+
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasText))]
+    [NotifyPropertyChangedFor(nameof(ShowsThinking))]
+    [NotifyPropertyChangedFor(nameof(ShowsAssistantMarkdown))]
     private string _text;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowsThinking))]
+    [NotifyPropertyChangedFor(nameof(ShowsAssistantMarkdown))]
+    private bool _isThinking;
+
+    [ObservableProperty]
+    private string _thinkingText = "Thinking...";
 }

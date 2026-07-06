@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using JeekRemoteManager.Models;
 using Renci.SshNet;
@@ -137,7 +138,8 @@ public static class SshConnectionFactory
     {
         var keys = new List<IPrivateKeySource>();
         AddAgentKeys(keys, () => new SshAgent().RequestIdentities());   // OpenSSH agent
-        AddAgentKeys(keys, () => new Pageant().RequestIdentities());    // PuTTY Pageant
+        if (IsPageantRunning())
+            AddAgentKeys(keys, () => new Pageant().RequestIdentities());    // PuTTY Pageant
         return keys;
     }
 
@@ -160,4 +162,10 @@ public static class SshConnectionFactory
             // and let the other methods carry the connection.
         }
     }
+
+    private static bool IsPageantRunning() =>
+        OperatingSystem.IsWindows() && FindWindow("Pageant", "Pageant") != IntPtr.Zero;
+
+    [DllImport("user32.dll", EntryPoint = "FindWindowA", CharSet = CharSet.Ansi, ExactSpelling = true)]
+    private static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
 }

@@ -58,6 +58,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     private readonly Func<string?> _takeSelection;
     private readonly Func<string, CancellationToken, Task<string>>? _runCaptured;
     private readonly CancellationTokenSource _cts = new();
+    private readonly DispatcherTimer _thinkingTimer = new() { Interval = TimeSpan.FromMilliseconds(450) };
 
     private readonly Dictionary<AgentProvider, (IReadOnlyList<AgentOption> Models, IReadOnlyList<AgentOption> Efforts)> _fetchedCatalogs = new();
     private readonly Action<AiPanelOptions>? _persistOptions;
@@ -86,6 +87,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         _takeSelection = takeSelection;
         _runCaptured = runCaptured;
         _persistOptions = persistOptions;
+        _thinkingTimer.Tick += OnThinkingTimerTick;
         Providers = new ObservableCollection<AgentProvider>(providers);
 
         var provider = providers.FirstOrDefault(p => p.Label == initialOptions?.Provider && p.IsAvailable)
@@ -505,6 +507,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         InputText = "";
         IsBusy = true;
         StatusText = L("AiWaiting");
+        StartThinking();
 
         await SendToSessionAsync(payload);
     }
@@ -521,6 +524,8 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
                     IsAvailable = false;
                     IsBusy = false;
                     StatusText = SelectedProvider.UnavailableMessage;
+                    StopThinking();
+                    _pendingAssistant = null;
                     return;
                 }
 
@@ -561,6 +566,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         var session = _session;
         _session = null;
         _sessionStarted = false;
+        StopThinking();
         _pendingAssistant = null;
         if (session is not null)
         {
@@ -575,7 +581,12 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     private void OnTextDelta(string delta) => Dispatcher.UIThread.Post(() =>
     {
         if (_pendingAssistant is not null)
+        {
+            if (delta.Length > 0)
+                StopThinking();
+
             _pendingAssistant.Text += delta;
+        }
     });
 
     private void OnTurnCompleted(AgentTurnResult result) => Dispatcher.UIThread.Post(() =>
@@ -583,6 +594,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         var answer = "";
         if (_pendingAssistant is not null)
         {
+            StopThinking();
             if (string.IsNullOrEmpty(_pendingAssistant.Text))
                 _pendingAssistant.Text = result.Text;
             answer = _pendingAssistant.Text;
@@ -635,6 +647,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         _pendingAssistant = new ChatMessageViewModel(ChatRole.Assistant, "");
         Messages.Add(_pendingAssistant);
         StatusText = L("AiWaiting");
+        StartThinking();
 
         await SendToSessionAsync($"Output of `{command}`:\n```\n{output}\n```");
     }
@@ -645,6 +658,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         if (IsBusy)
         {
             Messages.Add(new ChatMessageViewModel(ChatRole.System, message));
+            StopThinking();
             _pendingAssistant = null;
             IsBusy = false;
             StatusText = L("AiTurnError");
@@ -653,10 +667,48 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
     private void OnExited() => Dispatcher.UIThread.Post(() =>
     {
+        StopThinking();
+        _pendingAssistant = null;
         IsBusy = false;
         _sessionStarted = false;
         StatusText = L("AiSessionEnded");
     });
+
+    private int _thinkingStep;
+
+    private void StartThinking()
+    {
+        _thinkingStep = 2;
+        if (_pendingAssistant is not null)
+        {
+            _pendingAssistant.ThinkingText = BuildThinkingText(_thinkingStep);
+            _pendingAssistant.IsThinking = true;
+        }
+
+        _thinkingTimer.Stop();
+        _thinkingTimer.Start();
+    }
+
+    private void StopThinking()
+    {
+        _thinkingTimer.Stop();
+        if (_pendingAssistant is not null)
+            _pendingAssistant.IsThinking = false;
+    }
+
+    private void OnThinkingTimerTick(object? sender, EventArgs e)
+    {
+        if (_pendingAssistant is null || !_pendingAssistant.ShowsThinking)
+        {
+            _thinkingTimer.Stop();
+            return;
+        }
+
+        _thinkingStep = (_thinkingStep + 1) % 3;
+        _pendingAssistant.ThinkingText = BuildThinkingText(_thinkingStep);
+    }
+
+    private static string BuildThinkingText(int step) => L("AiThinking") + new string('.', step + 1);
 
     private static string? ExtractFirstCommand(string text)
     {
@@ -679,6 +731,8 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _cts.Cancel();
+        StopThinking();
+        _thinkingTimer.Tick -= OnThinkingTimerTick;
         var session = _session;
         _session = null;
         if (session is not null)

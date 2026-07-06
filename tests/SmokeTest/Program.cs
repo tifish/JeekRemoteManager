@@ -80,6 +80,26 @@ try
     Check(sshLaunchRejected, "ConnectionLauncher rejects SSH connections");
     Check(ConnectionType.Ssh.ToDisplayName() == "SSH" && ConnectionType.Rdp.ToDisplayName() == "RDP",
           "Connection types display as uppercase acronyms");
+    var missingPageantIgnored = false;
+    try
+    {
+        _ = SshConnectionFactory.Build(new Connection
+        {
+            Type = ConnectionType.Ssh,
+            Host = "example.com",
+            Username = "root",
+            PrivateKeyPath = Path.Combine(root, "missing-key"),
+        });
+        missingPageantIgnored = true;
+    }
+    catch (InvalidOperationException ex)
+    {
+        missingPageantIgnored =
+            ex.Message.StartsWith("No usable credential", StringComparison.Ordinal)
+            && !ex.ToString().Contains("Pageant Window not found", StringComparison.Ordinal);
+    }
+    Check(missingPageantIgnored,
+          "Missing Pageant is ignored during SSH credential discovery");
 
     // --- Terminal clipboard text ---
     var softWrapTerminal = new TerminalControlModel(new TerminalOptions { Cols = 10, Rows = 5, Scrollback = 10 });
@@ -126,6 +146,17 @@ try
           "AI new conversation clears the transcript and keeps the draft");
     Check(activeAiSession.DisposeCount == 1,
           "AI new conversation disposes the active session");
+
+    var thinkingMessage = new ChatMessageViewModel(ChatRole.Assistant, "")
+    {
+        IsThinking = true,
+        ThinkingText = "Thinking...",
+    };
+    Check(thinkingMessage.ShowsThinking && !thinkingMessage.ShowsAssistantMarkdown,
+          "AI assistant empty response shows the thinking placeholder");
+    thinkingMessage.Text = "answer";
+    Check(!thinkingMessage.ShowsThinking && thinkingMessage.ShowsAssistantMarkdown,
+          "AI thinking placeholder hides after response text appears");
 
     // --- Portability: a connection file alone (no vault, no cache) suffices ---
     // Carry just the EncryptedPassword to a fresh "machine" and decrypt with the

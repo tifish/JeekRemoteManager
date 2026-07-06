@@ -208,8 +208,13 @@
                                                      TextWrapping="Wrap"
                                                      IsVisible="{Binding !IsAssistant}"
                                                      Foreground="{DynamicResource TextPrimaryBrush}" />
+                                <TextBlock Text="{Binding ThinkingText}"
+                                           TextWrapping="Wrap"
+                                           IsVisible="{Binding ShowsThinking}"
+                                           FontStyle="Italic"
+                                           Foreground="#8B949E" />
                                 <md:MarkdownScrollViewer Markdown="{Binding Text}"
-                                                         IsVisible="{Binding IsAssistant}"
+                                                         IsVisible="{Binding ShowsAssistantMarkdown}"
                                                          SelectionEnabled="True">
                                     <md:MarkdownScrollViewer.Styles>
                                         <StyleInclude Source="avares://JeekRemoteManager/Views/GithubDarkMarkdown.axaml" />

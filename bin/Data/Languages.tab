@@ -224,6 +224,7 @@ AiRunInTerminal	Run	执行
 AiNotAvailable	Claude CLI not found. Install it (claude.ai/install) and reopen this panel.	未检测到 Claude CLI，请先安装（claude.ai/install）后重新打开此面板。
 AiNotAvailableCodex	Codex CLI not found. Install it (developers.openai.com/codex/cli) and reopen this panel.	未检测到 Codex CLI，请先安装（developers.openai.com/codex/cli）后重新打开此面板。
 AiWaiting	Thinking…	思考中…
+AiThinking	Thinking	思考中
 AiTurnCost	{0} tokens · ${1:F4}	{0} tokens · ${1:F4}
 AiTurnTokens	{0} tokens	{0} tokens
 AiTurnError	The assistant hit an error.	助手执行出错。
