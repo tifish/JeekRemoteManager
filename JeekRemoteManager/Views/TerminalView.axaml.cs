@@ -641,7 +641,7 @@ public partial class TerminalView : UserControl
                 return "[not connected]";
 
             Dispatcher.UIThread.Post(() =>
-                FeedLine($"\r\n\u001b[35m[AI]\u001b[0m $ {command}"));
+                FeedLine($"\r\n\u001b[35m[AI]\u001b[0m $ {AiCommandTerminalText.NormalizeForTerminalEcho(command)}"));
 
             var result = await ExecuteRemotePayloadAsync(command, cancellationToken);
             await FeedCompletionLineAndRefreshPromptAsync(

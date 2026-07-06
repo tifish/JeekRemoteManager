@@ -98,6 +98,8 @@ try
     Check(TerminalClipboardText.BuildSelectedTextWithoutSoftWraps(hardWrapTerminal.Terminal)
           == hardWrapTerminal.Terminal.Selection.GetSelectionText(),
           "Terminal clipboard text preserves hard line breaks");
+    Check(AiCommandTerminalText.NormalizeForTerminalEcho("echo one\necho two\r\necho three\r") == "echo one\r\necho two\r\necho three",
+          "AI command echo uses terminal CRLF line breaks");
 
     // --- AI panel conversation reset ---
     var aiVm = new AgentChatViewModel(
