@@ -4,8 +4,8 @@ using System.Text.Json.Serialization;
 namespace JeekRemoteManager.Models;
 
 /// <summary>
-/// A single remote connection (SSH or RDP). Each instance is persisted to its
-/// own file on disk by <see cref="Services.ConnectionStore"/>.
+/// A single remote connection (SSH, RDP, or a local WSL distribution). Each
+/// instance is persisted to its own file on disk by <see cref="Services.ConnectionStore"/>.
 /// </summary>
 public class Connection
 {
@@ -57,6 +57,14 @@ public class Connection
     /// <summary>Per-connection parameter bindings for reusable SSH scripts.</summary>
     public List<ConnectionScriptBinding> ScriptBindings { get; set; } = new();
 
+    // --- WSL specific ---
+
+    /// <summary>WSL distribution name (wsl -d). Empty means the default distribution.</summary>
+    public string WslDistro { get; set; } = "";
+
+    /// <summary>Initial directory inside the distribution (wsl --cd). Empty = the user's home.</summary>
+    public string WslStartDirectory { get; set; } = "";
+
     // --- RDP specific ---
 
     /// <summary>When true, mstsc launches full screen; otherwise windowed.</summary>
@@ -93,4 +101,14 @@ public class Connection
 
     [JsonIgnore]
     public bool IsRdp => Type == ConnectionType.Rdp;
+
+    [JsonIgnore]
+    public bool IsWsl => Type == ConnectionType.Wsl;
+
+    /// <summary>What this connection points at, for status/log messages:
+    /// the host for SSH/RDP, the distribution (or "WSL") for WSL.</summary>
+    [JsonIgnore]
+    public string TargetLabel => IsWsl
+        ? (string.IsNullOrWhiteSpace(WslDistro) ? "WSL" : WslDistro.Trim())
+        : Host;
 }

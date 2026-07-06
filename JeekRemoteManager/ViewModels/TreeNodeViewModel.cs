@@ -71,5 +71,7 @@ public partial class TreeNodeViewModel : ViewModelBase
             ? "\U0001F4C1"                               // folder
             : Connection?.Type == ConnectionType.Rdp
                 ? "\U0001F5A5"                           // desktop computer (RDP)
-                : "⌨";                              // keyboard (SSH)
+                : Connection?.Type == ConnectionType.Wsl
+                    ? "\U0001F427"                       // penguin (WSL)
+                    : "⌨";                          // keyboard (SSH)
 }

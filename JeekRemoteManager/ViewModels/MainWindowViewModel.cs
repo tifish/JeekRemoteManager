@@ -118,6 +118,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsRegularContext))]
     [NotifyPropertyChangedFor(nameof(IsRegularConnectionContext))]
     [NotifyPropertyChangedFor(nameof(IsSshConnectionContext))]
+    [NotifyPropertyChangedFor(nameof(IsShellConnectionContext))]
     private TreeNodeViewModel? _selectedNode;
 
     /// <summary>True when the next SelectedNode assignment is a right-click target
@@ -138,6 +139,11 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public bool IsSshConnectionContext =>
         SelectedNode is { IsConnection: true, Connection: { Type: ConnectionType.Ssh } };
+
+    /// <summary>True when the selection is a connection whose terminal can run
+    /// scripts (SSH or WSL).</summary>
+    public bool IsShellConnectionContext =>
+        SelectedNode is { IsConnection: true, Connection: { Type: ConnectionType.Ssh or ConnectionType.Wsl } };
 
     /// <summary>Human-readable description of where New/Paste will create items.</summary>
     public string TargetDescription
@@ -419,7 +425,13 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         // Computed properties don't represent user edits.
         if (e.PropertyName is nameof(ConnectionEditorViewModel.IsSsh)
-                          or nameof(ConnectionEditorViewModel.IsRdp))
+                          or nameof(ConnectionEditorViewModel.IsRdp)
+                          or nameof(ConnectionEditorViewModel.IsWsl)
+                          or nameof(ConnectionEditorViewModel.HasHostPort)
+                          or nameof(ConnectionEditorViewModel.HasPassword)
+                          or nameof(ConnectionEditorViewModel.SupportsScripts)
+                          or nameof(ConnectionEditorViewModel.ShowNoWslDistrosHint)
+                          or nameof(ConnectionEditorViewModel.AvailableWslDistros))
         {
             RunSelectedScriptBindingCommand.NotifyCanExecuteChanged();
             return;
@@ -1107,6 +1119,9 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private void NewRdp() => CreateConnection(ConnectionType.Rdp);
 
+    [RelayCommand]
+    private void NewWsl() => CreateConnection(ConnectionType.Wsl);
+
     private void CreateConnection(ConnectionType type)
     {
         try
@@ -1114,9 +1129,18 @@ public partial class MainWindowViewModel : ViewModelBase
             var connection = new Connection
             {
                 Type = type,
-                Name = type == ConnectionType.Rdp ? L("NewRdpDefault") : L("NewSshDefault"),
+                Name = type switch
+                {
+                    ConnectionType.Rdp => L("NewRdpDefault"),
+                    ConnectionType.Wsl => L("NewWslDefault"),
+                    _ => L("NewSshDefault"),
+                },
                 Port = Connection.DefaultPort(type),
             };
+
+            // Preselect the default distro so a new WSL connection works unedited.
+            if (type == ConnectionType.Wsl)
+                connection.WslDistro = WslDistroService.ListDistros().FirstOrDefault(d => d.IsDefault)?.Name ?? "";
 
             var path = _store.Save(connection, TargetFolder());
             ReloadTree(path);
@@ -1230,13 +1254,13 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            // SSH always renders in the in-app terminal (SSH.NET) with programmatic
-            // auth — there is no external-client path for it.
-            if (connection.Type == ConnectionType.Ssh)
+            // SSH and WSL always render in the in-app terminal (SSH.NET shell or
+            // ConPTY) — there is no external-client path for them.
+            if (connection.Type is ConnectionType.Ssh or ConnectionType.Wsl)
             {
                 if (OpenSshTerminalAsync is null)
-                    throw new InvalidOperationException("The in-app SSH terminal is not available.");
-                StatusMessage = L("StatusLaunching", connection.Type.ToDisplayName(), connection.Host);
+                    throw new InvalidOperationException("The in-app terminal is not available.");
+                StatusMessage = L("StatusLaunching", connection.Type.ToDisplayName(), connection.TargetLabel);
                 await OpenSshTerminalAsync(connection, node.FullPath);
                 RecordRecent(node.FullPath);
                 return;
@@ -1610,7 +1634,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         FlushPendingAutoSave();
 
-        if (node.Connection.Type != ConnectionType.Ssh)
+        if (node.Connection.Type is not (ConnectionType.Ssh or ConnectionType.Wsl))
         {
             StatusMessage = L("StatusScriptOnlySsh");
             return Array.Empty<ScriptSuiteChoiceViewModel>();
@@ -1740,8 +1764,7 @@ public partial class MainWindowViewModel : ViewModelBase
         StatusMessage = L("StatusScriptSuiteOpened", suite.Name);
     }
 
-    private bool CanRunSelectedScriptBinding() =>
-        SelectedNode is { IsConnection: true, Connection: { Type: ConnectionType.Ssh } };
+    private bool CanRunSelectedScriptBinding() => IsShellConnectionContext;
 
     private IReadOnlyList<ScriptSuiteChoiceViewModel> BuildScriptSuiteChoices(Connection connection) =>
         SortScriptSuiteChoices(ScriptSuites, connection.ScriptBindings);

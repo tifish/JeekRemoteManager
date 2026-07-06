@@ -69,7 +69,8 @@
             <TextBlock Grid.Column="3" Classes="hint" Text="{l:Localize FileBrowserModified}"
                        Margin="12,0,0,0" />
             <TextBlock Grid.Column="4" Classes="hint" Text="{l:Localize FileBrowserPermissionsColumn}"
-                       Margin="12,0,0,0" />
+                       Margin="12,0,0,0"
+                       IsVisible="{Binding SupportsPermissions}" />
         </Grid>
 
         <!-- File list -->
@@ -97,7 +98,8 @@
                     <MenuItem Header="{l:Localize Rename}"
                               Command="{Binding RenameSelectedCommand}" />
                     <MenuItem Header="{l:Localize FileBrowserPermissions}"
-                              Command="{Binding ChangePermissionsCommand}" />
+                              Command="{Binding ChangePermissionsCommand}"
+                              IsVisible="{Binding SupportsPermissions}" />
                     <MenuItem Header="{l:Localize Delete}"
                               Command="{Binding DeleteSelectedCommand}" />
                     <Separator />

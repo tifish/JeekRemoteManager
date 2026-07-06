@@ -467,7 +467,9 @@ public partial class MainWindow : Window
         menu.Items.Add(runScript);
         menu.Items.Add(aiPanel);
         menu.Items.Add(fileBrowser);
-        menu.Items.Add(copyKey);
+        // Public keys are an SSH concept; a local WSL shell has no server to copy to.
+        if (!connection.IsWsl)
+            menu.Items.Add(copyKey);
         menu.Items.Add(new Separator());
         menu.Items.Add(close);
         return menu;

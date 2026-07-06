@@ -23,11 +23,12 @@ namespace JeekRemoteManager.Views;
 
 /// <summary>
 /// Hosts a native Avalonia terminal control (SvcSystems.UI.Terminal) driven by an
-/// SSH.NET interactive shell. Self-contained and reusable: a window can host one for
+/// <see cref="ITerminalChannel"/> — an SSH.NET interactive shell or a local WSL
+/// (ConPTY) process. Self-contained and reusable: a window can host one for
 /// the Phase A spike, and the right-pane tab UI (Phase B) hosts one per tab.
-/// Authentication is programmatic via <see cref="SshConnectionFactory"/> (the user
-/// never types a password); live bytes, keyboard, title, and window size are wired
-/// to the SSH channel.
+/// SSH authentication is programmatic via <see cref="SshConnectionFactory"/> (the
+/// user never types a password); live bytes, keyboard, title, and window size are
+/// wired to the channel.
 /// </summary>
 public partial class TerminalView : UserControl
 {
@@ -42,7 +43,7 @@ public partial class TerminalView : UserControl
     private Connection? _connection;
     private SharedSshClient? _client;
     private SharedSshClient? _pendingSharedClient;
-    private ShellStream? _shell;
+    private ITerminalChannel? _channel;
     private string? _sourcePath;
     private TaskCompletionSource<bool>? _connected;
     private readonly SemaphoreSlim _scriptLock = new(1, 1);
@@ -109,9 +110,9 @@ public partial class TerminalView : UserControl
     public bool CanReuseSession => !_disposed && (_connectInProgress || IsConnected);
 
     private bool IsConnected =>
-        _shell is not null
+        _channel is not null
         && !_shellClosed
-        && _client?.IsConnected == true;
+        && (_connection?.IsWsl == true || _client?.IsConnected == true);
 
     public TerminalView()
     {
@@ -200,8 +201,8 @@ public partial class TerminalView : UserControl
 
         try
         {
-            if (_disposed || _shellClosed || _shell is null)
-                throw new InvalidOperationException("SSH terminal is not connected.");
+            if (_disposed || _shellClosed || _channel is null)
+                throw new InvalidOperationException("Terminal is not connected.");
 
             var startedAt = DateTimeOffset.Now;
             var payload = RemoteScriptLauncher.BuildPayload(suite, scriptFile, binding);
@@ -235,7 +236,7 @@ public partial class TerminalView : UserControl
 
         try
         {
-            if (_disposed || _shellClosed || _shell is null)
+            if (_disposed || _shellClosed || _channel is null)
                 throw new InvalidOperationException("SSH terminal is not connected.");
 
             var payload = PublicKeyInstaller.BuildTerminalPayload(publicKeyText);
@@ -365,14 +366,33 @@ public partial class TerminalView : UserControl
     private FileBrowserViewModel CreateFileBrowserViewModel()
     {
         var connection = _connection!;
-        var host = connection.Host.Trim();
-        var label = string.IsNullOrWhiteSpace(connection.Username)
-            ? host
-            : $"{connection.Username.Trim()}@{host}";
-        var vm = new FileBrowserViewModel(
+        string label;
+        Func<IFileSystemSession> createSession;
+        if (connection.IsWsl)
+        {
+            // An empty distro means the default one; resolve the actual name here
+            // because the UNC share is addressed by name.
+            var distro = connection.WslDistro.Trim();
+            if (distro.Length == 0)
+                distro = WslDistroService.ListDistros().FirstOrDefault(d => d.IsDefault)?.Name ?? "";
+            label = distro.Length == 0 ? "WSL" : distro;
+            var user = connection.Username.Trim();
+            var resolvedDistro = distro;
+            createSession = () => new WslFileSession(resolvedDistro, user);
+        }
+        else
+        {
+            var host = connection.Host.Trim();
+            label = string.IsNullOrWhiteSpace(connection.Username)
+                ? host
+                : $"{connection.Username.Trim()}@{host}";
             // Each SFTP session dials its own connection; build fresh auth methods
             // per dial (they hold per-attempt state).
-            () => SshConnectionFactory.Build(connection),
+            createSession = () => new SftpSession(() => SshConnectionFactory.Build(connection));
+        }
+
+        var vm = new FileBrowserViewModel(
+            createSession,
             path =>
             {
                 // Ctrl+U discards anything half-typed at the prompt so `cd` runs clean.
@@ -571,13 +591,16 @@ public partial class TerminalView : UserControl
     private string BuildAssistantSystemPrompt()
     {
         var name = _connection?.Name;
-        var host = _connection?.Host;
+        var host = _connection?.IsWsl == true
+            ? $"local WSL distribution {_connection.TargetLabel}"
+            : _connection?.Host;
         var target = !string.IsNullOrWhiteSpace(name)
             ? $"\"{name}\" ({host})"
             : host ?? "a remote server";
 
+        var terminalKind = _connection?.IsWsl == true ? "WSL" : "SSH";
         return
-            $"You are an assistant embedded inside JeekRemoteManager, operating an interactive SSH " +
+            $"You are an assistant embedded inside JeekRemoteManager, operating an interactive {terminalKind} " +
             $"terminal connected to {target}. " +
             "To run a shell command on the server, output exactly ONE ```bash fenced code block " +
             "containing a single non-interactive command (or short script). It will be executed on the " +
@@ -614,7 +637,7 @@ public partial class TerminalView : UserControl
         await _scriptLock.WaitAsync(cancellationToken);
         try
         {
-            if (_disposed || _shellClosed || _shell is null)
+            if (_disposed || _shellClosed || _channel is null)
                 return "[not connected]";
 
             Dispatcher.UIThread.Post(() =>
@@ -708,13 +731,19 @@ public partial class TerminalView : UserControl
         // A font size change resizes the character cell, so the column/row geometry
         // changes too. Push the new size to the remote after the control re-measures
         // rather than relying on it raising SizeChanged for a font-only change.
-        // SyncWindowSize no-ops while _shell is null (e.g. the pre-Start call).
+        // SyncWindowSize no-ops while _channel is null (e.g. the pre-Start call).
         Dispatcher.UIThread.Post(SyncWindowSize, DispatcherPriority.Background);
     }
 
     private async Task ConnectAsync(int generation)
     {
         var connection = _connection!;
+        if (connection.IsWsl)
+        {
+            await ConnectWslAsync(connection, generation);
+            return;
+        }
+
         var host = connection.Host.Trim();
         var port = connection.Port > 0 ? connection.Port : 22;
         _connectInProgress = true;
@@ -775,6 +804,50 @@ public partial class TerminalView : UserControl
     }
 
     /// <summary>
+    /// Starts the connection's WSL distribution under a ConPTY and wires it to the
+    /// terminal. Local counterpart of the SSH dial: same failure reporting, same
+    /// reconnect hint. The first start of a stopped WSL VM can take several seconds.
+    /// </summary>
+    private async Task ConnectWslAsync(Connection connection, int generation)
+    {
+        _connectInProgress = true;
+        var distro = connection.WslDistro.Trim();
+        FeedLine($"Starting WSL ({(distro.Length == 0 ? "default distribution" : distro)}) ...");
+
+        var cols = (uint)Math.Max(20, _model.Terminal.Cols);
+        var rows = (uint)Math.Max(5, _model.Terminal.Rows);
+
+        ConPtySession session;
+        try
+        {
+            if (!WslDistroService.IsWslInstalled)
+                throw new InvalidOperationException("WSL is not installed on this machine.");
+
+            var args = WslDistroService.BuildLaunchArguments(connection);
+            session = await Task.Run(() =>
+                ConPtySession.Start(WslDistroService.WslExePath, args, (int)cols, (int)rows));
+        }
+        catch (Exception ex)
+        {
+            _connected?.TrySetException(new InvalidOperationException($"Connection failed: {ex.Message}", ex));
+            _connectInProgress = false;
+            FeedLine($"\u001b[31m[connect failed] {ex.Message}\u001b[0m");
+            FeedReconnectHint();
+            return;
+        }
+
+        if (_disposed || generation != _connectionGeneration)
+        {
+            _connected?.TrySetCanceled();
+            _connectInProgress = false;
+            session.Dispose();
+            return;
+        }
+
+        AttachChannel(new WslTerminalChannel(session), generation, (cols, rows));
+    }
+
+    /// <summary>
     /// Opens the shell channel on <paramref name="client"/> and wires it to the
     /// terminal. Returns false without taking ownership when the channel cannot be
     /// opened or the attempt is stale — the caller still owns releasing the client.
@@ -829,27 +902,38 @@ public partial class TerminalView : UserControl
         }
 
         _client = client;
-        _shell = shell;
-        _lastSentWindowSize = (cols, rows);
+        AttachChannel(new SshTerminalChannel(shell), generation, (cols, rows));
+        return true;
+    }
+
+    /// <summary>
+    /// Wires an opened channel (SSH shell or WSL ConPTY) to the terminal:
+    /// data/error/close events, connection completion, window-size sync, and the
+    /// connection's login commands.
+    /// </summary>
+    private void AttachChannel(ITerminalChannel channel, int generation, (uint Cols, uint Rows) initialSize)
+    {
+        _channel = channel;
+        _lastSentWindowSize = initialSize;
         Interlocked.Exchange(ref _lastShellDataTicks, 0);
 
-        shell.DataReceived += (_, e) =>
+        channel.DataReceived += data =>
         {
             if (generation == _connectionGeneration)
-                OnShellData(e.Data);
+                OnShellData(data);
         };
-        shell.ErrorOccurred += (_, e) => Dispatcher.UIThread.Post(() =>
+        channel.ErrorMessage += message => Dispatcher.UIThread.Post(() =>
         {
             if (generation == _connectionGeneration && !_disposed)
-                FeedLine($"\r\n\u001b[31m[error] {e.Exception.Message}\u001b[0m");
+                FeedLine($"\r\n\u001b[31m[error] {message}\u001b[0m");
         });
-        shell.Closed += (_, _) =>
+        channel.Closed += () =>
         {
             if (generation != _connectionGeneration || _disposed)
                 return;
 
             _shellClosed = true;
-            _activePayloadMonitor?.Fail(new InvalidOperationException("SSH terminal closed during script execution."));
+            _activePayloadMonitor?.Fail(new InvalidOperationException("Terminal closed during script execution."));
             Dispatcher.UIThread.Post(() =>
             {
                 FeedLine("\r\n\u001b[33m[session closed]\u001b[0m");
@@ -862,8 +946,7 @@ public partial class TerminalView : UserControl
 
         // Push the current (laid-out) size in case SizeChanged fired before connect.
         SyncWindowSize();
-        StartLoginCommands(connection, generation);
-        return true;
+        StartLoginCommands(_connection!, generation);
     }
 
     /// <summary>
@@ -948,6 +1031,14 @@ public partial class TerminalView : UserControl
             return;
         }
 
+        // ConPTY re-synthesizes VT output, so ZMODEM frames can never arrive
+        // intact — skip detection entirely on channels that aren't 8-bit clean.
+        if (_channel?.SupportsBinaryTransfers != true)
+        {
+            FeedBytes(data);
+            return;
+        }
+
         ZmodemDetection? detection;
         byte[] displayData;
         lock (_zmodemDetectionGate)
@@ -968,8 +1059,8 @@ public partial class TerminalView : UserControl
 
     private void SendToShell(ReadOnlyMemory<byte> data)
     {
-        var shell = _shell;
-        if (shell is null || _disposed || data.IsEmpty)
+        var channel = _channel;
+        if (channel is null || _disposed || data.IsEmpty)
             return;
         try
         {
@@ -1056,6 +1147,15 @@ public partial class TerminalView : UserControl
 
         FocusTerminal();
 
+        if (_connection?.IsWsl == true)
+        {
+            // No ZMODEM over ConPTY, and the Windows filesystem is mounted inside
+            // the distro anyway: dropping pastes the /mnt/... path instead.
+            WriteToShell(string.Join(" ",
+                paths.Select(p => QuoteForRemoteShell(WslDistroService.ToWslPath(p)))));
+            return;
+        }
+
         if (e.KeyModifiers.HasFlag(KeyModifiers.Shift))
         {
             WriteToShell(string.Join(" ", paths.Select(QuoteForRemoteShell)));
@@ -1137,9 +1237,8 @@ public partial class TerminalView : UserControl
         string payload,
         CancellationToken cancellationToken)
     {
-        var shell = _shell;
-        if (shell is null || _disposed || _shellClosed)
-            throw new InvalidOperationException("SSH terminal is not connected.");
+        if (_channel is null || _disposed || _shellClosed)
+            throw new InvalidOperationException("Terminal is not connected.");
 
         var interactivePayload = InteractiveShellPayloadRunner.Build(payload);
         var monitor = new InteractiveShellPayloadMonitor(interactivePayload);
@@ -1170,14 +1269,13 @@ public partial class TerminalView : UserControl
 
     private void WriteToShell(byte[] data)
     {
-        var shell = _shell;
-        if (shell is null || _disposed || _shellClosed || data.Length == 0)
+        var channel = _channel;
+        if (channel is null || _disposed || _shellClosed || data.Length == 0)
             return;
 
         lock (_shellWriteGate)
         {
-            shell.Write(data, 0, data.Length);
-            shell.Flush();
+            channel.Write(data);
         }
     }
 
@@ -1501,8 +1599,8 @@ public partial class TerminalView : UserControl
 
     private void SendWindowSizeNow()
     {
-        var shell = _shell;
-        if (shell is null || _disposed || _shellClosed)
+        var channel = _channel;
+        if (channel is null || _disposed || _shellClosed)
             return;
         try
         {
@@ -1511,7 +1609,7 @@ public partial class TerminalView : UserControl
             if (_lastSentWindowSize == (cols, rows))
                 return;
             _lastSentWindowSize = (cols, rows);
-            shell.ChangeWindowSize(cols, rows, 0, 0);
+            channel.Resize(cols, rows);
         }
         catch
         {
@@ -1529,11 +1627,11 @@ public partial class TerminalView : UserControl
 
     private void DisposeTransport()
     {
-        try { _shell?.Dispose(); } catch { /* ignore */ }
+        try { _channel?.Dispose(); } catch { /* ignore */ }
         // Drop our reference only: another tab duplicated from this one may still
         // be using the connection; the last holder tears it down.
         _client?.Release();
-        _shell = null;
+        _channel = null;
         _client = null;
     }
 

@@ -6,6 +6,7 @@ public static class ConnectionTypeDisplay
     {
         ConnectionType.Ssh => "SSH",
         ConnectionType.Rdp => "RDP",
+        ConnectionType.Wsl => "WSL",
         _ => type.ToString().ToUpperInvariant(),
     };
 
@@ -13,6 +14,7 @@ public static class ConnectionTypeDisplay
         displayName?.Trim().ToUpperInvariant() switch
         {
             "RDP" => ConnectionType.Rdp,
+            "WSL" => ConnectionType.Wsl,
             _ => ConnectionType.Ssh,
         };
 }

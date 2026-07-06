@@ -352,6 +352,12 @@
                             <TextBlock Classes="toolbar-label" Text="{l:Localize SSH}" />
                         </StackPanel>
                     </Button>
+                    <Button Command="{Binding NewWslCommand}" ToolTip.Tip="{l:Localize NewWsl}" Classes="toolbar">
+                        <StackPanel Orientation="Horizontal" Spacing="7">
+                            <TextBlock Classes="icon" Text="&#xE756;" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize WSL}" />
+                        </StackPanel>
+                    </Button>
                     <Button Command="{Binding NewRdpCommand}" ToolTip.Tip="{l:Localize NewRdp}" Classes="toolbar">
                         <StackPanel Orientation="Horizontal" Spacing="7">
                             <TextBlock Classes="icon" Text="&#xE772;" />
@@ -502,10 +508,11 @@
                                               IsVisible="{Binding IsRegularConnectionContext}" />
                                     <MenuItem Header="{l:Localize RunScript}"
                                               Click="OnRunScriptMenuClick"
-                                              IsVisible="{Binding IsSshConnectionContext}" />
+                                              IsVisible="{Binding IsShellConnectionContext}" />
                                     <Separator />
                                     <MenuItem Header="{l:Localize NewFolder}" Command="{Binding NewFolderCommand}" />
                                     <MenuItem Header="{l:Localize NewSsh}" Command="{Binding NewSshCommand}" />
+                                    <MenuItem Header="{l:Localize NewWsl}" Command="{Binding NewWslCommand}" />
                                     <MenuItem Header="{l:Localize NewRdp}" Command="{Binding NewRdpCommand}" />
                                     <Separator />
                                     <MenuItem Header="{l:Localize Copy}" Command="{Binding CopyCommand}" InputGesture="Ctrl+C" />
@@ -544,7 +551,7 @@
                                 <MenuItem Header="{l:Localize Edit}" Click="OnEditMenuClick"
                                           IsVisible="{Binding IsRegularConnectionContext}" />
                                 <MenuItem Header="{l:Localize RunScript}" Click="OnRunScriptMenuClick"
-                                          IsVisible="{Binding IsSshConnectionContext}" />
+                                          IsVisible="{Binding IsShellConnectionContext}" />
                                 <MenuItem Header="{l:Localize RevealInTree}" Command="{Binding RevealInTreeCommand}"
                                           IsVisible="{Binding IsRecentConnectionContext}" />
                                 <MenuItem Header="{l:Localize RemoveFromRecent}" Command="{Binding RemoveFromRecentCommand}"
@@ -555,6 +562,8 @@
                                 <MenuItem Header="{l:Localize NewFolder}" Command="{Binding NewFolderCommand}"
                                           IsVisible="{Binding IsRegularContext}" />
                                 <MenuItem Header="{l:Localize NewSsh}" Command="{Binding NewSshCommand}"
+                                          IsVisible="{Binding IsRegularContext}" />
+                                <MenuItem Header="{l:Localize NewWsl}" Command="{Binding NewWslCommand}"
                                           IsVisible="{Binding IsRegularContext}" />
                                 <MenuItem Header="{l:Localize NewRdp}" Command="{Binding NewRdpCommand}"
                                           IsVisible="{Binding IsRegularContext}" />
@@ -638,7 +647,7 @@
                                                 </StackPanel>
                                             </Button>
                                             <Button Click="OnRunScriptMenuClick"
-                                                    IsVisible="{Binding IsSsh}"
+                                                    IsVisible="{Binding SupportsScripts}"
                                                     Classes="toolbar">
                                                 <StackPanel Orientation="Horizontal" Spacing="7">
                                                     <TextBlock Classes="icon" Text="&#xE756;" />
@@ -652,7 +661,7 @@
                                         <StackPanel Spacing="12">
                                             <TextBlock Classes="section-title" Text="{l:Localize Connection}" />
 
-                                            <Grid ColumnDefinitions="128,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10">
+                                            <Grid ColumnDefinitions="128,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10">
                                                 <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="{l:Localize Type}" />
                                                 <ComboBox Grid.Row="0" Grid.Column="1" HorizontalAlignment="Stretch"
                                                           ItemsSource="{Binding AvailableTypeDisplays}"
@@ -661,14 +670,28 @@
                                                 <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="{l:Localize Name}" />
                                                 <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Name, Mode=TwoWay}" />
 
-                                                <TextBlock Grid.Row="2" Grid.Column="0" Classes="label" Text="{l:Localize Host}" />
-                                                <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,86,96" ColumnSpacing="10">
+                                                <TextBlock Grid.Row="2" Grid.Column="0" Classes="label" Text="{l:Localize Host}"
+                                                           IsVisible="{Binding HasHostPort}" />
+                                                <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,86,96" ColumnSpacing="10"
+                                                      IsVisible="{Binding HasHostPort}">
                                                     <TextBox Grid.Column="0" Text="{Binding Host, Mode=TwoWay}"
                                                              PlaceholderText="{l:Localize HostWatermark}" />
                                                     <TextBlock Grid.Column="1" Classes="label" Text="{l:Localize Port}"
                                                                HorizontalAlignment="Right" />
                                                     <TextBox Grid.Column="2" Text="{Binding Port, Mode=TwoWay}" />
                                                 </Grid>
+
+                                                <TextBlock Grid.Row="3" Grid.Column="0" Classes="label" Text="{l:Localize WslDistro}"
+                                                           IsVisible="{Binding IsWsl}" />
+                                                <StackPanel Grid.Row="3" Grid.Column="1" Spacing="6"
+                                                            IsVisible="{Binding IsWsl}">
+                                                    <ComboBox HorizontalAlignment="Stretch"
+                                                              ItemsSource="{Binding AvailableWslDistros}"
+                                                              SelectedItem="{Binding WslDistro, Mode=TwoWay}" />
+                                                    <TextBlock Classes="hint" Text="{l:Localize WslNoDistros}"
+                                                               Foreground="{DynamicResource DangerBrush}"
+                                                               IsVisible="{Binding ShowNoWslDistrosHint}" />
+                                                </StackPanel>
                                             </Grid>
                                         </StackPanel>
                                     </Border>
@@ -681,8 +704,10 @@
                                                 <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="{l:Localize Username}" />
                                                 <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Username, Mode=TwoWay}" />
 
-                                                <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="{l:Localize Password}" />
-                                                <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                                <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="{l:Localize Password}"
+                                                           IsVisible="{Binding HasPassword}" />
+                                                <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="10"
+                                                      IsVisible="{Binding HasPassword}">
                                                     <TextBox Grid.Column="0" x:Name="PasswordBox"
                                                              Text="{Binding Password, Mode=TwoWay}"
                                                              PasswordChar="&#x2022;"
@@ -735,6 +760,27 @@
                                                          PlaceholderText="{l:Localize LoginCommandsWatermark}" />
                                             </Grid>
 
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- WSL-specific -->
+                                    <Border Classes="form-card"
+                                            IsVisible="{Binding IsWsl}">
+                                        <StackPanel Spacing="12">
+                                            <TextBlock Classes="section-title" Text="{l:Localize WslOptions}" />
+                                            <Grid ColumnDefinitions="128,*" RowDefinitions="Auto,Auto" RowSpacing="10">
+                                                <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="{l:Localize WslStartDirectory}" />
+                                                <TextBox Grid.Row="0" Grid.Column="1"
+                                                         Text="{Binding WslStartDirectory, Mode=TwoWay}"
+                                                         PlaceholderText="{l:Localize WslStartDirectoryWatermark}" />
+
+                                                <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="{l:Localize LoginCommands}"
+                                                           VerticalAlignment="Top" Margin="0,7,0,0" />
+                                                <TextBox Grid.Row="1" Grid.Column="1"
+                                                         Text="{Binding LoginCommands, Mode=TwoWay}"
+                                                         AcceptsReturn="True" TextWrapping="NoWrap" MinHeight="82"
+                                                         PlaceholderText="{l:Localize LoginCommandsWatermark}" />
+                                            </Grid>
                                         </StackPanel>
                                     </Border>
 

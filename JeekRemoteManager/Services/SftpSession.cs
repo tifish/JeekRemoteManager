@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -16,7 +18,7 @@ namespace JeekRemoteManager.Services;
 /// (idle timeout, server restart) is redialed once per operation before the
 /// failure is surfaced.
 /// </summary>
-public sealed class SftpSession : IDisposable
+public sealed class SftpSession : IFileSystemSession
 {
     private readonly Func<ConnectionInfo> _buildConnectionInfo;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -30,13 +32,15 @@ public sealed class SftpSession : IDisposable
     /// (an SFTP session always starts there).</summary>
     public string? HomePath { get; private set; }
 
+    public bool SupportsPermissions => true;
+
     /// <summary>
     /// Runs <paramref name="operation"/> against the connected client on a worker
     /// thread. Operations are serialized: SSH.NET's SftpClient is not safe for
     /// concurrent use on one channel, and serializing also keeps a slow transfer
     /// from interleaving with directory listings (transfers get their own session).
     /// </summary>
-    public async Task<T> RunAsync<T>(Func<SftpClient, T> operation, CancellationToken cancellationToken = default)
+    public async Task<T> RunAsync<T>(Func<IFileSystemOps, T> operation, CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -48,19 +52,80 @@ public sealed class SftpSession : IDisposable
                 var client = EnsureConnected();
                 try
                 {
-                    return operation(client);
+                    return operation(new SftpOps(client));
                 }
                 catch (Exception ex) when (ShouldRetryAfterReconnect(ex, client))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     DisposeClient();
-                    return operation(EnsureConnected());
+                    return operation(new SftpOps(EnsureConnected()));
                 }
             }, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             _gate.Release();
+        }
+    }
+
+    /// <summary>The browser's operations mapped 1:1 onto SSH.NET's SftpClient.</summary>
+    private sealed class SftpOps : IFileSystemOps
+    {
+        private readonly SftpClient _client;
+
+        public SftpOps(SftpClient client) => _client = client;
+
+        public string WorkingDirectory => _client.WorkingDirectory;
+
+        public IEnumerable<FileSystemEntry> ListDirectory(string path)
+        {
+            foreach (var file in _client.ListDirectory(path))
+            {
+                if (file.Name is "." or "..")
+                    continue;
+                yield return new FileSystemEntry(
+                    file.Name,
+                    file.FullName,
+                    file.IsDirectory,
+                    file.IsSymbolicLink,
+                    file.Length,
+                    file.LastWriteTime,
+                    BuildPermissionString(file));
+            }
+        }
+
+        public void CreateDirectory(string path) => _client.CreateDirectory(path);
+
+        public void RenameFile(string oldPath, string newPath) => _client.RenameFile(oldPath, newPath);
+
+        public void DeleteFile(string path) => _client.DeleteFile(path);
+
+        public void DeleteDirectory(string path) => _client.DeleteDirectory(path);
+
+        public bool Exists(string path) => _client.Exists(path);
+
+        public void ChangePermissions(string path, short mode) => _client.ChangePermissions(path, mode);
+
+        public void UploadFile(Stream source, string remotePath, Action<ulong> progress) =>
+            _client.UploadFile(source, remotePath, canOverride: true, progress);
+
+        public void DownloadFile(string remotePath, Stream destination, Action<ulong> progress) =>
+            _client.DownloadFile(remotePath, destination, progress);
+
+        private static string BuildPermissionString(Renci.SshNet.Sftp.ISftpFile file)
+        {
+            Span<char> chars = stackalloc char[10];
+            chars[0] = file.IsSymbolicLink ? 'l' : file.IsDirectory ? 'd' : '-';
+            chars[1] = file.OwnerCanRead ? 'r' : '-';
+            chars[2] = file.OwnerCanWrite ? 'w' : '-';
+            chars[3] = file.OwnerCanExecute ? 'x' : '-';
+            chars[4] = file.GroupCanRead ? 'r' : '-';
+            chars[5] = file.GroupCanWrite ? 'w' : '-';
+            chars[6] = file.GroupCanExecute ? 'x' : '-';
+            chars[7] = file.OthersCanRead ? 'r' : '-';
+            chars[8] = file.OthersCanWrite ? 'w' : '-';
+            chars[9] = file.OthersCanExecute ? 'x' : '-';
+            return new string(chars);
         }
     }
 

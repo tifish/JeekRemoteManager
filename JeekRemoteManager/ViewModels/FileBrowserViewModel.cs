@@ -15,7 +15,6 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Jeek.Avalonia.Localization;
 using JeekRemoteManager.Services;
-using Renci.SshNet;
 using Renci.SshNet.Common;
 
 namespace JeekRemoteManager.ViewModels;
@@ -100,14 +99,15 @@ public sealed partial class FileTransferItem : ObservableObject
 }
 
 /// <summary>
-/// Drives the SFTP file browser panel that lives under a terminal tab. Uses two
-/// lazily-dialed <see cref="SftpSession"/>s: one for browsing (listings, rename,
-/// delete — always responsive) and one for transfers (uploads/downloads run
-/// sequentially on it without blocking the listing).
+/// Drives the file browser panel that lives under a terminal tab. Uses two
+/// lazily-connected <see cref="IFileSystemSession"/>s (SFTP for SSH tabs,
+/// \\wsl.localhost for WSL tabs): one for browsing (listings, rename, delete —
+/// always responsive) and one for transfers (uploads/downloads run sequentially
+/// on it without blocking the listing).
 /// </summary>
 public partial class FileBrowserViewModel : ViewModelBase, IDisposable
 {
-    private readonly Func<ConnectionInfo> _buildConnectionInfo;
+    private readonly Func<IFileSystemSession> _createSession;
     private readonly Action<string> _openDirectoryInTerminal;
     private readonly SemaphoreSlim _transferPump = new(1, 1);
     // Listings of directories visited this session: navigation into a cached
@@ -116,26 +116,34 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     // Live remote-edit sessions, keyed by remote path: local file watched, saves
     // auto-uploaded. Torn down with the panel.
     private readonly Dictionary<string, RemoteEditSession> _editSessions = new();
-    private SftpSession? _browseSession;
-    private SftpSession? _transferSession;
+    private IFileSystemSession? _browseSession;
+    private IFileSystemSession? _transferSession;
     private bool _loadedOnce;
     private bool _disposed;
 
     private const int ListingCacheCapacity = 256;
 
     public FileBrowserViewModel(
-        Func<ConnectionInfo> buildConnectionInfo,
+        Func<IFileSystemSession> createSession,
         Action<string> openDirectoryInTerminal,
         string connectionLabel,
         Func<string?>? getEditorPath = null)
     {
-        _buildConnectionInfo = buildConnectionInfo;
+        _createSession = createSession;
         _openDirectoryInTerminal = openDirectoryInTerminal;
         _getEditorPath = getEditorPath;
         ConnectionLabel = connectionLabel;
+        // Sessions connect lazily, so creating the browse one up front is free and
+        // lets the view know immediately whether to show permission features.
+        _browseSession = createSession();
+        SupportsPermissions = _browseSession.SupportsPermissions;
     }
 
     private readonly Func<string?>? _getEditorPath;
+
+    /// <summary>False when the backend cannot read/change Unix permissions (WSL over
+    /// UNC): the permissions column and chmod command are hidden.</summary>
+    public bool SupportsPermissions { get; }
 
     /// <summary>"user@host" of the direct SFTP target, shown in the path bar so it
     /// stays obvious the panel does not follow jumps made inside the terminal.</summary>
@@ -291,11 +299,11 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
 
         try
         {
-            var session = _browseSession ??= new SftpSession(_buildConnectionInfo);
-            var (target, entries) = await session.RunAsync(client =>
+            var session = _browseSession ??= _createSession();
+            var (target, entries) = await session.RunAsync(ops =>
             {
-                var dir = path ?? session.HomePath ?? client.WorkingDirectory;
-                return (dir, ListEntries(client, dir));
+                var dir = path ?? session.HomePath ?? ops.WorkingDirectory;
+                return (dir, ListEntries(ops, dir));
             });
 
             if (_disposed)
@@ -396,8 +404,8 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     {
         try
         {
-            var session = _browseSession ??= new SftpSession(_buildConnectionInfo);
-            var entries = await session.RunAsync(client => ListEntries(client, path));
+            var session = _browseSession ??= _createSession();
+            var entries = await session.RunAsync(ops => ListEntries(ops, path));
             if (_disposed)
                 return;
 
@@ -440,14 +448,11 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         return true;
     }
 
-    private static List<RemoteFileEntry> ListEntries(SftpClient client, string path)
+    private static List<RemoteFileEntry> ListEntries(IFileSystemOps ops, string path)
     {
         var entries = new List<RemoteFileEntry>();
-        foreach (var file in client.ListDirectory(path))
+        foreach (var file in ops.ListDirectory(path))
         {
-            if (file.Name is "." or "..")
-                continue;
-
             entries.Add(new RemoteFileEntry(
                 file.Name,
                 file.FullName,
@@ -455,7 +460,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
                 file.IsSymbolicLink,
                 file.Length,
                 file.LastWriteTime,
-                BuildPermissionString(file)));
+                file.Permissions));
         }
 
         entries.Sort((a, b) =>
@@ -464,22 +469,6 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
             return dirs != 0 ? dirs : string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
         });
         return entries;
-    }
-
-    private static string BuildPermissionString(Renci.SshNet.Sftp.ISftpFile file)
-    {
-        Span<char> chars = stackalloc char[10];
-        chars[0] = file.IsSymbolicLink ? 'l' : file.IsDirectory ? 'd' : '-';
-        chars[1] = file.OwnerCanRead ? 'r' : '-';
-        chars[2] = file.OwnerCanWrite ? 'w' : '-';
-        chars[3] = file.OwnerCanExecute ? 'x' : '-';
-        chars[4] = file.GroupCanRead ? 'r' : '-';
-        chars[5] = file.GroupCanWrite ? 'w' : '-';
-        chars[6] = file.GroupCanExecute ? 'x' : '-';
-        chars[7] = file.OthersCanRead ? 'r' : '-';
-        chars[8] = file.OthersCanWrite ? 'w' : '-';
-        chars[9] = file.OthersCanExecute ? 'x' : '-';
-        return new string(chars);
     }
 
     // ---- File operations ----
@@ -501,7 +490,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         }
 
         await RunBrowseOperationAsync(
-            client => client.CreateDirectory(CombineRemote(CurrentPath, name)),
+            ops => ops.CreateDirectory(CombineRemote(CurrentPath, name)),
             refocusList: hadFocus,
             selectName: name);
     }
@@ -539,7 +528,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
 
         var target = CombineRemote(ParentOf(entry.FullPath), name);
         await RunBrowseOperationAsync(
-            client => client.RenameFile(entry.FullPath, target),
+            ops => ops.RenameFile(entry.FullPath, target),
             refocusList: true,
             selectName: name);
     }
@@ -567,10 +556,10 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
             return;
         }
 
-        await RunBrowseOperationAsync(client =>
+        await RunBrowseOperationAsync(ops =>
         {
             foreach (var entry in selection)
-                DeleteRecursive(client, entry.FullPath, entry.IsDirectory, entry.IsSymlink);
+                DeleteRecursive(ops, entry.FullPath, entry.IsDirectory, entry.IsSymlink);
         }, refocusList: hadFocus);
     }
 
@@ -591,10 +580,10 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         }
 
         var mode = Convert.ToInt16(input, 8);
-        await RunBrowseOperationAsync(client =>
+        await RunBrowseOperationAsync(ops =>
         {
             foreach (var entry in selection)
-                client.ChangePermissions(entry.FullPath, mode);
+                ops.ChangePermissions(entry.FullPath, mode);
         }, refocusList: hadFocus, selectName: selection[0].Name);
     }
 
@@ -634,7 +623,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     /// the list (dialogs shown before the operation take focus away from it);
     /// failures land in the status line.</summary>
     private async Task RunBrowseOperationAsync(
-        Action<SftpClient> operation, bool refocusList = false, string? selectName = null)
+        Action<IFileSystemOps> operation, bool refocusList = false, string? selectName = null)
     {
         if (_disposed)
             return;
@@ -642,10 +631,10 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         IsBusy = true;
         try
         {
-            var session = _browseSession ??= new SftpSession(_buildConnectionInfo);
-            await session.RunAsync(client =>
+            var session = _browseSession ??= _createSession();
+            await session.RunAsync(ops =>
             {
-                operation(client);
+                operation(ops);
                 return true;
             });
         }
@@ -670,24 +659,20 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
             RequestFocusList?.Invoke();
     }
 
-    private static void DeleteRecursive(SftpClient client, string path, bool isDirectory, bool isSymlink)
+    private static void DeleteRecursive(IFileSystemOps ops, string path, bool isDirectory, bool isSymlink)
     {
         // A symlink is removed as a file (never followed), so a linked directory's
         // contents survive.
         if (!isDirectory || isSymlink)
         {
-            client.DeleteFile(path);
+            ops.DeleteFile(path);
             return;
         }
 
-        foreach (var child in client.ListDirectory(path))
-        {
-            if (child.Name is "." or "..")
-                continue;
-            DeleteRecursive(client, child.FullName, child.IsDirectory, child.IsSymbolicLink);
-        }
+        foreach (var child in ops.ListDirectory(path))
+            DeleteRecursive(ops, child.FullName, child.IsDirectory, child.IsSymbolicLink);
 
-        client.DeleteDirectory(path);
+        ops.DeleteDirectory(path);
     }
 
     // ---- Transfers ----
@@ -787,11 +772,11 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
             var localRoot = Path.Combine(folder, entry.Name);
             try
             {
-                var session = _transferSession ??= new SftpSession(_buildConnectionInfo);
-                var files = await session.RunAsync(client =>
+                var session = _transferSession ??= _createSession();
+                var files = await session.RunAsync(ops =>
                 {
                     var found = new List<(string Remote, string Relative, long Length)>();
-                    CollectFilesRecursive(client, remoteRoot, "", found);
+                    CollectFilesRecursive(ops, remoteRoot, "", found);
                     return found;
                 });
 
@@ -810,17 +795,14 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     }
 
     private static void CollectFilesRecursive(
-        SftpClient client, string path, string relativePrefix,
+        IFileSystemOps ops, string path, string relativePrefix,
         List<(string Remote, string Relative, long Length)> found)
     {
-        foreach (var child in client.ListDirectory(path))
+        foreach (var child in ops.ListDirectory(path))
         {
-            if (child.Name is "." or "..")
-                continue;
-
             var relative = relativePrefix.Length == 0 ? child.Name : relativePrefix + "/" + child.Name;
             if (child.IsDirectory)
-                CollectFilesRecursive(client, child.FullName, relative, found);
+                CollectFilesRecursive(ops, child.FullName, relative, found);
             else if (!child.IsSymbolicLink)
                 found.Add((child.FullName, relative, child.Length));
         }
@@ -958,10 +940,10 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
                 return;
             }
 
-            var session = _transferSession ??= new SftpSession(_buildConnectionInfo);
-            await session.RunAsync(client =>
+            var session = _transferSession ??= _createSession();
+            await session.RunAsync(ops =>
             {
-                ExecuteTransfer(client, item);
+                ExecuteTransfer(ops, item);
                 return true;
             }, item.Cancellation.Token);
 
@@ -1003,7 +985,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     /// <summary>Runs on the transfer session's worker thread. Cancellation is delivered
     /// by throwing out of the progress callback — SSH.NET's transfer loops have no
     /// token parameter.</summary>
-    private void ExecuteTransfer(SftpClient client, FileTransferItem item)
+    private void ExecuteTransfer(IFileSystemOps ops, FileTransferItem item)
     {
         var throttle = Stopwatch.StartNew();
         var total = item.TotalBytes;
@@ -1026,33 +1008,33 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         if (item.IsUpload)
         {
             if (item.EnsureRemoteDirectory is not null)
-                EnsureRemoteDirectories(client, item.EnsureRemoteDirectory);
+                EnsureRemoteDirectories(ops, item.EnsureRemoteDirectory);
 
             using var local = File.OpenRead(item.LocalPath);
             item.TotalBytes = total = local.Length;
-            client.UploadFile(local, item.RemotePath, canOverride: true, Report);
+            ops.UploadFile(local, item.RemotePath, Report);
         }
         else
         {
             Directory.CreateDirectory(Path.GetDirectoryName(item.LocalPath)!);
             using var local = File.Create(item.LocalPath);
-            client.DownloadFile(item.RemotePath, local, Report);
+            ops.DownloadFile(item.RemotePath, local, Report);
         }
     }
 
-    private static void EnsureRemoteDirectories(SftpClient client, string path)
+    private static void EnsureRemoteDirectories(IFileSystemOps ops, string path)
     {
         var current = "";
         foreach (var part in path.Split('/', StringSplitOptions.RemoveEmptyEntries))
         {
             current += "/" + part;
-            if (client.Exists(current))
+            if (ops.Exists(current))
                 continue;
             try
             {
-                client.CreateDirectory(current);
+                ops.CreateDirectory(current);
             }
-            catch (SshException)
+            catch (Exception ex) when (ex is SshException or IOException)
             {
                 // Lost a creation race, or the parent chain exists with odd
                 // permissions — the upload itself will surface a real failure.

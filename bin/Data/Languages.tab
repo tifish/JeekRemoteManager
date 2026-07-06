@@ -11,9 +11,11 @@ RecentGroup	Recent	最近使用
 NewFolder	New folder	新建文件夹
 NewSsh	New SSH connection	新建 SSH 连接
 NewRdp	New RDP connection	新建 RDP 连接
+NewWsl	New WSL connection	新建 WSL 连接
 Folder	Folder	文件夹
 SSH	SSH	SSH
 RDP	RDP	RDP
+WSL	WSL	WSL
 Connect	Connect	连接
 ConnectTooltip	Connect (Enter / double-click)	连接（回车 / 双击）
 Settings	Settings...	设置...
@@ -46,6 +48,11 @@ PrivateKeyWatermark	optional path to key file	可选，私钥文件路径
 LoginCommands	Login commands	登录后执行
 LoginCommandsWatermark	one command per line, typed automatically after login (e.g. bastion menu choice, sudo -i, cd /srv)	每行一条命令，登录后自动键入（如堡垒机菜单选项、sudo -i、cd /srv）
 Browse	Browse…	浏览…
+WslOptions	WSL options	WSL 选项
+WslDistro	Distribution	发行版
+WslNoDistros	No WSL distributions detected on this machine.	本机未检测到 WSL 发行版。
+WslStartDirectory	Start directory	起始目录
+WslStartDirectoryWatermark	empty = home directory (~)	留空 = 用户主目录 (~)
 RdpOptions	RDP options	RDP 选项
 FullScreen	Full screen	全屏
 UseAllMonitors	Use all monitors	使用所有显示器
@@ -104,6 +111,7 @@ StatusStorageNotSaved	Config location changed, but settings could not be saved t
 StatusStorageCopyFailed	Could not move Config data to the new location: {0}	无法移动 Config 数据到新位置：{0}
 NewSshDefault	New SSH	新建 SSH
 NewRdpDefault	New RDP	新建 RDP
+NewWslDefault	New WSL	新建 WSL
 NewFolderDefault	New Folder	新建文件夹
 UnnamedConnection	Unnamed	未命名
 DialogYes	Yes	是
@@ -146,7 +154,7 @@ ClearOutput	Clear output	清空输出
 ClearParameters	Clear all parameters	清除所有参数
 UnnamedScriptBinding	Unnamed script action	未命名脚本动作
 StatusNoScripts	No script suite found under script roots: {0}.	未在脚本目录下找到脚本套件：{0}。
-StatusScriptOnlySsh	Script actions are only available for SSH connections.	脚本动作仅适用于 SSH 连接。
+StatusScriptOnlySsh	Script actions are only available for SSH and WSL connections.	脚本动作仅适用于 SSH 和 WSL 连接。
 StatusScriptAlreadyRunning	A script is already running.	已有脚本正在运行。
 StatusChooseScriptSuite	Choose a script suite.	请选择脚本套件。
 StatusScriptSuiteOpened	Opened script suite: {0}	已打开脚本套件：{0}

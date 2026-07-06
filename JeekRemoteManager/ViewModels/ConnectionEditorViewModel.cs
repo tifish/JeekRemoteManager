@@ -16,6 +16,11 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsSsh))]
     [NotifyPropertyChangedFor(nameof(IsRdp))]
+    [NotifyPropertyChangedFor(nameof(IsWsl))]
+    [NotifyPropertyChangedFor(nameof(HasHostPort))]
+    [NotifyPropertyChangedFor(nameof(HasPassword))]
+    [NotifyPropertyChangedFor(nameof(SupportsScripts))]
+    [NotifyPropertyChangedFor(nameof(ShowNoWslDistrosHint))]
     [NotifyPropertyChangedFor(nameof(TypeDisplay))]
     private ConnectionType _type = ConnectionType.Ssh;
 
@@ -75,6 +80,14 @@ public partial class ConnectionEditorViewModel : ViewModelBase
 
     public ObservableCollection<ConnectionScriptBindingViewModel> ScriptBindings { get; } = new();
 
+    // WSL
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AvailableWslDistros))]
+    private string _wslDistro = "";
+
+    [ObservableProperty]
+    private string _wslStartDirectory = "";
+
     // RDP
     [ObservableProperty]
     private bool _rdpFullScreen = true;
@@ -106,6 +119,41 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     public bool IsSsh => Type == ConnectionType.Ssh;
 
     public bool IsRdp => Type == ConnectionType.Rdp;
+
+    public bool IsWsl => Type == ConnectionType.Wsl;
+
+    /// <summary>WSL connections have no host/port — the editor swaps that row for
+    /// the distribution selector.</summary>
+    public bool HasHostPort => !IsWsl;
+
+    /// <summary>WSL needs no password (wsl.exe runs as the local user).</summary>
+    public bool HasPassword => !IsWsl;
+
+    /// <summary>SSH scripts run through the interactive terminal, which WSL shares.</summary>
+    public bool SupportsScripts => Type is ConnectionType.Ssh or ConnectionType.Wsl;
+
+    /// <summary>Installed WSL distributions for the selector, prepending the current
+    /// value when it is not (or no longer) installed.</summary>
+    public string[] AvailableWslDistros
+    {
+        get
+        {
+            var names = Services.WslDistroService.ListDistros().Select(d => d.Name).ToArray();
+            return WslDistro.Length == 0 || names.Contains(WslDistro)
+                ? names
+                : names.Prepend(WslDistro).ToArray();
+        }
+    }
+
+    public bool ShowNoWslDistrosHint => IsWsl && AvailableWslDistros.Length == 0;
+
+    partial void OnTypeChanged(ConnectionType value)
+    {
+        // Switching an existing connection to WSL: preselect the default distro so
+        // the selector is not blank.
+        if (value == ConnectionType.Wsl && WslDistro.Length == 0)
+            WslDistro = Services.WslDistroService.ListDistros().FirstOrDefault(d => d.IsDefault)?.Name ?? "";
+    }
 
     /// <summary>Connection types offered in the editor's Type selector.</summary>
     public static string[] AvailableTypeDisplays { get; } = System.Enum.GetValues<ConnectionType>()
@@ -142,6 +190,8 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             TerminalType = string.IsNullOrWhiteSpace(c.TerminalType) ? Connection.DefaultTerminalType : c.TerminalType,
             PrivateKeyPath = c.PrivateKeyPath,
             LoginCommands = c.LoginCommands,
+            WslDistro = c.WslDistro,
+            WslStartDirectory = c.WslStartDirectory,
             RdpFullScreen = c.RdpFullScreen,
             RdpUseAllMonitors = c.RdpUseAllMonitors,
             RdpWidth = c.RdpWidth,
@@ -205,6 +255,8 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             ? _originalEncryptedPassphrase
             : PasswordProtector.Encrypt(PrivateKeyPassphrase);
         c.LoginCommands = LoginCommands;
+        c.WslDistro = WslDistro.Trim();
+        c.WslStartDirectory = WslStartDirectory.Trim();
         c.ScriptBindings = ScriptBindings
             .Select(b => b.ToModel())
             .Where(b => !string.IsNullOrWhiteSpace(b.Name))
