@@ -474,7 +474,6 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     {
         DetachAndDisposeSession();
         Messages.Clear();
-        InputText = "";
         StatusText = IsAvailable ? "" : UnavailableText;
     }
 

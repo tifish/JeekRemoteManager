@@ -122,8 +122,8 @@ try
     Check(aiVm.NewConversationCommand.CanExecute(null),
           "AI new conversation command is available while idle");
     aiVm.NewConversationCommand.Execute(null);
-    Check(aiVm.Messages.Count == 0 && aiVm.InputText == "" && aiVm.StatusText == "",
-          "AI new conversation clears the transcript and draft");
+    Check(aiVm.Messages.Count == 0 && aiVm.InputText == "draft" && aiVm.StatusText == "",
+          "AI new conversation clears the transcript and keeps the draft");
     Check(activeAiSession.DisposeCount == 1,
           "AI new conversation disposes the active session");
 
