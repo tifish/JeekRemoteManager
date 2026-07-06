@@ -348,6 +348,22 @@ try
     Check(ReferenceEquals(inlineRenameCommittedFocusNode, vm.SelectedNode),
           "Committing inline tree rename requests focus on the renamed node");
 
+    inlineRenameFocusRequested = false;
+    var foldersBeforeNewFolder = Directory.GetDirectories(vmStore.RootPath).Length;
+    vm.NewFolderCommand.Execute(null);
+    var newFolderNode = vm.SelectedNode;
+    Check(newFolderNode is not null
+          && newFolderNode.IsFolder
+          && newFolderNode.IsNameEditing
+          && newFolderNode.EditName == newFolderNode.Name
+          && Directory.Exists(newFolderNode.FullPath),
+          "NewFolderCommand starts inline rename on the created folder");
+    Check(Directory.GetDirectories(vmStore.RootPath).Length == foldersBeforeNewFolder + 1,
+          "NewFolderCommand creates one folder at the current level");
+    Check(inlineRenameFocusRequested, "NewFolderCommand requests tree name editor focus");
+    if (newFolderNode is not null)
+        vm.CancelNodeNameEdit(newFolderNode, requestFocus: false);
+
     // --- Rename via Save (file follows the name) ---
     loaded.Name = "web01-renamed";
     var renamedPath = store.Save(loaded, folder, sshPath);

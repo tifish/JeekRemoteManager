@@ -1093,17 +1093,20 @@ public partial class MainWindowViewModel : ViewModelBase
             var parent = TargetFolder();
             var path = _store.CreateFolder(parent, L("NewFolderDefault"));
 
-            // Reload with the new folder as the reveal target — this expands the
-            // parent (ancestor of the new folder) so the new entry is visible.
-            ReloadTree(path);
+            // Reload with the new folder as the reveal target so the entry is
+            // visible before switching it into inline rename mode.
+            ReloadTree(path, requestFocus: false);
 
-            // Then move selection back to the parent so successive "New folder"
-            // clicks keep creating siblings at this level instead of nesting
-            // into the just-created (empty) folder. FindNode returns null when
-            // parent == root, which leaves SelectedNode null — correct behavior
-            // for "keep targeting root".
-            SelectedNode = FindNode(Nodes, parent);
-            RequestTreeFocus(SelectedNode);
+            var newFolder = FindNode(Nodes, path);
+            if (newFolder is not null)
+            {
+                SelectedNode = newFolder;
+                BeginNodeNameEdit(newFolder);
+            }
+            else
+            {
+                RequestTreeFocus(SelectedNode);
+            }
 
             StatusMessage = L("StatusCreatedFolder", Path.GetFileName(path));
         }
