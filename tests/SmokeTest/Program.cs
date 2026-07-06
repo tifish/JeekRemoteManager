@@ -245,6 +245,23 @@ try
     _ = vmStore.Save(autoSaveB, vmStore.RootPath);
     var autoSaveAPasswordBeforeEdit = autoSaveA.EncryptedPassword;
 
+    vmSettings.Settings.RecentConnectionPaths.Add(autoSaveAPath);
+    vmSettings.Settings.RecentExpanded = true;
+    var recentVm = new MainWindowViewModel(vmStore, new ConnectionLauncher(), vmSettings);
+    var recentNode = recentVm.Nodes.Single(n => n.IsRecent).Children.Single(n => n.FullPath == autoSaveAPath);
+    string? recentLaunchPath = null;
+    recentVm.OpenSshTerminalAsync = (_, sourcePath) =>
+    {
+        recentLaunchPath = sourcePath;
+        return Task.CompletedTask;
+    };
+    recentVm.SuppressRecentAutoLaunch = true;
+    recentVm.SelectedNode = recentNode;
+    recentVm.SuppressRecentAutoLaunch = false;
+    await recentVm.ConnectCommand.ExecuteAsync(null);
+    Check(recentLaunchPath == autoSaveAPath, "Recent context-menu Connect launches the selected connection");
+    Check(recentVm.SelectedNode is null, "Recent context-menu Connect clears the stale shadow selection");
+
     var vm = new MainWindowViewModel(vmStore, new ConnectionLauncher(), vmSettings);
     var nodeA = vm.Nodes.Single(n => n.Name == "autosave-a");
     var nodeB = vm.Nodes.Single(n => n.Name == "autosave-b");

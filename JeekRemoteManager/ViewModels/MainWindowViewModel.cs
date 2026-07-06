@@ -1155,15 +1155,19 @@ public partial class MainWindowViewModel : ViewModelBase
     // --- Edit / connect ---
 
     [RelayCommand(CanExecute = nameof(CanConnect))]
-    private Task Connect()
+    private async Task Connect()
     {
         // Make sure unsaved edits land on disk before we read the connection.
         FlushPendingAutoSave();
 
         if (SelectedNode is not { IsConnection: true, IsNameEditing: false, Connection: not null } node)
-            return Task.CompletedTask;
+            return;
 
-        return LaunchAsync(node);
+        var clearStaleRecentSelection = node.IsRecent;
+        await LaunchAsync(node);
+
+        if (clearStaleRecentSelection && ReferenceEquals(SelectedNode, node))
+            SelectedNode = null;
     }
 
     private bool CanConnect() => SelectedNode is { IsConnection: true, IsNameEditing: false };
