@@ -17,4 +17,4 @@ Debug builds host it at `http://127.0.0.1:8737/mcp` (port overridable via `JRM_M
 - `visual_tree` / `screenshot` — verify what the UI actually shows.
 - `read_logs` — tail the current log file with an optional filter.
 
-Implementation: `JeekRemoteManager/Services/DebugMcpServer.cs` (compiled out of Release builds).
+Implementation: `JeekRemoteManager/Services/DebugMcpServer.cs` (compiled into all builds; the listener only starts in Debug builds).

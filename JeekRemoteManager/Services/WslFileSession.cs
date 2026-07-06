@@ -70,8 +70,11 @@ public sealed class WslFileSession : IFileSystemSession
         var psi = new ProcessStartInfo(WslDistroService.WslExePath)
         {
             UseShellExecute = false,
+            // Redirect ALL stdio: launched from a windowed app (no console),
+            // wsl.exe stalls for ~60 seconds when stdin has no valid handle.
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            RedirectStandardInput = true,
             CreateNoWindow = true,
         };
         psi.ArgumentList.Add("--distribution");
@@ -88,13 +91,19 @@ public sealed class WslFileSession : IFileSystemSession
 
         using var process = Process.Start(psi)
             ?? throw new InvalidOperationException("Could not start wsl.exe.");
-        var output = process.StandardOutput.ReadToEnd();
-        var error = process.StandardError.ReadToEnd();
+        process.StandardInput.Close();
+        // Drain both pipes asynchronously so WaitForExit's timeout actually
+        // applies and neither full pipe can wedge the child.
+        var outputTask = process.StandardOutput.ReadToEndAsync();
+        var errorTask = process.StandardError.ReadToEndAsync();
         if (!process.WaitForExit(30000))
         {
             try { process.Kill(entireProcessTree: true); } catch { /* ignore */ }
             throw new TimeoutException("WSL did not respond while resolving the home directory.");
         }
+
+        var output = outputTask.GetAwaiter().GetResult();
+        var error = errorTask.GetAwaiter().GetResult();
 
         if (process.ExitCode != 0)
         {

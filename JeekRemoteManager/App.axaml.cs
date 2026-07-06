@@ -12,11 +12,15 @@ using Jeek.Avalonia.Localization;
 using JeekRemoteManager.Services;
 using JeekRemoteManager.ViewModels;
 using JeekRemoteManager.Views;
+using JeekTools;
+using Microsoft.Extensions.Logging;
+using ZLogger;
 
 namespace JeekRemoteManager;
 
 public partial class App : Application
 {
+    private static readonly ILogger Log = LogManager.CreateLogger(nameof(App));
     private bool _exitRequested;
     private MainWindowViewModel? _vm;
 
@@ -50,16 +54,36 @@ public partial class App : Application
             ApplyStoredLanguage(settings);
             ApplyStoredTheme(settings);
 
-#if DEBUG
+            // No-op in Release builds: the server only listens in Debug.
             DebugMcpServer.Start();
             desktop.Exit += (_, _) => DebugMcpServer.Stop();
-#endif
 
             // Gate the main window behind the master-password setup/unlock flow.
-            _ = UnlockThenStartAsync(desktop, settings, store, launcher, master);
+            _ = StartupAsync(desktop, settings, store, launcher, master);
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    // Fire-and-forget wrapper: a failure inside the startup sequence used to be
+    // swallowed silently, leaving the process alive with no window. Log it and
+    // exit instead.
+    private async Task StartupAsync(
+        IClassicDesktopStyleApplicationLifetime desktop,
+        SettingsService settings,
+        ConnectionStore store,
+        ConnectionLauncher launcher,
+        MasterKeyService master)
+    {
+        try
+        {
+            await UnlockThenStartAsync(desktop, settings, store, launcher, master);
+        }
+        catch (Exception ex)
+        {
+            Log.ZLogCritical(ex, $"Startup failed");
+            desktop.Shutdown(1);
+        }
     }
 
     /// <summary>

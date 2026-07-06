@@ -1,4 +1,3 @@
-#if DEBUG
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -26,16 +25,26 @@ using ZLogger;
 namespace JeekRemoteManager.Services;
 
 /// <summary>
-/// Debug-only MCP (Model Context Protocol) server over HTTP so an AI agent can
+/// Debug MCP (Model Context Protocol) server over HTTP so an AI agent can
 /// inspect and drive the running app: read/write properties by object path,
 /// execute commands and methods on the UI thread, dump the visual tree, take
-/// screenshots and tail logs. Bound to the loopback interface only and compiled
-/// out of Release builds entirely. Registered for agents in the repo-root
+/// screenshots and tail logs. Bound to the loopback interface only. Compiled
+/// into all configurations so Debug and Release behave identically, but the
+/// listener only starts in Debug builds. Registered for agents in the repo-root
 /// .mcp.json (http://127.0.0.1:8737/mcp, port overridable via JRM_MCP_PORT).
 /// </summary>
 internal static class DebugMcpServer
 {
     private static readonly ILogger Log = LogManager.CreateLogger(nameof(DebugMcpServer));
+
+    // Runtime gate instead of #if DEBUG around the whole file: the code
+    // compiles in every configuration, only Debug builds actually listen.
+    private static readonly bool ListeningEnabled =
+#if DEBUG
+        true;
+#else
+        false;
+#endif
 
     private const int DefaultPort = 8737;
     private const string SupportedProtocolVersion = "2025-06-18";
@@ -56,7 +65,7 @@ internal static class DebugMcpServer
 
     public static void Start()
     {
-        if (_listener != null)
+        if (!ListeningEnabled || _listener != null)
             return;
 
         var port = DefaultPort;
@@ -1247,4 +1256,3 @@ internal static class DebugMcpServer
 
     #endregion
 }
-#endif
