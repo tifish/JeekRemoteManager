@@ -413,10 +413,18 @@ public partial class MainWindow : Window
     // (duplicate session, run script, AI assistant, copy public key) plus Close.
     private ContextMenu BuildTerminalTabContextMenu(Connection connection, TabItem tab)
     {
-        var duplicate = new MenuItem { Header = Localizer.Get("DuplicateSession") };
+        var duplicate = new MenuItem
+        {
+            Header = Localizer.Get("DuplicateSession"),
+            Icon = CreateMenuIcon("\uE8C8", "duplicate"),
+        };
         duplicate.Click += (_, _) => DuplicateTerminalTab(tab);
 
-        var fileBrowser = new MenuItem { Header = Localizer.Get("FileBrowser") };
+        var fileBrowser = new MenuItem
+        {
+            Header = Localizer.Get("FileBrowser"),
+            Icon = CreateMenuIcon("\uE8B7", "file-browser"),
+        };
         fileBrowser.Click += (_, _) =>
         {
             RightTabs.SelectedItem = tab;
@@ -424,7 +432,11 @@ public partial class MainWindow : Window
                 view.ToggleFileBrowserPanel();
         };
 
-        var aiPanel = new MenuItem { Header = Localizer.Get("AiAssistant") };
+        var aiPanel = new MenuItem
+        {
+            Header = Localizer.Get("AiAssistant"),
+            Icon = CreateMenuIcon("\uE99A", "ai"),
+        };
         aiPanel.Click += (_, _) =>
         {
             RightTabs.SelectedItem = tab;
@@ -432,7 +444,11 @@ public partial class MainWindow : Window
                 view.ToggleAiPanel();
         };
 
-        var copyKey = new MenuItem { Header = Localizer.Get("CopyPublicKeyToServer") };
+        var copyKey = new MenuItem
+        {
+            Header = Localizer.Get("CopyPublicKeyToServer"),
+            Icon = CreateMenuIcon("\uE8D7", "key"),
+        };
         copyKey.Click += async (_, _) =>
         {
             if (DataContext is MainWindowViewModel vm)
@@ -450,7 +466,11 @@ public partial class MainWindow : Window
             }
         };
 
-        var runScript = new MenuItem { Header = Localizer.Get("RunScript") };
+        var runScript = new MenuItem
+        {
+            Header = Localizer.Get("RunScript"),
+            Icon = CreateMenuIcon("\uE756", "script"),
+        };
         runScript.Click += (_, _) =>
         {
             // Let the context menu close first, then open the script-suite chooser.
@@ -459,7 +479,11 @@ public partial class MainWindow : Window
                 DispatcherPriority.Background);
         };
 
-        var close = new MenuItem { Header = Localizer.Get("Close") };
+        var close = new MenuItem
+        {
+            Header = Localizer.Get("Close"),
+            Icon = CreateMenuIcon("\uE711", "danger"),
+        };
         close.Click += (_, _) => CloseTerminalTab(tab);
 
         var menu = new ContextMenu();
@@ -501,7 +525,11 @@ public partial class MainWindow : Window
         var flyout = new MenuFlyout();
         foreach (var choice in choices)
         {
-            var item = new MenuItem { Header = choice.ToString() };
+            var item = new MenuItem
+            {
+                Header = choice.ToString(),
+                Icon = CreateMenuIcon("\uE756", "script"),
+            };
             item.Click += (_, _) =>
             {
                 vm.OpenScriptSuiteChoice(choice);
@@ -523,13 +551,6 @@ public partial class MainWindow : Window
     // Tab title stays the connection name; the remote OSC title does not override it.
     private static Control BuildTerminalTabHeader(Connection connection, out Button closeButton)
     {
-        var icon = new TextBlock
-        {
-            Text = "\uE756",
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        icon.Classes.Add("icon");
-
         var title = new TextBlock
         {
             Text = string.IsNullOrWhiteSpace(connection.Name) ? connection.Host : connection.Name,
@@ -559,6 +580,7 @@ public partial class MainWindow : Window
             ColumnSpacing = 7,
             VerticalAlignment = VerticalAlignment.Center,
         };
+        var icon = CreateConnectionTypeIcon(connection.Type);
         Grid.SetColumn(icon, 0);
         Grid.SetColumn(title, 1);
         Grid.SetColumn(closeButton, 2);
@@ -569,6 +591,42 @@ public partial class MainWindow : Window
         var pill = new Border { Child = content };
         pill.Classes.Add("tab-pill");
         return pill;
+    }
+
+    private static Control CreateConnectionTypeIcon(ConnectionType type)
+    {
+        var text = new TextBlock
+        {
+            Text = type.ToGlyph(),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        text.Classes.Add("connection-icon");
+
+        var badge = new Border { Child = text };
+        badge.Classes.Add("connection-icon-badge");
+
+        if (type == ConnectionType.Ssh)
+        {
+            text.Classes.Add("ssh-connection-icon");
+            badge.Classes.Add("ssh-connection-icon");
+        }
+        else
+        {
+            text.Classes.Add("emoji");
+        }
+
+        return badge;
+    }
+
+    private static TextBlock CreateMenuIcon(string text, string? modifierClass = null, bool emoji = false)
+    {
+        var icon = new TextBlock { Text = text };
+        icon.Classes.Add("menu-icon");
+        icon.Classes.Add(emoji ? "emoji" : "icon");
+        if (!string.IsNullOrWhiteSpace(modifierClass))
+            icon.Classes.Add(modifierClass);
+        return icon;
     }
 
     // Middle-clicking anywhere on a terminal tab closes it.
@@ -701,6 +759,7 @@ public partial class MainWindow : Window
             var item = new MenuItem
             {
                 Header = choice.ToString(),
+                Icon = CreateMenuIcon("\uE756", "script"),
             };
             item.Click += async (_, _) =>
             {

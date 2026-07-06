@@ -64,14 +64,12 @@ public partial class TreeNodeViewModel : ViewModelBase
 
     public ObservableCollection<TreeNodeViewModel> Children { get; } = new();
 
+    public bool IsSshConnection => Connection?.Type == ConnectionType.Ssh;
+
     /// <summary>Icon glyph shown in the tree for this node.</summary>
     public string Glyph => IsRecent && IsFolder
         ? "\U0001F551"                                   // clock face (recent group)
         : IsFolder
             ? "\U0001F4C1"                               // folder
-            : Connection?.Type == ConnectionType.Rdp
-                ? "\U0001F5A5"                           // desktop computer (RDP)
-                : Connection?.Type == ConnectionType.Wsl
-                    ? "\U0001F427"                       // penguin (WSL)
-                    : "⌨";                          // keyboard (SSH)
+            : (Connection?.Type ?? ConnectionType.Ssh).ToGlyph();
 }

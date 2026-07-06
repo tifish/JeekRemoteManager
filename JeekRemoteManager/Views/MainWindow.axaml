@@ -38,6 +38,14 @@
                     <SolidColorBrush x:Key="AccentBrush" Color="#0F766E" />
                     <SolidColorBrush x:Key="AccentHoverBrush" Color="#0B5F59" />
                     <SolidColorBrush x:Key="AccentSoftBrush" Color="#DFF4EE" />
+                    <SolidColorBrush x:Key="SshIconBackgroundBrush" Color="#DBEAFE" />
+                    <SolidColorBrush x:Key="SshIconBorderBrush" Color="#93C5FD" />
+                    <SolidColorBrush x:Key="SshIconBrush" Color="#1D4ED8" />
+                    <SolidColorBrush x:Key="ToolbarDuplicateIconBrush" Color="#2563EB" />
+                    <SolidColorBrush x:Key="ToolbarScriptIconBrush" Color="#D97706" />
+                    <SolidColorBrush x:Key="ToolbarAiIconBrush" Color="#16A34A" />
+                    <SolidColorBrush x:Key="ToolbarFileBrowserIconBrush" Color="#0284C7" />
+                    <SolidColorBrush x:Key="ToolbarKeyIconBrush" Color="#CA8A04" />
                     <SolidColorBrush x:Key="HoverBrush" Color="#EEF6F4" />
                     <SolidColorBrush x:Key="SelectedBrush" Color="#E6F4F1" />
                     <SolidColorBrush x:Key="SelectedBorderBrush" Color="#8CCFC3" />
@@ -61,6 +69,14 @@
                     <SolidColorBrush x:Key="AccentBrush" Color="#2DD4BF" />
                     <SolidColorBrush x:Key="AccentHoverBrush" Color="#5EEAD4" />
                     <SolidColorBrush x:Key="AccentSoftBrush" Color="#123B38" />
+                    <SolidColorBrush x:Key="SshIconBackgroundBrush" Color="#123A66" />
+                    <SolidColorBrush x:Key="SshIconBorderBrush" Color="#60A5FA" />
+                    <SolidColorBrush x:Key="SshIconBrush" Color="#BFDBFE" />
+                    <SolidColorBrush x:Key="ToolbarDuplicateIconBrush" Color="#93C5FD" />
+                    <SolidColorBrush x:Key="ToolbarScriptIconBrush" Color="#F59E0B" />
+                    <SolidColorBrush x:Key="ToolbarAiIconBrush" Color="#86EFAC" />
+                    <SolidColorBrush x:Key="ToolbarFileBrowserIconBrush" Color="#38BDF8" />
+                    <SolidColorBrush x:Key="ToolbarKeyIconBrush" Color="#FACC15" />
                     <SolidColorBrush x:Key="HoverBrush" Color="#243332" />
                     <SolidColorBrush x:Key="SelectedBrush" Color="#1F3B39" />
                     <SolidColorBrush x:Key="SelectedBorderBrush" Color="#2DD4BF" />
@@ -128,6 +144,24 @@
             <Setter Property="CornerRadius" Value="6" />
             <Setter Property="Padding" Value="6,4" />
         </Style>
+        <Style Selector="Border.connection-icon-badge">
+            <Setter Property="Width" Value="16" />
+            <Setter Property="Height" Value="16" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Border.connection-icon-badge.ssh-connection-icon">
+            <Setter Property="Background" Value="{DynamicResource SshIconBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource SshIconBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style Selector="TextBlock.connection-icon.ssh-connection-icon">
+            <Setter Property="FontFamily" Value="Consolas, Cascadia Mono, monospace" />
+            <Setter Property="FontSize" Value="10.5" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource SshIconBrush}" />
+        </Style>
         <Style Selector="Button">
             <Setter Property="MinHeight" Value="34" />
             <Setter Property="Padding" Value="12,6" />
@@ -148,6 +182,35 @@
             <Setter Property="Background" Value="{DynamicResource ChromeSurfaceBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushSoft}" />
             <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style Selector="TextBlock.toolbar-action-icon">
+            <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="Width" Value="16" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+        </Style>
+        <Style Selector="TextBlock.toolbar-action-icon.duplicate">
+            <Setter Property="Foreground" Value="{DynamicResource ToolbarDuplicateIconBrush}" />
+        </Style>
+        <Style Selector="TextBlock.toolbar-action-icon.script">
+            <Setter Property="Foreground" Value="{DynamicResource ToolbarScriptIconBrush}" />
+        </Style>
+        <Style Selector="TextBlock.toolbar-action-icon.ai">
+            <Setter Property="Foreground" Value="{DynamicResource ToolbarAiIconBrush}" />
+        </Style>
+        <Style Selector="TextBlock.toolbar-action-icon.file-browser">
+            <Setter Property="Foreground" Value="{DynamicResource ToolbarFileBrowserIconBrush}" />
+        </Style>
+        <Style Selector="TextBlock.toolbar-action-icon.key">
+            <Setter Property="Foreground" Value="{DynamicResource ToolbarKeyIconBrush}" />
+        </Style>
+        <Style Selector="TextBlock.toolbar-action-icon.connect">
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+        </Style>
+        <Style Selector="TextBlock.toolbar-action-icon.edit">
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
         </Style>
         <Style Selector="Button.icon-button">
             <Setter Property="MinWidth" Value="36" />
@@ -309,6 +372,46 @@
             <Setter Property="MinHeight" Value="32" />
             <Setter Property="Padding" Value="10,6" />
         </Style>
+        <Style Selector="TextBlock.menu-icon">
+            <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Width" Value="16" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="TextAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+        </Style>
+        <Style Selector="TextBlock.menu-icon.emoji">
+            <Setter Property="FontFamily" Value="Segoe UI Emoji" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+        <Style Selector="TextBlock.menu-icon.accent">
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+        </Style>
+        <Style Selector="TextBlock.menu-icon.danger">
+            <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+        </Style>
+        <Style Selector="TextBlock.menu-icon.duplicate">
+            <Setter Property="Foreground" Value="{DynamicResource ToolbarDuplicateIconBrush}" />
+        </Style>
+        <Style Selector="TextBlock.menu-icon.script">
+            <Setter Property="Foreground" Value="{DynamicResource ToolbarScriptIconBrush}" />
+        </Style>
+        <Style Selector="TextBlock.menu-icon.ai">
+            <Setter Property="Foreground" Value="{DynamicResource ToolbarAiIconBrush}" />
+        </Style>
+        <Style Selector="TextBlock.menu-icon.file-browser">
+            <Setter Property="Foreground" Value="{DynamicResource ToolbarFileBrowserIconBrush}" />
+        </Style>
+        <Style Selector="TextBlock.menu-icon.key">
+            <Setter Property="Foreground" Value="{DynamicResource ToolbarKeyIconBrush}" />
+        </Style>
+        <Style Selector="TextBlock.menu-icon.connect">
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+        </Style>
+        <Style Selector="TextBlock.menu-icon.edit">
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+        </Style>
         <Style Selector="MenuItem:pointerover">
             <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
@@ -342,25 +445,45 @@
                 <StackPanel x:Name="ToolbarNew" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                     <Button Command="{Binding NewFolderCommand}" ToolTip.Tip="{l:Localize NewFolder}" Classes="toolbar">
                         <StackPanel Orientation="Horizontal" Spacing="7">
-                            <TextBlock Classes="icon" Text="&#xE8F4;" />
+                            <Border Classes="connection-icon-badge">
+                                <TextBlock Classes="connection-icon emoji"
+                                           Text="&#x1F4C1;"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" />
+                            </Border>
                             <TextBlock Classes="toolbar-label" Text="{l:Localize Folder}" />
                         </StackPanel>
                     </Button>
                     <Button Command="{Binding NewSshCommand}" ToolTip.Tip="{l:Localize NewSsh}" Classes="toolbar">
                         <StackPanel Orientation="Horizontal" Spacing="7">
-                            <TextBlock Classes="icon" Text="&#xE756;" />
+                            <Border Classes="connection-icon-badge ssh-connection-icon">
+                                <TextBlock Classes="connection-icon ssh-connection-icon"
+                                           Text=">_"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" />
+                            </Border>
                             <TextBlock Classes="toolbar-label" Text="{l:Localize SSH}" />
                         </StackPanel>
                     </Button>
                     <Button Command="{Binding NewWslCommand}" ToolTip.Tip="{l:Localize NewWsl}" Classes="toolbar">
                         <StackPanel Orientation="Horizontal" Spacing="7">
-                            <TextBlock Classes="icon" Text="&#xE756;" />
+                            <Border Classes="connection-icon-badge">
+                                <TextBlock Classes="connection-icon emoji"
+                                           Text="&#x1F427;"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" />
+                            </Border>
                             <TextBlock Classes="toolbar-label" Text="{l:Localize WSL}" />
                         </StackPanel>
                     </Button>
                     <Button Command="{Binding NewRdpCommand}" ToolTip.Tip="{l:Localize NewRdp}" Classes="toolbar">
                         <StackPanel Orientation="Horizontal" Spacing="7">
-                            <TextBlock Classes="icon" Text="&#xE772;" />
+                            <Border Classes="connection-icon-badge">
+                                <TextBlock Classes="connection-icon emoji"
+                                           Text="&#x1F5A5;"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" />
+                            </Border>
                             <TextBlock Classes="toolbar-label" Text="{l:Localize RDP}" />
                         </StackPanel>
                     </Button>
@@ -372,7 +495,7 @@
                             IsVisible="{Binding IsTerminalActive}"
                             Classes="toolbar">
                         <StackPanel Orientation="Horizontal" Spacing="7">
-                            <TextBlock Classes="icon" Text="&#xE8C8;" />
+                            <TextBlock Classes="toolbar-action-icon duplicate" Text="&#xE8C8;" />
                             <TextBlock Classes="toolbar-label" Text="{l:Localize DuplicateSession}" />
                         </StackPanel>
                     </Button>
@@ -381,7 +504,7 @@
                             IsVisible="{Binding IsTerminalActive}"
                             Classes="toolbar">
                         <StackPanel Orientation="Horizontal" Spacing="7">
-                            <TextBlock Classes="icon" Text="&#xE756;" />
+                            <TextBlock Classes="toolbar-action-icon script" Text="&#xE756;" />
                             <TextBlock Classes="toolbar-label" Text="{l:Localize RunScript}" />
                         </StackPanel>
                     </Button>
@@ -390,7 +513,7 @@
                             IsVisible="{Binding IsTerminalActive}"
                             Classes="toolbar">
                         <StackPanel Orientation="Horizontal" Spacing="7">
-                            <TextBlock Classes="icon" Text="&#xE99A;" />
+                            <TextBlock Classes="toolbar-action-icon ai" Text="&#xE99A;" />
                             <TextBlock Classes="toolbar-label" Text="{l:Localize AiAssistant}" />
                         </StackPanel>
                     </Button>
@@ -399,7 +522,7 @@
                             IsVisible="{Binding IsTerminalActive}"
                             Classes="toolbar">
                         <StackPanel Orientation="Horizontal" Spacing="7">
-                            <TextBlock Classes="icon" Text="&#xE8B7;" />
+                            <TextBlock Classes="toolbar-action-icon file-browser" Text="&#xE8B7;" />
                             <TextBlock Classes="toolbar-label" Text="{l:Localize FileBrowser}" />
                         </StackPanel>
                     </Button>
@@ -408,7 +531,7 @@
                             IsVisible="{Binding IsTerminalActive}"
                             Classes="toolbar">
                         <StackPanel Orientation="Horizontal" Spacing="7">
-                            <TextBlock Classes="icon" Text="&#xE8D7;" />
+                            <TextBlock Classes="toolbar-action-icon key" Text="&#xE8D7;" />
                             <TextBlock Classes="toolbar-label" Text="{l:Localize CopyPublicKeyToServer}" />
                         </StackPanel>
                     </Button>
@@ -449,13 +572,25 @@
                             <MenuFlyout>
                                 <MenuItem Header="{l:Localize Settings}"
                                           Command="{Binding OpenSettingsCommand}"
-                                          ToolTip.Tip="{l:Localize SettingsTooltip}" />
+                                          ToolTip.Tip="{l:Localize SettingsTooltip}">
+                                    <MenuItem.Icon>
+                                        <TextBlock Classes="menu-icon" Text="&#xE713;" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
                                 <Separator />
                                 <MenuItem Header="{l:Localize ImportFromFinalShell}"
-                                          Command="{Binding ImportFinalShellCommand}" />
+                                          Command="{Binding ImportFinalShellCommand}">
+                                    <MenuItem.Icon>
+                                        <TextBlock Classes="menu-icon" Text="&#xE8B5;" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
                                 <Separator />
                                 <MenuItem Header="{l:Localize CheckForUpdates}"
-                                          Command="{Binding CheckForUpdatesCommand}" />
+                                          Command="{Binding CheckForUpdatesCommand}">
+                                    <MenuItem.Icon>
+                                        <TextBlock Classes="menu-icon accent" Text="&#xE895;" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
                             </MenuFlyout>
                         </Button.Flyout>
                     </Button>
@@ -502,25 +637,93 @@
                             </Button.Content>
                             <Button.Flyout>
                                 <MenuFlyout>
-                                    <MenuItem Header="{l:Localize Connect}" Command="{Binding ConnectCommand}" />
+                                    <MenuItem Header="{l:Localize Connect}" Command="{Binding ConnectCommand}">
+                                        <MenuItem.Icon>
+                                            <TextBlock Classes="menu-icon connect" Text="&#xE768;" />
+                                        </MenuItem.Icon>
+                                    </MenuItem>
                                     <MenuItem Header="{l:Localize Edit}"
                                               Click="OnEditMenuClick"
-                                              IsVisible="{Binding IsRegularConnectionContext}" />
+                                              IsVisible="{Binding IsRegularConnectionContext}">
+                                        <MenuItem.Icon>
+                                            <TextBlock Classes="menu-icon edit" Text="&#xE70F;" />
+                                        </MenuItem.Icon>
+                                    </MenuItem>
                                     <MenuItem Header="{l:Localize RunScript}"
                                               Click="OnRunScriptMenuClick"
-                                              IsVisible="{Binding IsShellConnectionContext}" />
+                                              IsVisible="{Binding IsShellConnectionContext}">
+                                        <MenuItem.Icon>
+                                            <TextBlock Classes="menu-icon script" Text="&#xE756;" />
+                                        </MenuItem.Icon>
+                                    </MenuItem>
                                     <Separator />
-                                    <MenuItem Header="{l:Localize NewFolder}" Command="{Binding NewFolderCommand}" />
-                                    <MenuItem Header="{l:Localize NewSsh}" Command="{Binding NewSshCommand}" />
-                                    <MenuItem Header="{l:Localize NewWsl}" Command="{Binding NewWslCommand}" />
-                                    <MenuItem Header="{l:Localize NewRdp}" Command="{Binding NewRdpCommand}" />
+                                    <MenuItem Header="{l:Localize NewFolder}" Command="{Binding NewFolderCommand}">
+                                        <MenuItem.Icon>
+                                            <Border Classes="connection-icon-badge">
+                                                <TextBlock Classes="connection-icon emoji"
+                                                           Text="&#x1F4C1;"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center" />
+                                            </Border>
+                                        </MenuItem.Icon>
+                                    </MenuItem>
+                                    <MenuItem Header="{l:Localize NewSsh}" Command="{Binding NewSshCommand}">
+                                        <MenuItem.Icon>
+                                            <Border Classes="connection-icon-badge ssh-connection-icon">
+                                                <TextBlock Classes="connection-icon ssh-connection-icon"
+                                                           Text=">_"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center" />
+                                            </Border>
+                                        </MenuItem.Icon>
+                                    </MenuItem>
+                                    <MenuItem Header="{l:Localize NewWsl}" Command="{Binding NewWslCommand}">
+                                        <MenuItem.Icon>
+                                            <Border Classes="connection-icon-badge">
+                                                <TextBlock Classes="connection-icon emoji"
+                                                           Text="&#x1F427;"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center" />
+                                            </Border>
+                                        </MenuItem.Icon>
+                                    </MenuItem>
+                                    <MenuItem Header="{l:Localize NewRdp}" Command="{Binding NewRdpCommand}">
+                                        <MenuItem.Icon>
+                                            <Border Classes="connection-icon-badge">
+                                                <TextBlock Classes="connection-icon emoji"
+                                                           Text="&#x1F5A5;"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center" />
+                                            </Border>
+                                        </MenuItem.Icon>
+                                    </MenuItem>
                                     <Separator />
-                                    <MenuItem Header="{l:Localize Copy}" Command="{Binding CopyCommand}" InputGesture="Ctrl+C" />
-                                    <MenuItem Header="{l:Localize Cut}" Command="{Binding CutCommand}" InputGesture="Ctrl+X" />
-                                    <MenuItem Header="{l:Localize Paste}" Command="{Binding PasteCommand}" InputGesture="Ctrl+V" />
+                                    <MenuItem Header="{l:Localize Copy}" Command="{Binding CopyCommand}" InputGesture="Ctrl+C">
+                                        <MenuItem.Icon>
+                                            <TextBlock Classes="menu-icon duplicate" Text="&#xE8C8;" />
+                                        </MenuItem.Icon>
+                                    </MenuItem>
+                                    <MenuItem Header="{l:Localize Cut}" Command="{Binding CutCommand}" InputGesture="Ctrl+X">
+                                        <MenuItem.Icon>
+                                            <TextBlock Classes="menu-icon" Text="&#xE8C6;" />
+                                        </MenuItem.Icon>
+                                    </MenuItem>
+                                    <MenuItem Header="{l:Localize Paste}" Command="{Binding PasteCommand}" InputGesture="Ctrl+V">
+                                        <MenuItem.Icon>
+                                            <TextBlock Classes="menu-icon" Text="&#xE77F;" />
+                                        </MenuItem.Icon>
+                                    </MenuItem>
                                     <Separator />
-                                    <MenuItem Header="{l:Localize Rename}" Command="{Binding RenameCommand}" InputGesture="F2" />
-                                    <MenuItem Header="{l:Localize Delete}" Command="{Binding DeleteCommand}" InputGesture="Delete" />
+                                    <MenuItem Header="{l:Localize Rename}" Command="{Binding RenameCommand}" InputGesture="F2">
+                                        <MenuItem.Icon>
+                                            <TextBlock Classes="menu-icon edit" Text="&#xE104;" />
+                                        </MenuItem.Icon>
+                                    </MenuItem>
+                                    <MenuItem Header="{l:Localize Delete}" Command="{Binding DeleteCommand}" InputGesture="Delete">
+                                        <MenuItem.Icon>
+                                            <TextBlock Classes="menu-icon danger" Text="&#xE74D;" />
+                                        </MenuItem.Icon>
+                                    </MenuItem>
                                 </MenuFlyout>
                             </Button.Flyout>
                         </Button>
@@ -547,49 +750,133 @@
                         <TreeView.ContextMenu>
                             <ContextMenu>
                                 <MenuItem Header="{l:Localize Connect}" Command="{Binding ConnectCommand}"
-                                          IsVisible="{Binding !IsRecentGroupContext}" />
+                                          IsVisible="{Binding !IsRecentGroupContext}">
+                                    <MenuItem.Icon>
+                                        <TextBlock Classes="menu-icon connect" Text="&#xE768;" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
                                 <MenuItem Header="{l:Localize Edit}" Click="OnEditMenuClick"
-                                          IsVisible="{Binding IsRegularConnectionContext}" />
+                                          IsVisible="{Binding IsRegularConnectionContext}">
+                                    <MenuItem.Icon>
+                                        <TextBlock Classes="menu-icon edit" Text="&#xE70F;" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
                                 <MenuItem Header="{l:Localize RunScript}" Click="OnRunScriptMenuClick"
-                                          IsVisible="{Binding IsShellConnectionContext}" />
+                                          IsVisible="{Binding IsShellConnectionContext}">
+                                    <MenuItem.Icon>
+                                        <TextBlock Classes="menu-icon script" Text="&#xE756;" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
                                 <MenuItem Header="{l:Localize RevealInTree}" Command="{Binding RevealInTreeCommand}"
-                                          IsVisible="{Binding IsRecentConnectionContext}" />
+                                          IsVisible="{Binding IsRecentConnectionContext}">
+                                    <MenuItem.Icon>
+                                        <TextBlock Classes="menu-icon" Text="&#xE8DA;" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
                                 <MenuItem Header="{l:Localize RemoveFromRecent}" Command="{Binding RemoveFromRecentCommand}"
-                                          IsVisible="{Binding IsRecentConnectionContext}" />
+                                          IsVisible="{Binding IsRecentConnectionContext}">
+                                    <MenuItem.Icon>
+                                        <TextBlock Classes="menu-icon" Text="&#xE711;" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
                                 <MenuItem Header="{l:Localize ClearRecent}" Command="{Binding ClearRecentCommand}"
-                                          IsVisible="{Binding IsRecentGroupContext}" />
+                                          IsVisible="{Binding IsRecentGroupContext}">
+                                    <MenuItem.Icon>
+                                        <TextBlock Classes="menu-icon danger" Text="&#xE74D;" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
                                 <Separator IsVisible="{Binding IsRegularContext}" />
                                 <MenuItem Header="{l:Localize NewFolder}" Command="{Binding NewFolderCommand}"
-                                          IsVisible="{Binding IsRegularContext}" />
+                                          IsVisible="{Binding IsRegularContext}">
+                                    <MenuItem.Icon>
+                                        <Border Classes="connection-icon-badge">
+                                            <TextBlock Classes="connection-icon emoji"
+                                                       Text="&#x1F4C1;"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center" />
+                                        </Border>
+                                    </MenuItem.Icon>
+                                </MenuItem>
                                 <MenuItem Header="{l:Localize NewSsh}" Command="{Binding NewSshCommand}"
-                                          IsVisible="{Binding IsRegularContext}" />
+                                          IsVisible="{Binding IsRegularContext}">
+                                    <MenuItem.Icon>
+                                        <Border Classes="connection-icon-badge ssh-connection-icon">
+                                            <TextBlock Classes="connection-icon ssh-connection-icon"
+                                                       Text=">_"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center" />
+                                        </Border>
+                                    </MenuItem.Icon>
+                                </MenuItem>
                                 <MenuItem Header="{l:Localize NewWsl}" Command="{Binding NewWslCommand}"
-                                          IsVisible="{Binding IsRegularContext}" />
+                                          IsVisible="{Binding IsRegularContext}">
+                                    <MenuItem.Icon>
+                                        <Border Classes="connection-icon-badge">
+                                            <TextBlock Classes="connection-icon emoji"
+                                                       Text="&#x1F427;"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center" />
+                                        </Border>
+                                    </MenuItem.Icon>
+                                </MenuItem>
                                 <MenuItem Header="{l:Localize NewRdp}" Command="{Binding NewRdpCommand}"
-                                          IsVisible="{Binding IsRegularContext}" />
+                                          IsVisible="{Binding IsRegularContext}">
+                                    <MenuItem.Icon>
+                                        <Border Classes="connection-icon-badge">
+                                            <TextBlock Classes="connection-icon emoji"
+                                                       Text="&#x1F5A5;"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center" />
+                                        </Border>
+                                    </MenuItem.Icon>
+                                </MenuItem>
                                 <Separator IsVisible="{Binding IsRegularContext}" />
                                 <MenuItem Header="{l:Localize Copy}" Command="{Binding CopyCommand}" InputGesture="Ctrl+C"
-                                          IsVisible="{Binding IsRegularContext}" />
+                                          IsVisible="{Binding IsRegularContext}">
+                                    <MenuItem.Icon>
+                                        <TextBlock Classes="menu-icon duplicate" Text="&#xE8C8;" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
                                 <MenuItem Header="{l:Localize Cut}" Command="{Binding CutCommand}" InputGesture="Ctrl+X"
-                                          IsVisible="{Binding IsRegularContext}" />
+                                          IsVisible="{Binding IsRegularContext}">
+                                    <MenuItem.Icon>
+                                        <TextBlock Classes="menu-icon" Text="&#xE8C6;" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
                                 <MenuItem Header="{l:Localize Paste}" Command="{Binding PasteCommand}" InputGesture="Ctrl+V"
-                                          IsVisible="{Binding IsRegularContext}" />
+                                          IsVisible="{Binding IsRegularContext}">
+                                    <MenuItem.Icon>
+                                        <TextBlock Classes="menu-icon" Text="&#xE77F;" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
                                 <Separator IsVisible="{Binding IsRegularContext}" />
                                 <MenuItem Header="{l:Localize Rename}" Command="{Binding RenameCommand}" InputGesture="F2"
-                                          IsVisible="{Binding IsRegularContext}" />
+                                          IsVisible="{Binding IsRegularContext}">
+                                    <MenuItem.Icon>
+                                        <TextBlock Classes="menu-icon edit" Text="&#xE104;" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
                                 <MenuItem Header="{l:Localize Delete}" Command="{Binding DeleteCommand}" InputGesture="Delete"
-                                          IsVisible="{Binding IsRegularContext}" />
+                                          IsVisible="{Binding IsRegularContext}">
+                                    <MenuItem.Icon>
+                                        <TextBlock Classes="menu-icon danger" Text="&#xE74D;" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
                             </ContextMenu>
                         </TreeView.ContextMenu>
                         <TreeView.ItemTemplate>
                             <TreeDataTemplate ItemsSource="{Binding Children}" x:DataType="vm:TreeNodeViewModel">
                                 <Border Classes="tree-row" Opacity="{Binding NodeOpacity}">
                                     <Grid ColumnDefinitions="26,*" ColumnSpacing="8">
-                                        <TextBlock Grid.Column="0"
-                                                   Classes="emoji"
-                                                   Text="{Binding Glyph}"
-                                                   HorizontalAlignment="Center"
-                                                   VerticalAlignment="Center" />
+                                        <Border Grid.Column="0"
+                                                Classes="connection-icon-badge"
+                                                Classes.ssh-connection-icon="{Binding IsSshConnection}">
+                                            <TextBlock Classes="connection-icon emoji"
+                                                       Classes.ssh-connection-icon="{Binding IsSshConnection}"
+                                                       Text="{Binding Glyph}"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center" />
+                                        </Border>
                                         <TextBlock Grid.Column="1"
                                                    Text="{Binding Name}"
                                                    TextTrimming="CharacterEllipsis"
@@ -620,7 +907,7 @@
                     <TabItem.Header>
                         <Border Classes="tab-pill">
                             <StackPanel Orientation="Horizontal" Spacing="7">
-                                <TextBlock Classes="icon" Text="&#xE70F;" />
+                                <TextBlock Classes="toolbar-action-icon edit" Text="&#xE70F;" />
                                 <TextBlock Classes="tab-label" Text="{l:Localize Edit}" />
                             </StackPanel>
                         </Border>
@@ -642,7 +929,7 @@
                                             <Button Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).ConnectCommand}"
                                                     Classes="accent">
                                                 <StackPanel Orientation="Horizontal" Spacing="7">
-                                                    <TextBlock Classes="icon" Text="&#xE768;" />
+                                                    <TextBlock Classes="toolbar-action-icon connect" Text="&#xE768;" />
                                                     <TextBlock Text="{l:Localize Connect}" />
                                                 </StackPanel>
                                             </Button>
@@ -650,7 +937,7 @@
                                                     IsVisible="{Binding SupportsScripts}"
                                                     Classes="toolbar">
                                                 <StackPanel Orientation="Horizontal" Spacing="7">
-                                                    <TextBlock Classes="icon" Text="&#xE756;" />
+                                                    <TextBlock Classes="toolbar-action-icon script" Text="&#xE756;" />
                                                     <TextBlock Text="{l:Localize RunScript}" />
                                                 </StackPanel>
                                             </Button>
