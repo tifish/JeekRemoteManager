@@ -138,20 +138,33 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     {
         get
         {
+            var current = WslDistro ?? "";
             var names = Services.WslDistroService.ListDistros().Select(d => d.Name).ToArray();
-            return WslDistro.Length == 0 || names.Contains(WslDistro)
+            return current.Length == 0 || names.Contains(current)
                 ? names
-                : names.Prepend(WslDistro).ToArray();
+                : names.Prepend(current).ToArray();
         }
     }
 
     public bool ShowNoWslDistrosHint => IsWsl && AvailableWslDistros.Length == 0;
 
+    partial void OnWslDistroChanged(string? oldValue, string newValue)
+    {
+        // The distro ComboBox writes null through its two-way binding while its
+        // items detach/reattach (editor rebinds, the type switches). Keep the
+        // previous value so the selection survives, and push it back to the
+        // ComboBox once the binding storm settles.
+        if (newValue is not null)
+            return;
+        _wslDistro = oldValue ?? "";
+        Avalonia.Threading.Dispatcher.UIThread.Post(() => OnPropertyChanged(nameof(WslDistro)));
+    }
+
     partial void OnTypeChanged(ConnectionType value)
     {
         // Switching an existing connection to WSL: preselect the default distro so
         // the selector is not blank.
-        if (value == ConnectionType.Wsl && WslDistro.Length == 0)
+        if (value == ConnectionType.Wsl && string.IsNullOrEmpty(WslDistro))
             WslDistro = Services.WslDistroService.ListDistros().FirstOrDefault(d => d.IsDefault)?.Name ?? "";
     }
 
