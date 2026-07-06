@@ -45,7 +45,6 @@ public sealed record AgentProvider(
 /// </summary>
 public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 {
-    private const int MaxAutoSteps = 8;
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromMinutes(2);
 
     // Only blocks explicitly tagged as shell are executable; plain ``` blocks (quotes,
@@ -66,7 +65,6 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     private IAgentChatSession? _session;
     private ChatMessageViewModel? _pendingAssistant;
     private bool _sessionStarted;
-    private int _autoStepsRemaining;
     private bool _switchingProvider;
 
     // Each provider's last-chosen model/effort, restored when switching back to it.
@@ -492,7 +490,6 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
         InputText = "";
         IsBusy = true;
-        _autoStepsRemaining = MaxAutoSteps;
         StatusText = L("AiWaiting");
 
         await SendToSessionAsync(payload);
@@ -588,14 +585,9 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         var command = AutoRun && !result.IsError ? ExtractFirstCommand(answer) : null;
         if (command is not null && _runCaptured is not null)
         {
-            if (_autoStepsRemaining > 0)
-            {
-                // Keep IsBusy true across the whole auto loop.
-                _ = RunAndContinueAsync(command);
-                return;
-            }
-
-            Messages.Add(new ChatMessageViewModel(ChatRole.System, L("AiAutoLimit", MaxAutoSteps)));
+            // Keep IsBusy true across the whole auto loop.
+            _ = RunAndContinueAsync(command);
+            return;
         }
 
         IsBusy = false;
@@ -603,7 +595,6 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
     private async Task RunAndContinueAsync(string command)
     {
-        _autoStepsRemaining--;
         Messages.Add(new ChatMessageViewModel(ChatRole.Tool, $"$ {command}"));
 
         string output;
