@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Reflection;
 using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
 using JeekRemoteManager.ViewModels;
@@ -97,6 +98,32 @@ try
     Check(TerminalClipboardText.BuildSelectedTextWithoutSoftWraps(hardWrapTerminal.Terminal)
           == hardWrapTerminal.Terminal.Selection.GetSelectionText(),
           "Terminal clipboard text preserves hard line breaks");
+
+    // --- AI panel conversation reset ---
+    var aiVm = new AgentChatViewModel(
+        [
+            new AgentProvider(
+                "Test",
+                "",
+                [new AgentOption("Default", null)],
+                [new AgentOption("Default", null)],
+                (_, _) => null),
+        ],
+        () => null,
+        null);
+    var activeAiSession = new FakeAgentChatSession();
+    typeof(AgentChatViewModel)
+        .GetField("_session", BindingFlags.Instance | BindingFlags.NonPublic)!
+        .SetValue(aiVm, activeAiSession);
+    aiVm.Messages.Add(new ChatMessageViewModel(ChatRole.User, "old context"));
+    aiVm.InputText = "draft";
+    Check(aiVm.NewConversationCommand.CanExecute(null),
+          "AI new conversation command is available while idle");
+    aiVm.NewConversationCommand.Execute(null);
+    Check(aiVm.Messages.Count == 0 && aiVm.InputText == "" && aiVm.StatusText == "",
+          "AI new conversation clears the transcript and draft");
+    Check(activeAiSession.DisposeCount == 1,
+          "AI new conversation disposes the active session");
 
     // --- Portability: a connection file alone (no vault, no cache) suffices ---
     // Carry just the EncryptedPassword to a fresh "machine" and decrypt with the
@@ -1357,3 +1384,32 @@ finally
 }
 
 return failures;
+
+sealed class FakeAgentChatSession : IAgentChatSession
+{
+    public string? SessionId => "fake";
+
+    public int DisposeCount { get; private set; }
+
+    public event Action<string>? SessionInitialized { add { } remove { } }
+
+    public event Action<string>? TextDelta { add { } remove { } }
+
+    public event Action<AgentTurnResult>? TurnCompleted { add { } remove { } }
+
+    public event Action<string>? Errored { add { } remove { } }
+
+    public event Action? Exited { add { } remove { } }
+
+    public void Start()
+    {
+    }
+
+    public Task SendAsync(string text, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public ValueTask DisposeAsync()
+    {
+        DisposeCount++;
+        return ValueTask.CompletedTask;
+    }
+}

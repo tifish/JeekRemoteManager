@@ -22,6 +22,7 @@ public partial class AgentChatView : UserControl
 
         // Handle Enter on the tunnel (preview) route so it fires before the multi-line
         // TextBox consumes Enter to insert a newline.
+        AddHandler(KeyDownEvent, OnShortcutKeyDown, RoutingStrategies.Tunnel);
         InputBox.AddHandler(KeyDownEvent, OnInputKeyDown, RoutingStrategies.Tunnel);
 
         // Each bubble keeps its own text selection; starting a selection in one bubble
@@ -67,6 +68,16 @@ public partial class AgentChatView : UserControl
     {
         if (e.Action == NotifyCollectionChangedAction.Add)
             Dispatcher.UIThread.Post(() => MessagesScroll?.ScrollToEnd(), DispatcherPriority.Background);
+    }
+
+    private void OnShortcutKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.N || e.KeyModifiers != KeyModifiers.Control)
+            return;
+
+        e.Handled = true;
+        if (DataContext is AgentChatViewModel vm && vm.NewConversationCommand.CanExecute(null))
+            vm.NewConversationCommand.Execute(null);
     }
 
     // Enter sends; Shift+Enter inserts a newline.

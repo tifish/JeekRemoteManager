@@ -150,6 +150,12 @@
             <StackPanel Spacing="8">
                 <!-- Toggles flow on one row and wrap only when the panel is too narrow. -->
                 <WrapPanel Orientation="Horizontal">
+                    <Button Margin="0,0,16,6"
+                            MinHeight="28"
+                            VerticalAlignment="Center"
+                            Command="{Binding NewConversationCommand}"
+                            Content="{l:Localize AiNewConversation}"
+                            ToolTip.Tip="{l:Localize AiNewConversationHint}" />
                     <CheckBox Margin="0,0,16,6" VerticalAlignment="Center"
                               Content="{l:Localize AiAutoRun}"
                               IsChecked="{Binding AutoRun, Mode=TwoWay}"

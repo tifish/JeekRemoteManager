@@ -281,7 +281,13 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
     public bool CanSend => IsAvailable && !IsBusy;
 
-    partial void OnIsBusyChanged(bool value) => SendCommand.NotifyCanExecuteChanged();
+    public bool CanStartNewConversation => !IsBusy;
+
+    partial void OnIsBusyChanged(bool value)
+    {
+        SendCommand.NotifyCanExecuteChanged();
+        NewConversationCommand.NotifyCanExecuteChanged();
+    }
 
     partial void OnIsAvailableChanged(bool value) => SendCommand.NotifyCanExecuteChanged();
 
@@ -462,6 +468,15 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         "max" => "Max",
         _ => effort,
     };
+
+    [RelayCommand(CanExecute = nameof(CanStartNewConversation))]
+    private void NewConversation()
+    {
+        DetachAndDisposeSession();
+        Messages.Clear();
+        InputText = "";
+        StatusText = IsAvailable ? "" : UnavailableText;
+    }
 
     [RelayCommand(CanExecute = nameof(CanSend))]
     private async Task SendAsync()
