@@ -25,9 +25,12 @@ public static class TerminalClipboardText
             var firstSelectedColumn = -1;
             var lastSelectedColumn = -1;
 
+            // IsCellSelected expects viewport-relative rows; y here is an absolute buffer row.
+            var viewportY = y - buffer.YDisp;
+
             for (var x = 0; x < line.Length; x++)
             {
-                if (!selection.IsCellSelected(x, y))
+                if (!selection.IsCellSelected(x, viewportY))
                     continue;
 
                 if (firstSelectedColumn < 0)
