@@ -321,18 +321,20 @@ public partial class MainWindow : Window
             }
         }
 
-        var (view, tab) = CreateTerminalTab(connection);
+        var (view, tab) = CreateTerminalTab(connection, sourcePath);
         view.Start(connection, sourcePath);
         return Task.FromResult<TerminalScriptSession?>(CreateTerminalScriptSession(view, tab));
     }
 
-    private (TerminalView View, TabItem Tab) CreateTerminalTab(Connection connection)
+    private (TerminalView View, TabItem Tab) CreateTerminalTab(Connection connection, string? sourcePath)
     {
+        var sessionNumber = NextTerminalSessionNumber(connection, sourcePath);
         var view = new TerminalView();
         var tab = new TabItem
         {
-            Header = BuildTerminalTabHeader(connection, out var closeButton),
+            Header = BuildTerminalTabHeader(connection, sessionNumber, out var closeButton),
             Content = view,
+            Tag = sessionNumber,
         };
         closeButton.Click += (_, _) => CloseTerminalTab(tab);
         tab.ContextMenu = BuildTerminalTabContextMenu(connection, tab);
@@ -364,7 +366,7 @@ public partial class MainWindow : Window
             return;
 
         var shared = source.ShareClientForDuplicate();
-        var (view, _) = CreateTerminalTab(connection);
+        var (view, _) = CreateTerminalTab(connection, source.SourcePath);
         view.Start(connection, source.SourcePath, shared);
     }
 
@@ -404,6 +406,34 @@ public partial class MainWindow : Window
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Smallest free session number (1-based) among open terminal tabs on the same
+    /// connection. The first tab gets 1 (no suffix shown); duplicates get (2), (3)…
+    /// Closing (2) and duplicating again reuses (2) instead of growing forever.
+    /// </summary>
+    private int NextTerminalSessionNumber(Connection connection, string? sourcePath)
+    {
+        var used = new HashSet<int>();
+        foreach (var item in RightTabs.Items)
+        {
+            if (item is not TabItem { Content: TerminalView view } tab)
+                continue;
+
+            var samePath = !string.IsNullOrEmpty(sourcePath)
+                && !string.IsNullOrEmpty(view.SourcePath)
+                && PathEquals(view.SourcePath, sourcePath);
+            if (!samePath && !ReferenceEquals(view.Connection, connection))
+                continue;
+
+            used.Add(tab.Tag is int number ? number : 1);
+        }
+
+        var next = 1;
+        while (used.Contains(next))
+            next++;
+        return next;
     }
 
     private static bool PathEquals(string a, string b) =>
@@ -549,7 +579,7 @@ public partial class MainWindow : Window
     }
 
     // Tab title stays the connection name; the remote OSC title does not override it.
-    private static Control BuildTerminalTabHeader(Connection connection, out Button closeButton)
+    private static Control BuildTerminalTabHeader(Connection connection, int sessionNumber, out Button closeButton)
     {
         var title = new TextBlock
         {
@@ -559,6 +589,20 @@ public partial class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
         };
         title.Classes.Add("tab-label");
+
+        // Session number sits outside the trimmed title so it stays visible
+        // even when a long connection name gets ellipsized.
+        TextBlock? numberLabel = null;
+        if (sessionNumber > 1)
+        {
+            numberLabel = new TextBlock
+            {
+                Text = $"({sessionNumber})",
+                Opacity = 0.65,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            numberLabel.Classes.Add("tab-label");
+        }
 
         closeButton = new Button
         {
@@ -576,16 +620,21 @@ public partial class MainWindow : Window
 
         var content = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"),
+            ColumnDefinitions = new ColumnDefinitions(numberLabel is null ? "Auto,*,Auto" : "Auto,*,Auto,Auto"),
             ColumnSpacing = 7,
             VerticalAlignment = VerticalAlignment.Center,
         };
         var icon = CreateConnectionTypeIcon(connection.Type);
         Grid.SetColumn(icon, 0);
         Grid.SetColumn(title, 1);
-        Grid.SetColumn(closeButton, 2);
         content.Children.Add(icon);
         content.Children.Add(title);
+        if (numberLabel is not null)
+        {
+            Grid.SetColumn(numberLabel, 2);
+            content.Children.Add(numberLabel);
+        }
+        Grid.SetColumn(closeButton, numberLabel is null ? 2 : 3);
         content.Children.Add(closeButton);
 
         var pill = new Border { Child = content };
