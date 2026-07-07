@@ -4,8 +4,12 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using JeekTools;
+using Microsoft.Extensions.Logging;
+using ZLogger;
 
 namespace JeekRemoteManager.Services;
 
@@ -20,7 +24,17 @@ namespace JeekRemoteManager.Services;
 /// </summary>
 public sealed class CodexChatSession : IAgentChatSession
 {
+    private static readonly ILogger Log = LogManager.CreateLogger(nameof(CodexChatSession));
+
     private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(30);
+
+    private static readonly Regex AnsiEscapeRegex = new("\x1b\\[[0-9;]*m", RegexOptions.Compiled);
+
+    // Matches the tracing lines codex writes to stderr, e.g.
+    // "2026-07-06T15:27:58.838173Z ERROR codex_core::tools::router: ..." (after ANSI stripping).
+    private static readonly Regex TracingLineRegex = new(
+        @"^\d{4}-\d{2}-\d{2}T\S+ +(TRACE|DEBUG|INFO|WARN|ERROR)\b",
+        RegexOptions.Compiled);
 
     private static readonly JsonSerializerOptions WireOptions = new()
     {
@@ -374,12 +388,30 @@ public sealed class CodexChatSession : IAgentChatSession
         try
         {
             var reader = process.StandardError;
+            // codex app-server writes its internal tracing logs (with ANSI colors) to stderr.
+            // Those are diagnostics, not turn failures — real errors arrive as JSON-RPC error
+            // notifications or turn/completed with status=failed — so route them (and their
+            // multi-line continuations) to the app log instead of the Errored event, which
+            // the chat panel treats as a failed turn.
+            var sawTracing = false;
             while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line)
             {
                 if (_disposed)
                     return;
-                if (!string.IsNullOrWhiteSpace(line))
-                    Errored?.Invoke(line);
+                if (string.IsNullOrWhiteSpace(line))
+                    continue;
+
+                var text = AnsiEscapeRegex.Replace(line, "");
+                if (sawTracing || TracingLineRegex.IsMatch(text))
+                {
+                    sawTracing = true;
+                    Log.ZLogInformation($"codex stderr: {text}");
+                }
+                else
+                {
+                    Log.ZLogWarning($"codex stderr: {text}");
+                    Errored?.Invoke(text);
+                }
             }
         }
         catch
