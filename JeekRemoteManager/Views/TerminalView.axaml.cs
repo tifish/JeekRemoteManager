@@ -186,6 +186,10 @@ public partial class TerminalView : UserControl
         await connected.Task.WaitAsync(cancellationToken);
     }
 
+    // Read on the UI thread before starting a script, so each terminal rejects a
+    // second concurrent script while other terminals keep running their own.
+    public bool IsScriptRunning { get; private set; }
+
     public async Task<RemoteScriptExecutionResult> RunScriptAsync(
         RemoteScriptSuite suite,
         RemoteScriptFile scriptFile,
@@ -196,6 +200,23 @@ public partial class TerminalView : UserControl
         if (errors.Count > 0)
             throw new InvalidOperationException(string.Join(Environment.NewLine, errors));
 
+        IsScriptRunning = true;
+        try
+        {
+            return await RunScriptCoreAsync(suite, scriptFile, binding, cancellationToken);
+        }
+        finally
+        {
+            IsScriptRunning = false;
+        }
+    }
+
+    private async Task<RemoteScriptExecutionResult> RunScriptCoreAsync(
+        RemoteScriptSuite suite,
+        RemoteScriptFile scriptFile,
+        ConnectionScriptBinding binding,
+        CancellationToken cancellationToken)
+    {
         await WaitUntilConnectedAsync(cancellationToken);
         await _scriptLock.WaitAsync(cancellationToken);
 

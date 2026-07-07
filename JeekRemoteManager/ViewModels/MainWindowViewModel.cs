@@ -1768,6 +1768,7 @@ public partial class MainWindowViewModel : ViewModelBase
             : RemoteScriptLauncher.UnprotectSecretValues(suite, binding);
 
         ScriptPanel = new ScriptSuitePanelViewModel(suite, binding, () => _ = SaveScriptPanelBinding());
+        RunScriptFileCommand.NotifyCanExecuteChanged();
         StatusMessage = L("StatusScriptSuiteOpened", suite.Name);
     }
 
@@ -1794,7 +1795,10 @@ public partial class MainWindowViewModel : ViewModelBase
             .ToList();
     }
 
-    [RelayCommand]
+    // Concurrent executions are allowed so a running script in one terminal tab
+    // does not disable the script buttons of every other tab; CanRunScriptFile
+    // still greys out the buttons of the tab whose terminal is busy.
+    [RelayCommand(CanExecute = nameof(CanRunScriptFile), AllowConcurrentExecutions = true)]
     private async Task RunScriptFile(RemoteScriptFile? scriptFile)
     {
         var context = _scriptContext;
@@ -1803,7 +1807,7 @@ public partial class MainWindowViewModel : ViewModelBase
             || context?.Node is not { IsConnection: true, Connection: not null } node)
             return;
 
-        if (ScriptPanel.IsRunning)
+        if (ScriptPanel.IsRunning || context.Terminal is { IsScriptRunning: true })
         {
             StatusMessage = L("StatusScriptAlreadyRunning");
             return;
@@ -1818,6 +1822,7 @@ public partial class MainWindowViewModel : ViewModelBase
         panel.ClearExecutionResult();
         panel.StatusText = L("ScriptExecutionRunning");
         panel.IsRunning = true;
+        RunScriptFileCommand.NotifyCanExecuteChanged();
         StatusMessage = L("StatusScriptRunning", displayName, node.Connection.Name);
 
         try
@@ -1835,6 +1840,13 @@ public partial class MainWindowViewModel : ViewModelBase
             }
 
             terminal.Activate();
+            if (terminal.IsScriptRunning)
+            {
+                panel.StatusText = L("StatusScriptAlreadyRunning");
+                StatusMessage = L("StatusScriptAlreadyRunning");
+                return;
+            }
+
             terminal.HideScriptPanel();
             await terminal.WaitUntilConnectedAsync();
             panel.StatusText = L("ScriptExecutionRunningInTerminal");
@@ -1862,8 +1874,13 @@ public partial class MainWindowViewModel : ViewModelBase
         finally
         {
             panel.IsRunning = false;
+            RunScriptFileCommand.NotifyCanExecuteChanged();
         }
     }
+
+    private bool CanRunScriptFile(RemoteScriptFile? scriptFile) =>
+        ScriptPanel is not { IsRunning: true }
+        && _scriptContext?.Terminal is not { IsScriptRunning: true };
 
     private ConnectionScriptBinding? SaveScriptPanelBinding(bool flushImmediately = false)
     {

@@ -397,7 +397,8 @@ public partial class MainWindow : Window
                 view.FocusTerminal();
             },
             view.ShowScriptPanel,
-            view.HideScriptPanel);
+            view.HideScriptPanel,
+            () => view.IsScriptRunning);
 
     private (TerminalView View, TabItem Tab)? FindTerminalTab(Connection connection, string? sourcePath)
     {
