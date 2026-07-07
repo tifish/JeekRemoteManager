@@ -19,6 +19,7 @@
     <CETCompat>false</CETCompat>
     <PublishReadyToRun>true</PublishReadyToRun>
     <PublishDir>$(OutDir)</PublishDir>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 
     <PropertyGroup>
