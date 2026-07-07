@@ -1,4 +1,20 @@
 # Jeek Remote Manager
 
-- 这是一个管理远程连接的工具，支持 SSH 和 RDP 的配置管理。
-- 使用 .NET 10 + Avalonia，仅支持 Windows 平台。
+English | [简体中文](README.zh-CN.md)
+
+A remote connection manager for Windows that organizes SSH and RDP connections in one place.
+
+Built with .NET 10 and Avalonia. Windows only.
+
+## Features
+
+- Manage SSH and RDP connections in a folder tree
+- Built-in SSH terminal with tabs, drag-to-reorder, and ZMODEM (rz/sz) file transfer
+- SFTP file browser for remote hosts
+- WSL support: open terminals and browse files in local WSL distros
+- Remote scripts: define reusable scripts with parameters and run them on connections
+- AI agent chat integrated with the terminal (Claude, Codex, OpenAI-compatible APIs)
+- Import connections from FinalShell
+- Passwords encrypted with a master key
+- One-click public key installation to remote hosts
+- Auto update
