@@ -30,10 +30,14 @@ public partial class MainWindow : Window
     private DispatcherTimer? _windowSizeSaveTimer;
     private string? _pendingTreeFocusPath;
     private DispatcherTimer? _pendingTreeFocusClearTimer;
+    private TabItem? _draggedTerminalTab;
+    private Point _terminalTabDragStart;
+    private bool _isTerminalTabDragging;
 
     // Auto-locks "Show password" after a stretch of inactivity in the main
     // window, so a revealed password isn't left on screen when the user
     // walks away. Any pointer or key input resets the timer.
+    private const double TerminalTabDragThreshold = 6;
     private static readonly TimeSpan ShowPasswordIdleTimeout = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan WindowSizeSaveDelay = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan PendingTreeFocusRestoreWindow = TimeSpan.FromSeconds(20);
@@ -57,6 +61,16 @@ public partial class MainWindow : Window
         Tree.AddHandler(
             InputElement.KeyDownEvent,
             OnTreeKeyDown,
+            RoutingStrategies.Tunnel,
+            handledEventsToo: true);
+        RightTabs.AddHandler(
+            InputElement.PointerMovedEvent,
+            OnTerminalTabDragPointerMoved,
+            RoutingStrategies.Tunnel,
+            handledEventsToo: true);
+        RightTabs.AddHandler(
+            InputElement.PointerReleasedEvent,
+            OnTerminalTabDragPointerReleased,
             RoutingStrategies.Tunnel,
             handledEventsToo: true);
         AddHandler(
@@ -336,11 +350,12 @@ public partial class MainWindow : Window
             Content = view,
             Tag = sessionNumber,
         };
+        tab.Classes.Add("terminal-tab");
         closeButton.Click += (_, _) => CloseTerminalTab(tab);
         tab.ContextMenu = BuildTerminalTabContextMenu(connection, tab);
 
-        // Middle-click or double-click on the tab header closes it, matching the
-        // close button and the context menu's Close item.
+        // Terminal tabs can be reordered by dragging the header. Middle-click or
+        // double-click still closes the tab, matching the close button and menu.
         tab.AddHandler(
             PointerPressedEvent,
             OnTerminalTabPointerPressed,
@@ -681,13 +696,136 @@ public partial class MainWindow : Window
     // Middle-clicking anywhere on a terminal tab closes it.
     private void OnTerminalTabPointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (sender is TabItem tab
-            && e.GetCurrentPoint(tab).Properties.IsMiddleButtonPressed)
+        if (sender is not TabItem tab)
+            return;
+
+        var point = e.GetCurrentPoint(tab);
+        if (point.Properties.IsMiddleButtonPressed)
         {
             CloseTerminalTab(tab);
             e.Handled = true;
+            return;
         }
+
+        if (!point.Properties.IsLeftButtonPressed || IsTerminalTabDragBlockedBySource(e.Source))
+            return;
+
+        _draggedTerminalTab = tab;
+        _terminalTabDragStart = e.GetPosition(RightTabs);
+        _isTerminalTabDragging = false;
+        e.Pointer.Capture(tab);
     }
+
+    private void OnTerminalTabDragPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_draggedTerminalTab is not { } tab)
+            return;
+
+        if (!e.GetCurrentPoint(RightTabs).Properties.IsLeftButtonPressed)
+        {
+            ResetTerminalTabDrag(e);
+            return;
+        }
+
+        var currentPosition = e.GetPosition(RightTabs);
+        if (!_isTerminalTabDragging)
+        {
+            var delta = currentPosition - _terminalTabDragStart;
+            if (Math.Abs(delta.X) < TerminalTabDragThreshold && Math.Abs(delta.Y) < TerminalTabDragThreshold)
+                return;
+
+            _isTerminalTabDragging = true;
+            tab.Classes.Add("dragging");
+        }
+
+        MoveDraggedTerminalTab(currentPosition);
+        e.Handled = true;
+    }
+
+    private void OnTerminalTabDragPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (_draggedTerminalTab is null)
+            return;
+
+        var wasDragging = _isTerminalTabDragging;
+        ResetTerminalTabDrag(e);
+        if (wasDragging)
+            e.Handled = true;
+    }
+
+    private void MoveDraggedTerminalTab(Point pointerPosition)
+    {
+        if (_draggedTerminalTab is not { Content: TerminalView } dragged)
+            return;
+
+        var currentIndex = RightTabs.Items.IndexOf(dragged);
+        if (currentIndex < 0)
+            return;
+
+        var targetIndex = GetTerminalTabInsertionIndex(pointerPosition, dragged);
+        var insertIndex = targetIndex > currentIndex ? targetIndex - 1 : targetIndex;
+        insertIndex = Math.Clamp(insertIndex, FirstTerminalTabIndex(), RightTabs.Items.Count - 1);
+        if (insertIndex == currentIndex)
+            return;
+
+        var selectedItem = RightTabs.SelectedItem;
+        RightTabs.Items.RemoveAt(currentIndex);
+        RightTabs.Items.Insert(insertIndex, dragged);
+        RightTabs.SelectedItem = selectedItem;
+    }
+
+    private int GetTerminalTabInsertionIndex(Point pointerPosition, TabItem dragged)
+    {
+        var firstTerminalTabIndex = FirstTerminalTabIndex();
+        var fallbackIndex = RightTabs.Items.Count;
+
+        for (var i = firstTerminalTabIndex; i < RightTabs.Items.Count; i++)
+        {
+            if (RightTabs.Items[i] is not TabItem { Content: TerminalView } tab || ReferenceEquals(tab, dragged))
+                continue;
+
+            if (!TryGetTabBoundsInRightTabs(tab, out var bounds))
+                continue;
+
+            if (pointerPosition.X < bounds.X + bounds.Width / 2)
+                return i;
+
+            fallbackIndex = i + 1;
+        }
+
+        return Math.Max(firstTerminalTabIndex, fallbackIndex);
+    }
+
+    private int FirstTerminalTabIndex()
+    {
+        var editorIndex = RightTabs.Items.IndexOf(EditorTab);
+        return editorIndex >= 0 ? editorIndex + 1 : 0;
+    }
+
+    private bool TryGetTabBoundsInRightTabs(TabItem tab, out Rect bounds)
+    {
+        bounds = default;
+        var topLeft = tab.TranslatePoint(new Point(0, 0), RightTabs);
+        if (topLeft is null || tab.Bounds.Width <= 0 || tab.Bounds.Height <= 0)
+            return false;
+
+        bounds = new Rect(topLeft.Value, tab.Bounds.Size);
+        return true;
+    }
+
+    private void ResetTerminalTabDrag(PointerEventArgs e)
+    {
+        if (_draggedTerminalTab is { } tab)
+            tab.Classes.Remove("dragging");
+
+        _draggedTerminalTab = null;
+        _isTerminalTabDragging = false;
+        e.Pointer.Capture(null);
+    }
+
+    private static bool IsTerminalTabDragBlockedBySource(object? source) =>
+        source is Avalonia.Visual visual
+        && visual.FindAncestorOfType<Button>(includeSelf: true) is not null;
 
     private void CloseTerminalTab(TabItem tab)
     {

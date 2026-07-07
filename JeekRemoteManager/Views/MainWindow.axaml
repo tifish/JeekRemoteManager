@@ -345,6 +345,10 @@
             <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource SelectedBorderBrush}" />
         </Style>
+        <Style Selector="TabItem.terminal-tab.dragging Border.tab-pill">
+            <Setter Property="Opacity" Value="0.72" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+        </Style>
         <Style Selector="TextBlock.tab-label">
             <Setter Property="FontSize" Value="13" />
             <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
