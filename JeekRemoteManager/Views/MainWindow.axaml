@@ -646,6 +646,13 @@
                                             <TextBlock Classes="menu-icon connect" Text="&#xE768;" />
                                         </MenuItem.Icon>
                                     </MenuItem>
+                                    <MenuItem Header="{l:Localize ConnectNew}"
+                                              Command="{Binding ConnectNewCommand}"
+                                              IsVisible="{Binding IsShellConnectionContext}">
+                                        <MenuItem.Icon>
+                                            <TextBlock Classes="menu-icon connect" Text="&#xE8A7;" />
+                                        </MenuItem.Icon>
+                                    </MenuItem>
                                     <MenuItem Header="{l:Localize Edit}"
                                               Click="OnEditMenuClick"
                                               IsVisible="{Binding IsRegularConnectionContext}">
@@ -757,6 +764,12 @@
                                           IsVisible="{Binding !IsRecentGroupContext}">
                                     <MenuItem.Icon>
                                         <TextBlock Classes="menu-icon connect" Text="&#xE768;" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="{l:Localize ConnectNew}" Command="{Binding ConnectNewCommand}"
+                                          IsVisible="{Binding IsShellConnectionContext}">
+                                    <MenuItem.Icon>
+                                        <TextBlock Classes="menu-icon connect" Text="&#xE8A7;" />
                                     </MenuItem.Icon>
                                 </MenuItem>
                                 <MenuItem Header="{l:Localize Edit}" Click="OnEditMenuClick"

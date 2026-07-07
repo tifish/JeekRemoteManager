@@ -129,6 +129,10 @@ public partial class MainWindow : Window
         {
             _ = await EnsureSshTerminalAsync(connection, sourcePath);
         };
+        vm.OpenNewSshTerminalAsync = async (connection, sourcePath) =>
+        {
+            _ = await EnsureSshTerminalAsync(connection, sourcePath, forceNew: true);
+        };
         vm.EnsureSshTerminalAsync = EnsureSshTerminalAsync;
         vm.ApplyTerminalFontSize = ApplyTerminalFontToOpenTabs;
         vm.ConfirmHostKeyTrust = HostKeyDialog.PromptTrust;
@@ -1328,10 +1332,17 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (e.Key == Key.Enter && vm.ConnectCommand.CanExecute(null))
+        if (e.Key == Key.Enter)
         {
-            e.Handled = true;
-            vm.ConnectCommand.Execute(null);
+            // Ctrl+Enter forces a fresh session; plain Enter reuses an open tab.
+            var command = e.KeyModifiers.HasFlag(KeyModifiers.Control)
+                ? (System.Windows.Input.ICommand)vm.ConnectNewCommand
+                : vm.ConnectCommand;
+            if (command.CanExecute(null))
+            {
+                e.Handled = true;
+                command.Execute(null);
+            }
         }
     }
 
@@ -1381,10 +1392,18 @@ public partial class MainWindow : Window
         if (hitItem?.DataContext is TreeNodeViewModel { IsConnection: true } node)
             vm.SelectedNode = node;
 
-        if (vm.SelectedNode is { IsConnection: true } && vm.ConnectCommand.CanExecute(null))
+        if (vm.SelectedNode is { IsConnection: true })
         {
-            vm.ConnectCommand.Execute(null);
-            e.Handled = true;
+            // Ctrl+double-click forces a fresh session; a plain double-click
+            // reuses an open tab.
+            var command = e.KeyModifiers.HasFlag(KeyModifiers.Control)
+                ? (System.Windows.Input.ICommand)vm.ConnectNewCommand
+                : vm.ConnectCommand;
+            if (command.CanExecute(null))
+            {
+                command.Execute(null);
+                e.Handled = true;
+            }
         }
     }
 

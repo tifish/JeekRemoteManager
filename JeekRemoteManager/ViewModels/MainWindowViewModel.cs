@@ -104,6 +104,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConnectNewCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeleteCommand))]
     [NotifyCanExecuteChangedFor(nameof(RenameCommand))]
     [NotifyCanExecuteChangedFor(nameof(CopyCommand))]
@@ -209,6 +210,10 @@ public partial class MainWindowViewModel : ViewModelBase
     /// The second argument is the connection's on-disk file path, carried so the
     /// terminal tab's context menu can act on the originating tree node.</summary>
     public Func<Connection, string?, Task>? OpenSshTerminalAsync { get; set; }
+
+    /// <summary>Like <see cref="OpenSshTerminalAsync"/>, but always opens a fresh
+    /// terminal tab instead of activating an existing one for the same connection.</summary>
+    public Func<Connection, string?, Task>? OpenNewSshTerminalAsync { get; set; }
 
     /// <summary>Returns an SSH terminal tab for script execution, reusing an open
     /// terminal for the same connection file when possible.</summary>
@@ -1175,6 +1180,31 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private bool CanConnect() => SelectedNode is { IsConnection: true, IsNameEditing: false };
 
+    /// <summary>Opens a fresh terminal session even when one is already open for
+    /// the connection (the plain Connect command activates the existing tab).</summary>
+    [RelayCommand(CanExecute = nameof(CanConnectNew))]
+    private async Task ConnectNew()
+    {
+        FlushPendingAutoSave();
+
+        if (SelectedNode is not { IsConnection: true, IsNameEditing: false, Connection: not null } node)
+            return;
+
+        var clearStaleRecentSelection = node.IsRecent;
+        await LaunchAsync(node, forceNew: true);
+
+        if (clearStaleRecentSelection && ReferenceEquals(SelectedNode, node))
+            SelectedNode = null;
+    }
+
+    private bool CanConnectNew() =>
+        SelectedNode is
+        {
+            IsConnection: true,
+            IsNameEditing: false,
+            Connection.Type: ConnectionType.Ssh or ConnectionType.Wsl,
+        };
+
     // --- Recent group: reveal / remove / clear ---
 
     [RelayCommand(CanExecute = nameof(IsRecentConnectionContextMethod))]
@@ -1252,7 +1282,7 @@ public partial class MainWindowViewModel : ViewModelBase
     /// Shared by the Connect command (on real nodes) and the "Recent" group's
     /// one-click shortcut (on shadow nodes).
     /// </summary>
-    private async Task LaunchAsync(TreeNodeViewModel node)
+    private async Task LaunchAsync(TreeNodeViewModel node, bool forceNew = false)
     {
         if (node.Connection is null)
             return;
@@ -1265,10 +1295,11 @@ public partial class MainWindowViewModel : ViewModelBase
             // ConPTY) — there is no external-client path for them.
             if (connection.Type is ConnectionType.Ssh or ConnectionType.Wsl)
             {
-                if (OpenSshTerminalAsync is null)
+                var open = forceNew ? OpenNewSshTerminalAsync : OpenSshTerminalAsync;
+                if (open is null)
                     throw new InvalidOperationException("The in-app terminal is not available.");
                 StatusMessage = L("StatusLaunching", connection.Type.ToDisplayName(), connection.TargetLabel);
-                await OpenSshTerminalAsync(connection, node.FullPath);
+                await open(connection, node.FullPath);
                 RecordRecent(node.FullPath);
                 return;
             }

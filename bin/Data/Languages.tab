@@ -17,7 +17,8 @@ SSH	SSH	SSH
 RDP	RDP	RDP
 WSL	WSL	WSL
 Connect	Connect	连接
-ConnectTooltip	Connect (Enter / double-click)	连接（回车 / 双击）
+ConnectTooltip	Connect (Enter / double-click; hold Ctrl for a new session)	连接（回车 / 双击；按住 Ctrl 新开会话）
+ConnectNew	Open new connection	打开新连接
 Settings	Settings...	设置...
 SettingsTooltip	Choose where Config is stored	选择 Config 保存位置
 MoreActions	More actions	更多操作
