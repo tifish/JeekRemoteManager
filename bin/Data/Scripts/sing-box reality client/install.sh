@@ -529,6 +529,11 @@ install_package_file() {
     esac
 }
 
+get_installed_sing_box_version() {
+    installed_bin=$(find_sing_box) || return 1
+    "$installed_bin" version 2>/dev/null | awk 'NR==1 {print $3}'
+}
+
 get_latest_sing_box_version() {
     for url in \
         https://api.github.com/repos/SagerNet/sing-box/releases/latest \
@@ -571,6 +576,12 @@ install_or_update_sing_box() {
 
     version=$(get_latest_sing_box_version) ||
         return 1
+
+    installed_version=$(get_installed_sing_box_version || true)
+    if [ -n "$installed_version" ] && [ "$installed_version" = "$version" ]; then
+        printf 'sing-box %s is already installed and up to date. Skipping download.\n' "$installed_version"
+        return 0
+    fi
 
     package_name="sing-box_${version}_${package_os}_${package_arch}${package_suffix}"
     package_url="https://github.com/SagerNet/sing-box/releases/download/v${version}/${package_name}"

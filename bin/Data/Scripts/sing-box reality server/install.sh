@@ -128,6 +128,23 @@ find_sing_box() {
     fi
 }
 
+get_installed_sing_box_version() {
+    installed_bin=$(find_sing_box) || return 1
+    "$installed_bin" version 2>/dev/null | awk 'NR==1 {print $3}'
+}
+
+get_latest_sing_box_version() {
+    latest_release=$(download_to_stdout https://api.github.com/repos/SagerNet/sing-box/releases/latest 2>/dev/null || true)
+    tag=$(printf '%s\n' "$latest_release" | grep '"tag_name"' | head -n 1 | awk -F: '{print $2}' | sed 's/[", ]//g')
+    version=${tag#v}
+    case "$version" in
+        ""|*[!0-9A-Za-z._-]*)
+            return 1
+            ;;
+    esac
+    printf '%s\n' "$version"
+}
+
 bbr_fail() {
     printf 'ERROR: %s\n' "$1" >&2
     return 1
@@ -289,11 +306,17 @@ configure_firewall() {
 ensure_official_installer_dependencies
 
 printf 'Installing or updating sing-box to the latest available version...\n'
-tmp_install=$(mktemp)
-download_to_file https://sing-box.app/install.sh "$tmp_install" ||
-    fail "Could not download the official sing-box install script."
-sh "$tmp_install" ||
-    fail "The official sing-box install script failed."
+installed_version=$(get_installed_sing_box_version || true)
+latest_version=$(get_latest_sing_box_version || true)
+if [ -n "$installed_version" ] && [ -n "$latest_version" ] && [ "$installed_version" = "$latest_version" ]; then
+    printf 'sing-box %s is already installed and up to date. Skipping download.\n' "$installed_version"
+else
+    tmp_install=$(mktemp)
+    download_to_file https://sing-box.app/install.sh "$tmp_install" ||
+        fail "Could not download the official sing-box install script."
+    sh "$tmp_install" ||
+        fail "The official sing-box install script failed."
+fi
 
 sing_box=$(find_sing_box) ||
     fail "sing-box was installed, but the sing-box command could not be found."
