@@ -48,7 +48,7 @@
     <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto">
 
         <!-- Path bar -->
-        <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto" ColumnSpacing="4"
+        <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto,Auto" ColumnSpacing="4"
               Margin="6,5,6,3">
             <!-- Direct SFTP target: makes it visible that the panel operates on the
                  configured host, not on servers jumped to inside the terminal. -->
@@ -88,6 +88,11 @@
                     ToolTip.Tip="{l:Localize FileBrowserUpload}"
                     Command="{Binding UploadCommand}">
                 <TextBlock Classes="icon" Text="&#xE898;" />
+            </Button>
+            <Button Grid.Column="7" Classes="toolbar icon-button"
+                    ToolTip.Tip="{l:Localize Close}"
+                    Click="OnCloseClick">
+                <TextBlock Classes="icon" FontSize="10" Text="&#xE711;" />
             </Button>
         </Grid>
 

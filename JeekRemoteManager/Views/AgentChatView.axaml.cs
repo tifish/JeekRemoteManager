@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Specialized;
 using System.Linq;
 using Avalonia;
@@ -14,6 +15,13 @@ namespace JeekRemoteManager.Views;
 public partial class AgentChatView : UserControl
 {
     private INotifyCollectionChanged? _observed;
+
+    /// <summary>Raised by the panel's own close button; the hosting TerminalView
+    /// collapses the panel.</summary>
+    public event EventHandler? CloseRequested;
+
+    private void OnCloseClick(object? sender, RoutedEventArgs e) =>
+        CloseRequested?.Invoke(this, EventArgs.Empty);
 
     public AgentChatView()
     {

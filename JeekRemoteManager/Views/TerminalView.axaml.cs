@@ -134,8 +134,10 @@ public partial class TerminalView : UserControl
         AiSplitter.DragCompleted += (_, _) => PersistAiPanelWidth();
         FileSplitter.DragCompleted += (_, _) => PersistFileBrowserHeight();
         MonitorSplitter.DragCompleted += (_, _) => PersistMonitorPanelWidth();
-        // The panel is only visible while open, so toggling from its close button hides it.
+        // The panels are only visible while open, so toggling from their close buttons hides them.
         MonitorPanel.CloseRequested += (_, _) => ToggleMonitorPanel();
+        AiPanel.CloseRequested += (_, _) => ToggleAiPanel();
+        FileBrowser.CloseRequested += (_, _) => ToggleFileBrowserPanel();
 
         _model.UserInput += (_, e) =>
         {

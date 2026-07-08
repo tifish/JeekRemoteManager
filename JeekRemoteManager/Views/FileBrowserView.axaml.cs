@@ -25,6 +25,13 @@ public partial class FileBrowserView : UserControl
     private string _searchPrefix = "";
     private DateTime _lastSearchInput;
 
+    /// <summary>Raised by the panel's own close button; the hosting TerminalView
+    /// collapses the panel.</summary>
+    public event EventHandler? CloseRequested;
+
+    private void OnCloseClick(object? sender, RoutedEventArgs e) =>
+        CloseRequested?.Invoke(this, EventArgs.Empty);
+
     public FileBrowserView()
     {
         InitializeComponent();
