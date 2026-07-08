@@ -511,6 +511,7 @@ public partial class MainWindow : Window
             Header = Localizer.Get("CopyPublicKeyToServer"),
             Icon = CreateMenuIcon("\uE8D7", "key"),
         };
+        ToolTip.SetTip(copyKey, Localizer.Get("CopyPublicKeyToServerTooltip"));
         copyKey.Click += async (_, _) =>
         {
             if (DataContext is MainWindowViewModel vm)

@@ -508,7 +508,7 @@
                             Classes="toolbar">
                         <StackPanel Orientation="Horizontal" Spacing="7">
                             <TextBlock Classes="toolbar-action-icon duplicate" Text="&#xE8C8;" />
-                            <TextBlock Classes="toolbar-label" Text="{l:Localize DuplicateSession}" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize DuplicateSessionShort}" />
                         </StackPanel>
                     </Button>
                     <Button Click="OnRunScriptTerminalToolbarClick"
@@ -517,7 +517,7 @@
                             Classes="toolbar">
                         <StackPanel Orientation="Horizontal" Spacing="7">
                             <TextBlock Classes="toolbar-action-icon script" Text="&#xE756;" />
-                            <TextBlock Classes="toolbar-label" Text="{l:Localize RunScript}" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize RunScriptShort}" />
                         </StackPanel>
                     </Button>
                     <Button Click="OnMonitorToolbarClick"
@@ -535,7 +535,7 @@
                             Classes="toolbar">
                         <StackPanel Orientation="Horizontal" Spacing="7">
                             <TextBlock Classes="toolbar-action-icon ai" Text="&#xE99A;" />
-                            <TextBlock Classes="toolbar-label" Text="{l:Localize AiAssistant}" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize AiAssistantShort}" />
                         </StackPanel>
                     </Button>
                     <Button Click="OnFileBrowserToolbarClick"
@@ -544,17 +544,17 @@
                             Classes="toolbar">
                         <StackPanel Orientation="Horizontal" Spacing="7">
                             <TextBlock Classes="toolbar-action-icon file-browser" Text="&#xE8B7;" />
-                            <TextBlock Classes="toolbar-label" Text="{l:Localize FileBrowser}" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize FileBrowserShort}" />
                         </StackPanel>
                     </Button>
                     <Button Click="OnCopyPublicKeyTerminalToolbarClick"
                             ToolTip.Tip="{l:Localize CopyPublicKeyToServerTooltip}"
                             IsVisible="{Binding IsTerminalActive}"
-                            Classes="toolbar">
-                        <StackPanel Orientation="Horizontal" Spacing="7">
-                            <TextBlock Classes="toolbar-action-icon key" Text="&#xE8D7;" />
-                            <TextBlock Classes="toolbar-label" Text="{l:Localize CopyPublicKeyToServer}" />
-                        </StackPanel>
+                            Classes="toolbar icon-button">
+                        <TextBlock Classes="toolbar-action-icon key"
+                                   Text="&#xE8D7;"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center" />
                     </Button>
                     <StackPanel Orientation="Horizontal"
                                 Spacing="6"

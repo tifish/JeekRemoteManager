@@ -139,7 +139,9 @@ DialogPickKeyTitle	Select private key	选择私钥
 DialogPickFinalShellTitle	Select FinalShell conn directory	选择 FinalShell 连接目录
 DialogPickStorageTitle	Select Config location	选择 Config 保存位置
 RunScript	Run script	运行脚本
+RunScriptShort	Script	脚本
 DuplicateSession	Duplicate session	复制会话
+DuplicateSessionShort	Duplicate	复制
 CopyPublicKeyToServer	Copy public key to server	复制公钥到服务器
 DialogCopyPublicKeyTitle	Copy public key	复制公钥
 DialogCopyPublicKeyMessage	Install local public key on {1}?\n\nKey: {0}\n\nThis applies to the host configured above — not to servers reached by jumping inside the terminal.	将本地公钥安装到 {1}？\n\n公钥：{0}\n\n此操作作用于上述配置的主机本身，不作用于终端中跳转后的服务器。
@@ -215,6 +217,7 @@ HostKeyReject	Reject	拒绝
 Passphrase	Key passphrase	私钥口令
 PassphraseWatermark	optional, only if the key is encrypted	可选，仅在私钥已加密时填写
 AiAssistant	AI assistant	AI 助手
+AiAssistantShort	AI	AI
 AiSend	Send	发送
 AiNewConversation	New conversation	新对话
 AiNewConversationHint	Start a new conversation with empty context (Ctrl+N).	从空上下文开始新对话 (Ctrl+N)。
@@ -254,6 +257,7 @@ AiAddProvider	Add	添加
 AiRemoveProvider	Remove	移除
 AiProviderUnnamed	(unnamed)	（未命名）
 FileBrowser	File browser	文件浏览器
+FileBrowserShort	Files	文件
 FileBrowserUp	Parent directory	上级目录
 FileBrowserHome	Home directory	主目录
 FileBrowserRefresh	Refresh	刷新
