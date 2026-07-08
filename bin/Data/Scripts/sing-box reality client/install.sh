@@ -29,6 +29,9 @@ SERVER_LINK_3=${SERVER_LINK_3:-}
 SERVER_LINK_4=${SERVER_LINK_4:-}
 SERVER_LINK_5=${SERVER_LINK_5:-}
 SERVER_LINK_6=${SERVER_LINK_6:-}
+SERVER_LINK_7=${SERVER_LINK_7:-}
+SERVER_LINK_8=${SERVER_LINK_8:-}
+SERVER_LINK_9=${SERVER_LINK_9:-}
 LISTEN_PORT=${LISTEN_PORT:-}
 ALLOW_EXTERNAL=${ALLOW_EXTERNAL:-false}
 ENABLE_TUN=${ENABLE_TUN:-false}
@@ -92,10 +95,10 @@ else
 fi
 
 # Parse the vless:// REALITY share links produced by the server install script.
-# Up to 6 links are supported. Each filled-in link gets its own mixed inbound;
+# Up to 9 links are supported. Each filled-in link gets its own mixed inbound;
 # the first link listens on LISTEN_PORT and every following link on the next
 # port (+1 per link, in the order the links are filled in).
-max_server_links=6
+max_server_links=9
 
 parse_server_link() {
     link=$1
