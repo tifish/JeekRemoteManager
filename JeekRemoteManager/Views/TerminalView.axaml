@@ -105,66 +105,71 @@
                         </Button>
                     </Grid>
 
-                    <ScrollViewer Grid.Row="1"
-                                  MinHeight="0"
-                                  MaxHeight="260"
-                                  HorizontalScrollBarVisibility="Disabled"
-                                  VerticalScrollBarVisibility="Auto">
-                        <Grid ColumnDefinitions="*,156" ColumnSpacing="12">
-                            <ItemsControl Grid.Column="0"
-                                          ItemsSource="{Binding ScriptPanel.Parameters}"
-                                          Grid.IsSharedSizeScope="True">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate DataType="vm:ScriptParameterValueViewModel">
-                                        <Grid ColumnSpacing="10" Margin="0,3">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto"
-                                                                  MinWidth="120"
-                                                                  SharedSizeGroup="ScriptParamName" />
-                                                <ColumnDefinition Width="*" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0"
-                                                       Classes="label"
-                                                       Text="{Binding Name}"
-                                                       TextWrapping="Wrap" />
-                                            <Grid Grid.Column="1">
-                                                <TextBox Text="{Binding Value, Mode=TwoWay}"
-                                                         IsVisible="{Binding IsText}" />
-                                                <TextBox Text="{Binding Value, Mode=TwoWay}"
-                                                         PasswordChar="&#x2022;"
-                                                         IsVisible="{Binding IsSecret}" />
-                                                <CheckBox IsChecked="{Binding BoolValue, Mode=TwoWay}"
-                                                          IsVisible="{Binding IsBool}" />
-                                                <ComboBox ItemsSource="{Binding EnumOptions}"
-                                                          SelectedItem="{Binding SelectedEnumValue, Mode=TwoWay}"
-                                                          IsVisible="{Binding IsEnum}" />
+                    <Border Grid.Row="1"
+                            BorderBrush="{DynamicResource BorderBrushSoft}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="8,6">
+                        <ScrollViewer MinHeight="0"
+                                      MaxHeight="260"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      VerticalScrollBarVisibility="Auto">
+                            <Grid ColumnDefinitions="*,156" ColumnSpacing="12">
+                                <ItemsControl Grid.Column="0"
+                                              ItemsSource="{Binding ScriptPanel.Parameters}"
+                                              Grid.IsSharedSizeScope="True">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="vm:ScriptParameterValueViewModel">
+                                            <Grid ColumnSpacing="10" Margin="0,3">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"
+                                                                      MinWidth="120"
+                                                                      SharedSizeGroup="ScriptParamName" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0"
+                                                           Classes="label"
+                                                           Text="{Binding Name}"
+                                                           TextWrapping="Wrap" />
+                                                <Grid Grid.Column="1">
+                                                    <TextBox Text="{Binding Value, Mode=TwoWay}"
+                                                             IsVisible="{Binding IsText}" />
+                                                    <TextBox Text="{Binding Value, Mode=TwoWay}"
+                                                             PasswordChar="&#x2022;"
+                                                             IsVisible="{Binding IsSecret}" />
+                                                    <CheckBox IsChecked="{Binding BoolValue, Mode=TwoWay}"
+                                                              IsVisible="{Binding IsBool}" />
+                                                    <ComboBox ItemsSource="{Binding EnumOptions}"
+                                                              SelectedItem="{Binding SelectedEnumValue, Mode=TwoWay}"
+                                                              IsVisible="{Binding IsEnum}" />
+                                                </Grid>
                                             </Grid>
-                                        </Grid>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
 
-                            <ItemsControl Grid.Column="1"
-                                          ItemsSource="{Binding ScriptPanel.Scripts}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <StackPanel Orientation="Vertical" />
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate DataType="models:RemoteScriptFile">
-                                        <Button Content="{Binding DisplayName}"
-                                                Classes="toolbar"
-                                                HorizontalAlignment="Stretch"
-                                                HorizontalContentAlignment="Center"
-                                                Margin="0,0,0,6"
-                                                Command="{Binding #TerminalRoot.((vm:MainWindowViewModel)DataContext).RunScriptFileCommand}"
-                                                CommandParameter="{Binding}" />
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </Grid>
-                    </ScrollViewer>
+                                <ItemsControl Grid.Column="1"
+                                              ItemsSource="{Binding ScriptPanel.Scripts}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Vertical" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="models:RemoteScriptFile">
+                                            <Button Content="{Binding DisplayName}"
+                                                    Classes="toolbar"
+                                                    HorizontalAlignment="Stretch"
+                                                    HorizontalContentAlignment="Center"
+                                                    Margin="0,0,0,6"
+                                                    Command="{Binding #TerminalRoot.((vm:MainWindowViewModel)DataContext).RunScriptFileCommand}"
+                                                    CommandParameter="{Binding}" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Grid>
+                        </ScrollViewer>
+                    </Border>
 
                     <Grid Grid.Row="2" ColumnDefinitions="Auto,*" ColumnSpacing="9" MinHeight="30">
                         <Grid Grid.Column="0"
