@@ -494,6 +494,18 @@ public partial class MainWindow : Window
                 view.ToggleAiPanel();
         };
 
+        var monitor = new MenuItem
+        {
+            Header = Localizer.Get("ServerMonitor"),
+            Icon = CreateMenuIcon("\uE9D2", "monitor"),
+        };
+        monitor.Click += (_, _) =>
+        {
+            RightTabs.SelectedItem = tab;
+            if (tab.Content is TerminalView view)
+                view.ToggleMonitorPanel();
+        };
+
         var copyKey = new MenuItem
         {
             Header = Localizer.Get("CopyPublicKeyToServer"),
@@ -539,6 +551,9 @@ public partial class MainWindow : Window
         var menu = new ContextMenu();
         menu.Items.Add(duplicate);
         menu.Items.Add(runScript);
+        // The monitor samples over SSH exec channels; a local WSL shell has none.
+        if (connection.IsSsh)
+            menu.Items.Add(monitor);
         menu.Items.Add(aiPanel);
         menu.Items.Add(fileBrowser);
         // Public keys are an SSH concept; a local WSL shell has no server to copy to.
@@ -909,6 +924,13 @@ public partial class MainWindow : Window
     {
         if (RightTabs.SelectedItem is TabItem { Content: TerminalView view })
             view.ToggleFileBrowserPanel();
+        e.Handled = true;
+    }
+
+    private void OnMonitorToolbarClick(object? sender, RoutedEventArgs e)
+    {
+        if (RightTabs.SelectedItem is TabItem { Content: TerminalView view })
+            view.ToggleMonitorPanel();
         e.Handled = true;
     }
 

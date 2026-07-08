@@ -161,6 +161,7 @@ public class SettingsService
             TerminalFontSize = roamingSettings.TerminalFontSize,
             AiPanelWidth = roamingSettings.AiPanelWidth,
             FileBrowserPanelHeight = roamingSettings.FileBrowserPanelHeight,
+            MonitorPanelWidth = roamingSettings.MonitorPanelWidth,
             FileBrowserEditorPath = roamingSettings.FileBrowserEditorPath,
             AiProvider = roamingSettings.AiProvider,
             AiProviderChoices = roamingSettings.AiProviderChoices,
@@ -198,6 +199,7 @@ public class SettingsService
             TerminalFontSize = settings.TerminalFontSize,
             AiPanelWidth = settings.AiPanelWidth,
             FileBrowserPanelHeight = settings.FileBrowserPanelHeight,
+            MonitorPanelWidth = settings.MonitorPanelWidth,
             FileBrowserEditorPath = settings.FileBrowserEditorPath,
             AiProvider = settings.AiProvider,
             AiProviderChoices = settings.AiProviderChoices ?? new Dictionary<string, AiProviderChoice>(),
@@ -231,6 +233,7 @@ public class SettingsService
         settings.TerminalFontSize = normalized.TerminalFontSize;
         settings.AiPanelWidth = normalized.AiPanelWidth;
         settings.FileBrowserPanelHeight = normalized.FileBrowserPanelHeight;
+        settings.MonitorPanelWidth = normalized.MonitorPanelWidth;
         settings.FileBrowserEditorPath = normalized.FileBrowserEditorPath;
         settings.AiProvider = normalized.AiProvider;
         settings.AiProviderChoices = normalized.AiProviderChoices;
@@ -273,6 +276,9 @@ public class SettingsService
             : 380;
         settings.FileBrowserPanelHeight = double.IsFinite(settings.FileBrowserPanelHeight)
             ? Math.Clamp(settings.FileBrowserPanelHeight, 120, 1600)
+            : 260;
+        settings.MonitorPanelWidth = double.IsFinite(settings.MonitorPanelWidth)
+            ? Math.Clamp(settings.MonitorPanelWidth, 180, 600)
             : 260;
         if (string.IsNullOrWhiteSpace(settings.FileBrowserEditorPath))
             settings.FileBrowserEditorPath = null;

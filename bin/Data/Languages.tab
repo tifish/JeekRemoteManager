@@ -288,3 +288,20 @@ TransferQueued	Queued	排队中
 TransferCompleted	Completed	已完成
 TransferCanceled	Canceled	已取消
 TransferFailed	Failed: {0}	失败：{0}
+ServerMonitor	Monitor	监控
+ServerMonitorTooltip	Server monitor — live CPU, memory, network and disk stats over this SSH session	服务器监控 —— 通过当前 SSH 会话实时查看 CPU、内存、网络和磁盘状态
+MonitorCpu	CPU	CPU
+MonitorMemory	Mem	内存
+MonitorSwap	Swap	交换
+MonitorLoadAverage	Load	负载
+MonitorUptime	Uptime	运行
+MonitorUptimeDays	{0} days	{0} 天
+MonitorLatency	Latency	延迟
+MonitorProcesses	Top processes	进程排行
+MonitorProcessMem	MEM	内存
+MonitorProcessCpu	CPU%	CPU%
+MonitorProcessCommand	Command	命令
+MonitorDisks	Disks	磁盘
+MonitorWaitingForConnection	Waiting for connection…	等待连接…
+MonitorUnavailable	Monitor data unavailable on this server	无法获取该服务器的监控数据
+MonitorRetry	Retry	重试

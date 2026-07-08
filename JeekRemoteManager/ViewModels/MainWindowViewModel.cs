@@ -262,6 +262,22 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Persisted width of the in-terminal server monitor panel
+    /// (device-independent pixels), shared across terminal tabs.</summary>
+    public double MonitorPanelWidth
+    {
+        get => _settings.Settings.MonitorPanelWidth;
+        set
+        {
+            var clamped = Math.Clamp(value, 180, 600);
+            if (Math.Abs(clamped - _settings.Settings.MonitorPanelWidth) < 0.5)
+                return;
+
+            _settings.Settings.MonitorPanelWidth = clamped;
+            _settings.SaveIfChanged();
+        }
+    }
+
     /// <summary>Editor executable for the file browser's remote editing (F4);
     /// null = system file association. Configured in the Settings dialog.</summary>
     public string? FileBrowserEditorPath => _settings.Settings.FileBrowserEditorPath;

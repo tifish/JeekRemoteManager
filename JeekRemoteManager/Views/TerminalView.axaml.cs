@@ -70,14 +70,17 @@ public partial class TerminalView : UserControl
     private double _aiPanelWidth = 380;
     private FileBrowserViewModel? _fileBrowserViewModel;
     private double _fileBrowserHeight = 260;
+    private ServerMonitorViewModel? _monitorViewModel;
+    private double _monitorPanelWidth = 260;
     private MainWindowViewModel? _customProvidersOwner;
     private Action? _customProvidersChangedHandler;
     private volatile bool _disposed;
 
-    // The terminal and AI panel live in grid columns 0 and 2; named ColumnDefinitions don't
-    // generate fields, so reach them through the grid.
-    private ColumnDefinition TerminalColumn => RootGrid.ColumnDefinitions[0];
-    private ColumnDefinition AiColumn => RootGrid.ColumnDefinitions[2];
+    // The monitor panel, terminal, and AI panel live in grid columns 0, 2, and 4; named
+    // ColumnDefinitions don't generate fields, so reach them through the grid.
+    private ColumnDefinition MonitorColumn => RootGrid.ColumnDefinitions[0];
+    private ColumnDefinition TerminalColumn => RootGrid.ColumnDefinitions[2];
+    private ColumnDefinition AiColumn => RootGrid.ColumnDefinitions[4];
 
     // The file browser lives in row 2 of the terminal-area grid.
     private RowDefinition FileBrowserRow => TerminalArea.RowDefinitions[2];
@@ -130,6 +133,9 @@ public partial class TerminalView : UserControl
         // Persist the AI panel width whenever the user finishes dragging the splitter.
         AiSplitter.DragCompleted += (_, _) => PersistAiPanelWidth();
         FileSplitter.DragCompleted += (_, _) => PersistFileBrowserHeight();
+        MonitorSplitter.DragCompleted += (_, _) => PersistMonitorPanelWidth();
+        // The panel is only visible while open, so toggling from its close button hides it.
+        MonitorPanel.CloseRequested += (_, _) => ToggleMonitorPanel();
 
         _model.UserInput += (_, e) =>
         {
@@ -434,6 +440,70 @@ public partial class TerminalView : UserControl
         _fileBrowserHeight = FileBrowserRow.Height.Value;
         if (DataContext is MainWindowViewModel vm)
             vm.FileBrowserPanelHeight = _fileBrowserHeight;
+    }
+
+    /// <summary>Shows or hides the server monitor panel left of the terminal. Sampling
+    /// runs only while the panel is visible, over exec channels of this terminal's
+    /// SSH connection — SSH-type connections only.</summary>
+    public void ToggleMonitorPanel()
+    {
+        if (_connection is not { IsSsh: true })
+            return;
+
+        _monitorViewModel ??= CreateServerMonitorViewModel();
+
+        var show = !MonitorPanelHost.IsVisible;
+        if (!show)
+            PersistMonitorPanelWidth();
+
+        MonitorPanelHost.IsVisible = show;
+        MonitorSplitter.IsVisible = show;
+
+        if (show)
+        {
+            // Open at the remembered width (shared across tabs, persisted across runs).
+            _monitorPanelWidth = Math.Clamp(
+                (DataContext as MainWindowViewModel)?.MonitorPanelWidth ?? _monitorPanelWidth, 180, 600);
+            MonitorColumn.MinWidth = 180;
+            MonitorColumn.Width = new GridLength(_monitorPanelWidth, GridUnitType.Pixel);
+            _monitorViewModel.Start();
+        }
+        else
+        {
+            // Collapse the column so it leaves no gap.
+            MonitorColumn.MinWidth = 0;
+            MonitorColumn.Width = new GridLength(0, GridUnitType.Pixel);
+            _monitorViewModel.Stop();
+            FocusTerminal();
+        }
+    }
+
+    private ServerMonitorViewModel CreateServerMonitorViewModel()
+    {
+        var connection = _connection!;
+        var host = connection.Host.Trim();
+        var user = connection.Username.Trim();
+        var label = (user.Length == 0 ? host : $"{user}@{host}")
+            + (connection.Port == 22 ? "" : $":{connection.Port}");
+
+        var vm = new ServerMonitorViewModel(
+            // Takes a counted reference on the live shared client so the transport
+            // survives until the monitor lets go, even if the tab reconnects meanwhile.
+            () => _client is { IsConnected: true } client && client.TryAddRef() ? client : null,
+            label,
+            host);
+        MonitorPanel.DataContext = vm;
+        return vm;
+    }
+
+    private void PersistMonitorPanelWidth()
+    {
+        if (!MonitorColumn.Width.IsAbsolute || MonitorColumn.Width.Value <= 0)
+            return;
+
+        _monitorPanelWidth = MonitorColumn.Width.Value;
+        if (DataContext is MainWindowViewModel vm)
+            vm.MonitorPanelWidth = _monitorPanelWidth;
     }
 
     /// <summary>
@@ -1679,6 +1749,9 @@ public partial class TerminalView : UserControl
 
         _fileBrowserViewModel?.Dispose();
         _fileBrowserViewModel = null;
+
+        _monitorViewModel?.Dispose();
+        _monitorViewModel = null;
 
         var ai = _aiViewModel;
         _aiViewModel = null;

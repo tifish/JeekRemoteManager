@@ -1,0 +1,195 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:JeekRemoteManager.ViewModels"
+             xmlns:l="using:Jeek.Avalonia.Localization"
+             x:Class="JeekRemoteManager.Views.ServerMonitorView"
+             x:DataType="vm:ServerMonitorViewModel">
+    <UserControl.Styles>
+        <Style Selector="TextBlock.monitor-value">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="ProgressBar.monitor-gauge">
+            <Setter Property="Minimum" Value="0" />
+            <Setter Property="Maximum" Value="100" />
+            <Setter Property="MinWidth" Value="40" />
+            <Setter Property="Height" Value="8" />
+            <Setter Property="MinHeight" Value="8" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid Background="{DynamicResource AppBackgroundBrush}">
+
+        <!-- Live stats -->
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                      IsVisible="{Binding HasData}">
+            <StackPanel Spacing="8" Margin="8">
+
+                <!-- Host -->
+                <Border Classes="panel" Padding="10,8">
+                    <StackPanel Spacing="3">
+                        <TextBlock Classes="section-title"
+                                   Text="{Binding HostLabel}"
+                                   TextTrimming="CharacterEllipsis"
+                                   Margin="0,0,24,0" />
+                        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto"
+                              ColumnSpacing="8" RowSpacing="2">
+                            <TextBlock Classes="label" Text="IP" />
+                            <TextBlock Grid.Column="1" Classes="monitor-value"
+                                       Text="{Binding AddressText}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Row="1" Classes="label" Text="{l:Localize MonitorUptime}" />
+                            <TextBlock Grid.Row="1" Grid.Column="1" Classes="monitor-value"
+                                       Text="{Binding UptimeText}" />
+                            <TextBlock Grid.Row="2" Classes="label" Text="{l:Localize MonitorLatency}" />
+                            <TextBlock Grid.Row="2" Grid.Column="1" Classes="monitor-value"
+                                       Text="{Binding LatencyText}" />
+                            <TextBlock Grid.Row="3" Classes="label" Text="{l:Localize MonitorLoadAverage}" />
+                            <TextBlock Grid.Row="3" Grid.Column="1" Classes="monitor-value"
+                                       Text="{Binding LoadText}" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- CPU / memory / swap gauges -->
+                <Border Classes="panel" Padding="10,8">
+                    <StackPanel Spacing="6">
+                        <Grid ColumnDefinitions="44,*,Auto" ColumnSpacing="6">
+                            <TextBlock Classes="label" Text="{l:Localize MonitorCpu}" />
+                            <ProgressBar Grid.Column="1" Classes="monitor-gauge"
+                                         Value="{Binding CpuPercent}" />
+                            <TextBlock Grid.Column="2" Classes="monitor-value" Text="{Binding CpuText}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="44,*,Auto" ColumnSpacing="6">
+                            <TextBlock Classes="label" Text="{l:Localize MonitorMemory}" />
+                            <ProgressBar Grid.Column="1" Classes="monitor-gauge"
+                                         Value="{Binding MemPercent}" />
+                            <TextBlock Grid.Column="2" Classes="monitor-value" Text="{Binding MemText}" />
+                        </Grid>
+                        <Grid ColumnDefinitions="44,*,Auto" ColumnSpacing="6">
+                            <TextBlock Classes="label" Text="{l:Localize MonitorSwap}" />
+                            <ProgressBar Grid.Column="1" Classes="monitor-gauge"
+                                         Value="{Binding SwapPercent}" />
+                            <TextBlock Grid.Column="2" Classes="monitor-value" Text="{Binding SwapText}" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Network -->
+                <Border Classes="panel" Padding="10,8">
+                    <StackPanel Spacing="6">
+                        <Grid ColumnDefinitions="*,*">
+                            <TextBlock Classes="monitor-value"
+                                       Foreground="{DynamicResource ToolbarScriptIconBrush}"
+                                       Text="{Binding UploadRateText}" />
+                            <TextBlock Grid.Column="1" Classes="monitor-value"
+                                       Foreground="{DynamicResource AccentBrush}"
+                                       HorizontalAlignment="Right"
+                                       Text="{Binding DownloadRateText}" />
+                        </Grid>
+                        <Grid x:Name="NetChart" Height="40" ClipToBounds="True">
+                            <Polyline x:Name="DownloadLine"
+                                      Stroke="{DynamicResource AccentBrush}"
+                                      StrokeThickness="1.25" />
+                            <Polyline x:Name="UploadLine"
+                                      Stroke="{DynamicResource ToolbarScriptIconBrush}"
+                                      StrokeThickness="1.25" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Top processes -->
+                <Border Classes="panel" Padding="10,8">
+                    <StackPanel Spacing="4">
+                        <TextBlock Classes="label" Text="{l:Localize MonitorProcesses}" />
+                        <Grid ColumnDefinitions="58,36,*" ColumnSpacing="6">
+                            <TextBlock Classes="label" Text="{l:Localize MonitorProcessMem}" />
+                            <TextBlock Grid.Column="1" Classes="label" Text="{l:Localize MonitorProcessCpu}" />
+                            <TextBlock Grid.Column="2" Classes="label" Text="{l:Localize MonitorProcessCommand}" />
+                        </Grid>
+                        <ItemsControl ItemsSource="{Binding Processes}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ServerMonitorProcessRow">
+                                    <Grid ColumnDefinitions="58,36,*" ColumnSpacing="6" Margin="0,1">
+                                        <TextBlock Classes="monitor-value" Text="{Binding MemText}" />
+                                        <TextBlock Grid.Column="1" Classes="monitor-value" Text="{Binding CpuText}" />
+                                        <TextBlock Grid.Column="2" Classes="monitor-value"
+                                                   Text="{Binding Command}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <!-- Disks -->
+                <Border Classes="panel" Padding="10,8">
+                    <StackPanel Spacing="4">
+                        <TextBlock Classes="label" Text="{l:Localize MonitorDisks}" />
+                        <ItemsControl ItemsSource="{Binding Disks}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ServerMonitorDiskRow">
+                                    <StackPanel Spacing="2" Margin="0,2">
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                            <TextBlock Classes="monitor-value"
+                                                       Text="{Binding MountPoint}"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Grid.Column="1" Classes="label" Text="{Binding SizeText}" />
+                                        </Grid>
+                                        <ProgressBar Classes="monitor-gauge" Height="4" MinHeight="4"
+                                                     Value="{Binding UsedPercent}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Waiting for the terminal's connection -->
+        <TextBlock Classes="hint"
+                   IsVisible="{Binding IsWaiting}"
+                   Text="{l:Localize MonitorWaitingForConnection}"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   Margin="12" />
+
+        <!-- Sampling failed repeatedly -->
+        <StackPanel IsVisible="{Binding IsFailed}"
+                    Spacing="10" Margin="12"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+            <TextBlock Classes="hint"
+                       Text="{l:Localize MonitorUnavailable}"
+                       TextAlignment="Center" />
+            <Button Content="{l:Localize MonitorRetry}"
+                    Command="{Binding RetryCommand}"
+                    HorizontalAlignment="Center" />
+        </StackPanel>
+
+        <!-- Close (hides the panel; polling stops with it) -->
+        <Button Classes="toolbar"
+                Click="OnCloseClick"
+                ToolTip.Tip="{l:Localize Close}"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Top"
+                Margin="0,12,12,0"
+                Width="24" Height="24"
+                MinWidth="0" MinHeight="0"
+                Padding="0"
+                HorizontalContentAlignment="Center"
+                VerticalContentAlignment="Center">
+            <TextBlock FontFamily="Segoe MDL2 Assets"
+                       FontSize="9"
+                       Text="&#xE711;"
+                       Foreground="{DynamicResource TextMutedBrush}" />
+        </Button>
+
+    </Grid>
+</UserControl>
