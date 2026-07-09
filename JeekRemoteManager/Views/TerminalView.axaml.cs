@@ -57,6 +57,12 @@ public partial class TerminalView : UserControl
     private CancellationTokenSource? _activeZmodemCancellation;
     private IReadOnlyList<string>? _pendingDropUploadFiles;
     private int _dropUploadGeneration;
+
+    // AI-panel initiated transfers: a pre-chosen download folder skips the folder picker,
+    // and the completion source carries the outcome back to the waiting AI request.
+    private string? _pendingDownloadFolder;
+    private int _downloadRequestGeneration;
+    private TaskCompletionSource<string>? _aiTransferCompletion;
     private int _connectionGeneration;
     private long _lastShellDataTicks;
     private bool _connectInProgress;
@@ -625,6 +631,7 @@ public partial class TerminalView : UserControl
                 return text;
             },
             runCaptured: RunCapturedAsync,
+            transferFiles: TransferFilesAsync,
             initialOptions: (DataContext as MainWindowViewModel)?.AiPanelOptions,
             persistOptions: options =>
             {
@@ -692,6 +699,23 @@ public partial class TerminalView : UserControl
             : host ?? "a remote server";
 
         var terminalKind = _connection?.IsWsl == true ? "WSL" : "SSH";
+
+        // WSL shares the Windows filesystem, so plain cp beats any transfer protocol there;
+        // SSH connections get the ZMODEM upload/download blocks (they work through jump
+        // hosts because they ride the established terminal session).
+        var transferInstructions = _connection?.IsWsl == true
+            ? "To move files between Windows and the distro, just cp them: Windows drives are " +
+              "mounted inside the distro under /mnt (C:\\Users is /mnt/c/Users). "
+            : "To transfer files between the user's local Windows machine and the server, output " +
+              "exactly ONE fenced block tagged upload or download (instead of a bash block), with " +
+              "one `SOURCE -> DESTINATION` line per file. upload: SOURCE is a local Windows file " +
+              "path, DESTINATION is a remote directory (optional; defaults to the shell's current " +
+              "directory, created if missing). download: SOURCE is a remote file path, DESTINATION " +
+              "is a local Windows directory (optional; defaults to the user's Downloads folder). " +
+              "All lines in one block share the first destination. The transfer runs through the " +
+              "terminal via ZMODEM (requires lrzsz on the server) and its result is returned to " +
+              "you like command output. ";
+
         return
             $"You are an assistant embedded inside JeekRemoteManager, operating an interactive {terminalKind} " +
             $"terminal connected to {target}. " +
@@ -703,6 +727,12 @@ public partial class TerminalView : UserControl
             "Only ```bash blocks are executed; for any text that is not a command to run " +
             "(translations, quotes, examples, file contents), use plain prose or a plain ``` block " +
             "without a language tag. " +
+            "Your own built-in tools (shell, file access, etc.), if you have any, run on the user's " +
+            "LOCAL Windows machine where JeekRemoteManager runs — NOT on the server. Use them for " +
+            "local-side work (e.g. reading or writing local files, or transferring files between the " +
+            "local machine and the server); use the ```bash block for everything that must run on the " +
+            "server. Never mix the two up. " +
+            transferInstructions +
             "Commands run without confirmation, so avoid destructive actions unless explicitly asked, and " +
             "prefer non-interactive flags (e.g. `-y`). Assume a Linux server unless told otherwise.";
     }
@@ -754,6 +784,132 @@ public partial class TerminalView : UserControl
         finally
         {
             _scriptLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Runs an AI-requested ZMODEM file transfer through the interactive shell: types
+    /// `rz`/`sz` and drives the existing transfer machinery with pre-chosen paths (no
+    /// pickers). Returns a one-line outcome string for the assistant.
+    /// </summary>
+    internal async Task<string> TransferFilesAsync(AgentFileTransfer transfer, CancellationToken cancellationToken)
+    {
+        if (_disposed)
+            return "[terminal closed]";
+        if (_connection?.IsWsl == true)
+            return "[not available on WSL: Windows drives are mounted under /mnt (C:\\ is /mnt/c) — copy files directly instead]";
+
+        try
+        {
+            await WaitUntilConnectedAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            return $"[not connected: {ex.Message}]";
+        }
+
+        await _scriptLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_disposed || _shellClosed || _channel is null)
+                return "[not connected]";
+            if (!_channel.SupportsBinaryTransfers)
+                return "[ZMODEM transfers are not supported on this connection]";
+            if (_activeZmodemQueue is not null || _aiTransferCompletion is not null)
+                return "[another file transfer is already in progress]";
+
+            return transfer.IsUpload
+                ? await RunAiUploadAsync(transfer, cancellationToken)
+                : await RunAiDownloadAsync(transfer, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return "[transfer cancelled]";
+        }
+        catch (Exception ex)
+        {
+            return $"[transfer failed: {ex.Message}]";
+        }
+        finally
+        {
+            _scriptLock.Release();
+        }
+    }
+
+    private async Task<string> RunAiUploadAsync(AgentFileTransfer transfer, CancellationToken cancellationToken)
+    {
+        var missing = transfer.Sources.Where(file => !File.Exists(file)).ToList();
+        if (missing.Count > 0)
+            return "[upload failed: local file(s) not found: " + string.Join(", ", missing) + "]";
+
+        var completion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _aiTransferCompletion = completion;
+        try
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (!_disposed)
+                    FeedLine($"\r\n\u001b[35m[AI]\u001b[0m zmodem upload: {transfer.Sources.Count} file(s)"
+                        + (transfer.Destination is null ? "" : $" -> {transfer.Destination}"));
+            });
+
+            StartDropUpload(transfer.Sources, transfer.Destination);
+            return await completion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            Interlocked.Exchange(ref _pendingDropUploadFiles, null);
+            _activeZmodemCancellation?.Cancel();
+            return "[upload cancelled]";
+        }
+        finally
+        {
+            _aiTransferCompletion = null;
+        }
+    }
+
+    private async Task<string> RunAiDownloadAsync(AgentFileTransfer transfer, CancellationToken cancellationToken)
+    {
+        string folder;
+        try
+        {
+            folder = string.IsNullOrWhiteSpace(transfer.Destination)
+                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads")
+                : transfer.Destination!;
+            Directory.CreateDirectory(folder);
+        }
+        catch (Exception ex)
+        {
+            return $"[download failed: cannot use local folder: {ex.Message}]";
+        }
+
+        var completion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _aiTransferCompletion = completion;
+        try
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (!_disposed)
+                    FeedLine($"\r\n\u001b[35m[AI]\u001b[0m zmodem download -> {folder}");
+            });
+
+            _pendingDownloadFolder = folder;
+            var generation = Interlocked.Increment(ref _downloadRequestGeneration);
+            // Ctrl+U discards anything half-typed at the prompt so `sz` runs clean.
+            WriteToShell("\u0015sz " + string.Join(" ", transfer.Sources.Select(QuoteForRemoteShell)) + "\r");
+            _ = ExpireDownloadRequestAsync(generation);
+
+            return await completion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            Interlocked.Exchange(ref _pendingDownloadFolder, null);
+            _activeZmodemCancellation?.Cancel();
+            return "[download cancelled]";
+        }
+        finally
+        {
+            _aiTransferCompletion = null;
         }
     }
 
@@ -1271,13 +1427,17 @@ public partial class TerminalView : UserControl
         && _pendingDropUploadFiles is null
         && e.DataTransfer.Contains(DataFormat.File);
 
-    private void StartDropUpload(IReadOnlyList<string> files)
+    private void StartDropUpload(IReadOnlyList<string> files, string? remoteDirectory = null)
     {
         var generation = Interlocked.Increment(ref _dropUploadGeneration);
         _pendingDropUploadFiles = files;
 
+        var rz = remoteDirectory is null
+            ? "rz"
+            : $"(mkdir -p {QuoteForRemoteShell(remoteDirectory)} && cd {QuoteForRemoteShell(remoteDirectory)} && rz)";
+
         // Ctrl+U discards anything half-typed at the prompt so `rz` runs clean.
-        WriteToShell("\u0015rz\r");
+        WriteToShell("\u0015" + rz + "\r");
 
         _ = ExpireDropUploadAsync(generation);
     }
@@ -1290,7 +1450,24 @@ public partial class TerminalView : UserControl
         if (generation != _dropUploadGeneration)
             return;
         if (Interlocked.Exchange(ref _pendingDropUploadFiles, null) is not null)
+        {
             FeedLineOnUiThread("\u001b[33m[zmodem upload]\u001b[0m rz did not respond. Is lrzsz installed on the remote host?");
+            _aiTransferCompletion?.TrySetResult("[upload failed: rz did not respond — is lrzsz installed on the remote host?]");
+        }
+    }
+
+    private async Task ExpireDownloadRequestAsync(int generation)
+    {
+        // Same idea for an AI-requested `sz`: no handshake within 5s means sz is
+        // missing or the shell was not at a prompt.
+        await Task.Delay(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        if (generation != _downloadRequestGeneration)
+            return;
+        if (Interlocked.Exchange(ref _pendingDownloadFolder, null) is not null)
+        {
+            FeedLineOnUiThread("\u001b[33m[zmodem download]\u001b[0m sz did not respond. Is lrzsz installed on the remote host?");
+            _aiTransferCompletion?.TrySetResult("[download failed: sz did not respond — is lrzsz installed on the remote host?]");
+        }
     }
 
     private static string QuoteForRemoteShell(string path) =>
@@ -1346,6 +1523,21 @@ public partial class TerminalView : UserControl
                 WriteToShell,
                 cancellationToken).ConfigureAwait(false);
             return new RemotePayloadResult(result.ExitCode, result.Output);
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancelled (e.g. the AI panel's Stop button): the remote command is still
+            // running in the shell — Ctrl+C it before restoring echo.
+            try
+            {
+                WriteToShell("");
+            }
+            catch
+            {
+                // Best-effort; the shell may already be closed.
+            }
+            TryRestoreShellEcho();
+            throw;
         }
         catch
         {
@@ -1440,12 +1632,24 @@ public partial class TerminalView : UserControl
         {
             if (direction == ZmodemTransferDirection.Download)
             {
-                FeedLineOnUiThread("\r\n\u001b[36m[zmodem download]\u001b[0m Choose a local folder.");
-                var folder = await PickZmodemDownloadFolderAsync().ConfigureAwait(false);
+                // A folder queued by the AI panel skips the picker; a manually typed `sz` asks.
+                var folder = Interlocked.Exchange(ref _pendingDownloadFolder, null);
+                if (folder is null)
+                {
+                    FeedLineOnUiThread("\r\n\u001b[36m[zmodem download]\u001b[0m Choose a local folder.");
+                    folder = await PickZmodemDownloadFolderAsync().ConfigureAwait(false);
+                }
+                else
+                {
+                    // Move past the echoed `sz` command line.
+                    FeedLineOnUiThread(string.Empty);
+                }
+
                 if (string.IsNullOrWhiteSpace(folder))
                 {
                     await session.CancelAsync(CancellationToken.None).ConfigureAwait(false);
                     FeedLineOnUiThread("\u001b[33m[zmodem cancelled]\u001b[0m");
+                    _aiTransferCompletion?.TrySetResult("[download cancelled]");
                     return;
                 }
 
@@ -1472,6 +1676,7 @@ public partial class TerminalView : UserControl
             {
                 await session.CancelAsync(CancellationToken.None).ConfigureAwait(false);
                 FeedLineOnUiThread("\u001b[33m[zmodem cancelled]\u001b[0m");
+                _aiTransferCompletion?.TrySetResult("[upload cancelled]");
                 return;
             }
 
@@ -1483,11 +1688,13 @@ public partial class TerminalView : UserControl
         {
             trace?.WriteException(ex);
             FeedLineOnUiThread($"\u001b[33m[zmodem cancelled] {ex.Message}\u001b[0m");
+            _aiTransferCompletion?.TrySetResult($"[transfer cancelled: {ex.Message}]");
         }
         catch (OperationCanceledException)
         {
             trace?.Write("operation cancelled");
             FeedLineOnUiThread("\u001b[33m[zmodem cancelled]\u001b[0m");
+            _aiTransferCompletion?.TrySetResult("[transfer cancelled]");
         }
         catch (Exception ex)
         {
@@ -1496,6 +1703,7 @@ public partial class TerminalView : UserControl
             FeedLineOnUiThread($"\u001b[31m[zmodem failed] {ex.Message}\u001b[0m");
             if (trace is not null)
                 FeedLineOnUiThread($"\u001b[31m[zmodem trace] {trace.FilePath}\u001b[0m");
+            _aiTransferCompletion?.TrySetResult($"[transfer failed: {ex.Message}]");
         }
         finally
         {
@@ -1513,6 +1721,8 @@ public partial class TerminalView : UserControl
             cancellation.Dispose();
             trace?.Dispose();
             _suppressUserInput = _activePayloadMonitor is not null;
+            // Safety net: every exit path above should have completed this already.
+            _aiTransferCompletion?.TrySetResult("[transfer ended]");
             FocusTerminal();
         }
     }
@@ -1596,6 +1806,8 @@ public partial class TerminalView : UserControl
             ? Path.GetFileName(files[0])
             : $"{files.Count} files";
         FeedLineOnUiThread($"\u001b[32m[zmodem {label} complete]\u001b[0m {summary}");
+        _aiTransferCompletion?.TrySetResult(
+            $"[{label} complete] {files.Count} file(s): {string.Join(", ", files)}");
     }
 
     private void FeedLineOnUiThread(string text) =>

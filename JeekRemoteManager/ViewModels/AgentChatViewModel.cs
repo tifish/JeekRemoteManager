@@ -18,6 +18,14 @@ namespace JeekRemoteManager.ViewModels;
 public sealed record AgentOption(string Label, string? Value);
 
 /// <summary>
+/// One file transfer requested by the assistant via a ```upload / ```download fenced block.
+/// Upload: <paramref name="Sources"/> are local Windows files, <paramref name="Destination"/>
+/// is a remote directory (null = the shell's current directory). Download: sources are remote
+/// files, destination is a local directory (null = the user's Downloads folder).
+/// </summary>
+public sealed record AgentFileTransfer(bool IsUpload, IReadOnlyList<string> Sources, string? Destination);
+
+/// <summary>
 /// One selectable AI backend (Claude / Codex): its display label, the model/effort choices
 /// it supports, and a factory that creates a session for a (model, effort) pair. A null
 /// <paramref name="SessionFactory"/> means the CLI is not installed; the provider still
@@ -45,18 +53,23 @@ public sealed record AgentProvider(
 /// </summary>
 public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 {
-    private static readonly TimeSpan CommandTimeout = TimeSpan.FromMinutes(2);
-
     // Only blocks explicitly tagged as shell are executable; plain ``` blocks (quotes,
     // translations, sample output) must never reach the server.
     private static readonly Regex FencedBlock = new(
         "```(?:bash|sh|shell)[ \\t]*\\n(.*?)```",
         RegexOptions.Singleline | RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    // ```upload / ```download blocks request a ZMODEM file transfer through the terminal;
+    // each body line is "SOURCE -> DESTINATION" (destination optional).
+    private static readonly Regex TransferBlock = new(
+        "```(upload|download)[ \\t]*\\n(.*?)```",
+        RegexOptions.Singleline | RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     // Returns the terminal selection and clears it, so the same selection isn't
     // silently re-attached to the next message.
     private readonly Func<string?> _takeSelection;
     private readonly Func<string, CancellationToken, Task<string>>? _runCaptured;
+    private readonly Func<AgentFileTransfer, CancellationToken, Task<string>>? _transferFiles;
     private readonly CancellationTokenSource _cts = new();
     private readonly DispatcherTimer _thinkingTimer = new() { Interval = TimeSpan.FromMilliseconds(450) };
 
@@ -67,6 +80,10 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     private ChatMessageViewModel? _pendingAssistant;
     private bool _sessionStarted;
     private bool _switchingProvider;
+
+    // One CTS per user-initiated turn (covering the whole auto-run loop); Stop cancels it.
+    private CancellationTokenSource? _turnCts;
+    private bool _stopRequested;
 
     // Each provider's last-chosen model/effort, restored when switching back to it.
     private readonly Dictionary<string, AiProviderChoice> _providerChoices = new();
@@ -81,11 +98,13 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         IReadOnlyList<AgentProvider> providers,
         Func<string?> takeSelection,
         Func<string, CancellationToken, Task<string>>? runCaptured,
+        Func<AgentFileTransfer, CancellationToken, Task<string>>? transferFiles = null,
         AiPanelOptions? initialOptions = null,
         Action<AiPanelOptions>? persistOptions = null)
     {
         _takeSelection = takeSelection;
         _runCaptured = runCaptured;
+        _transferFiles = transferFiles;
         _persistOptions = persistOptions;
         _thinkingTimer.Tick += OnThinkingTimerTick;
         Providers = new ObservableCollection<AgentProvider>(providers);
@@ -285,10 +304,14 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
     public bool CanStartNewConversation => !IsBusy;
 
+    public bool CanStop => IsBusy;
+
     partial void OnIsBusyChanged(bool value)
     {
         SendCommand.NotifyCanExecuteChanged();
         NewConversationCommand.NotifyCanExecuteChanged();
+        StopCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(CanStop));
     }
 
     partial void OnIsAvailableChanged(bool value) => SendCommand.NotifyCanExecuteChanged();
@@ -509,7 +532,52 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         StatusText = L("AiWaiting");
         StartThinking();
 
+        _stopRequested = false;
+        _turnCts?.Dispose();
+        _turnCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+
         await SendToSessionAsync(payload);
+    }
+
+    /// <summary>Aborts the current turn: cancels the running command (if any), asks the
+    /// backend to interrupt the in-flight model turn, and returns the panel to idle. The
+    /// interrupted turn's late completion event is swallowed.</summary>
+    [RelayCommand(CanExecute = nameof(CanStop))]
+    private void Stop()
+    {
+        if (!IsBusy)
+            return;
+
+        _stopRequested = true;
+        try
+        {
+            _turnCts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+
+        if (_session is { } session)
+            _ = SafeInterruptAsync(session);
+
+        StopThinking();
+        if (_pendingAssistant is not null && string.IsNullOrEmpty(_pendingAssistant.Text))
+            Messages.Remove(_pendingAssistant);
+        _pendingAssistant = null;
+        IsBusy = false;
+        StatusText = L("AiStopped");
+    }
+
+    private static async Task SafeInterruptAsync(IAgentChatSession session)
+    {
+        try
+        {
+            await session.InterruptAsync();
+        }
+        catch
+        {
+            // Best-effort: the process may be exiting; local cancellation already applied.
+        }
     }
 
     private async Task SendToSessionAsync(string payload)
@@ -541,7 +609,9 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
                 _sessionStarted = true;
             }
 
-            await _session.SendAsync(payload, _cts.Token);
+            // The per-turn token lets Stop abort HTTP-backed sessions mid-stream; CLI-backed
+            // sessions return quickly here and are interrupted via InterruptAsync instead.
+            await _session.SendAsync(payload, _turnCts?.Token ?? _cts.Token);
         }
         catch (Exception ex)
         {
@@ -591,6 +661,15 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
     private void OnTurnCompleted(AgentTurnResult result) => Dispatcher.UIThread.Post(() =>
     {
+        // The completion of a turn the user stopped (interrupted backends still emit one):
+        // the panel is already idle and shows "Stopped"; don't run its command or overwrite
+        // the status.
+        if (_stopRequested)
+        {
+            _stopRequested = false;
+            return;
+        }
+
         var answer = "";
         if (_pendingAssistant is not null)
         {
@@ -608,10 +687,18 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
                 ? L("AiTurnCost", result.OutputTokens, result.CostUsd)
                 : L("AiTurnTokens", result.OutputTokens);
 
-        var command = AutoRun && !result.IsError ? ExtractFirstCommand(answer) : null;
-        if (command is not null && _runCaptured is not null)
+        var (command, transfer) = AutoRun && !result.IsError
+            ? ExtractFirstAction(answer)
+            : (null, (AgentFileTransfer?)null);
+        if (transfer is not null && _transferFiles is not null)
         {
             // Keep IsBusy true across the whole auto loop.
+            _ = TransferAndContinueAsync(transfer);
+            return;
+        }
+
+        if (command is not null && _runCaptured is not null)
+        {
             _ = RunAndContinueAsync(command);
             return;
         }
@@ -624,22 +711,22 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         Messages.Add(new ChatMessageViewModel(ChatRole.Tool, $"$ {command}"));
 
         string output;
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
-        timeoutCts.CancelAfter(CommandTimeout);
+        var turnToken = _turnCts?.Token ?? _cts.Token;
         try
         {
-            output = await _runCaptured!(command, timeoutCts.Token);
+            output = await _runCaptured!(command, turnToken);
         }
         catch (OperationCanceledException)
         {
-            output = "[command cancelled or timed out]";
+            output = "[command cancelled]";
         }
         catch (Exception ex)
         {
             output = $"[command failed: {ex.Message}]";
         }
 
-        if (_cts.IsCancellationRequested)
+        // Stopped or disposed while the command ran: don't feed anything back.
+        if (turnToken.IsCancellationRequested || _cts.IsCancellationRequested)
             return;
 
         Messages.Add(new ChatMessageViewModel(ChatRole.Tool, TruncateForDisplay(output)));
@@ -650,6 +737,42 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         StartThinking();
 
         await SendToSessionAsync($"Output of `{command}`:\n```\n{output}\n```");
+    }
+
+    private async Task TransferAndContinueAsync(AgentFileTransfer transfer)
+    {
+        var label = transfer.IsUpload ? "upload" : "download";
+        var description = $"⇅ {label}: {string.Join(", ", transfer.Sources)}"
+            + (transfer.Destination is null ? "" : $" -> {transfer.Destination}");
+        Messages.Add(new ChatMessageViewModel(ChatRole.Tool, description));
+
+        string outcome;
+        var turnToken = _turnCts?.Token ?? _cts.Token;
+        try
+        {
+            outcome = await _transferFiles!(transfer, turnToken);
+        }
+        catch (OperationCanceledException)
+        {
+            outcome = "[transfer cancelled]";
+        }
+        catch (Exception ex)
+        {
+            outcome = $"[transfer failed: {ex.Message}]";
+        }
+
+        // Stopped or disposed while the transfer ran: don't feed anything back.
+        if (turnToken.IsCancellationRequested || _cts.IsCancellationRequested)
+            return;
+
+        Messages.Add(new ChatMessageViewModel(ChatRole.Tool, TruncateForDisplay(outcome)));
+
+        _pendingAssistant = new ChatMessageViewModel(ChatRole.Assistant, "");
+        Messages.Add(_pendingAssistant);
+        StatusText = L("AiWaiting");
+        StartThinking();
+
+        await SendToSessionAsync($"Result of the {label}:\n```\n{outcome}\n```");
     }
 
     private void OnErrored(string message) => Dispatcher.UIThread.Post(() =>
@@ -710,14 +833,60 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
     private static string BuildThinkingText(int step) => L("AiThinking") + new string('.', step + 1);
 
-    private static string? ExtractFirstCommand(string text)
+    /// <summary>Finds the first actionable fenced block in the answer — a shell command or
+    /// a file-transfer request, whichever the assistant emitted first.</summary>
+    internal static (string? Command, AgentFileTransfer? Transfer) ExtractFirstAction(string text)
     {
-        var match = FencedBlock.Match(text);
-        if (!match.Success)
-            return null;
+        var commandMatch = FencedBlock.Match(text);
+        var transferMatch = TransferBlock.Match(text);
 
-        var body = match.Groups[1].Value.Trim();
-        return body.Length == 0 ? null : body;
+        if (transferMatch.Success && (!commandMatch.Success || transferMatch.Index < commandMatch.Index))
+        {
+            var transfer = ParseTransfer(transferMatch.Groups[1].Value, transferMatch.Groups[2].Value);
+            if (transfer is not null)
+                return (null, transfer);
+        }
+
+        if (commandMatch.Success)
+        {
+            var body = commandMatch.Groups[1].Value.Trim();
+            if (body.Length > 0)
+                return (body, null);
+        }
+
+        return (null, null);
+    }
+
+    private static AgentFileTransfer? ParseTransfer(string kind, string body)
+    {
+        var isUpload = kind.Equals("upload", StringComparison.OrdinalIgnoreCase);
+        var sources = new List<string>();
+        string? destination = null;
+
+        foreach (var rawLine in body.Split('\n'))
+        {
+            var line = rawLine.Trim();
+            if (line.Length == 0)
+                continue;
+
+            var arrow = line.IndexOf("->", StringComparison.Ordinal);
+            if (arrow >= 0)
+            {
+                var source = line[..arrow].Trim();
+                var target = line[(arrow + 2)..].Trim();
+                if (source.Length > 0)
+                    sources.Add(source);
+                // All lines share one transfer session, so the first destination wins.
+                if (target.Length > 0)
+                    destination ??= target;
+            }
+            else
+            {
+                sources.Add(line);
+            }
+        }
+
+        return sources.Count == 0 ? null : new AgentFileTransfer(isUpload, sources, destination);
     }
 
     private static string TruncateForDisplay(string output)
@@ -731,6 +900,8 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _cts.Cancel();
+        _turnCts?.Dispose();
+        _turnCts = null;
         StopThinking();
         _thinkingTimer.Tick -= OnThinkingTimerTick;
         var session = _session;

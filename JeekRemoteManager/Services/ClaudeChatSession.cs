@@ -18,12 +18,6 @@ namespace JeekRemoteManager.Services;
 /// </summary>
 public sealed class ClaudeChatSession : IAgentChatSession
 {
-    // Neutralize Claude Code's built-in agent tools: this is a conversational advisor, not
-    // an agent that should run Bash / edit files on the user's Windows machine. Deny rules
-    // take precedence over the (headless-default) bypassPermissions mode.
-    private static readonly string DisallowedTools =
-        "Bash,PowerShell,Edit,Write,NotebookEdit,Read,Glob,Grep,Task,WebFetch,WebSearch";
-
     private readonly string _executablePath;
     private readonly string _workingDirectory;
     private readonly string? _appendSystemPrompt;
@@ -100,10 +94,10 @@ public sealed class ClaudeChatSession : IAgentChatSession
         psi.ArgumentList.Add("--output-format");
         psi.ArgumentList.Add("stream-json");
         psi.ArgumentList.Add("--verbose");
+        // Headless stream-json has no channel to answer permission prompts, so the model's
+        // built-in tools (which act on the local Windows machine) run unconfirmed.
         psi.ArgumentList.Add("--permission-mode");
         psi.ArgumentList.Add("bypassPermissions");
-        psi.ArgumentList.Add("--disallowedTools");
-        psi.ArgumentList.Add(DisallowedTools);
         if (!string.IsNullOrWhiteSpace(_model))
         {
             psi.ArgumentList.Add("--model");
@@ -177,6 +171,36 @@ public sealed class ClaudeChatSession : IAgentChatSession
             _writeLock.Release();
         }
     }
+
+    /// <summary>Asks the CLI to abort the in-flight turn (stream-json control request).
+    /// The turn still ends with a normal <c>result</c> event.</summary>
+    public async Task InterruptAsync(CancellationToken cancellationToken = default)
+    {
+        var process = _process;
+        if (_disposed || process is null || process.HasExited)
+            return;
+
+        var line = JsonSerializer.Serialize(new
+        {
+            type = "control_request",
+            request_id = $"interrupt-{Interlocked.Increment(ref _interruptCounter)}",
+            request = new { subtype = "interrupt" },
+        });
+
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await process.StandardInput.WriteAsync(line.AsMemory(), cancellationToken).ConfigureAwait(false);
+            await process.StandardInput.WriteAsync("\n".AsMemory(), cancellationToken).ConfigureAwait(false);
+            await process.StandardInput.FlushAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    private int _interruptCounter;
 
     private async Task ReadStdoutLoopAsync(Process process)
     {

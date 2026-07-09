@@ -202,7 +202,14 @@
                             Classes="accent"
                             VerticalAlignment="Bottom"
                             Command="{Binding SendCommand}"
-                            Content="{l:Localize AiSend}" />
+                            Content="{l:Localize AiSend}"
+                            IsVisible="{Binding !IsBusy}" />
+                    <Button Grid.Column="1"
+                            VerticalAlignment="Bottom"
+                            Command="{Binding StopCommand}"
+                            Content="{l:Localize AiStop}"
+                            ToolTip.Tip="{l:Localize AiStopHint}"
+                            IsVisible="{Binding IsBusy}" />
                 </Grid>
             </StackPanel>
         </Border>

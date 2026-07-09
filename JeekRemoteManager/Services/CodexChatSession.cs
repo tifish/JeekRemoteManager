@@ -18,9 +18,9 @@ namespace JeekRemoteManager.Services;
 /// per line) as a single multi-turn chat session. The handshake is
 /// initialize → initialized → thread/start; each user message becomes a turn/start request,
 /// and the answer streams back as item/agentMessage/delta notifications followed by
-/// turn/completed. The thread runs sandboxed read-only with approvals disabled, so the
-/// model cannot touch the local machine — commands for the remote server flow through the
-/// chat harness, not through Codex's own tools.
+/// turn/completed. The thread runs with full local access and approvals disabled: Codex's
+/// own tools act on the local Windows machine, while commands for the remote server flow
+/// through the chat harness.
 /// </summary>
 public sealed class CodexChatSession : IAgentChatSession
 {
@@ -57,6 +57,8 @@ public sealed class CodexChatSession : IAgentChatSession
     private int _nextRequestId;
     private int _initializeRequestId = -1;
     private int _threadStartRequestId = -1;
+    private int _turnStartRequestId = -1;
+    private volatile string? _currentTurnId;
     private string _finalText = "";
     private long _lastOutputTokens;
     private int _numTurns;
@@ -298,13 +300,30 @@ public sealed class CodexChatSession : IAgentChatSession
         _currentText.Clear();
         _finalText = "";
         _lastOutputTokens = 0;
+        _currentTurnId = null;
 
-        await SendRequestAsync("turn/start", new
+        _turnStartRequestId = await SendRequestAsync("turn/start", new
         {
             threadId,
             input = new[] { new { type = "text", text } },
             effort = string.IsNullOrWhiteSpace(_effort) ? null : _effort,
         }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Asks the app-server to abort the in-flight turn; it still ends with a
+    /// normal turn/completed (status=interrupted). No-op when no turn id is known yet.</summary>
+    public async Task InterruptAsync(CancellationToken cancellationToken = default)
+    {
+        var process = _process;
+        if (_disposed || process is null || process.HasExited)
+            return;
+
+        var threadId = SessionId;
+        var turnId = _currentTurnId;
+        if (threadId is null || turnId is null)
+            return;
+
+        await SendRequestAsync("turn/interrupt", new { threadId, turnId }, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task SendInitializeAsync()
@@ -468,7 +487,7 @@ public sealed class CodexChatSession : IAgentChatSession
             _threadStartRequestId = await SendRequestAsync("thread/start", new
             {
                 cwd = _workingDirectory,
-                sandbox = "read-only",
+                sandbox = "danger-full-access",
                 approvalPolicy = "never",
                 model = string.IsNullOrWhiteSpace(_model) ? null : _model,
                 developerInstructions = string.IsNullOrWhiteSpace(_developerInstructions) ? null : _developerInstructions,
@@ -489,17 +508,29 @@ public sealed class CodexChatSession : IAgentChatSession
                 _threadReady.TrySetException(new InvalidOperationException("Codex thread/start returned no thread id."));
             }
         }
+        else if (id == _turnStartRequestId)
+        {
+            // The turn/start response returns the created turn immediately; its id is what
+            // turn/interrupt needs.
+            if (result.TryGetProperty("turn", out var turnObj)
+                && turnObj.TryGetProperty("id", out var turnIdProp)
+                && turnIdProp.GetString() is { } turnId)
+            {
+                _currentTurnId = turnId;
+            }
+        }
     }
 
-    // With sandbox=read-only and approvalPolicy=never these should never arrive, but if one
-    // does, deny it — this session must not act on the local machine.
+    // With sandbox=danger-full-access and approvalPolicy=never these should never arrive,
+    // but if one does, approve it — the session runs unrestricted by design; an unanswered
+    // request would hang the turn.
     private Task HandleServerRequestAsync(JsonElement id, string method) => method switch
     {
         "item/commandExecution/requestApproval" or "item/fileChange/requestApproval"
             or "item/permissions/requestApproval"
-            => SendResponseAsync(id.Clone(), new { decision = "decline" }),
+            => SendResponseAsync(id.Clone(), new { decision = "accept" }),
         "execCommandApproval" or "applyPatchApproval"
-            => SendResponseAsync(id.Clone(), new { decision = "denied" }),
+            => SendResponseAsync(id.Clone(), new { decision = "approved" }),
         _ => WriteMessageAsync(new
         {
             jsonrpc = "2.0",
@@ -543,7 +574,18 @@ public sealed class CodexChatSession : IAgentChatSession
                 }
                 break;
 
+            case "turn/started":
+                // Fallback for the turn id (also taken from the turn/start response).
+                if (p.TryGetProperty("turn", out var startedTurn)
+                    && startedTurn.TryGetProperty("id", out var startedTurnId)
+                    && startedTurnId.GetString() is { } newTurnId)
+                {
+                    _currentTurnId = newTurnId;
+                }
+                break;
+
             case "turn/completed":
+                _currentTurnId = null;
                 HandleTurnCompleted(p);
                 break;
 

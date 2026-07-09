@@ -219,6 +219,9 @@ PassphraseWatermark	optional, only if the key is encrypted	可选，仅在私钥
 AiAssistant	AI assistant	AI 助手
 AiAssistantShort	AI	AI
 AiSend	Send	发送
+AiStop	Stop	停止
+AiStopHint	Stop the assistant and cancel the running command.	停止助手并取消正在执行的命令。
+AiStopped	Stopped.	已停止。
 AiNewConversation	New conversation	新对话
 AiNewConversationHint	Start a new conversation with empty context (Ctrl+N).	从空上下文开始新对话 (Ctrl+N)。
 AiInputWatermark	Ask about this server…	询问关于这台服务器…

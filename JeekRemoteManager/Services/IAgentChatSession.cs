@@ -46,4 +46,9 @@ public interface IAgentChatSession : IAsyncDisposable
     /// <summary>Sends one user message; the reply arrives via <see cref="TextDelta"/> and
     /// <see cref="TurnCompleted"/>.</summary>
     Task SendAsync(string text, CancellationToken cancellationToken = default);
+
+    /// <summary>Best-effort abort of the in-flight turn. Sessions without a wire-level
+    /// interrupt (HTTP APIs) rely on the caller cancelling <see cref="SendAsync"/>'s token
+    /// instead, so the default is a no-op.</summary>
+    Task InterruptAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 }
