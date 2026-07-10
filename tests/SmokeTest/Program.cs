@@ -725,6 +725,11 @@ try
           "Auto-update retries alternate mirrors before failing");
     Check(autoUpdateScript.Contains("No download data received for $IdleTimeoutSeconds seconds"),
           "Auto-update abandons stalled mirror downloads");
+    Check(autoUpdateScript.Contains("$minimumDownloadSpeedBytesPerSecond = 512KB")
+          && autoUpdateScript.Contains("$slowDownloadWindowSeconds = 10")
+          && autoUpdateScript.Contains("Download speed stayed below $minimumSpeed/s")
+          && autoUpdateScript.Contains("$i -lt $downloadUrls.Count - 1"),
+          "Auto-update switches mirrors after sustained low download speed");
     var autoUpdateServicePath = Path.Combine(FindRepoRoot(), "JeekRemoteManager", "Services", "AutoUpdateService.cs");
     var autoUpdateService = File.Exists(autoUpdateServicePath)
         ? File.ReadAllText(autoUpdateServicePath)

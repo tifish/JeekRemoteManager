@@ -1,5 +1,7 @@
 $ErrorActionPreference = "Stop"
 $appName = "JeekRemoteManager"
+$minimumDownloadSpeedBytesPerSecond = 512KB
+$slowDownloadWindowSeconds = 10
 
 if ($args.Count -eq 0) {
     Exit 1
@@ -49,7 +51,9 @@ function Download-FileWithProgress {
     param(
         [Parameter(Mandatory = $true)][string]$Url,
         [Parameter(Mandatory = $true)][string]$Destination,
-        [int]$IdleTimeoutSeconds = 30
+        [int]$IdleTimeoutSeconds = 30,
+        [long]$MinimumBytesPerSecond = 0,
+        [int]$SlowSpeedWindowSeconds = 10
     )
 
     $client = $null
@@ -81,6 +85,8 @@ function Download-FileWithProgress {
         $buffer = New-Object byte[] (1024 * 1024)
         [long]$received = 0
         $sw = [Diagnostics.Stopwatch]::StartNew()
+        [long]$windowReceived = 0
+        $speedWindow = [Diagnostics.Stopwatch]::StartNew()
 
         while ($true) {
             $readTask = $stream.ReadAsync($buffer, 0, $buffer.Length)
@@ -95,6 +101,20 @@ function Download-FileWithProgress {
 
             $file.Write($buffer, 0, $read)
             $received += $read
+            $windowReceived += $read
+
+            if ($MinimumBytesPerSecond -gt 0 -and
+                $speedWindow.Elapsed.TotalSeconds -ge $SlowSpeedWindowSeconds) {
+                $windowBytesPerSecond = $windowReceived / $speedWindow.Elapsed.TotalSeconds
+                if ($windowBytesPerSecond -lt $MinimumBytesPerSecond) {
+                    $actualSpeed = Format-ByteSize ([long]$windowBytesPerSecond)
+                    $minimumSpeed = Format-ByteSize $MinimumBytesPerSecond
+                    throw "Download speed stayed below $minimumSpeed/s for $SlowSpeedWindowSeconds seconds (current: $actualSpeed/s)."
+                }
+
+                $windowReceived = 0
+                $speedWindow.Restart()
+            }
 
             $elapsedSeconds = [Math]::Max($sw.Elapsed.TotalSeconds, 0.1)
             $speed = $received / 1MB / $elapsedSeconds
@@ -156,7 +176,16 @@ try {
         Remove-Item -Force -LiteralPath $packPath -ErrorAction SilentlyContinue
 
         try {
-            Download-FileWithProgress -Url $downloadUrl -Destination $packPath
+            $minimumSpeed = if ($i -lt $downloadUrls.Count - 1) {
+                $minimumDownloadSpeedBytesPerSecond
+            } else {
+                0
+            }
+            Download-FileWithProgress `
+                -Url $downloadUrl `
+                -Destination $packPath `
+                -MinimumBytesPerSecond $minimumSpeed `
+                -SlowSpeedWindowSeconds $slowDownloadWindowSeconds
             $downloaded = $true
             break
         } catch {
