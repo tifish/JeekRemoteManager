@@ -237,6 +237,7 @@ AiTurnCost	{0} tokens · ${1:F4}	{0} tokens · ${1:F4}
 AiTurnTokens	{0} tokens	{0} tokens
 AiTurnError	The assistant hit an error.	助手执行出错。
 AiSessionEnded	Session ended.	会话已结束。
+AiLoginRequired	{0} login is missing or expired. Log in locally, then send again.	{0} 未登录或登录已过期。请在本机完成登录后重新发送。
 AiAutoRun	Auto-run	自动执行
 AiAutoRunHint	The assistant runs its own commands on the server and reads their output — no confirmation.	助手自动在服务器上执行命令并读取输出，无需确认。
 AiShowOutput	Show output	显示命令输出

@@ -147,6 +147,31 @@ try
     Check(activeAiSession.DisposeCount == 1,
           "AI new conversation disposes the active session");
 
+    var exitedAiSession = new FakeAgentChatSession();
+    typeof(AgentChatViewModel)
+        .GetField("_session", BindingFlags.Instance | BindingFlags.NonPublic)!
+        .SetValue(aiVm, exitedAiSession);
+    typeof(AgentChatViewModel)
+        .GetField("_sessionStarted", BindingFlags.Instance | BindingFlags.NonPublic)!
+        .SetValue(aiVm, true);
+    typeof(AgentChatViewModel)
+        .GetMethod("HandleSessionExited", BindingFlags.Instance | BindingFlags.NonPublic)!
+        .Invoke(aiVm, null);
+    Check(typeof(AgentChatViewModel)
+              .GetField("_session", BindingFlags.Instance | BindingFlags.NonPublic)!
+              .GetValue(aiVm) is null
+          && exitedAiSession.DisposeCount == 1,
+          "AI agent exit invalidates and disposes the session");
+
+    var authError = (bool)typeof(AgentChatViewModel)
+        .GetMethod("IsAuthenticationError", BindingFlags.Static | BindingFlags.NonPublic)!
+        .Invoke(null, ["Your authentication token has expired. Please login again."])!;
+    var ordinaryError = (bool)typeof(AgentChatViewModel)
+        .GetMethod("IsAuthenticationError", BindingFlags.Static | BindingFlags.NonPublic)!
+        .Invoke(null, ["The model is temporarily overloaded."])!;
+    Check(authError && !ordinaryError,
+          "AI authentication errors are separated from retryable agent errors");
+
     var thinkingMessage = new ChatMessageViewModel(ChatRole.Assistant, "")
     {
         IsThinking = true,

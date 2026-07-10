@@ -66,6 +66,31 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         "```(upload|download)[ \\t]*\\n(.*?)```",
         RegexOptions.Singleline | RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    // Agent CLIs do not expose one shared structured authentication error. Keep this list
+    // deliberately narrow: these phrases describe credentials, while ordinary transport,
+    // quota, model, and tool errors leave the current session available for retry.
+    private static readonly string[] AuthenticationErrorMarkers =
+    [
+        "401 unauthorized",
+        "not logged in",
+        "not authenticated",
+        "login required",
+        "authentication required",
+        "please log in",
+        "please login",
+        "run /login",
+        "token expired",
+        "token has expired",
+        "expired token",
+        "invalid api key",
+        "invalid_api_key",
+        "authentication token has expired",
+        "refresh token has expired",
+        "refresh token is expired",
+        "failed to refresh token",
+        "could not refresh token",
+    ];
+
     // Returns the terminal selection and clears it, so the same selection isn't
     // silently re-attached to the next message.
     private readonly Func<string?> _takeSelection;
@@ -703,6 +728,12 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             _pendingAssistant = null;
         }
 
+        if (result.IsError && IsAuthenticationError(answer))
+        {
+            InvalidateSessionForAuthenticationError();
+            return;
+        }
+
         // Codex reports token usage but no dollar cost; omit the $0.0000.
         StatusText = result.IsError
             ? L("AiTurnError")
@@ -807,18 +838,42 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             StopThinking();
             _pendingAssistant = null;
             IsBusy = false;
-            StatusText = L("AiTurnError");
+            if (IsAuthenticationError(message))
+                InvalidateSessionForAuthenticationError();
+            else
+                StatusText = L("AiTurnError");
         }
     });
 
-    private void OnExited() => Dispatcher.UIThread.Post(() =>
+    private void OnExited() => Dispatcher.UIThread.Post(HandleSessionExited);
+
+    private void HandleSessionExited()
     {
-        StopThinking();
-        _pendingAssistant = null;
+        DetachAndDisposeSession();
         IsBusy = false;
-        _sessionStarted = false;
         StatusText = L("AiSessionEnded");
-    });
+    }
+
+    private void InvalidateSessionForAuthenticationError()
+    {
+        DetachAndDisposeSession();
+        IsBusy = false;
+        StatusText = L("AiLoginRequired", SelectedProvider.Label);
+    }
+
+    private static bool IsAuthenticationError(string message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return false;
+
+        foreach (var marker in AuthenticationErrorMarkers)
+        {
+            if (message.Contains(marker, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
 
     private int _thinkingStep;
 
