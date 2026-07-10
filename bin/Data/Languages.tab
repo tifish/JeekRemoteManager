@@ -230,6 +230,7 @@ AiSelectionAttached	[+ terminal selection]	[+ 终端选中内容]
 AiRunInTerminal	Run	执行
 AiNotAvailable	Claude CLI not found. Install it (claude.ai/install) and reopen this panel.	未检测到 Claude CLI，请先安装（claude.ai/install）后重新打开此面板。
 AiNotAvailableCodex	Codex CLI not found. Install it (developers.openai.com/codex/cli) and reopen this panel.	未检测到 Codex CLI，请先安装（developers.openai.com/codex/cli）后重新打开此面板。
+AiNotAvailableGrok	Grok Build CLI not found. Install it (irm https://x.ai/cli/install.ps1 | iex) and reopen this panel.	未检测到 Grok Build CLI，请先安装（irm https://x.ai/cli/install.ps1 | iex）后重新打开此面板。
 AiWaiting	Thinking…	思考中…
 AiThinking	Thinking	思考中
 AiTurnCost	{0} tokens · ${1:F4}	{0} tokens · ${1:F4}

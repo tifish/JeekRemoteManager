@@ -3,7 +3,7 @@ using System.IO;
 
 namespace JeekRemoteManager.Services;
 
-/// <summary>Finds installed agent CLI executables (<c>claude</c>, <c>codex</c>) on Windows.</summary>
+/// <summary>Finds installed agent CLI executables (<c>claude</c>, <c>codex</c>, <c>grok</c>) on Windows.</summary>
 public static class AgentCliLocator
 {
     /// <summary>
@@ -37,6 +37,23 @@ public static class AgentCliLocator
         }
 
         var found = FindOnPath("codex.exe") ?? FindOnPath("codex.cmd") ?? FindOnPath("codex");
+        return found is null ? null : ResolveRealPath(found);
+    }
+
+    /// <summary>
+    /// Returns the full path to <c>grok.exe</c> (Grok Build CLI), or <c>null</c> if it is not
+    /// installed. Probes PATH plus the native installer's default location
+    /// (<c>%USERPROFILE%\.grok\bin</c>).
+    /// </summary>
+    public static string? FindGrok()
+    {
+        foreach (var candidate in EnumerateGrokCandidates())
+        {
+            if (File.Exists(candidate))
+                return ResolveRealPath(candidate);
+        }
+
+        var found = FindOnPath("grok.exe") ?? FindOnPath("grok.cmd") ?? FindOnPath("grok");
         return found is null ? null : ResolveRealPath(found);
     }
 
@@ -97,6 +114,16 @@ public static class AgentCliLocator
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         yield return Path.Combine(appData, "npm", "codex.cmd");
         yield return Path.Combine(appData, "npm", "codex.exe");
+    }
+
+    private static System.Collections.Generic.IEnumerable<string> EnumerateGrokCandidates()
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        yield return Path.Combine(home, ".grok", "bin", "grok.exe");
+        yield return Path.Combine(home, ".grok", "bin", "grok");
+
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        yield return Path.Combine(localAppData, "grok", "bin", "grok.exe");
     }
 
     private static string? FindOnPath(string fileName)

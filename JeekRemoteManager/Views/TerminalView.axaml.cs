@@ -569,6 +569,7 @@ public partial class TerminalView : UserControl
     {
         var claudePath = AgentCliLocator.FindClaude();
         var codexPath = AgentCliLocator.FindCodex();
+        var grokPath = AgentCliLocator.FindGrok();
         var workingDir = Path.Combine(Path.GetTempPath(), "JeekRemoteManager", "agent");
 
         var providers = new List<AgentProvider>
@@ -583,6 +584,13 @@ public partial class TerminalView : UserControl
                 codexPath is null
                     ? null
                     : () => CodexChatSession.ListModelsCachedAsync(codexPath)),
+            AgentChatViewModel.CreateGrokProvider(
+                grokPath is null
+                    ? null
+                    : (model, effort) => new GrokChatSession(grokPath, workingDir, systemPrompt, model: model, effort: effort),
+                grokPath is null
+                    ? null
+                    : () => GrokChatSession.ListModelsCachedAsync(grokPath)),
         };
 
         if (DataContext is MainWindowViewModel mainVm)

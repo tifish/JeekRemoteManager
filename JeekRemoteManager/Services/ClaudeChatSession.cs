@@ -18,6 +18,10 @@ namespace JeekRemoteManager.Services;
 /// </summary>
 public sealed class ClaudeChatSession : IAgentChatSession
 {
+    // Full local agent tools are allowed (Bash/Read/Edit/WebSearch/…). Remote server work
+    // still goes through the chat harness via ```bash fences — see BuildAssistantSystemPrompt.
+    // bypassPermissions skips interactive prompts so the headless CLI can act autonomously.
+
     private readonly string _executablePath;
     private readonly string _workingDirectory;
     private readonly string? _appendSystemPrompt;

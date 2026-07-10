@@ -26,9 +26,9 @@ public sealed record AgentOption(string Label, string? Value);
 public sealed record AgentFileTransfer(bool IsUpload, IReadOnlyList<string> Sources, string? Destination);
 
 /// <summary>
-/// One selectable AI backend (Claude / Codex): its display label, the model/effort choices
-/// it supports, and a factory that creates a session for a (model, effort) pair. A null
-/// <paramref name="SessionFactory"/> means the CLI is not installed; the provider still
+/// One selectable AI backend (Claude / Codex / Grok): its display label, the model/effort
+/// choices it supports, and a factory that creates a session for a (model, effort) pair. A
+/// null <paramref name="SessionFactory"/> means the CLI is not installed; the provider still
 /// appears in the picker so the user learns it exists. <paramref name="CatalogFetcher"/>
 /// optionally queries the CLI for its live model catalog; the static option lists remain
 /// the fallback when it is null or fails.
@@ -45,11 +45,12 @@ public sealed record AgentProvider(
 }
 
 /// <summary>
-/// Drives one AI chat conversation scoped to a single terminal tab, and runs an autonomous
-/// command loop: each time the assistant emits a fenced shell block, the harness executes it
-/// on the connected server (via <c>runCaptured</c>), feeds the captured output back to the
-/// assistant, and lets it continue. Model and reasoning effort are chosen up front and become
-/// CLI flags when the session process starts; changing them starts a fresh session.
+/// Drives one AI chat conversation scoped to a single terminal tab. Two channels:
+/// local agent tools (Claude/Codex/Grok CLI) run on the host; remote work uses an autonomous
+/// command loop — each time the assistant emits a fenced shell block, the harness executes
+/// it on the connected server (via <c>runCaptured</c>), feeds the output back, and continues.
+/// Model and reasoning effort are chosen up front and become CLI flags when the session
+/// process starts; changing them starts a fresh session.
 /// </summary>
 public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 {
@@ -181,6 +182,28 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             new AgentOption("Medium", "medium"),
             new AgentOption("High", "high"),
             new AgentOption("xHigh", "xhigh"),
+        ],
+        sessionFactory,
+        catalogFetcher);
+
+    /// <summary>Builds the Grok Build provider descriptor; pass null factories when the CLI is
+    /// missing. The model list is a snapshot fallback — <paramref name="catalogFetcher"/>
+    /// refreshes it from the CLI / models cache at runtime.</summary>
+    public static AgentProvider CreateGrokProvider(
+        Func<string?, string?, IAgentChatSession?>? sessionFactory,
+        Func<Task<IReadOnlyList<AgentModelInfo>?>>? catalogFetcher = null) => new(
+        "Grok",
+        L("AiNotAvailableGrok"),
+        [
+            new AgentOption(L("AiOptionDefault"), null),
+            new AgentOption("Grok 4.5", "grok-4.5"),
+            new AgentOption("Composer 2.5", "grok-composer-2.5-fast"),
+        ],
+        [
+            new AgentOption(L("AiOptionDefault"), null),
+            new AgentOption("Low", "low"),
+            new AgentOption("Medium", "medium"),
+            new AgentOption("High", "high"),
         ],
         sessionFactory,
         catalogFetcher);

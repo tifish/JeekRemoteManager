@@ -13,7 +13,7 @@ Built with .NET 10 and Avalonia. Windows only.
 - SFTP file browser for remote hosts
 - WSL support: open terminals and browse files in local WSL distros
 - Remote scripts: define reusable scripts with parameters and run them on connections
-- AI agent chat integrated with the terminal (Claude, Codex, OpenAI-compatible APIs)
+- AI agent chat integrated with the terminal (Claude, Codex, Grok Build, OpenAI-compatible APIs)
 - Import connections from FinalShell
 - Passwords encrypted with a master key
 - One-click public key installation to remote hosts

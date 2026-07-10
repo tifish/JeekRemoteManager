@@ -13,9 +13,9 @@ public sealed record AgentModelInfo(string Id, string DisplayName, bool IsDefaul
 
 /// <summary>
 /// One multi-turn AI chat session backed by an agent CLI subprocess. Implementations wrap
-/// provider-specific wire protocols (Claude stream-json, Codex app-server JSON-RPC) behind
-/// the same turn-based surface: send a user message, receive streaming text, get a
-/// completion event with usage.
+/// provider-specific wire protocols (Claude stream-json, Codex app-server JSON-RPC, Grok
+/// Build ACP) behind the same turn-based surface: send a user message, receive streaming
+/// text, get a completion event with usage.
 ///
 /// Events are raised on a background read-loop thread — consumers must marshal to the UI
 /// thread themselves (e.g. via <c>Dispatcher.UIThread.Post</c>).
