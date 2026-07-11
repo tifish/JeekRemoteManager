@@ -1630,20 +1630,23 @@ public partial class MainWindow : Window
     /// dragged node into: a folder row targets that folder, a connection row its
     /// containing folder, empty space the root. Returns false when the drop is
     /// invalid (Recent nodes, into itself/its subtree, or a same-folder no-op).
-    /// <paramref name="targetNode"/> is null when the target is the root.
+    /// <paramref name="highlightNode"/> is the hovered row to highlight — the row
+    /// under the pointer, not necessarily the folder receiving the drop — and is
+    /// null when the pointer is over empty space (root drop).
     /// </summary>
     private bool TryResolveTreeDrop(
         TreeNodeViewModel source,
         Point position,
-        out TreeNodeViewModel? targetNode,
+        out TreeNodeViewModel? highlightNode,
         out string targetPath)
     {
-        targetNode = null;
+        highlightNode = null;
         targetPath = string.Empty;
 
         if (DataContext is not MainWindowViewModel vm)
             return false;
 
+        TreeNodeViewModel? targetFolder = null;
         var hit = Tree.InputHitTest(position) as Visual;
         var item = hit?.FindAncestorOfType<TreeViewItem>(includeSelf: true);
         if (item?.DataContext is TreeNodeViewModel node)
@@ -1651,10 +1654,11 @@ public partial class MainWindow : Window
             if (node.IsRecent)
                 return false;
 
-            targetNode = node.IsFolder ? node : node.Parent;
+            highlightNode = node;
+            targetFolder = node.IsFolder ? node : node.Parent;
         }
 
-        targetPath = targetNode?.FullPath ?? vm.RootPath;
+        targetPath = targetFolder?.FullPath ?? vm.RootPath;
 
         // Dropping where the node already lives is a no-op.
         var currentParent = Path.GetDirectoryName(
