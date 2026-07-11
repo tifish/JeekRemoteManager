@@ -389,6 +389,21 @@ try
     if (newFolderNode is not null)
         vm.CancelNodeNameEdit(newFolderNode, requestFocus: false);
 
+    var deleteSelectionFolder = vmStore.CreateFolder(vmStore.RootPath, "delete-selection");
+    _ = vmStore.Save(new Connection { Name = "delete-a", Host = "a.example" }, deleteSelectionFolder);
+    _ = vmStore.Save(new Connection { Name = "delete-b", Host = "b.example" }, deleteSelectionFolder);
+    _ = vmStore.Save(new Connection { Name = "delete-c", Host = "c.example" }, deleteSelectionFolder);
+    vm.RefreshCommand.Execute(null);
+    var deleteSelectionFolderNode = vm.Nodes.Single(n => n.Name == "delete-selection");
+    vm.ConfirmAsync = (_, _) => Task.FromResult(true);
+    vm.SelectedNode = deleteSelectionFolderNode.Children.Single(n => n.Name == "delete-b");
+    await vm.DeleteCommand.ExecuteAsync(null);
+    Check(vm.SelectedNode is { Name: "delete-c" },
+          "Deleting a tree node selects its next sibling");
+    await vm.DeleteCommand.ExecuteAsync(null);
+    Check(vm.SelectedNode is { Name: "delete-a" },
+          "Deleting the last tree node selects its previous sibling");
+
     // --- Rename via Save (file follows the name) ---
     loaded.Name = "web01-renamed";
     var renamedPath = store.Save(loaded, folder, sshPath);

@@ -1385,6 +1385,15 @@ public partial class MainWindowViewModel : ViewModelBase
 
         var deletedPath = node.FullPath;
         var parent = Path.GetDirectoryName(deletedPath);
+        IList<TreeNodeViewModel> siblings = node.Parent is not null
+            ? node.Parent.Children
+            : Nodes.Where(candidate => !candidate.IsRecent).ToList();
+        var deletedIndex = siblings.IndexOf(node);
+        var nextSelectionPath = deletedIndex >= 0 && deletedIndex + 1 < siblings.Count
+            ? siblings[deletedIndex + 1].FullPath
+            : deletedIndex > 0
+                ? siblings[deletedIndex - 1].FullPath
+                : parent;
 
         // Drop the editor binding to the doomed node BEFORE we touch disk or
         // reload the tree — otherwise the selection change triggered by the
@@ -1415,8 +1424,7 @@ public partial class MainWindowViewModel : ViewModelBase
         if (_clipboardPath != null && ConnectionStore.IsSameOrInside(deletedPath, _clipboardPath))
             ClearClipboard();
 
-        ReloadTree();
-        SelectedNode = parent is not null ? FindNode(Nodes, parent) : null;
+        ReloadTree(nextSelectionPath);
         StatusMessage = L("StatusDeleted", node.Name);
     }
 
