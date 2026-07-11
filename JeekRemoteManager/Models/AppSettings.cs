@@ -66,6 +66,10 @@ public class AppSettings
     /// expand/collapse state across runs.</summary>
     public List<string> CollapsedFolderPaths { get; set; } = new();
 
+    /// <summary>Whether the connection tree panel is collapsed, giving the
+    /// right pane the full window width.</summary>
+    public bool ConnectionPanelCollapsed { get; set; }
+
     /// <summary>Terminal font size in points, adjustable from the toolbar.</summary>
     public int TerminalFontSize { get; set; } = 14;
 
@@ -175,6 +179,9 @@ public class MachineAppSettings
 
     /// <summary>Absolute paths of folders the user has collapsed in the tree.</summary>
     public List<string> CollapsedFolderPaths { get; set; } = new();
+
+    /// <summary>Whether the connection tree panel is collapsed.</summary>
+    public bool ConnectionPanelCollapsed { get; set; }
 }
 
 /// <summary>Machine-independent preferences stored with the selected storage mode.</summary>

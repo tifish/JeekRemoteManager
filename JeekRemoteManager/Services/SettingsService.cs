@@ -154,6 +154,7 @@ public class SettingsService
             LastSelectedConnectionPath = machineSettings.LastSelectedConnectionPath,
             RecentExpanded = machineSettings.RecentExpanded,
             CollapsedFolderPaths = machineSettings.CollapsedFolderPaths,
+            ConnectionPanelCollapsed = machineSettings.ConnectionPanelCollapsed,
             Language = roamingSettings.Language,
             Theme = roamingSettings.Theme,
             CheckUpdateOnStartup = roamingSettings.CheckUpdateOnStartup,
@@ -183,6 +184,7 @@ public class SettingsService
             LastSelectedConnectionPath = settings.LastSelectedConnectionPath,
             RecentExpanded = settings.RecentExpanded,
             CollapsedFolderPaths = settings.CollapsedFolderPaths ?? new List<string>(),
+            ConnectionPanelCollapsed = settings.ConnectionPanelCollapsed,
         };
         NormalizeMachineSettings(machineSettings);
         return machineSettings;
@@ -226,6 +228,7 @@ public class SettingsService
         settings.LastSelectedConnectionPath = normalized.LastSelectedConnectionPath;
         settings.RecentExpanded = normalized.RecentExpanded;
         settings.CollapsedFolderPaths = normalized.CollapsedFolderPaths;
+        settings.ConnectionPanelCollapsed = normalized.ConnectionPanelCollapsed;
         settings.Language = normalized.Language;
         settings.Theme = normalized.Theme;
         settings.CheckUpdateOnStartup = normalized.CheckUpdateOnStartup;

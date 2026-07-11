@@ -33,6 +33,8 @@ public partial class MainWindow : Window
     private TabItem? _draggedTerminalTab;
     private Point _terminalTabDragStart;
     private bool _isTerminalTabDragging;
+    private bool _treePanelStateRestored;
+    private double _treePanelWidth = 306;
 
     // Auto-locks "Show password" after a stretch of inactivity in the main
     // window, so a revealed password isn't left on screen when the user
@@ -142,6 +144,44 @@ public partial class MainWindow : Window
         vm.PropertyChanged -= OnViewModelPropertyChanged;
         vm.PropertyChanged += OnViewModelPropertyChanged;
         RestoreWindowSize(vm);
+        RestoreConnectionPanelState(vm);
+    }
+
+    private void RestoreConnectionPanelState(MainWindowViewModel vm)
+    {
+        if (_treePanelStateRestored)
+            return;
+
+        _treePanelStateRestored = true;
+        if (vm.ConnectionPanelCollapsed)
+            ApplyConnectionPanelState(collapsed: true);
+    }
+
+    // ColumnDefinitions don't generate fields, so reach the tree column through the grid.
+    private ColumnDefinition TreeColumn => MainGrid.ColumnDefinitions[0];
+
+    private void OnToggleConnectionPanelClick(object? sender, RoutedEventArgs e)
+    {
+        var collapsed = TreePanel.IsVisible;
+        ApplyConnectionPanelState(collapsed);
+        if (DataContext is MainWindowViewModel vm)
+            vm.ConnectionPanelCollapsed = collapsed;
+    }
+
+    /// <summary>Collapses or expands the connection tree panel. Collapsing remembers
+    /// the splitter-set width so expanding restores it within the session.</summary>
+    private void ApplyConnectionPanelState(bool collapsed)
+    {
+        if (collapsed && TreeColumn.Width.IsAbsolute && TreeColumn.Width.Value > 0)
+            _treePanelWidth = TreeColumn.Width.Value;
+
+        TreePanel.IsVisible = !collapsed;
+        TreeSplitter.IsVisible = !collapsed;
+        TreeColumn.Width = new GridLength(collapsed ? 0 : _treePanelWidth, GridUnitType.Pixel);
+        // Zero the spacing too, or the two inter-column gaps would leave a
+        // 16px dead strip at the left edge while the panel is hidden.
+        MainGrid.ColumnSpacing = collapsed ? 0 : 8;
+        ToggleTreePanelIcon.Text = collapsed ? "\uE8A0" : "\uE89F"; // OpenPane / ClosePane
     }
 
     private void RestoreWindowSize(MainWindowViewModel vm)

@@ -278,6 +278,20 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Whether the connection tree panel is collapsed, remembered across runs.</summary>
+    public bool ConnectionPanelCollapsed
+    {
+        get => _settings.Settings.ConnectionPanelCollapsed;
+        set
+        {
+            if (value == _settings.Settings.ConnectionPanelCollapsed)
+                return;
+
+            _settings.Settings.ConnectionPanelCollapsed = value;
+            _settings.SaveIfChanged();
+        }
+    }
+
     /// <summary>Editor executable for the file browser's remote editing (F4);
     /// null = system file association. Configured in the Settings dialog.</summary>
     public string? FileBrowserEditorPath => _settings.Settings.FileBrowserEditorPath;
