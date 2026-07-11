@@ -742,7 +742,12 @@ public partial class TerminalView : UserControl
             "server. Never mix the two up. " +
             transferInstructions +
             "Commands run without confirmation, so avoid destructive actions unless explicitly asked, and " +
-            "prefer non-interactive flags (e.g. `-y`). Assume a Linux server unless told otherwise.";
+            "prefer non-interactive flags (e.g. `-y`). " +
+            "SAFETY: if a command is destructive or hard to reverse (deleting or overwriting files or " +
+            "directories, dropping databases or tables, formatting or repartitioning disks, force-pushing, " +
+            "removing volumes or containers with data), tag its block ```bash-danger instead of ```bash — " +
+            "the user is then asked to confirm before it runs. Never present a destructive command as a " +
+            "plain ```bash block. Assume a Linux server unless told otherwise.";
     }
 
     /// <summary>

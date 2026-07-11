@@ -49,6 +49,13 @@
             <Setter Property="FontSize" Value="12" />
             <Setter Property="Foreground" Value="{DynamicResource TerminalForegroundBrush}" />
         </Style>
+        <!-- A dangerous command awaiting the user's decision: always visible, danger-accented. -->
+        <Style Selector="Border.chat-confirm">
+            <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource DangerBrush}" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="Margin" Value="0,3" />
+        </Style>
         <!-- Compact selectors that live in the header bar. -->
         <Style Selector="ComboBox.header-option">
             <Setter Property="MinHeight" Value="28" />
@@ -223,13 +230,38 @@
                                 Classes.chat-user="{Binding IsUser}"
                                 Classes.chat-assistant="{Binding IsAssistant}"
                                 Classes.chat-system="{Binding IsSystem}"
-                                Classes.chat-tool="{Binding IsTool}">
+                                Classes.chat-tool="{Binding IsTool}"
+                                Classes.chat-confirm="{Binding IsConfirmation}">
                             <Panel>
-                                <!-- Assistant answers are Markdown; everything else is plain text. -->
+                                <!-- Assistant answers are Markdown; user/system/tool are plain text. -->
                                 <SelectableTextBlock Text="{Binding Text}"
                                                      TextWrapping="Wrap"
-                                                     IsVisible="{Binding !IsAssistant}"
+                                                     IsVisible="{Binding IsPlainBubble}"
                                                      Foreground="{DynamicResource TextPrimaryBrush}" />
+                                <!-- Dangerous command confirmation card. -->
+                                <StackPanel IsVisible="{Binding IsConfirmation}" Spacing="8">
+                                    <TextBlock Classes="hint"
+                                               Text="{l:Localize AiDangerWarning}"
+                                               Foreground="{DynamicResource DangerBrush}"
+                                               TextWrapping="Wrap" />
+                                    <SelectableTextBlock Text="{Binding Text}"
+                                                         TextWrapping="Wrap"
+                                                         FontFamily="Consolas,Menlo,monospace"
+                                                         FontSize="12"
+                                                         Foreground="{DynamicResource TextPrimaryBrush}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8"
+                                                IsVisible="{Binding IsAwaitingDecision}">
+                                        <Button Classes="accent" MinHeight="28"
+                                                Content="{l:Localize AiRunInTerminal}"
+                                                Command="{Binding #MessagesList.((vm:AgentChatViewModel)DataContext).RunPendingCommandCommand}" />
+                                        <Button MinHeight="28"
+                                                Content="{l:Localize AiDangerSkip}"
+                                                Command="{Binding #MessagesList.((vm:AgentChatViewModel)DataContext).SkipPendingCommandCommand}" />
+                                    </StackPanel>
+                                    <TextBlock Classes="hint"
+                                               Text="{Binding DecisionText}"
+                                               IsVisible="{Binding DecisionText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                </StackPanel>
                                 <TextBlock Text="{Binding ThinkingText}"
                                            TextWrapping="Wrap"
                                            IsVisible="{Binding ShowsThinking}"

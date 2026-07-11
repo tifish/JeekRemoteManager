@@ -55,9 +55,10 @@ public sealed record AgentProvider(
 public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 {
     // Only blocks explicitly tagged as shell are executable; plain ``` blocks (quotes,
-    // translations, sample output) must never reach the server.
+    // translations, sample output) must never reach the server. A "-danger" suffix is the
+    // model self-reporting a destructive command; it forces the confirmation flow.
     private static readonly Regex FencedBlock = new(
-        "```(?:bash|sh|shell)[ \\t]*\\n(.*?)```",
+        "```(?:bash|sh|shell)(?<danger>-danger)?[ \\t]*\\n(?<body>.*?)```",
         RegexOptions.Singleline | RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     // ```upload / ```download blocks request a ZMODEM file transfer through the terminal;
@@ -596,6 +597,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         if (!IsBusy)
             return;
 
+        TakePendingConfirmation(L("AiDangerSkipped"));
         _stopRequested = true;
         try
         {
@@ -681,6 +683,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
     private void DetachAndDisposeSession()
     {
+        TakePendingConfirmation(L("AiDangerSkipped"));
         var session = _session;
         _session = null;
         _sessionStarted = false;
@@ -741,9 +744,9 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
                 ? L("AiTurnCost", result.OutputTokens, result.CostUsd)
                 : L("AiTurnTokens", result.OutputTokens);
 
-        var (command, transfer) = AutoRun && !result.IsError
+        var (command, dangerTagged, transfer) = AutoRun && !result.IsError
             ? ExtractFirstAction(answer)
-            : (null, (AgentFileTransfer?)null);
+            : (null, false, (AgentFileTransfer?)null);
         if (transfer is not null && _transferFiles is not null)
         {
             // Keep IsBusy true across the whole auto loop.
@@ -753,12 +756,82 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
         if (command is not null && _runCaptured is not null)
         {
+            // Two independent danger signals: the model self-tagged the block, or the local
+            // blacklist matched. Either one pauses the loop until the user decides.
+            if (dangerTagged || DangerousCommandDetector.IsDangerous(command))
+            {
+                AskDangerConfirmation(command);
+                return;
+            }
+
             _ = RunAndContinueAsync(command);
             return;
         }
 
         IsBusy = false;
     });
+
+    // The dangerous command (and its bubble) waiting for the user's run/skip decision.
+    // IsBusy stays true while waiting, so the input box is blocked but Stop still works.
+    private string? _pendingDangerCommand;
+    private ChatMessageViewModel? _pendingDangerMessage;
+
+    private void AskDangerConfirmation(string command)
+    {
+        _pendingDangerCommand = command;
+        _pendingDangerMessage = new ChatMessageViewModel(ChatRole.Confirmation, command)
+        {
+            IsAwaitingDecision = true,
+        };
+        Messages.Add(_pendingDangerMessage);
+        StatusText = L("AiDangerWaiting");
+    }
+
+    [RelayCommand]
+    private void RunPendingCommand()
+    {
+        var command = TakePendingConfirmation(L("AiDangerRan"));
+        if (command is null)
+            return;
+
+        IsBusy = true;
+        _ = RunAndContinueAsync(command);
+    }
+
+    [RelayCommand]
+    private async Task SkipPendingCommandAsync()
+    {
+        var command = TakePendingConfirmation(L("AiDangerSkipped"));
+        if (command is null)
+            return;
+
+        IsBusy = true;
+        _pendingAssistant = new ChatMessageViewModel(ChatRole.Assistant, "");
+        Messages.Add(_pendingAssistant);
+        StatusText = L("AiWaiting");
+        StartThinking();
+
+        await SendToSessionAsync(
+            $"The user declined to run this command:\n```\n{command}\n```\n" +
+            "Do not run it again. Explain the risk, propose a safer alternative, or ask the user how to proceed.");
+    }
+
+    /// <summary>Resolves the pending confirmation bubble with the given outcome line and
+    /// returns the command, or null when nothing is pending.</summary>
+    private string? TakePendingConfirmation(string decisionText)
+    {
+        var command = _pendingDangerCommand;
+        var message = _pendingDangerMessage;
+        _pendingDangerCommand = null;
+        _pendingDangerMessage = null;
+        if (message is not null)
+        {
+            message.IsAwaitingDecision = false;
+            message.DecisionText = decisionText;
+        }
+
+        return command;
+    }
 
     private async Task RunAndContinueAsync(string command)
     {
@@ -912,8 +985,9 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     private static string BuildThinkingText(int step) => L("AiThinking") + new string('.', step + 1);
 
     /// <summary>Finds the first actionable fenced block in the answer — a shell command or
-    /// a file-transfer request, whichever the assistant emitted first.</summary>
-    internal static (string? Command, AgentFileTransfer? Transfer) ExtractFirstAction(string text)
+    /// a file-transfer request, whichever the assistant emitted first. <c>Dangerous</c> is
+    /// true when the model tagged the block <c>```bash-danger</c>.</summary>
+    internal static (string? Command, bool Dangerous, AgentFileTransfer? Transfer) ExtractFirstAction(string text)
     {
         var commandMatch = FencedBlock.Match(text);
         var transferMatch = TransferBlock.Match(text);
@@ -922,17 +996,17 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         {
             var transfer = ParseTransfer(transferMatch.Groups[1].Value, transferMatch.Groups[2].Value);
             if (transfer is not null)
-                return (null, transfer);
+                return (null, false, transfer);
         }
 
         if (commandMatch.Success)
         {
-            var body = commandMatch.Groups[1].Value.Trim();
+            var body = commandMatch.Groups["body"].Value.Trim();
             if (body.Length > 0)
-                return (body, null);
+                return (body, commandMatch.Groups["danger"].Success, null);
         }
 
-        return (null, null);
+        return (null, false, null);
     }
 
     private static AgentFileTransfer? ParseTransfer(string kind, string body)

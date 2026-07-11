@@ -239,7 +239,12 @@ AiTurnError	The assistant hit an error.	助手执行出错。
 AiSessionEnded	Session ended.	会话已结束。
 AiLoginRequired	{0} login is missing or expired. Log in locally, then send again.	{0} 未登录或登录已过期。请在本机完成登录后重新发送。
 AiAutoRun	Auto-run	自动执行
-AiAutoRunHint	The assistant runs its own commands on the server and reads their output — no confirmation.	助手自动在服务器上执行命令并读取输出，无需确认。
+AiAutoRunHint	The assistant runs its own commands on the server and reads their output; only potentially destructive commands ask for confirmation.	助手自动在服务器上执行命令并读取输出，仅对可能破坏数据的命令要求确认。
+AiDangerWarning	⚠ This command may destroy data. Review it before running.	⚠ 此命令可能破坏数据，请确认后再执行。
+AiDangerSkip	Skip	跳过
+AiDangerWaiting	Waiting for you to confirm the command…	等待确认命令…
+AiDangerRan	✓ Approved and run	✓ 已确认执行
+AiDangerSkipped	✗ Skipped	✗ 已跳过
 AiShowOutput	Show output	显示命令输出
 AiShowOutputHint	Show the executed commands and their output in this chat (they always appear in the terminal too).	在对话中显示执行的命令及其输出（它们始终也会显示在终端里）。
 AiProvider	Provider	提供方
