@@ -33,6 +33,10 @@ public partial class MainWindow : Window
     private TabItem? _draggedTerminalTab;
     private Point _terminalTabDragStart;
     private bool _isTerminalTabDragging;
+    private TreeNodeViewModel? _treeDragNode;
+    private Point _treeDragStart;
+    private bool _isTreeDragging;
+    private TreeNodeViewModel? _treeDropTarget;
     private bool _treePanelStateRestored;
     private double _treePanelWidth = 306;
 
@@ -40,6 +44,9 @@ public partial class MainWindow : Window
     // window, so a revealed password isn't left on screen when the user
     // walks away. Any pointer or key input resets the timer.
     private const double TerminalTabDragThreshold = 6;
+    private const double TreeDragThreshold = 6;
+    private static readonly Cursor TreeDragMoveCursor = new(StandardCursorType.DragMove);
+    private static readonly Cursor TreeDragNoDropCursor = new(StandardCursorType.No);
     private static readonly TimeSpan ShowPasswordIdleTimeout = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan WindowSizeSaveDelay = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan PendingTreeFocusRestoreWindow = TimeSpan.FromSeconds(20);
@@ -63,6 +70,16 @@ public partial class MainWindow : Window
         Tree.AddHandler(
             InputElement.KeyDownEvent,
             OnTreeKeyDown,
+            RoutingStrategies.Tunnel,
+            handledEventsToo: true);
+        Tree.AddHandler(
+            InputElement.PointerMovedEvent,
+            OnTreeDragPointerMoved,
+            RoutingStrategies.Tunnel,
+            handledEventsToo: true);
+        Tree.AddHandler(
+            InputElement.PointerReleasedEvent,
+            OnTreeDragPointerReleased,
             RoutingStrategies.Tunnel,
             handledEventsToo: true);
         RightTabs.AddHandler(
@@ -1481,6 +1498,18 @@ public partial class MainWindow : Window
         if (IsTreeNameEditorSource(e.Source))
             return;
 
+        // Arm a potential drag-move: any left press on a regular node may turn
+        // into a drag once the pointer travels past the threshold.
+        if (e.GetCurrentPoint(Tree).Properties.IsLeftButtonPressed
+            && e.Source is Visual pressSource
+            && pressSource.FindAncestorOfType<TreeViewItem>(includeSelf: true) is
+                { DataContext: TreeNodeViewModel { IsRecent: false } dragCandidate })
+        {
+            _treeDragNode = dragCandidate;
+            _treeDragStart = e.GetPosition(Tree);
+            _isTreeDragging = false;
+        }
+
         if (TryToggleFolderFromSource(e, out var toggledNode) && toggledNode is not null)
         {
             RememberFolderToggle(toggledNode);
@@ -1519,6 +1548,137 @@ public partial class MainWindow : Window
             // Empty area → clear selection so the next New/Paste targets root.
             vm.SelectedNode = null;
         }
+    }
+
+    // --- Tree drag & drop (move a node into a folder, or into the root) ---
+
+    private void OnTreeDragPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_treeDragNode is not { } node)
+            return;
+
+        if (!e.GetCurrentPoint(Tree).Properties.IsLeftButtonPressed)
+        {
+            ResetTreeDrag(e);
+            return;
+        }
+
+        var position = e.GetPosition(Tree);
+        if (!_isTreeDragging)
+        {
+            var delta = position - _treeDragStart;
+            if (Math.Abs(delta.X) < TreeDragThreshold && Math.Abs(delta.Y) < TreeDragThreshold)
+                return;
+
+            _isTreeDragging = true;
+            e.Pointer.Capture(Tree);
+
+            // Pressing a folder toggles its expansion, but this press turned out
+            // to be a drag, not a click — undo the toggle.
+            if (node.IsFolder && ReferenceEquals(node, _lastToggledFolder))
+            {
+                node.IsExpanded = !_lastToggledFolderExpanded;
+                RememberFolderToggle(node);
+            }
+        }
+
+        UpdateTreeDropTarget(position);
+        e.Handled = true;
+    }
+
+    private void OnTreeDragPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (_treeDragNode is not { } node)
+            return;
+
+        var wasDragging = _isTreeDragging;
+        string? dropPath = null;
+        if (wasDragging && TryResolveTreeDrop(node, e.GetPosition(Tree), out _, out var targetPath))
+            dropPath = targetPath;
+
+        ResetTreeDrag(e);
+
+        if (!wasDragging)
+            return;
+
+        if (dropPath is not null && DataContext is MainWindowViewModel vm)
+            vm.MoveNodeTo(node, dropPath);
+        e.Handled = true;
+    }
+
+    private void UpdateTreeDropTarget(Point position)
+    {
+        TreeNodeViewModel? target = null;
+        var valid = _treeDragNode is { } node
+            && TryResolveTreeDrop(node, position, out target, out _);
+
+        var highlight = valid ? target : null;
+        if (!ReferenceEquals(highlight, _treeDropTarget))
+        {
+            if (_treeDropTarget is not null)
+                _treeDropTarget.IsDragOver = false;
+            _treeDropTarget = highlight;
+            if (highlight is not null)
+                highlight.IsDragOver = true;
+        }
+
+        Tree.Cursor = valid ? TreeDragMoveCursor : TreeDragNoDropCursor;
+    }
+
+    /// <summary>
+    /// Resolves the folder a drop at <paramref name="position"/> would move the
+    /// dragged node into: a folder row targets that folder, a connection row its
+    /// containing folder, empty space the root. Returns false when the drop is
+    /// invalid (Recent nodes, into itself/its subtree, or a same-folder no-op).
+    /// <paramref name="targetNode"/> is null when the target is the root.
+    /// </summary>
+    private bool TryResolveTreeDrop(
+        TreeNodeViewModel source,
+        Point position,
+        out TreeNodeViewModel? targetNode,
+        out string targetPath)
+    {
+        targetNode = null;
+        targetPath = string.Empty;
+
+        if (DataContext is not MainWindowViewModel vm)
+            return false;
+
+        var hit = Tree.InputHitTest(position) as Visual;
+        var item = hit?.FindAncestorOfType<TreeViewItem>(includeSelf: true);
+        if (item?.DataContext is TreeNodeViewModel node)
+        {
+            if (node.IsRecent)
+                return false;
+
+            targetNode = node.IsFolder ? node : node.Parent;
+        }
+
+        targetPath = targetNode?.FullPath ?? vm.RootPath;
+
+        // Dropping where the node already lives is a no-op.
+        var currentParent = Path.GetDirectoryName(
+            source.FullPath.TrimEnd(Path.DirectorySeparatorChar));
+        if (currentParent is not null && PathEquals(currentParent, targetPath))
+            return false;
+
+        // A folder cannot be dropped into itself or its own subtree.
+        if (source.IsFolder && ConnectionStore.IsSameOrInside(source.FullPath, targetPath))
+            return false;
+
+        return true;
+    }
+
+    private void ResetTreeDrag(PointerEventArgs e)
+    {
+        if (_treeDropTarget is not null)
+            _treeDropTarget.IsDragOver = false;
+
+        _treeDropTarget = null;
+        _treeDragNode = null;
+        _isTreeDragging = false;
+        Tree.Cursor = Cursor.Default;
+        e.Pointer.Capture(null);
     }
 
     private static bool IsTreeNameEditorSource(object? source) =>

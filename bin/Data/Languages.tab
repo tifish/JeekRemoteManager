@@ -93,6 +93,7 @@ StatusCut	Cut '{0}'.	已剪切“{0}”。
 StatusPasteIntoSelf	Cannot paste a folder into itself or one of its subfolders.	不能将文件夹粘贴到自身或其子文件夹中。
 StatusAlreadyInFolder	Already in this folder.	已经在此文件夹中。
 StatusMoved	Moved.	已移动。
+StatusMoveFailed	Move failed: {0}	移动失败：{0}
 StatusPasted	Pasted.	已粘贴。
 StatusPasteFailed	Paste failed: {0}	粘贴失败：{0}
 StatusClipboardGone	Clipboard item no longer exists.	剪贴板项目已不存在。

@@ -62,6 +62,10 @@ public partial class TreeNodeViewModel : ViewModelBase
     /// <summary>Dimmed while cut, to signal the pending move.</summary>
     public double NodeOpacity => IsCut ? 0.5 : 1.0;
 
+    /// <summary>True while this node is the highlighted drop target of a tree drag.</summary>
+    [ObservableProperty]
+    private bool _isDragOver;
+
     public ObservableCollection<TreeNodeViewModel> Children { get; } = new();
 
     public bool IsSshConnection => Connection?.Type == ConnectionType.Ssh;

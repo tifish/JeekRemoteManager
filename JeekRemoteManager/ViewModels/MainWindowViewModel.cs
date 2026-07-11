@@ -1637,6 +1637,62 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private bool CanPaste() => HasClipboard && SelectedNode is not { IsNameEditing: true };
 
+    /// <summary>
+    /// Moves a tree node into <paramref name="targetFolder"/> (drag &amp; drop).
+    /// Mirrors the cut+paste path: same guards, same reload-and-select behavior.
+    /// </summary>
+    public void MoveNodeTo(TreeNodeViewModel node, string targetFolder)
+    {
+        if (node.IsRecent || node.IsNameEditing)
+            return;
+
+        FlushPendingAutoSave();
+
+        var source = node.FullPath;
+        var exists = node.IsFolder ? Directory.Exists(source) : File.Exists(source);
+        if (!exists)
+            return;
+
+        try
+        {
+            string newPath;
+            if (node.IsFolder)
+            {
+                // Moving a folder into itself or its own subtree would recurse forever.
+                if (ConnectionStore.IsSameOrInside(source, targetFolder))
+                {
+                    StatusMessage = L("StatusPasteIntoSelf");
+                    return;
+                }
+
+                newPath = _store.MoveFolderInto(source, targetFolder);
+            }
+            else
+            {
+                newPath = _store.MoveFileInto(source, targetFolder);
+            }
+
+            // MoveXInto returns the original path unchanged when it's a no-op.
+            if (PathEquals(newPath, source))
+            {
+                StatusMessage = L("StatusAlreadyInFolder");
+                return;
+            }
+
+            // A pending copy/cut whose source just moved now points at a stale path.
+            if (_clipboardPath is not null && ConnectionStore.IsSameOrInside(source, _clipboardPath))
+                ClearClipboard();
+
+            DetachEditorIfEditingPath(source);
+            ReloadTree(newPath);
+            StatusMessage = L("StatusMoved");
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = L("StatusMoveFailed", ex.Message);
+        }
+    }
+
     private void RequestTreeFocus(TreeNodeViewModel? node)
     {
         if (node is not null && RequestFocusTreeNode is not null)

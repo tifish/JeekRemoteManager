@@ -145,6 +145,13 @@
         <Style Selector="Border.tree-row">
             <Setter Property="CornerRadius" Value="6" />
             <Setter Property="Padding" Value="6,4" />
+            <!-- Reserve the border so the drag-over highlight doesn't shift the row. -->
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+        </Style>
+        <Style Selector="Border.tree-row.drag-over">
+            <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
         </Style>
         <Style Selector="Border.connection-icon-badge">
             <Setter Property="Width" Value="16" />
@@ -909,7 +916,8 @@
                         </TreeView.ContextMenu>
                         <TreeView.ItemTemplate>
                             <TreeDataTemplate ItemsSource="{Binding Children}" x:DataType="vm:TreeNodeViewModel">
-                                <Border Classes="tree-row" Opacity="{Binding NodeOpacity}">
+                                <Border Classes="tree-row" Opacity="{Binding NodeOpacity}"
+                                        Classes.drag-over="{Binding IsDragOver}">
                                     <Grid ColumnDefinitions="26,*" ColumnSpacing="8">
                                         <Border Grid.Column="0"
                                                 Classes="connection-icon-badge"
