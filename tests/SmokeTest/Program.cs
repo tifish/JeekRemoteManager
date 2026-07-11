@@ -406,6 +406,29 @@ try
     Check(File.Exists(copied) && File.Exists(rdpPath) && Path.GetDirectoryName(copied) == sub,
           "CopyFileInto copies and keeps the original");
 
+    var sshWithScriptParameters = new Connection
+    {
+        Type = ConnectionType.Ssh,
+        Name = "ssh-with-script-parameters",
+        Host = "script.example",
+        ScriptBindings =
+        [
+            new ConnectionScriptBinding
+            {
+                Name = "test-suite",
+                Params = [new ConnectionScriptParameterValue { Name = "TARGET", Value = "original" }],
+            },
+        ],
+    };
+    var sshWithScriptParametersPath = store.Save(sshWithScriptParameters, folder);
+    var copiedSshWithoutParameters = store.CopyFileInto(
+        sshWithScriptParametersPath,
+        sub,
+        includeSshScriptBindings: false);
+    Check(store.Load(copiedSshWithoutParameters).ScriptBindings.Count == 0
+          && store.Load(sshWithScriptParametersPath).ScriptBindings.Count == 1,
+          "Clipboard-style SSH copy omits script parameters and keeps the original unchanged");
+
     var movedFile = store.MoveFileInto(dupPath, sub);
     Check(File.Exists(movedFile) && !File.Exists(dupPath), "MoveFileInto moves the file");
 
@@ -417,6 +440,16 @@ try
     Check(Directory.Exists(copiedFolder) && copiedFolder != folder
           && store.GetConnectionFiles(copiedFolder).Count == store.GetConnectionFiles(folder).Count,
           "CopyFolderInto recursively copies with a unique name");
+
+    var copiedFolderWithoutParameters = store.CopyFolderInto(
+        folder,
+        store.RootPath,
+        includeSshScriptBindings: false);
+    var copiedNestedSsh = store.GetConnectionFiles(copiedFolderWithoutParameters)
+        .Select(store.Load)
+        .Single(c => c.Host == sshWithScriptParameters.Host);
+    Check(copiedNestedSsh.ScriptBindings.Count == 0,
+          "Clipboard-style folder copy omits script parameters from nested SSH connections");
 
     var folderNoop = store.MoveFolderInto(sub, store.RootPath);
     Check(folderNoop == sub && Directory.Exists(sub), "MoveFolderInto into same parent is a no-op");

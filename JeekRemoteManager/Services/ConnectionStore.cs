@@ -185,13 +185,15 @@ public class ConnectionStore
     // --- Copy / move (for clipboard operations) ---
 
     /// <summary>Copies a connection file into a folder, giving it a unique name. Returns the new path.</summary>
-    public string CopyFileInto(string filePath, string targetFolder)
+    public string CopyFileInto(string filePath, string targetFolder, bool includeSshScriptBindings = true)
     {
         Touch();
         Directory.CreateDirectory(targetFolder);
         var baseName = Path.GetFileNameWithoutExtension(filePath);
         var target = UniqueFilePath(targetFolder, baseName);
         File.Copy(filePath, target);
+        if (!includeSshScriptBindings)
+            RemoveSshScriptBindings(target);
         Touch();
         return target;
     }
@@ -217,13 +219,13 @@ public class ConnectionStore
     }
 
     /// <summary>Recursively copies a folder into a parent folder, with a unique name. Returns the new path.</summary>
-    public string CopyFolderInto(string folderPath, string targetParent)
+    public string CopyFolderInto(string folderPath, string targetParent, bool includeSshScriptBindings = true)
     {
         Touch();
         Directory.CreateDirectory(targetParent);
         var name = Path.GetFileName(folderPath.TrimEnd(Path.DirectorySeparatorChar));
         var target = UniqueFolderPath(targetParent, name);
-        CopyDirectory(folderPath, target);
+        CopyDirectory(folderPath, target, includeSshScriptBindings);
         Touch();
         return target;
     }
@@ -298,15 +300,33 @@ public class ConnectionStore
             MoveFolderInto(dir, destRoot);
     }
 
-    private static void CopyDirectory(string sourceDir, string destDir)
+    private void CopyDirectory(string sourceDir, string destDir, bool includeSshScriptBindings)
     {
         Directory.CreateDirectory(destDir);
 
         foreach (var file in Directory.GetFiles(sourceDir))
-            File.Copy(file, Path.Combine(destDir, Path.GetFileName(file)), overwrite: false);
+        {
+            var target = Path.Combine(destDir, Path.GetFileName(file));
+            File.Copy(file, target, overwrite: false);
+            if (!includeSshScriptBindings
+                && string.Equals(Path.GetExtension(target), FileExtension, StringComparison.OrdinalIgnoreCase))
+            {
+                RemoveSshScriptBindings(target);
+            }
+        }
 
         foreach (var dir in Directory.GetDirectories(sourceDir))
-            CopyDirectory(dir, Path.Combine(destDir, Path.GetFileName(dir)));
+            CopyDirectory(dir, Path.Combine(destDir, Path.GetFileName(dir)), includeSshScriptBindings);
+    }
+
+    private void RemoveSshScriptBindings(string filePath)
+    {
+        var connection = Load(filePath);
+        if (!connection.IsSsh || connection.ScriptBindings.Count == 0)
+            return;
+
+        connection.ScriptBindings.Clear();
+        SaveInPlace(connection, filePath);
     }
 
     // --- Helpers ---

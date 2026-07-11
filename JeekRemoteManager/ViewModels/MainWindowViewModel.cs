@@ -1591,13 +1591,13 @@ public partial class MainWindowViewModel : ViewModelBase
 
                 newPath = _clipboardIsCut
                     ? _store.MoveFolderInto(source, target)
-                    : _store.CopyFolderInto(source, target);
+                    : _store.CopyFolderInto(source, target, includeSshScriptBindings: false);
             }
             else
             {
                 newPath = _clipboardIsCut
                     ? _store.MoveFileInto(source, target)
-                    : _store.CopyFileInto(source, target);
+                    : _store.CopyFileInto(source, target, includeSshScriptBindings: false);
             }
 
             if (_clipboardIsCut)
