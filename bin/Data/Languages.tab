@@ -68,6 +68,7 @@ ShareMicrophone	Share microphone	共享麦克风
 Notes	Notes	备注
 AutoSaveHint	Changes are saved automatically.	更改将自动保存。
 SelectConnectionHint	Select a connection to edit, or create one from the toolbar.	选择一个连接进行编辑，或在工具栏新建一个。
+MultiSelectionHint	{0} items selected. Use the context menu for batch operations.	已选中 {0} 项。可使用右键菜单进行批量操作。
 StatusReady	Ready.	就绪。
 StatusTargetRoot	Target: root	目标：根目录
 StatusTarget	Target: {0}	目标：{0}
@@ -83,18 +84,24 @@ StatusLaunching	Launching {0} to {1}.	正在启动 {0} 到 {1}。
 StatusFailedToLaunch	Failed to launch: {0}	启动失败：{0}
 StatusCouldNotDelete	Could not delete: {0}	无法删除：{0}
 StatusDeleted	Deleted {0}.	已删除 {0}。
+StatusDeletedMultiple	Deleted {0} items.	已删除 {0} 项。
 StatusRenamed	Renamed.	已重命名。
 StatusRemovedFromRecent	Removed '{0}' from recent.	已从最近列表移除“{0}”。
+StatusRemovedFromRecentMultiple	Removed {0} connections from recent.	已从最近列表移除 {0} 个连接。
 StatusRecentCleared	Recent list cleared.	已清空最近列表。
 StatusRevealMissing	The original connection is no longer in the tree.	原连接已不在树中。
 StatusCouldNotRename	Could not rename: {0}	无法重命名：{0}
 StatusCopied	Copied '{0}'.	已复制“{0}”。
+StatusCopiedMultiple	Copied {0} items.	已复制 {0} 项。
 StatusCut	Cut '{0}'.	已剪切“{0}”。
+StatusCutMultiple	Cut {0} items.	已剪切 {0} 项。
 StatusPasteIntoSelf	Cannot paste a folder into itself or one of its subfolders.	不能将文件夹粘贴到自身或其子文件夹中。
 StatusAlreadyInFolder	Already in this folder.	已经在此文件夹中。
 StatusMoved	Moved.	已移动。
+StatusMovedMultiple	Moved {0} items.	已移动 {0} 项。
 StatusMoveFailed	Move failed: {0}	移动失败：{0}
 StatusPasted	Pasted.	已粘贴。
+StatusPastedMultiple	Pasted {0} items.	已粘贴 {0} 项。
 StatusPasteFailed	Paste failed: {0}	粘贴失败：{0}
 StatusClipboardGone	Clipboard item no longer exists.	剪贴板项目已不存在。
 StatusAutoSaved	Auto-saved '{0}'.	已自动保存“{0}”。
@@ -124,6 +131,7 @@ DialogCancel	Cancel	取消
 DialogDeleteTitle	Delete	删除
 DialogDeleteFolderPrompt	Delete folder '{0}' and all its contents?	删除文件夹“{0}”及其所有内容？
 DialogDeleteConnectionPrompt	Delete connection '{0}'?	删除连接“{0}”？
+DialogDeleteMultiplePrompt	Delete {0} selected items?	删除选中的 {0} 项？
 DialogRenameTitle	Rename	重命名
 DialogRenamePrompt	New name:	新名称：
 DialogUpdateAvailableTitle	Update available	发现新版本

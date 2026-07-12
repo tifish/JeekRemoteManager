@@ -790,6 +790,7 @@
 
                     <TreeView x:Name="Tree"
                               ItemsSource="{Binding Nodes}"
+                              SelectionMode="Multiple"
                               SelectedItem="{Binding SelectedNode, Mode=TwoWay}">
                         <TreeView.Styles>
                             <!-- Keep each item's expand/collapse state bound to its view model
@@ -1201,7 +1202,7 @@
                     <TextBlock Classes="page-title" Text="{l:Localize Connection}"
                                HorizontalAlignment="Center" />
                     <TextBlock Classes="hint"
-                               Text="{l:Localize SelectConnectionHint}"
+                               Text="{Binding PlaceholderHint}"
                                TextAlignment="Center" />
                 </StackPanel>
             </Grid>

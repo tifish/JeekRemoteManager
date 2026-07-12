@@ -24,10 +24,15 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly RemoteScriptStore _scriptStore;
     private ScriptExecutionContext? _scriptContext;
 
-    // Internal (in-app) clipboard for copy/cut/paste of nodes.
-    private string? _clipboardPath;
-    private bool _clipboardIsFolder;
+    // Internal (in-app) clipboard for copy/cut/paste of nodes. Multi-selection
+    // puts several entries on the clipboard at once.
+    private sealed record ClipboardEntry(string Path, bool IsFolder);
+    private readonly List<ClipboardEntry> _clipboardEntries = new();
     private bool _clipboardIsCut;
+
+    // Current tree multi-selection, kept in sync with the TreeView's
+    // SelectedItems by the view. SelectedNode stays the primary (anchor) node.
+    private readonly List<TreeNodeViewModel> _selectedNodes = new();
 
     // Auto-save: which node the current editor is bound to, plus a debounce timer.
     private TreeNodeViewModel? _editingNode;
@@ -87,6 +92,7 @@ public partial class MainWindowViewModel : ViewModelBase
             StatusMessage = L("StatusReady");
             OnPropertyChanged(nameof(TargetDescription));
             OnPropertyChanged(nameof(VersionDisplay));
+            OnPropertyChanged(nameof(PlaceholderHint));
             if (_recentGroup != null)
                 _recentGroup.Name = L("RecentGroup");
         };
@@ -126,25 +132,99 @@ public partial class MainWindowViewModel : ViewModelBase
     /// for the context menu and should not trigger the one-click Recent shortcut.</summary>
     public bool SuppressRecentAutoLaunch { get; set; }
 
+    /// <summary>True when more than one tree node is selected.</summary>
+    public bool HasMultiSelection => _selectedNodes.Count > 1;
+
+    /// <summary>
+    /// Replaces the tracked multi-selection with the TreeView's current
+    /// SelectedItems (called by the view on every selection change).
+    /// </summary>
+    public void SetSelectedNodes(IReadOnlyList<TreeNodeViewModel> nodes)
+    {
+        _selectedNodes.Clear();
+        _selectedNodes.AddRange(nodes);
+
+        OnPropertyChanged(nameof(HasMultiSelection));
+        OnPropertyChanged(nameof(IsRecentGroupContext));
+        OnPropertyChanged(nameof(IsRecentConnectionContext));
+        OnPropertyChanged(nameof(IsRegularContext));
+        OnPropertyChanged(nameof(IsRegularConnectionContext));
+        OnPropertyChanged(nameof(IsSshConnectionContext));
+        OnPropertyChanged(nameof(IsShellConnectionContext));
+        OnPropertyChanged(nameof(ShowConnectionEditor));
+        OnPropertyChanged(nameof(ShowPlaceholder));
+        OnPropertyChanged(nameof(PlaceholderHint));
+        NotifyTreeActionCanExecuteChanged();
+        ConnectNewCommand.NotifyCanExecuteChanged();
+        RevealInTreeCommand.NotifyCanExecuteChanged();
+        RemoveFromRecentCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>
+    /// The nodes a batch-capable command should act on: the multi-selection when
+    /// one is active (and still contains the anchor), otherwise the single
+    /// selected node.
+    /// </summary>
+    private IReadOnlyList<TreeNodeViewModel> EffectiveSelection()
+    {
+        if (_selectedNodes.Count > 1
+            && (SelectedNode is null || _selectedNodes.Contains(SelectedNode)))
+        {
+            return _selectedNodes.ToList();
+        }
+
+        return SelectedNode is { } node
+            ? new[] { node }
+            : Array.Empty<TreeNodeViewModel>();
+    }
+
+    /// <summary>
+    /// Drops nodes that live inside another selected folder, so structural batch
+    /// operations (delete, copy, move) don't process an item twice.
+    /// </summary>
+    private static List<TreeNodeViewModel> RemoveNestedNodes(IReadOnlyList<TreeNodeViewModel> nodes)
+    {
+        var result = new List<TreeNodeViewModel>();
+        foreach (var node in nodes)
+        {
+            var nestedInAnother = nodes.Any(other =>
+                !ReferenceEquals(other, node)
+                && other.IsFolder
+                && !PathEquals(other.FullPath, node.FullPath)
+                && ConnectionStore.IsSameOrInside(other.FullPath, node.FullPath));
+            if (!nestedInAnother)
+                result.Add(node);
+        }
+
+        return result;
+    }
+
     /// <summary>True when the selection is the synthetic "Recent" group folder.</summary>
-    public bool IsRecentGroupContext => SelectedNode is { IsRecent: true, IsFolder: true };
+    public bool IsRecentGroupContext => !HasMultiSelection && SelectedNode is { IsRecent: true, IsFolder: true };
 
-    /// <summary>True when the selection is a connection shadow under the "Recent" group.</summary>
-    public bool IsRecentConnectionContext => SelectedNode is { IsRecent: true, IsConnection: true };
+    /// <summary>True when the selection consists of connection shadows under the "Recent" group.</summary>
+    public bool IsRecentConnectionContext => HasMultiSelection
+        ? _selectedNodes.All(n => n is { IsRecent: true, IsConnection: true })
+        : SelectedNode is { IsRecent: true, IsConnection: true };
 
-    /// <summary>True when the selection is on a regular (non-Recent) node or empty area.</summary>
-    public bool IsRegularContext => SelectedNode is null || !SelectedNode.IsRecent;
+    /// <summary>True when the selection is on regular (non-Recent) nodes or empty area.</summary>
+    public bool IsRegularContext => HasMultiSelection
+        ? _selectedNodes.All(n => !n.IsRecent)
+        : SelectedNode is null || !SelectedNode.IsRecent;
 
-    /// <summary>True when the selection is a regular (non-Recent) connection that can be edited.</summary>
-    public bool IsRegularConnectionContext => SelectedNode is { IsRecent: false, IsConnection: true };
+    /// <summary>True when the selection is a single regular (non-Recent) connection that can be edited.</summary>
+    public bool IsRegularConnectionContext =>
+        !HasMultiSelection && SelectedNode is { IsRecent: false, IsConnection: true };
 
     public bool IsSshConnectionContext =>
-        SelectedNode is { IsConnection: true, Connection: { Type: ConnectionType.Ssh } };
+        !HasMultiSelection
+        && SelectedNode is { IsConnection: true, Connection: { Type: ConnectionType.Ssh } };
 
-    /// <summary>True when the selection is a connection whose terminal can run
-    /// scripts (SSH or WSL).</summary>
+    /// <summary>True when the selection is a single connection whose terminal can
+    /// run scripts (SSH or WSL).</summary>
     public bool IsShellConnectionContext =>
-        SelectedNode is { IsConnection: true, Connection: { Type: ConnectionType.Ssh or ConnectionType.Wsl } };
+        !HasMultiSelection
+        && SelectedNode is { IsConnection: true, Connection: { Type: ConnectionType.Ssh or ConnectionType.Wsl } };
 
     /// <summary>Human-readable description of where New/Paste will create items.</summary>
     public string TargetDescription
@@ -193,9 +273,18 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public bool HasScriptExecution => ScriptPanel is not null;
 
-    public bool ShowConnectionEditor => Editor is not null;
+    // With a multi-selection the editor is hidden (it would only edit the anchor
+    // node, which reads as "edits apply to all selected") and the placeholder
+    // shows the selection count instead.
+    public bool ShowConnectionEditor => Editor is not null && !HasMultiSelection;
 
-    public bool ShowPlaceholder => Editor is null;
+    public bool ShowPlaceholder => !ShowConnectionEditor;
+
+    /// <summary>Hint line of the editor-tab placeholder: the multi-selection
+    /// count while one is active, otherwise the "select a connection" prompt.</summary>
+    public string PlaceholderHint => HasMultiSelection
+        ? L("MultiSelectionHint", _selectedNodes.Count)
+        : L("SelectConnectionHint");
 
     // Wired up by the view so the VM can reach platform services without a
     // hard dependency on the window.
@@ -537,8 +626,9 @@ public partial class MainWindowViewModel : ViewModelBase
             if (!PathEquals(newPath, node.FullPath))
             {
                 // The file was renamed because Name changed.
-                if (_clipboardPath != null && PathEquals(_clipboardPath, node.FullPath))
-                    _clipboardPath = newPath;
+                var clipboardIndex = _clipboardEntries.FindIndex(entry => PathEquals(entry.Path, node.FullPath));
+                if (clipboardIndex >= 0)
+                    _clipboardEntries[clipboardIndex] = _clipboardEntries[clipboardIndex] with { Path = newPath };
                 node.FullPath = newPath;
                 node.Name = node.Connection.Name;
             }
@@ -771,12 +861,15 @@ public partial class MainWindowViewModel : ViewModelBase
         foreach (var child in BuildChildren(_store.RootPath, parent: null))
             Nodes.Add(child);
 
-        // Re-apply the "cut" dimming to the source node so it survives reloads.
-        if (_clipboardIsCut && _clipboardPath != null)
+        // Re-apply the "cut" dimming to the source nodes so it survives reloads.
+        if (_clipboardIsCut)
         {
-            var cutNode = FindNode(Nodes, _clipboardPath);
-            if (cutNode != null)
-                cutNode.IsCut = true;
+            foreach (var entry in _clipboardEntries)
+            {
+                var cutNode = FindNode(Nodes, entry.Path);
+                if (cutNode != null)
+                    cutNode.IsCut = true;
+            }
         }
 
         var selectPath = pathToSelect ?? previousSelection;
@@ -1195,20 +1288,27 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanConnect))]
     private async Task Connect()
     {
-        // Make sure unsaved edits land on disk before we read the connection.
+        // Make sure unsaved edits land on disk before we read the connections.
         FlushPendingAutoSave();
 
-        if (SelectedNode is not { IsConnection: true, IsNameEditing: false, Connection: not null } node)
+        // With a multi-selection every selected connection launches; folders in
+        // the selection are simply skipped.
+        var targets = EffectiveSelection()
+            .Where(n => n is { IsConnection: true, IsNameEditing: false, Connection: not null })
+            .ToList();
+        if (targets.Count == 0)
             return;
 
-        var clearStaleRecentSelection = node.IsRecent;
-        await LaunchAsync(node);
+        var launchedRecentShadow = targets.Any(n => n.IsRecent);
+        foreach (var node in targets)
+            await LaunchAsync(node);
 
-        if (clearStaleRecentSelection && ReferenceEquals(SelectedNode, node))
+        if (launchedRecentShadow && SelectedNode is { IsRecent: true })
             SelectedNode = null;
     }
 
-    private bool CanConnect() => SelectedNode is { IsConnection: true, IsNameEditing: false };
+    private bool CanConnect() =>
+        EffectiveSelection().Any(n => n is { IsConnection: true, IsNameEditing: false });
 
     /// <summary>Opens a fresh terminal session even when one is already open for
     /// the connection (the plain Connect command activates the existing tab).</summary>
@@ -1258,19 +1358,24 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(IsRecentConnectionContextMethod))]
     private void RemoveFromRecent()
     {
-        if (SelectedNode is not { IsRecent: true, IsConnection: true } shadow)
+        var shadows = EffectiveSelection()
+            .Where(n => n is { IsRecent: true, IsConnection: true })
+            .ToList();
+        if (shadows.Count == 0)
             return;
 
-        var removedName = shadow.Name;
         var list = _settings.Settings.RecentConnectionPaths;
         var before = list.Count;
-        list.RemoveAll(p => PathEquals(p, shadow.FullPath));
+        foreach (var shadow in shadows)
+            list.RemoveAll(p => PathEquals(p, shadow.FullPath));
         if (list.Count == before)
             return;
 
         RebuildRecentGroupInPlace();
         SelectedNode = null;
-        StatusMessage = L("StatusRemovedFromRecent", removedName);
+        StatusMessage = shadows.Count == 1
+            ? L("StatusRemovedFromRecent", shadows[0].Name)
+            : L("StatusRemovedFromRecentMultiple", before - list.Count);
     }
 
     [RelayCommand]
@@ -1370,12 +1475,17 @@ public partial class MainWindowViewModel : ViewModelBase
         // Drop any pending auto-save for what's about to be deleted.
         _autoSaveTimer?.Stop();
 
-        if (SelectedNode is not { } node)
+        var targets = RemoveNestedNodes(EffectiveSelection()
+            .Where(n => n is { IsRecent: false, IsNameEditing: false })
+            .ToList());
+        if (targets.Count == 0)
             return;
 
-        var what = node.IsFolder
-            ? L("DialogDeleteFolderPrompt", node.Name)
-            : L("DialogDeleteConnectionPrompt", node.Name);
+        var what = targets.Count > 1
+            ? L("DialogDeleteMultiplePrompt", targets.Count)
+            : targets[0].IsFolder
+                ? L("DialogDeleteFolderPrompt", targets[0].Name)
+                : L("DialogDeleteConnectionPrompt", targets[0].Name);
         if (ConfirmAsync is not null)
         {
             var ok = await ConfirmAsync(L("DialogDeleteTitle"), what);
@@ -1383,52 +1493,79 @@ public partial class MainWindowViewModel : ViewModelBase
                 return;
         }
 
-        var deletedPath = node.FullPath;
-        var parent = Path.GetDirectoryName(deletedPath);
-        IList<TreeNodeViewModel> siblings = node.Parent is not null
-            ? node.Parent.Children
+        // Pick the next selection from the anchor's siblings, skipping anything
+        // that is itself doomed (selected or inside a selected folder).
+        var anchor = SelectedNode is { } selected && targets.Contains(selected) ? selected : targets[0];
+        bool IsDoomed(TreeNodeViewModel candidate) => targets.Any(t =>
+            ConnectionStore.IsSameOrInside(t.FullPath, candidate.FullPath));
+        IList<TreeNodeViewModel> siblings = anchor.Parent is not null
+            ? anchor.Parent.Children
             : Nodes.Where(candidate => !candidate.IsRecent).ToList();
-        var deletedIndex = siblings.IndexOf(node);
-        var nextSelectionPath = deletedIndex >= 0 && deletedIndex + 1 < siblings.Count
-            ? siblings[deletedIndex + 1].FullPath
-            : deletedIndex > 0
-                ? siblings[deletedIndex - 1].FullPath
-                : parent;
-
-        // Drop the editor binding to the doomed node BEFORE we touch disk or
-        // reload the tree — otherwise the selection change triggered by the
-        // reload would flush a stale auto-save and resurrect the deleted file.
-        if (_editingNode != null &&
-            ConnectionStore.IsSameOrInside(deletedPath, _editingNode.FullPath))
+        var anchorIndex = siblings.IndexOf(anchor);
+        string? nextSelectionPath = null;
+        for (var i = anchorIndex + 1; i < siblings.Count && nextSelectionPath is null; i++)
         {
-            if (Editor != null)
-                Editor.PropertyChanged -= OnEditorPropertyChanged;
-            _editingNode = null;
-            Editor = null;
+            if (!IsDoomed(siblings[i]))
+                nextSelectionPath = siblings[i].FullPath;
+        }
+        for (var i = anchorIndex - 1; i >= 0 && nextSelectionPath is null; i--)
+        {
+            if (!IsDoomed(siblings[i]))
+                nextSelectionPath = siblings[i].FullPath;
+        }
+        nextSelectionPath ??= Path.GetDirectoryName(anchor.FullPath);
+
+        var deletedCount = 0;
+        string? firstError = null;
+        foreach (var node in targets)
+        {
+            var deletedPath = node.FullPath;
+
+            // Drop the editor binding to the doomed node BEFORE we touch disk or
+            // reload the tree — otherwise the selection change triggered by the
+            // reload would flush a stale auto-save and resurrect the deleted file.
+            if (_editingNode != null &&
+                ConnectionStore.IsSameOrInside(deletedPath, _editingNode.FullPath))
+            {
+                if (Editor != null)
+                    Editor.PropertyChanged -= OnEditorPropertyChanged;
+                _editingNode = null;
+                Editor = null;
+            }
+
+            try
+            {
+                if (node.IsFolder)
+                    _store.DeleteFolder(deletedPath);
+                else
+                    _store.DeleteFile(deletedPath);
+                deletedCount++;
+            }
+            catch (Exception ex)
+            {
+                firstError ??= ex.Message;
+                continue;
+            }
+
+            // Drop pending clipboard entries that pointed at the deleted item.
+            RemoveClipboardEntriesUnder(deletedPath);
         }
 
-        try
+        if (deletedCount == 0)
         {
-            if (node.IsFolder)
-                _store.DeleteFolder(deletedPath);
-            else
-                _store.DeleteFile(deletedPath);
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = L("StatusCouldNotDelete", ex.Message);
+            StatusMessage = L("StatusCouldNotDelete", firstError ?? "");
             return;
         }
 
-        // Drop a pending clipboard entry that pointed at the deleted item.
-        if (_clipboardPath != null && ConnectionStore.IsSameOrInside(deletedPath, _clipboardPath))
-            ClearClipboard();
-
         ReloadTree(nextSelectionPath);
-        StatusMessage = L("StatusDeleted", node.Name);
+        StatusMessage = firstError is not null
+            ? L("StatusCouldNotDelete", firstError)
+            : deletedCount == 1
+                ? L("StatusDeleted", targets[0].Name)
+                : L("StatusDeletedMultiple", deletedCount);
     }
 
-    [RelayCommand(CanExecute = nameof(CanModifySelection))]
+    [RelayCommand(CanExecute = nameof(CanRenameSelection))]
     private void Rename()
     {
         if (SelectedNode is not { } node)
@@ -1436,6 +1573,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
         BeginNodeNameEdit(node);
     }
+
+    // Renaming only makes sense for a single node.
+    private bool CanRenameSelection() => !HasMultiSelection && CanModifySelection();
 
     private void BeginNodeNameEdit(TreeNodeViewModel node)
     {
@@ -1527,36 +1667,55 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private bool CanModifySelection() => SelectedNode is { IsRecent: false, IsNameEditing: false };
+    private bool CanModifySelection()
+    {
+        var selection = EffectiveSelection();
+        return selection.Count > 0
+            && selection.All(n => n is { IsRecent: false, IsNameEditing: false });
+    }
 
     // --- Copy / cut / paste ---
+
+    /// <summary>Regular selected nodes that can go on the clipboard, with items
+    /// nested inside a selected folder removed.</summary>
+    private List<TreeNodeViewModel> ClipboardableSelection() =>
+        RemoveNestedNodes(EffectiveSelection()
+            .Where(n => n is { IsRecent: false, IsNameEditing: false })
+            .ToList());
 
     [RelayCommand(CanExecute = nameof(CanModifySelection))]
     private void Copy()
     {
-        if (SelectedNode is not { } node)
+        var targets = ClipboardableSelection();
+        if (targets.Count == 0)
             return;
 
-        SetClipboard(node, isCut: false);
-        StatusMessage = L("StatusCopied", node.Name);
+        SetClipboard(targets, isCut: false);
+        StatusMessage = targets.Count == 1
+            ? L("StatusCopied", targets[0].Name)
+            : L("StatusCopiedMultiple", targets.Count);
     }
 
     [RelayCommand(CanExecute = nameof(CanModifySelection))]
     private void Cut()
     {
-        if (SelectedNode is not { } node)
+        var targets = ClipboardableSelection();
+        if (targets.Count == 0)
             return;
 
-        SetClipboard(node, isCut: true);
-        node.IsCut = true;
-        StatusMessage = L("StatusCut", node.Name);
+        SetClipboard(targets, isCut: true);
+        foreach (var node in targets)
+            node.IsCut = true;
+        StatusMessage = targets.Count == 1
+            ? L("StatusCut", targets[0].Name)
+            : L("StatusCutMultiple", targets.Count);
     }
 
-    private void SetClipboard(TreeNodeViewModel node, bool isCut)
+    private void SetClipboard(IReadOnlyList<TreeNodeViewModel> nodes, bool isCut)
     {
         ClearCutFlags(Nodes);
-        _clipboardPath = node.FullPath;
-        _clipboardIsFolder = node.IsFolder;
+        _clipboardEntries.Clear();
+        _clipboardEntries.AddRange(nodes.Select(n => new ClipboardEntry(n.FullPath, n.IsFolder)));
         _clipboardIsCut = isCut;
         HasClipboard = true;
     }
@@ -1564,133 +1723,172 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanPaste))]
     private void Paste()
     {
-        if (_clipboardPath is null)
+        if (_clipboardEntries.Count == 0)
             return;
 
         if (_clipboardIsCut)
             FlushPendingAutoSave();
 
-        if (_clipboardPath is null)
-            return;
-
-        var source = _clipboardPath;
         var target = TargetFolder();
+        var newPaths = new List<string>();
+        var movedEntries = new List<ClipboardEntry>();
+        var missing = 0;
+        var skipped = 0;
+        string? firstError = null;
 
-        var exists = _clipboardIsFolder ? Directory.Exists(source) : File.Exists(source);
-        if (!exists)
+        foreach (var entry in _clipboardEntries.ToList())
         {
-            ClearClipboard();
-            StatusMessage = L("StatusClipboardGone");
-            return;
-        }
-
-        try
-        {
-            string newPath;
-            if (_clipboardIsFolder)
+            var exists = entry.IsFolder ? Directory.Exists(entry.Path) : File.Exists(entry.Path);
+            if (!exists)
             {
-                // Guard both copy and move: pasting a folder into itself or one of
-                // its own subfolders would recurse forever.
-                if (ConnectionStore.IsSameOrInside(source, target))
-                {
-                    StatusMessage = L("StatusPasteIntoSelf");
-                    return;
-                }
-
-                newPath = _clipboardIsCut
-                    ? _store.MoveFolderInto(source, target)
-                    : _store.CopyFolderInto(source, target, includeSshScriptBindings: false);
-            }
-            else
-            {
-                newPath = _clipboardIsCut
-                    ? _store.MoveFileInto(source, target)
-                    : _store.CopyFileInto(source, target, includeSshScriptBindings: false);
+                missing++;
+                continue;
             }
 
-            if (_clipboardIsCut)
+            // Guard both copy and move: pasting a folder into itself or one of
+            // its own subfolders would recurse forever.
+            if (entry.IsFolder && ConnectionStore.IsSameOrInside(entry.Path, target))
             {
+                skipped++;
+                continue;
+            }
+
+            try
+            {
+                var newPath = entry.IsFolder
+                    ? _clipboardIsCut
+                        ? _store.MoveFolderInto(entry.Path, target)
+                        : _store.CopyFolderInto(entry.Path, target, includeSshScriptBindings: false)
+                    : _clipboardIsCut
+                        ? _store.MoveFileInto(entry.Path, target)
+                        : _store.CopyFileInto(entry.Path, target, includeSshScriptBindings: false);
+
                 // MoveXInto returns the original path unchanged when it's a no-op
                 // (pasting back into the same folder). Keep the cut pending in that case.
-                if (PathEquals(newPath, source))
+                if (_clipboardIsCut && PathEquals(newPath, entry.Path))
                 {
-                    StatusMessage = L("StatusAlreadyInFolder");
-                    return;
+                    skipped++;
+                    continue;
                 }
 
-                DetachEditorIfEditingPath(source);
-                ClearClipboard(); // a real move consumes the cut
-                ReloadTree(newPath);
-                StatusMessage = L("StatusMoved");
+                newPaths.Add(newPath);
+                if (_clipboardIsCut)
+                {
+                    DetachEditorIfEditingPath(entry.Path);
+                    movedEntries.Add(entry);
+                }
             }
-            else
+            catch (Exception ex)
             {
-                ReloadTree(newPath);
-                StatusMessage = L("StatusPasted");
+                firstError ??= ex.Message;
             }
         }
-        catch (Exception ex)
+
+        // Entries whose source vanished are dropped; moved entries are consumed.
+        foreach (var entry in movedEntries)
+            _clipboardEntries.Remove(entry);
+        if (missing > 0)
+            _clipboardEntries.RemoveAll(entry =>
+                !(entry.IsFolder ? Directory.Exists(entry.Path) : File.Exists(entry.Path)));
+        if (_clipboardEntries.Count == 0 || (_clipboardIsCut && movedEntries.Count > 0))
+            ClearClipboard();
+
+        if (newPaths.Count == 0)
         {
-            StatusMessage = L("StatusPasteFailed", ex.Message);
+            StatusMessage = firstError is not null
+                ? L("StatusPasteFailed", firstError)
+                : skipped > 0
+                    ? L("StatusAlreadyInFolder")
+                    : L("StatusClipboardGone");
+            return;
         }
+
+        ReloadTree(newPaths[^1]);
+        StatusMessage = firstError is not null
+            ? L("StatusPasteFailed", firstError)
+            : movedEntries.Count > 0
+                ? newPaths.Count == 1 ? L("StatusMoved") : L("StatusMovedMultiple", newPaths.Count)
+                : newPaths.Count == 1 ? L("StatusPasted") : L("StatusPastedMultiple", newPaths.Count);
     }
 
     private bool CanPaste() => HasClipboard && SelectedNode is not { IsNameEditing: true };
 
     /// <summary>
-    /// Moves a tree node into <paramref name="targetFolder"/> (drag &amp; drop).
+    /// Moves tree nodes into <paramref name="targetFolder"/> (drag &amp; drop).
     /// Mirrors the cut+paste path: same guards, same reload-and-select behavior.
     /// </summary>
-    public void MoveNodeTo(TreeNodeViewModel node, string targetFolder)
+    public void MoveNodesTo(IReadOnlyList<TreeNodeViewModel> nodes, string targetFolder)
     {
-        if (node.IsRecent || node.IsNameEditing)
+        var targets = RemoveNestedNodes(nodes
+            .Where(n => n is { IsRecent: false, IsNameEditing: false })
+            .ToList());
+        if (targets.Count == 0)
             return;
 
         FlushPendingAutoSave();
 
-        var source = node.FullPath;
-        var exists = node.IsFolder ? Directory.Exists(source) : File.Exists(source);
-        if (!exists)
-            return;
+        var movedPaths = new List<string>();
+        var skipped = 0;
+        string? firstError = null;
 
-        try
+        foreach (var node in targets)
         {
-            string newPath;
-            if (node.IsFolder)
+            var source = node.FullPath;
+            var exists = node.IsFolder ? Directory.Exists(source) : File.Exists(source);
+            if (!exists)
             {
-                // Moving a folder into itself or its own subtree would recurse forever.
-                if (ConnectionStore.IsSameOrInside(source, targetFolder))
+                skipped++;
+                continue;
+            }
+
+            // Moving a folder into itself or its own subtree would recurse forever.
+            if (node.IsFolder && ConnectionStore.IsSameOrInside(source, targetFolder))
+            {
+                skipped++;
+                continue;
+            }
+
+            try
+            {
+                var newPath = node.IsFolder
+                    ? _store.MoveFolderInto(source, targetFolder)
+                    : _store.MoveFileInto(source, targetFolder);
+
+                // MoveXInto returns the original path unchanged when it's a no-op.
+                if (PathEquals(newPath, source))
                 {
-                    StatusMessage = L("StatusPasteIntoSelf");
-                    return;
+                    skipped++;
+                    continue;
                 }
 
-                newPath = _store.MoveFolderInto(source, targetFolder);
+                // A pending copy/cut whose source just moved now points at a stale path.
+                RemoveClipboardEntriesUnder(source);
+
+                DetachEditorIfEditingPath(source);
+                movedPaths.Add(newPath);
             }
-            else
+            catch (Exception ex)
             {
-                newPath = _store.MoveFileInto(source, targetFolder);
+                firstError ??= ex.Message;
             }
-
-            // MoveXInto returns the original path unchanged when it's a no-op.
-            if (PathEquals(newPath, source))
-            {
-                StatusMessage = L("StatusAlreadyInFolder");
-                return;
-            }
-
-            // A pending copy/cut whose source just moved now points at a stale path.
-            if (_clipboardPath is not null && ConnectionStore.IsSameOrInside(source, _clipboardPath))
-                ClearClipboard();
-
-            DetachEditorIfEditingPath(source);
-            ReloadTree(newPath);
-            StatusMessage = L("StatusMoved");
         }
-        catch (Exception ex)
+
+        if (movedPaths.Count == 0)
         {
-            StatusMessage = L("StatusMoveFailed", ex.Message);
+            StatusMessage = firstError is not null
+                ? L("StatusMoveFailed", firstError)
+                : skipped > 0
+                    ? L("StatusAlreadyInFolder")
+                    : StatusMessage;
+            return;
         }
+
+        ReloadTree(movedPaths[^1]);
+        StatusMessage = firstError is not null
+            ? L("StatusMoveFailed", firstError)
+            : movedPaths.Count == 1
+                ? L("StatusMoved")
+                : L("StatusMovedMultiple", movedPaths.Count);
     }
 
     private void RequestTreeFocus(TreeNodeViewModel? node)
@@ -1714,10 +1912,21 @@ public partial class MainWindowViewModel : ViewModelBase
     private void ClearClipboard()
     {
         ClearCutFlags(Nodes);
-        _clipboardPath = null;
-        _clipboardIsFolder = false;
+        _clipboardEntries.Clear();
         _clipboardIsCut = false;
         HasClipboard = false;
+    }
+
+    /// <summary>Drops clipboard entries that point at <paramref name="path"/> or
+    /// anything inside it; clears the clipboard entirely when none remain.</summary>
+    private void RemoveClipboardEntriesUnder(string path)
+    {
+        if (_clipboardEntries.RemoveAll(entry =>
+                ConnectionStore.IsSameOrInside(path, entry.Path)) > 0
+            && _clipboardEntries.Count == 0)
+        {
+            ClearClipboard();
+        }
     }
 
     private static void ClearCutFlags(IEnumerable<TreeNodeViewModel> nodes)
