@@ -88,15 +88,16 @@
                 <!-- Network -->
                 <Border Classes="panel" Padding="10,8">
                     <StackPanel Spacing="6">
-                        <Grid ColumnDefinitions="*,*">
-                            <TextBlock Classes="monitor-value"
+                        <StackPanel Orientation="Horizontal" Spacing="14">
+                            <TextBlock x:Name="UploadRateValue"
+                                       Classes="monitor-value"
                                        Foreground="{DynamicResource ToolbarScriptIconBrush}"
                                        Text="{Binding UploadRateText}" />
-                            <TextBlock Grid.Column="1" Classes="monitor-value"
+                            <TextBlock x:Name="DownloadRateValue"
+                                       Classes="monitor-value"
                                        Foreground="{DynamicResource AccentBrush}"
-                                       HorizontalAlignment="Right"
                                        Text="{Binding DownloadRateText}" />
-                        </Grid>
+                        </StackPanel>
                         <Grid x:Name="NetChart" Height="40" ClipToBounds="True">
                             <Polyline x:Name="DownloadLine"
                                       Stroke="{DynamicResource AccentBrush}"
