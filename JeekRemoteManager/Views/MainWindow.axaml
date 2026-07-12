@@ -1090,7 +1090,7 @@
                                             IsVisible="{Binding IsSsh}">
                                         <StackPanel Spacing="12">
                                             <TextBlock Classes="section-title" Text="{l:Localize SshOptions}" />
-                                            <Grid ColumnDefinitions="128,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                                            <Grid ColumnDefinitions="128,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                                                 <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="{l:Localize TerminalType}" />
                                                 <ComboBox Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2"
                                                           HorizontalAlignment="Stretch"
@@ -1116,6 +1116,18 @@
                                                          Text="{Binding LoginCommands, Mode=TwoWay}"
                                                          AcceptsReturn="True" TextWrapping="NoWrap" MinHeight="82"
                                                          PlaceholderText="{l:Localize LoginCommandsWatermark}" />
+
+                                                <TextBlock Grid.Row="4" Grid.Column="0" Classes="label"
+                                                           Text="{l:Localize AutoOpenPanels}" VerticalAlignment="Top" Margin="0,4,0,0" />
+                                                <StackPanel Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2"
+                                                            Orientation="Horizontal" Spacing="18">
+                                                    <CheckBox Content="{l:Localize ServerMonitor}"
+                                                              IsChecked="{Binding AutoOpenMonitorPanel, Mode=TwoWay}" />
+                                                    <CheckBox Content="{l:Localize AiAssistantShort}"
+                                                              IsChecked="{Binding AutoOpenAiPanel, Mode=TwoWay}" />
+                                                    <CheckBox Content="{l:Localize FileBrowser}"
+                                                              IsChecked="{Binding AutoOpenFileBrowserPanel, Mode=TwoWay}" />
+                                                </StackPanel>
                                             </Grid>
 
                                         </StackPanel>

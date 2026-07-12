@@ -1263,6 +1263,25 @@ public partial class TerminalView : UserControl
         // Push the current (laid-out) size in case SizeChanged fired before connect.
         SyncWindowSize();
         StartLoginCommands(_connection!, generation);
+        Dispatcher.UIThread.Post(OpenConfiguredPanelsAfterLogin, DispatcherPriority.Background);
+    }
+
+    /// <summary>
+    /// Opens the panels selected on this SSH connection after authentication. This is
+    /// public so the running behavior and resulting panel state can be exercised via
+    /// the generic Debug MCP invoke/get_value tools.
+    /// </summary>
+    public void OpenConfiguredPanelsAfterLogin()
+    {
+        if (_disposed || _connection is not { IsSsh: true } connection || !IsConnected)
+            return;
+
+        if (connection.AutoOpenMonitorPanel && !IsMonitorPanelOpen)
+            ToggleMonitorPanel();
+        if (connection.AutoOpenAiPanel && !IsAiPanelOpen)
+            ToggleAiPanel();
+        if (connection.AutoOpenFileBrowserPanel && !IsFileBrowserPanelOpen)
+            ToggleFileBrowserPanel();
     }
 
     /// <summary>

@@ -78,6 +78,15 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     [ObservableProperty]
     private string _loginCommands = "";
 
+    [ObservableProperty]
+    private bool _autoOpenMonitorPanel;
+
+    [ObservableProperty]
+    private bool _autoOpenAiPanel;
+
+    [ObservableProperty]
+    private bool _autoOpenFileBrowserPanel;
+
     public ObservableCollection<ConnectionScriptBindingViewModel> ScriptBindings { get; } = new();
 
     // WSL
@@ -203,6 +212,9 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             TerminalType = string.IsNullOrWhiteSpace(c.TerminalType) ? Connection.DefaultTerminalType : c.TerminalType,
             PrivateKeyPath = c.PrivateKeyPath,
             LoginCommands = c.LoginCommands,
+            AutoOpenMonitorPanel = c.AutoOpenMonitorPanel,
+            AutoOpenAiPanel = c.AutoOpenAiPanel,
+            AutoOpenFileBrowserPanel = c.AutoOpenFileBrowserPanel,
             WslDistro = c.WslDistro,
             WslStartDirectory = c.WslStartDirectory,
             RdpFullScreen = c.RdpFullScreen,
@@ -268,6 +280,9 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             ? _originalEncryptedPassphrase
             : PasswordProtector.Encrypt(PrivateKeyPassphrase);
         c.LoginCommands = LoginCommands;
+        c.AutoOpenMonitorPanel = AutoOpenMonitorPanel;
+        c.AutoOpenAiPanel = AutoOpenAiPanel;
+        c.AutoOpenFileBrowserPanel = AutoOpenFileBrowserPanel;
         c.WslDistro = WslDistro.Trim();
         c.WslStartDirectory = WslStartDirectory.Trim();
         c.ScriptBindings = ScriptBindings

@@ -114,6 +114,30 @@ try
           "Duplicated sessions without a marker preserve existing login-command behavior");
     Check(LoginCommandSequence.IsManualInputDirective("  #INPUT  "),
           "Manual-input login directive remains case-insensitive");
+    var autoPanelConnection = new Connection
+    {
+        Type = ConnectionType.Ssh,
+        Name = "auto-panels",
+        Host = "example.com",
+        AutoOpenMonitorPanel = true,
+        AutoOpenAiPanel = true,
+        AutoOpenFileBrowserPanel = true,
+    };
+    var autoPanelJson = JsonSerializer.Serialize(autoPanelConnection);
+    var autoPanelPersisted = JsonSerializer.Deserialize<Connection>(autoPanelJson)!;
+    var autoPanelEditor = ConnectionEditorViewModel.FromConnection(autoPanelConnection);
+    var autoPanelRoundTrip = new Connection();
+    autoPanelEditor.ApplyTo(autoPanelRoundTrip);
+    Check(autoPanelEditor.AutoOpenMonitorPanel
+          && autoPanelEditor.AutoOpenAiPanel
+          && autoPanelEditor.AutoOpenFileBrowserPanel
+          && autoPanelRoundTrip.AutoOpenMonitorPanel
+          && autoPanelRoundTrip.AutoOpenAiPanel
+          && autoPanelRoundTrip.AutoOpenFileBrowserPanel
+          && autoPanelPersisted.AutoOpenMonitorPanel
+          && autoPanelPersisted.AutoOpenAiPanel
+          && autoPanelPersisted.AutoOpenFileBrowserPanel,
+          "SSH auto-open panel preferences round-trip through the editor and JSON");
     using (var monitorSession = new ServerMonitorSession(
                () => null,
                Connection.DefaultTerminalType,

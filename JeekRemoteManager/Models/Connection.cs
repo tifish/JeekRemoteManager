@@ -55,6 +55,15 @@ public class Connection
     /// </summary>
     public string LoginCommands { get; set; } = "";
 
+    /// <summary>Open the server monitor after an SSH shell logs in.</summary>
+    public bool AutoOpenMonitorPanel { get; set; }
+
+    /// <summary>Open the AI assistant after an SSH shell logs in.</summary>
+    public bool AutoOpenAiPanel { get; set; }
+
+    /// <summary>Open the file browser after an SSH shell logs in.</summary>
+    public bool AutoOpenFileBrowserPanel { get; set; }
+
     /// <summary>Per-connection parameter bindings for reusable SSH scripts.</summary>
     public List<ConnectionScriptBinding> ScriptBindings { get; set; } = new();
 

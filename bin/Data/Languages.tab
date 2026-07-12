@@ -49,6 +49,7 @@ PrivateKey	Private key	私钥
 PrivateKeyWatermark	optional path to key file	可选，私钥文件路径
 LoginCommands	Login commands	登录后执行
 LoginCommandsWatermark	one command per line; #input waits for manual input; in a duplicated session, #duplicate skips all preceding lines	每行一条命令；#input 等待手工输入；复制会话遇到 #duplicate 时会跳过其前面的所有指令
+AutoOpenPanels	Open after login	登录后自动开启
 Browse	Browse…	浏览…
 WslOptions	WSL options	WSL 选项
 WslDistro	Distribution	发行版
