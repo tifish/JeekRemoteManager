@@ -996,8 +996,9 @@ try
           && runtimeSingBoxClientSuite.Scripts.Any(s => s.Name == "install.sh")
           && runtimeSingBoxClientSuite.Scripts.Any(s => s.Name == "uninstall.sh"),
           "Bundled sing-box reality client install and uninstall scripts are discoverable");
-    Check(runtimeSingBoxClientSuite.Parameters.Count == 10
-          && Enumerable.Range(1, 6).All(i =>
+    const int runtimeSingBoxClientServerLinkCount = 9;
+    Check(runtimeSingBoxClientSuite.Parameters.Count == runtimeSingBoxClientServerLinkCount + 4
+          && Enumerable.Range(1, runtimeSingBoxClientServerLinkCount).All(i =>
               runtimeSingBoxClientSuite.Parameters.Single(p => p.Name == $"SERVER_LINK_{i}").Type == RemoteScriptParameterType.String)
           && runtimeSingBoxClientSuite.Parameters.Single(p => p.Name == "LISTEN_PORT").Type == RemoteScriptParameterType.Number
           && runtimeSingBoxClientSuite.Parameters.Single(p => p.Name == "LISTEN_PORT").DefaultValue == "1080"
@@ -1007,7 +1008,7 @@ try
           && runtimeSingBoxClientSuite.Parameters.Single(p => p.Name == "ENABLE_TUN").DefaultValue == "false"
           && runtimeSingBoxClientSuite.Parameters.Single(p => p.Name == "UPDATE_SING_BOX").Type == RemoteScriptParameterType.Bool
           && runtimeSingBoxClientSuite.Parameters.Single(p => p.Name == "UPDATE_SING_BOX").DefaultValue == "true",
-          "Bundled sing-box reality client script exposes six server links and update toggle parameters");
+          "Bundled sing-box reality client script exposes nine server links and update toggle parameters");
     Check(runtimeSingBoxClientInstall.Contains("https://api.github.com/repos/SagerNet/sing-box/releases/latest")
           && runtimeSingBoxClientInstall.Contains("https://github.com/SagerNet/sing-box/releases/download/v${version}/${package_name}")
           && runtimeSingBoxClientInstall.Contains("https://ghfast.top/${package_url}")
