@@ -24,6 +24,7 @@
             <Setter Property="MinWidth" Value="0" />
             <Setter Property="MinHeight" Value="20" />
             <Setter Property="Background" Value="Transparent" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="HorizontalContentAlignment" Value="Right" />
         </Style>
     </UserControl.Styles>
@@ -114,21 +115,27 @@
                     <StackPanel Spacing="4">
                         <TextBlock Classes="label" Text="{l:Localize MonitorProcesses}" />
                         <Grid ColumnDefinitions="62,54,*" ColumnSpacing="6">
-                            <Button Classes="process-sort"
+                            <Button x:Name="ProcessMemorySortButton"
+                                    Classes="process-sort"
                                     Command="{Binding SortProcessesByMemoryCommand}">
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Classes="label" Text="{l:Localize MonitorProcessMem}" />
-                                    <TextBlock Classes="label" Text="▼" Margin="3,0,0,0"
+                                    <TextBlock Classes="label" Text="▼" Margin="0,0,3,0"
                                                IsVisible="{Binding IsProcessSortByMemory}" />
+                                    <TextBlock x:Name="ProcessMemoryHeader"
+                                               Classes="label"
+                                               Text="{l:Localize MonitorProcessMem}" />
                                 </StackPanel>
                             </Button>
-                            <Button Grid.Column="1" Classes="process-sort"
+                            <Button x:Name="ProcessCpuSortButton"
+                                    Grid.Column="1" Classes="process-sort"
                                     Command="{Binding SortProcessesByCpuCommand}">
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Classes="label" Text="{l:Localize MonitorProcessCpu}" />
                                     <TextBlock x:Name="ProcessCpuSortIndicator"
-                                               Classes="label" Text="▼" Margin="3,0,0,0"
+                                               Classes="label" Text="▼" Margin="0,0,3,0"
                                                IsVisible="{Binding IsProcessSortByCpu}" />
+                                    <TextBlock x:Name="ProcessCpuHeader"
+                                               Classes="label"
+                                               Text="{l:Localize MonitorProcessCpu}" />
                                 </StackPanel>
                             </Button>
                             <TextBlock Grid.Column="2" Classes="label" Text="{l:Localize MonitorProcessCommand}" />
