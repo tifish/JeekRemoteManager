@@ -65,6 +65,9 @@ public partial class TerminalView : UserControl
     private TaskCompletionSource<string>? _aiTransferCompletion;
     private int _connectionGeneration;
     private long _lastShellDataTicks;
+    // Set while a "#input" login-command directive is waiting for the user to
+    // type something (e.g. a 2FA code) and press Enter; completed from HandleUserInput.
+    private TaskCompletionSource? _loginManualInputTcs;
     private bool _connectInProgress;
     private bool _shellClosed;
     private bool _suppressUserInput;
@@ -948,6 +951,11 @@ public partial class TerminalView : UserControl
         }
 
         SendToShell(data);
+
+        // A pending "#input" login directive resumes once the user presses Enter
+        // (or pastes text ending with a newline).
+        if (_loginManualInputTcs is { } manualInput && ContainsEnter(data))
+            manualInput.TrySetResult();
     }
 
     private bool CanReconnectFromInput(ReadOnlyMemory<byte> data) =>
@@ -970,6 +978,18 @@ public partial class TerminalView : UserControl
         }
 
         return true;
+    }
+
+    private static bool ContainsEnter(ReadOnlyMemory<byte> data)
+    {
+        var span = data.Span;
+        for (var i = 0; i < span.Length; i++)
+        {
+            if (span[i] == (byte)'\r' || span[i] == (byte)'\n')
+                return true;
+        }
+
+        return false;
     }
 
     private void Reconnect()
@@ -1228,8 +1248,10 @@ public partial class TerminalView : UserControl
     /// Types the connection's login commands into the shell, one line at a time.
     /// Each line is sent only after the remote has produced output and then gone
     /// quiet, so bastion menus, sudo prompts, etc. are on screen before their
-    /// answer is typed. Runs on every shell open, including reconnects and
-    /// duplicated tabs (each shell channel is a fresh login shell).
+    /// answer is typed. A line consisting of "#input" pauses the sequence until
+    /// the user types something manually (e.g. a 2FA code) and presses Enter.
+    /// Runs on every shell open, including reconnects and duplicated tabs (each
+    /// shell channel is a fresh login shell).
     /// </summary>
     private void StartLoginCommands(Connection connection, int generation)
     {
@@ -1252,6 +1274,31 @@ public partial class TerminalView : UserControl
 
             foreach (var line in lines)
             {
+                if (line.Trim().Equals("#input", StringComparison.OrdinalIgnoreCase))
+                {
+                    var manualInput = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    _loginManualInputTcs = manualInput;
+                    try
+                    {
+                        // No timeout: fetching a 2FA code can take as long as it takes.
+                        while (!manualInput.Task.IsCompleted)
+                        {
+                            if (_disposed || _shellClosed || generation != _connectionGeneration)
+                                return;
+                            await Task.Delay(50);
+                        }
+                    }
+                    finally
+                    {
+                        _loginManualInputTcs = null;
+                    }
+
+                    // The next command must wait for output produced after the
+                    // user's Enter, not for what was already on screen.
+                    mustBeAfterTicks = Environment.TickCount64;
+                    continue;
+                }
+
                 var startedAt = Environment.TickCount64;
                 while (true)
                 {
