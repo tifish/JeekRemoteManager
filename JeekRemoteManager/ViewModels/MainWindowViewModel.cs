@@ -93,6 +93,7 @@ public partial class MainWindowViewModel : ViewModelBase
             OnPropertyChanged(nameof(TargetDescription));
             OnPropertyChanged(nameof(VersionDisplay));
             OnPropertyChanged(nameof(PlaceholderHint));
+            OnPropertyChanged(nameof(EditorTabTitle));
             if (_recentGroup != null)
                 _recentGroup.Name = L("RecentGroup");
         };
@@ -294,9 +295,14 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(ShowBatchPanel))]
     [NotifyPropertyChangedFor(nameof(ShowConnectionEditor))]
     [NotifyPropertyChangedFor(nameof(ShowPlaceholder))]
+    [NotifyPropertyChangedFor(nameof(EditorTabTitle))]
     private BatchScriptPanelViewModel? _batchPanel;
 
     public bool ShowBatchPanel => BatchPanel is not null;
+
+    /// <summary>Header of the fixed first tab: "Edit" normally, "Batch run" while
+    /// the batch script panel has taken the tab over.</summary>
+    public string EditorTabTitle => BatchPanel is null ? L("Edit") : L("BatchTabTitle");
 
     // With a multi-selection the editor is hidden (it would only edit the anchor
     // node, which reads as "edits apply to all selected") and the placeholder

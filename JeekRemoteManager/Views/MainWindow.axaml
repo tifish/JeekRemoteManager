@@ -975,8 +975,11 @@
                     <TabItem.Header>
                         <Border Classes="tab-pill">
                             <StackPanel Orientation="Horizontal" Spacing="7">
-                                <TextBlock Classes="toolbar-action-icon edit" Text="&#xE70F;" />
-                                <TextBlock Classes="tab-label" Text="{l:Localize Edit}" />
+                                <TextBlock Classes="toolbar-action-icon edit" Text="&#xE70F;"
+                                           IsVisible="{Binding !ShowBatchPanel}" />
+                                <TextBlock Classes="toolbar-action-icon script" Text="&#xE756;"
+                                           IsVisible="{Binding ShowBatchPanel}" />
+                                <TextBlock Classes="tab-label" Text="{Binding EditorTabTitle}" />
                             </StackPanel>
                         </Border>
                     </TabItem.Header>
