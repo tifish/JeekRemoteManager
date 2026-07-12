@@ -330,6 +330,9 @@ MonitorWaitingForConnection	Waiting for connection…	等待连接…
 MonitorUnavailable	Monitor data unavailable on this server	无法获取该服务器的监控数据
 MonitorRetry	Retry	重试
 BatchTabTitle	Batch run	批量运行
+BatchParamsHint	Check a parameter to apply one value to every server (saved to their bindings); unchecked parameters keep each server's own value.	勾选参数后，该值将统一应用到所有服务器并保存；未勾选的参数使用各服务器自己保存的值。
+BatchParamPerServer	Each server uses its own saved value	各服务器使用自己保存的值
+BatchParamUnifyTip	Apply this value to all servers	对所有服务器统一使用该值
 BatchRunTargets	Run on {0} servers	在 {0} 台服务器上运行
 BatchScriptReady	Choose a script to run on all {0} servers.	选择要在 {0} 台服务器上运行的脚本。
 BatchTargetPending	Waiting	等待中

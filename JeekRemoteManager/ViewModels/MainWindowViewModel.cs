@@ -2353,9 +2353,10 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
+            var unifiedParams = panel.GetUnifiedParameterValues();
             using var slots = new SemaphoreSlim(BatchScriptMaxConcurrency);
             await Task.WhenAll(panel.Targets.Select(target =>
-                RunBatchTargetAsync(panel, target, scriptFile, ensureTerminal, slots, cts.Token)));
+                RunBatchTargetAsync(panel, target, scriptFile, unifiedParams, ensureTerminal, slots, cts.Token)));
 
             var succeeded = panel.Targets.Count(t => t.State == BatchScriptTargetState.Succeeded);
             var failed = panel.Targets.Count - succeeded;
@@ -2375,15 +2376,19 @@ public partial class MainWindowViewModel : ViewModelBase
         BatchScriptPanelViewModel panel,
         BatchScriptTargetViewModel target,
         RemoteScriptFile scriptFile,
+        IReadOnlyList<KeyValuePair<string, string>> unifiedParams,
         Func<Connection, string?, Task<TerminalScriptSession?>> ensureTerminal,
         SemaphoreSlim slots,
         CancellationToken cancellationToken)
     {
         try
         {
-            // Each server runs with its own saved parameters; a target whose
-            // binding does not validate is skipped instead of failing the batch.
+            // Each server runs with its own saved parameters, overridden by the
+            // "unified" values from the panel; a target whose merged binding does
+            // not validate is skipped instead of failing the batch.
             var binding = ResolveBatchScriptBinding(panel.Suite, target.Connection);
+            if (unifiedParams.Count > 0 && ApplyUnifiedScriptParams(binding, unifiedParams))
+                PersistBatchScriptBinding(target, panel.Suite, binding);
             var errors = RemoteScriptLauncher.ValidateBinding(panel.Suite, binding);
             if (errors.Count > 0)
             {
@@ -2439,19 +2444,86 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>The connection's saved parameters for the suite (cloned, secrets
     /// left protected — payload building decrypts them), or an empty binding that
     /// falls back to the suite's defaults.</summary>
-    private static ConnectionScriptBinding ResolveBatchScriptBinding(RemoteScriptSuite suite, Connection connection)
-    {
-        var stored = connection.ScriptBindings.LastOrDefault(b =>
-            string.Equals(
-                RemoteScriptSuiteNames.NormalizeBindingName(b.Name),
-                suite.RelativePath,
-                StringComparison.OrdinalIgnoreCase));
-        if (stored is null)
-            return new ConnectionScriptBinding { Name = suite.RelativePath };
+    private static ConnectionScriptBinding ResolveBatchScriptBinding(RemoteScriptSuite suite, Connection connection) =>
+        BatchScriptPanelViewModel.FindSavedBinding(connection, suite)
+        ?? new ConnectionScriptBinding { Name = suite.RelativePath };
 
-        var binding = RemoteScriptLauncher.CloneBinding(stored);
-        binding.Name = suite.RelativePath;
-        return binding;
+    /// <summary>Overrides the binding's parameters with the panel's unified values.
+    /// Returns true when any value actually differed from what was stored (stored
+    /// secrets are compared decrypted), so unchanged runs skip the file save.</summary>
+    private static bool ApplyUnifiedScriptParams(
+        ConnectionScriptBinding binding,
+        IReadOnlyList<KeyValuePair<string, string>> unifiedParams)
+    {
+        var changed = false;
+        foreach (var (name, value) in unifiedParams)
+        {
+            var existing = binding.Params.FirstOrDefault(p =>
+                string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+
+            var current = existing?.Value;
+            if (current is not null
+                && MasterKeyService.IsPasswordBlob(current)
+                && PasswordProtector.TryDecrypt(current, out var clear))
+            {
+                current = clear;
+            }
+
+            if (!string.Equals(current, value, StringComparison.Ordinal))
+                changed = true;
+
+            if (existing is null)
+                binding.Params.Add(new ConnectionScriptParameterValue { Name = name, Value = value });
+            else
+                existing.Value = value;
+        }
+
+        return changed;
+    }
+
+    /// <summary>
+    /// Writes the merged binding back to the target's connection file so unified
+    /// parameter values persist for later single-server and batch runs.
+    /// </summary>
+    private void PersistBatchScriptBinding(
+        BatchScriptTargetViewModel target,
+        RemoteScriptSuite suite,
+        ConnectionScriptBinding binding)
+    {
+        var node = FindNode(Nodes, target.SourcePath);
+        var connection = node?.Connection ?? target.Connection;
+
+        var protectedBinding = RemoteScriptLauncher.ProtectSecretValues(suite, binding);
+        UpsertScriptBinding(connection.ScriptBindings, protectedBinding);
+
+        if (node is not null)
+        {
+            // The connection may be open in the editor; keep its bindings view in
+            // sync and let the editor's auto-save own the file write.
+            if (ReferenceEquals(_editingNode, node) && Editor is not null)
+            {
+                UpsertScriptBinding(Editor.ScriptBindings, protectedBinding);
+                _editorHasPendingChanges = true;
+                FlushPendingAutoSave();
+            }
+            else
+            {
+                SaveScriptContextConnection(node);
+            }
+
+            return;
+        }
+
+        try
+        {
+            ProtectConnectionScriptBindings(connection);
+            var folder = Path.GetDirectoryName(target.SourcePath) ?? _store.RootPath;
+            _store.Save(connection, folder, target.SourcePath);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = L("StatusAutoSaveFailed", ex.Message);
+        }
     }
 
     private ConnectionScriptBinding? SaveScriptPanelBinding(bool flushImmediately = false)

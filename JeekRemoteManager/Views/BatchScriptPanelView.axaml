@@ -6,7 +6,7 @@
              x:Class="JeekRemoteManager.Views.BatchScriptPanelView"
              x:DataType="vm:BatchScriptPanelViewModel">
 
-    <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="12" Margin="14,12,16,14">
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="12" Margin="14,12,16,14">
 
         <!-- Header: suite name + cancel/close -->
         <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
@@ -31,8 +31,66 @@
             </StackPanel>
         </Grid>
 
+        <!-- Parameters: unchecked rows keep each server's own saved value; a
+             checked row applies one value to every target (and saves it back) -->
+        <Border Grid.Row="1" Classes="form-card"
+                IsVisible="{Binding HasParameters}"
+                IsEnabled="{Binding !IsRunning}">
+            <StackPanel Spacing="8">
+                <TextBlock Classes="hint"
+                           Text="{l:Localize BatchParamsHint}"
+                           TextWrapping="Wrap" />
+                <ScrollViewer MaxHeight="240"
+                              HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding Parameters}" Grid.IsSharedSizeScope="True">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="vm:BatchScriptParameterViewModel">
+                                <Grid ColumnSpacing="10" Margin="0,3">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="BatchParamCheck" />
+                                        <ColumnDefinition Width="Auto"
+                                                          MinWidth="120"
+                                                          SharedSizeGroup="BatchParamName" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <CheckBox Grid.Column="0"
+                                              IsChecked="{Binding IsUnified, Mode=TwoWay}"
+                                              ToolTip.Tip="{l:Localize BatchParamUnifyTip}"
+                                              VerticalAlignment="Center" />
+                                    <TextBlock Grid.Column="1"
+                                               Classes="label"
+                                               Text="{Binding Name}"
+                                               TextWrapping="Wrap"
+                                               VerticalAlignment="Center" />
+                                    <Grid Grid.Column="2" VerticalAlignment="Center">
+                                        <TextBlock Classes="hint"
+                                                   Text="{l:Localize BatchParamPerServer}"
+                                                   VerticalAlignment="Center"
+                                                   IsVisible="{Binding !IsUnified}" />
+                                        <Grid IsVisible="{Binding IsUnified}">
+                                            <TextBox Text="{Binding Editor.Value, Mode=TwoWay}"
+                                                     IsVisible="{Binding Editor.IsText}" />
+                                            <TextBox Text="{Binding Editor.Value, Mode=TwoWay}"
+                                                     PasswordChar="&#x2022;"
+                                                     IsVisible="{Binding Editor.IsSecret}" />
+                                            <CheckBox IsChecked="{Binding Editor.BoolValue, Mode=TwoWay}"
+                                                      IsVisible="{Binding Editor.IsBool}" />
+                                            <ComboBox ItemsSource="{Binding Editor.EnumOptions}"
+                                                      SelectedItem="{Binding Editor.SelectedEnumValue, Mode=TwoWay}"
+                                                      IsVisible="{Binding Editor.IsEnum}" />
+                                        </Grid>
+                                    </Grid>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </StackPanel>
+        </Border>
+
         <!-- Script buttons -->
-        <Border Grid.Row="1" Classes="form-card">
+        <Border Grid.Row="2" Classes="form-card">
             <ItemsControl ItemsSource="{Binding Scripts}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
@@ -56,7 +114,7 @@
         </Border>
 
         <!-- Per-server status rows -->
-        <Border Grid.Row="2" Classes="form-card" Padding="4">
+        <Border Grid.Row="3" Classes="form-card" Padding="4">
             <ScrollViewer HorizontalScrollBarVisibility="Disabled"
                           VerticalScrollBarVisibility="Auto">
                 <ItemsControl ItemsSource="{Binding Targets}">
@@ -118,7 +176,7 @@
         </Border>
 
         <!-- Aggregate status line -->
-        <TextBlock Grid.Row="3"
+        <TextBlock Grid.Row="4"
                    Classes="hint"
                    Text="{Binding StatusText}"
                    FontSize="14"
