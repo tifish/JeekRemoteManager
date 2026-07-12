@@ -43,12 +43,27 @@
                                    Text="{Binding HostLabel}"
                                    TextTrimming="CharacterEllipsis"
                                    Margin="0,0,24,0" />
-                        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto"
+                        <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto"
                               ColumnSpacing="8" RowSpacing="2">
                             <TextBlock Classes="label" Text="IP" />
                             <TextBlock Grid.Column="1" Classes="monitor-value"
                                        Text="{Binding AddressText}"
                                        TextTrimming="CharacterEllipsis" />
+                            <Button x:Name="CopyIpButton"
+                                    Grid.Column="2"
+                                    Classes="toolbar"
+                                    Click="OnCopyIpClick"
+                                    ToolTip.Tip="{l:Localize Copy}"
+                                    Width="20" Height="20"
+                                    MinWidth="0" MinHeight="0"
+                                    Padding="0"
+                                    HorizontalContentAlignment="Center"
+                                    VerticalContentAlignment="Center">
+                                <TextBlock FontFamily="Segoe MDL2 Assets"
+                                           FontSize="11"
+                                           Text="&#xE8C8;"
+                                           Foreground="{DynamicResource TextMutedBrush}" />
+                            </Button>
                             <TextBlock Grid.Row="1" Classes="label" Text="{l:Localize MonitorUptime}" />
                             <TextBlock Grid.Row="1" Grid.Column="1" Classes="monitor-value"
                                        Text="{Binding UptimeText}" />

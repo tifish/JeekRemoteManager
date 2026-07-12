@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using JeekRemoteManager.ViewModels;
 
@@ -45,6 +47,24 @@ public partial class ServerMonitorView : UserControl
 
     private void OnCloseClick(object? sender, RoutedEventArgs e) =>
         CloseRequested?.Invoke(this, EventArgs.Empty);
+
+    private async void OnCopyIpClick(object? sender, RoutedEventArgs e)
+    {
+        await CopyIpAsync();
+        e.Handled = true;
+    }
+
+    /// <summary>Copies the address currently shown by the monitor. Public so Debug MCP
+    /// can exercise the same clipboard path as the UI button.</summary>
+    public async Task CopyIpAsync()
+    {
+        if (_viewModel?.AddressText is not { Length: > 0 } address)
+            return;
+
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard is not null)
+            await clipboard.SetTextAsync(address);
+    }
 
     private void RedrawSparkline()
     {
