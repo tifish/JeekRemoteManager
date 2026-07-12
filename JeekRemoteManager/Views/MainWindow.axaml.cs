@@ -199,6 +199,7 @@ public partial class MainWindow : Window
         // 16px dead strip at the left edge while the panel is hidden.
         MainGrid.ColumnSpacing = collapsed ? 0 : 8;
         ToggleTreePanelIcon.Text = collapsed ? "\uE8A0" : "\uE89F"; // OpenPane / ClosePane
+        ToggleTreePanelButton.Classes.Set("panel-on", !collapsed);
     }
 
     private void RestoreWindowSize(MainWindowViewModel vm)

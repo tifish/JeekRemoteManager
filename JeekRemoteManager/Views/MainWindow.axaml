@@ -441,6 +441,15 @@
         <Style Selector="Grid#CommandBar.compact TextBlock.toolbar-label">
             <Setter Property="IsVisible" Value="False" />
         </Style>
+        <!-- Connection panel toggle: reads as an "on" toggle while the panel is
+             visible, so the two states are obvious at a glance. -->
+        <Style Selector="Button.toolbar.panel-on">
+            <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource SelectedBorderBrush}" />
+        </Style>
+        <Style Selector="Button.toolbar.panel-on TextBlock.toolbar-action-icon">
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+        </Style>
     </Window.Styles>
 
     <DockPanel Background="{DynamicResource AppBackgroundBrush}">
@@ -459,9 +468,10 @@
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center" />
                     </Border>
-                    <Button Click="OnToggleConnectionPanelClick"
+                    <Button x:Name="ToggleTreePanelButton"
+                            Click="OnToggleConnectionPanelClick"
                             ToolTip.Tip="{l:Localize ToggleConnectionPanel}"
-                            Classes="toolbar icon-button">
+                            Classes="toolbar icon-button panel-on">
                         <TextBlock x:Name="ToggleTreePanelIcon"
                                    Classes="toolbar-action-icon"
                                    Text="&#xE89F;"
