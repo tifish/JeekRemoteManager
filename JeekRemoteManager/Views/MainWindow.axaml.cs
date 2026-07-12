@@ -475,7 +475,7 @@ public partial class MainWindow : Window
 
         var shared = source.ShareClientForDuplicate();
         var (view, _) = CreateTerminalTab(connection, source.SourcePath);
-        view.Start(connection, source.SourcePath, shared);
+        view.Start(connection, source.SourcePath, shared, isDuplicatedSession: true);
     }
 
     private TerminalScriptSession CreateTerminalScriptSession(TerminalView view, TabItem tab) =>

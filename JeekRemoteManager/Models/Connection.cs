@@ -51,6 +51,7 @@ public class Connection
     /// Commands typed into the shell automatically after login, one per line.
     /// Each line is sent only after the remote output has gone quiet, so bastion
     /// menus, sudo prompts, etc. are on screen before their answer is typed.
+    /// The #duplicate directive marks where duplicated sessions should start.
     /// </summary>
     public string LoginCommands { get; set; } = "";
 

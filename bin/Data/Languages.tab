@@ -48,7 +48,7 @@ TerminalType	Terminal type	终端类型
 PrivateKey	Private key	私钥
 PrivateKeyWatermark	optional path to key file	可选，私钥文件路径
 LoginCommands	Login commands	登录后执行
-LoginCommandsWatermark	one command per line, typed automatically after login (e.g. bastion menu choice, sudo -i, cd /srv); a line of #input pauses until you type manually (e.g. 2FA code) and press Enter	每行一条命令，登录后自动键入（如堡垒机菜单选项、sudo -i、cd /srv）；单独一行 #input 会暂停，等你手工输入（如二次验证码）并回车后继续
+LoginCommandsWatermark	one command per line; #input waits for manual input; in a duplicated session, #duplicate skips all preceding lines	每行一条命令；#input 等待手工输入；复制会话遇到 #duplicate 时会跳过其前面的所有指令
 Browse	Browse…	浏览…
 WslOptions	WSL options	WSL 选项
 WslDistro	Distribution	发行版

@@ -68,6 +68,7 @@ public partial class TerminalView : UserControl
     // Set while a "#input" login-command directive is waiting for the user to
     // type something (e.g. a 2FA code) and press Enter; completed from HandleUserInput.
     private TaskCompletionSource? _loginManualInputTcs;
+    private bool _isDuplicatedSession;
     private bool _connectInProgress;
     private bool _shellClosed;
     private bool _suppressUserInput;
@@ -174,11 +175,16 @@ public partial class TerminalView : UserControl
     /// new one; the reference must already be counted for this view (see
     /// <see cref="ShareClientForDuplicate"/>).
     /// </summary>
-    public void Start(Connection connection, string? sourcePath = null, SharedSshClient? sharedClient = null)
+    public void Start(
+        Connection connection,
+        string? sourcePath = null,
+        SharedSshClient? sharedClient = null,
+        bool isDuplicatedSession = false)
     {
         _connection = connection;
         _sourcePath = sourcePath;
         _pendingSharedClient = sharedClient;
+        _isDuplicatedSession = isDuplicatedSession;
         FocusTerminal();
         BeginConnectionAttempt();
     }
@@ -1250,16 +1256,12 @@ public partial class TerminalView : UserControl
     /// quiet, so bastion menus, sudo prompts, etc. are on screen before their
     /// answer is typed. A line consisting of "#input" pauses the sequence until
     /// the user types something manually (e.g. a 2FA code) and presses Enter.
-    /// Runs on every shell open, including reconnects and duplicated tabs (each
-    /// shell channel is a fresh login shell).
+    /// In a duplicated tab, a "#duplicate" line skips all commands before it.
+    /// Runs on every shell open, including reconnects.
     /// </summary>
     private void StartLoginCommands(Connection connection, int generation)
     {
-        var lines = connection.LoginCommands
-            .Split('\n')
-            .Select(line => line.TrimEnd('\r'))
-            .Where(line => !string.IsNullOrWhiteSpace(line))
-            .ToArray();
+        var lines = LoginCommandSequence.Select(connection.LoginCommands, _isDuplicatedSession);
         if (lines.Length == 0)
             return;
 
@@ -1274,7 +1276,7 @@ public partial class TerminalView : UserControl
 
             foreach (var line in lines)
             {
-                if (line.Trim().Equals("#input", StringComparison.OrdinalIgnoreCase))
+                if (LoginCommandSequence.IsManualInputDirective(line))
                 {
                     var manualInput = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                     _loginManualInputTcs = manualInput;

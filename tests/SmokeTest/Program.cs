@@ -101,6 +101,20 @@ try
     Check(missingPageantIgnored,
           "Missing Pageant is ignored during SSH credential discovery");
 
+    // --- Login-command directives ---
+    const string loginCommands = "first\r\n#input\nsecond\n#duplicate\nduplicate-first\n#DUPLICATE\nduplicate-second";
+    Check(LoginCommandSequence.Select(loginCommands, isDuplicatedSession: false)
+              .SequenceEqual(["first", "#input", "second", "duplicate-first", "duplicate-second"]),
+          "Normal sessions ignore duplicate-start markers and run every command");
+    Check(LoginCommandSequence.Select(loginCommands, isDuplicatedSession: true)
+              .SequenceEqual(["duplicate-first", "duplicate-second"]),
+          "Duplicated sessions start after the first duplicate marker");
+    Check(LoginCommandSequence.Select("first\nsecond", isDuplicatedSession: true)
+              .SequenceEqual(["first", "second"]),
+          "Duplicated sessions without a marker preserve existing login-command behavior");
+    Check(LoginCommandSequence.IsManualInputDirective("  #INPUT  "),
+          "Manual-input login directive remains case-insensitive");
+
     // --- Terminal clipboard text ---
     var softWrapTerminal = new TerminalControlModel(new TerminalOptions { Cols = 10, Rows = 5, Scrollback = 10 });
     softWrapTerminal.Feed("abcdefghijklmnop\r\nXYZ");
