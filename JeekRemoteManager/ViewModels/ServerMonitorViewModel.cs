@@ -17,7 +17,8 @@ public sealed record ServerMonitorDiskRow(string MountPoint, string SizeText, do
 
 /// <summary>
 /// Presents live server stats sampled by a <see cref="ServerMonitorSession"/> over
-/// the terminal's SSH connection. Owns the session: polling runs only between
+/// a hidden duplicated shell on the terminal's SSH connection. Owns the session:
+/// polling runs only between
 /// <see cref="Start"/> and <see cref="Stop"/> (the panel's visibility).
 /// </summary>
 public sealed partial class ServerMonitorViewModel : ViewModelBase, IDisposable
@@ -86,12 +87,19 @@ public sealed partial class ServerMonitorViewModel : ViewModelBase, IDisposable
     /// <param name="acquireClient">See <see cref="ServerMonitorSession"/>.</param>
     /// <param name="hostLabel">"user@host:port" caption for the panel header.</param>
     /// <param name="address">The configured host, shown until the server reports its own IP.</param>
-    public ServerMonitorViewModel(Func<SharedSshClient?> acquireClient, string hostLabel, string address)
+    public ServerMonitorViewModel(
+        Func<SharedSshClient?> acquireClient,
+        string terminalType,
+        string loginCommands,
+        string hostLabel,
+        string address)
     {
         HostLabel = hostLabel;
         _addressText = address;
         _session = new ServerMonitorSession(
             acquireClient,
+            terminalType,
+            loginCommands,
             snapshot => Dispatcher.UIThread.Post(() => ApplySnapshot(snapshot)),
             () => Dispatcher.UIThread.Post(OnWaiting),
             () => Dispatcher.UIThread.Post(OnFailed));
@@ -102,6 +110,13 @@ public sealed partial class ServerMonitorViewModel : ViewModelBase, IDisposable
     public void Stop() => _session.Stop();
 
     public void Dispose() => _session.Dispose();
+
+    // Intentionally public so Debug MCP can verify the live channel strategy and
+    // sampling progress without reaching through private implementation fields.
+    public string MonitorChannelMode => _session.ChannelMode;
+    public bool IsMonitorShellReady => _session.IsShellReady;
+    public long MonitorSampleCount => _session.SampleCount;
+    public long MonitorShellGeneration => _session.ShellGeneration;
 
     [RelayCommand]
     private void Retry()

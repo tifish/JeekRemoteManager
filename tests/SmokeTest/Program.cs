@@ -114,6 +114,28 @@ try
           "Duplicated sessions without a marker preserve existing login-command behavior");
     Check(LoginCommandSequence.IsManualInputDirective("  #INPUT  "),
           "Manual-input login directive remains case-insensitive");
+    using (var monitorSession = new ServerMonitorSession(
+               () => null,
+               Connection.DefaultTerminalType,
+               loginCommands,
+               _ => { },
+               () => { },
+               () => { }))
+    {
+        Check(monitorSession.ChannelMode == "PersistentDuplicatedShell"
+              && !monitorSession.IsShellReady
+              && monitorSession.SampleCount == 0
+              && monitorSession.ShellGeneration == 0,
+              "Server monitor exposes its persistent duplicated-shell strategy for Debug MCP verification");
+    }
+    var coloredMonitorSections = (Dictionary<string, List<string>>)typeof(ServerMonitorSession)
+        .GetMethod("SplitSections", BindingFlags.Static | BindingFlags.NonPublic)!
+        .Invoke(null, ["\u001b]0;monitor-title\u0007@JRM@ip\r\n\u001b[35m172.18.6.30\u001b[0m\r\n"])!;
+    var parsedColoredIp = (string?)typeof(ServerMonitorSession)
+        .GetMethod("ParseRemoteIp", BindingFlags.Static | BindingFlags.NonPublic)!
+        .Invoke(null, [coloredMonitorSections.GetValueOrDefault("ip")]);
+    Check(parsedColoredIp == "172.18.6.30",
+          "Server monitor strips PTY ANSI and OSC sequences before parsing target fields");
 
     // --- Terminal clipboard text ---
     var softWrapTerminal = new TerminalControlModel(new TerminalOptions { Cols = 10, Rows = 5, Scrollback = 10 });

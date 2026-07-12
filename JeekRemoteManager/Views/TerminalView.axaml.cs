@@ -472,8 +472,8 @@ public partial class TerminalView : UserControl
     }
 
     /// <summary>Shows or hides the server monitor panel left of the terminal. Sampling
-    /// runs only while the panel is visible, over exec channels of this terminal's
-    /// SSH connection — SSH-type connections only.</summary>
+    /// runs only while the panel is visible, over a hidden duplicated shell on this
+    /// terminal's SSH connection — SSH-type connections only.</summary>
     public void ToggleMonitorPanel()
     {
         if (_connection is not { IsSsh: true })
@@ -520,6 +520,8 @@ public partial class TerminalView : UserControl
             // Takes a counted reference on the live shared client so the transport
             // survives until the monitor lets go, even if the tab reconnects meanwhile.
             () => _client is { IsConnected: true } client && client.TryAddRef() ? client : null,
+            connection.TerminalType,
+            connection.LoginCommands,
             label,
             host);
         MonitorPanel.DataContext = vm;

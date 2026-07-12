@@ -3,10 +3,14 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using JeekTools;
 using Microsoft.Extensions.Logging;
+using Renci.SshNet;
+using Renci.SshNet.Common;
 using ZLogger;
 
 namespace JeekRemoteManager.Services;
@@ -46,10 +50,11 @@ public sealed record ServerMonitorSnapshot(
 
 /// <summary>
 /// Polls a connected SSH server for live stats (CPU, memory, network, disks,
-/// processes) by running one batched command per tick on an exec channel of the
-/// terminal's shared SSH transport — no separate login. Prefers /proc over tool
-/// output so parsing is locale- and busybox-proof; every section is marked with
-/// a sentinel line so a missing tool degrades only its own block.
+/// processes) through one persistent hidden shell on the terminal's shared SSH
+/// transport. The shell follows the duplicated-session login-command sequence,
+/// so bastion menus reach the same target as a duplicated terminal tab. Prefers
+/// /proc over tool output so parsing is locale- and busybox-proof; every section
+/// is marked with a sentinel line so a missing tool degrades only its own block.
 /// </summary>
 public sealed class ServerMonitorSession : IDisposable
 {
@@ -59,10 +64,21 @@ public sealed class ServerMonitorSession : IDisposable
     private const int HeavyEveryNTicks = 5;
     private const int FailedProbeIntervalSeconds = 15;
     private const int MaxConsecutiveFailures = 3;
-    private const int ExecTimeoutSeconds = 10;
+    private const int SampleTimeoutSeconds = 10;
+    private const int LoginQuietMilliseconds = 500;
+    private const int LoginStepTimeoutSeconds = 30;
     private const int TopProcessCount = 8;
 
     private const string SectionMarker = "@JRM@";
+
+    // PTY-backed bastion shells can inject colors or terminal-control sequences into
+    // otherwise plain command output. Remove them before any monitor field is parsed.
+    private static readonly Regex AnsiAndControlChars = new(
+        "\u001b\\[[0-9;?]*[ -/]*[@-~]" +
+        "|\u001b\\][\\s\\S]*?(?:\u0007|\u001b\\\\)" +
+        "|\u001b[@-_]" +
+        "|[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]",
+        RegexOptions.Compiled);
 
     // Light sections sample fast-moving counters every tick.
     private const string LightCommand =
@@ -80,6 +96,8 @@ public sealed class ServerMonitorSession : IDisposable
         "echo @JRM@route; ip -o route show to default 2>/dev/null";
 
     private readonly Func<SharedSshClient?> _acquireClient;
+    private readonly string _terminalType;
+    private readonly string _loginCommands;
     private readonly Action<ServerMonitorSnapshot> _onSnapshot;
     private readonly Action _onWaiting;
     private readonly Action _onFailed;
@@ -87,6 +105,12 @@ public sealed class ServerMonitorSession : IDisposable
     private readonly object _gate = new();
     private CancellationTokenSource? _cancellation;
     private SharedSshClient? _held;
+    private ShellStream? _shell;
+    private InteractiveShellPayloadMonitor? _activePayloadMonitor;
+    private long _lastShellDataTicks;
+    private Exception? _shellFailure;
+    private long _sampleCount;
+    private long _shellGeneration;
 
     // Delta state between ticks (background thread only).
     private (long Total, long Idle)? _prevCpu;
@@ -103,15 +127,28 @@ public sealed class ServerMonitorSession : IDisposable
     /// keeps probing at a slow interval and recovers on the next success.</param>
     public ServerMonitorSession(
         Func<SharedSshClient?> acquireClient,
+        string terminalType,
+        string loginCommands,
         Action<ServerMonitorSnapshot> onSnapshot,
         Action onWaiting,
         Action onFailed)
     {
         _acquireClient = acquireClient;
+        _terminalType = string.IsNullOrWhiteSpace(terminalType)
+            ? Models.Connection.DefaultTerminalType
+            : terminalType.Trim();
+        _loginCommands = loginCommands;
         _onSnapshot = onSnapshot;
         _onWaiting = onWaiting;
         _onFailed = onFailed;
     }
+
+    /// <summary>Debug-MCP-visible runtime state used to verify that monitoring is
+    /// using one persistent duplicated shell rather than repeated exec channels.</summary>
+    public string ChannelMode => "PersistentDuplicatedShell";
+    public bool IsShellReady => _shell is not null && Volatile.Read(ref _shellFailure) is null;
+    public long SampleCount => Interlocked.Read(ref _sampleCount);
+    public long ShellGeneration => Interlocked.Read(ref _shellGeneration);
 
     public void Start()
     {
@@ -164,9 +201,11 @@ public sealed class ServerMonitorSession : IDisposable
                     else
                     {
                         var heavy = tick % HeavyEveryNTicks == 0;
-                        var snapshot = await SampleAsync(client, heavy, cancellationToken).ConfigureAwait(false);
+                        await EnsureShellAsync(client, cancellationToken).ConfigureAwait(false);
+                        var snapshot = await SampleAsync(heavy, cancellationToken).ConfigureAwait(false);
                         tick++;
                         failures = 0;
+                        Interlocked.Increment(ref _sampleCount);
                         _onSnapshot(snapshot);
                     }
                 }
@@ -216,8 +255,129 @@ public sealed class ServerMonitorSession : IDisposable
 
     private void ReleaseClient()
     {
+        ReleaseShell();
         _held?.Release();
         _held = null;
+    }
+
+    private async Task EnsureShellAsync(SharedSshClient client, CancellationToken cancellationToken)
+    {
+        if (_shell is not null && Volatile.Read(ref _shellFailure) is null)
+            return;
+
+        ReleaseShell();
+        var shell = await Task.Run(
+            () => client.Client.CreateShellStream(_terminalType, 120, 30, 0, 0, 4096),
+            cancellationToken).ConfigureAwait(false);
+
+        _shell = shell;
+        Interlocked.Increment(ref _shellGeneration);
+        _shellFailure = null;
+        Interlocked.Exchange(ref _lastShellDataTicks, 0);
+        shell.DataReceived += OnShellData;
+        shell.ErrorOccurred += OnShellError;
+        shell.Closed += OnShellClosed;
+
+        try
+        {
+            await RunDuplicatedLoginCommandsAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            ReleaseShell();
+            throw;
+        }
+    }
+
+    private async Task RunDuplicatedLoginCommandsAsync(CancellationToken cancellationToken)
+    {
+        var lines = LoginCommandSequence.Select(_loginCommands, isDuplicatedSession: true);
+        long mustBeAfterTicks = 0;
+
+        // Wait for the initial prompt/menu before typing the first selection.
+        if (lines.Length > 0)
+            await WaitForShellQuietAsync(mustBeAfterTicks, cancellationToken).ConfigureAwait(false);
+
+        foreach (var line in lines)
+        {
+            if (LoginCommandSequence.IsManualInputDirective(line))
+                throw new InvalidOperationException(
+                    "The server monitor cannot complete a duplicated login sequence containing #input.");
+
+            ThrowIfShellFailed();
+            mustBeAfterTicks = Environment.TickCount64;
+            WriteToShell(line + "\r");
+            await WaitForShellQuietAsync(mustBeAfterTicks, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async Task WaitForShellQuietAsync(long mustBeAfterTicks, CancellationToken cancellationToken)
+    {
+        var startedAt = Environment.TickCount64;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ThrowIfShellFailed();
+
+            var lastData = Interlocked.Read(ref _lastShellDataTicks);
+            var now = Environment.TickCount64;
+            if (lastData != 0
+                && lastData >= mustBeAfterTicks
+                && now - lastData >= LoginQuietMilliseconds)
+                return;
+            if (now - startedAt >= LoginStepTimeoutSeconds * 1000L)
+                return;
+
+            await Task.Delay(50, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private void OnShellData(object? sender, ShellDataEventArgs e)
+    {
+        Interlocked.Exchange(ref _lastShellDataTicks, Environment.TickCount64);
+        Volatile.Read(ref _activePayloadMonitor)?.Append(e.Data);
+    }
+
+    private void OnShellError(object? sender, ExceptionEventArgs e) => FailShell(e.Exception);
+
+    private void OnShellClosed(object? sender, EventArgs e) =>
+        FailShell(new InvalidOperationException("Server monitor shell closed."));
+
+    private void FailShell(Exception exception)
+    {
+        Volatile.Write(ref _shellFailure, exception);
+        Volatile.Read(ref _activePayloadMonitor)?.Fail(exception);
+    }
+
+    private void ThrowIfShellFailed()
+    {
+        if (Volatile.Read(ref _shellFailure) is { } failure)
+            throw new InvalidOperationException("Server monitor shell is unavailable.", failure);
+    }
+
+    private void WriteToShell(string text)
+    {
+        ThrowIfShellFailed();
+        var shell = _shell ?? throw new InvalidOperationException("Server monitor shell is not open.");
+        var bytes = Encoding.UTF8.GetBytes(text);
+        shell.Write(bytes, 0, bytes.Length);
+        shell.Flush();
+    }
+
+    private void ReleaseShell()
+    {
+        var shell = _shell;
+        _shell = null;
+        var monitor = Interlocked.Exchange(ref _activePayloadMonitor, null);
+        monitor?.Fail(new OperationCanceledException("Server monitor shell was closed."));
+        if (shell is null)
+            return;
+
+        shell.DataReceived -= OnShellData;
+        shell.ErrorOccurred -= OnShellError;
+        shell.Closed -= OnShellClosed;
+        try { shell.Dispose(); } catch { /* already broken */ }
+        _shellFailure = null;
     }
 
     private void ResetDeltas()
@@ -228,23 +388,42 @@ public sealed class ServerMonitorSession : IDisposable
     }
 
     private async Task<ServerMonitorSnapshot> SampleAsync(
-        SharedSshClient client,
         bool heavy,
         CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(ExecTimeoutSeconds));
+        timeout.CancelAfter(TimeSpan.FromSeconds(SampleTimeoutSeconds));
 
-        string output;
+        var payload = InteractiveShellPayloadRunner.Build(heavy ? HeavyCommand : LightCommand);
+        var monitor = new InteractiveShellPayloadMonitor(payload);
+        if (Interlocked.CompareExchange(ref _activePayloadMonitor, monitor, null) is not null)
+            throw new InvalidOperationException("A server monitor sample is already running.");
+
         var clock = Stopwatch.StartNew();
-        using (var command = client.Client.CreateCommand(heavy ? HeavyCommand : LightCommand))
+        InteractiveShellPayloadResult result;
+        try
         {
-            await command.ExecuteAsync(timeout.Token).ConfigureAwait(false);
-            output = command.Result;
+            result = await InteractiveShellPayloadRunner.RunAsync(
+                payload,
+                monitor,
+                WriteToShell,
+                timeout.Token).ConfigureAwait(false);
+        }
+        catch
+        {
+            try { WriteToShell(InteractiveShellPayloadRunner.RestoreEchoCommand); } catch { /* broken shell */ }
+            throw;
+        }
+        finally
+        {
+            Interlocked.CompareExchange(ref _activePayloadMonitor, null, monitor);
         }
         clock.Stop();
 
-        var sections = SplitSections(output);
+        if (result.ExitCode != 0)
+            throw new InvalidOperationException($"Monitor command exited with code {result.ExitCode}.");
+
+        var sections = SplitSections(result.Output);
         if (sections.Count == 0)
             throw new InvalidOperationException("Monitor command produced no recognizable output.");
 
@@ -280,6 +459,7 @@ public sealed class ServerMonitorSession : IDisposable
     /// the first marker (login banners, motd fragments) are ignored.</summary>
     internal static Dictionary<string, List<string>> SplitSections(string output)
     {
+        output = AnsiAndControlChars.Replace(output, string.Empty);
         var sections = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         List<string>? current = null;
 
