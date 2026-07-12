@@ -329,3 +329,19 @@ MonitorDisks	Disks	磁盘
 MonitorWaitingForConnection	Waiting for connection…	等待连接…
 MonitorUnavailable	Monitor data unavailable on this server	无法获取该服务器的监控数据
 MonitorRetry	Retry	重试
+BatchRunTargets	Run on {0} servers	在 {0} 台服务器上运行
+BatchScriptReady	Choose a script to run on all {0} servers.	选择要在 {0} 台服务器上运行的脚本。
+BatchTargetPending	Waiting	等待中
+BatchTargetConnecting	Connecting…	连接中…
+BatchTargetRunning	Running…	运行中…
+BatchTargetSucceeded	Succeeded in {0}	成功，用时 {0}
+BatchTargetFailed	Failed with exit code {0} ({1})	失败，退出码 {0}（用时 {1}）
+BatchTargetSkipped	Skipped: {0}	已跳过：{0}
+BatchTargetCanceled	Canceled	已取消
+BatchStatusProgress	{0}/{1} finished	已完成 {0}/{1}
+BatchStatusSummary	{0} succeeded, {1} failed	{0} 台成功，{1} 台失败
+BatchCancel	Cancel all	全部取消
+BatchOpenTerminal	Show terminal	查看终端
+StatusBatchScriptRunning	Running {0} on {1} servers…	正在 {1} 台服务器上运行 {0}…
+StatusBatchScriptSucceeded	{0} succeeded on all {1} servers	{0} 在全部 {1} 台服务器上运行成功
+StatusBatchScriptFailed	{0} failed on {1} servers	{0} 在 {1} 台服务器上运行失败

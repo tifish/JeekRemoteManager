@@ -126,6 +126,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsRegularConnectionContext))]
     [NotifyPropertyChangedFor(nameof(IsSshConnectionContext))]
     [NotifyPropertyChangedFor(nameof(IsShellConnectionContext))]
+    [NotifyPropertyChangedFor(nameof(IsShellSelectionContext))]
     private TreeNodeViewModel? _selectedNode;
 
     /// <summary>True when the next SelectedNode assignment is a right-click target
@@ -144,6 +145,11 @@ public partial class MainWindowViewModel : ViewModelBase
         _selectedNodes.Clear();
         _selectedNodes.AddRange(nodes);
 
+        // A finished batch panel is dismissed by moving on to a single node; a
+        // running one stays visible so its progress is not lost.
+        if (_selectedNodes.Count <= 1 && BatchPanel is { IsRunning: false })
+            BatchPanel = null;
+
         OnPropertyChanged(nameof(HasMultiSelection));
         OnPropertyChanged(nameof(IsRecentGroupContext));
         OnPropertyChanged(nameof(IsRecentConnectionContext));
@@ -151,6 +157,7 @@ public partial class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsRegularConnectionContext));
         OnPropertyChanged(nameof(IsSshConnectionContext));
         OnPropertyChanged(nameof(IsShellConnectionContext));
+        OnPropertyChanged(nameof(IsShellSelectionContext));
         OnPropertyChanged(nameof(ShowConnectionEditor));
         OnPropertyChanged(nameof(ShowPlaceholder));
         OnPropertyChanged(nameof(PlaceholderHint));
@@ -226,6 +233,14 @@ public partial class MainWindowViewModel : ViewModelBase
         !HasMultiSelection
         && SelectedNode is { IsConnection: true, Connection: { Type: ConnectionType.Ssh or ConnectionType.Wsl } };
 
+    /// <summary>True when every selected node (single or multi) is a connection
+    /// whose terminal can run scripts — gates the Run Script menu item, which
+    /// batches over the whole selection.</summary>
+    public bool IsShellSelectionContext => HasMultiSelection
+        ? _selectedNodes.All(n =>
+            n is { IsConnection: true, Connection.Type: ConnectionType.Ssh or ConnectionType.Wsl })
+        : IsShellConnectionContext;
+
     /// <summary>Human-readable description of where New/Paste will create items.</summary>
     public string TargetDescription
     {
@@ -273,12 +288,23 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public bool HasScriptExecution => ScriptPanel is not null;
 
+    /// <summary>Batch script run over the tree multi-selection, shown in the
+    /// editor tab in place of the connection editor while open.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowBatchPanel))]
+    [NotifyPropertyChangedFor(nameof(ShowConnectionEditor))]
+    [NotifyPropertyChangedFor(nameof(ShowPlaceholder))]
+    private BatchScriptPanelViewModel? _batchPanel;
+
+    public bool ShowBatchPanel => BatchPanel is not null;
+
     // With a multi-selection the editor is hidden (it would only edit the anchor
     // node, which reads as "edits apply to all selected") and the placeholder
-    // shows the selection count instead.
-    public bool ShowConnectionEditor => Editor is not null && !HasMultiSelection;
+    // shows the selection count instead. An open batch script panel takes over
+    // the editor tab entirely.
+    public bool ShowConnectionEditor => Editor is not null && !HasMultiSelection && BatchPanel is null;
 
-    public bool ShowPlaceholder => !ShowConnectionEditor;
+    public bool ShowPlaceholder => !ShowConnectionEditor && !ShowBatchPanel;
 
     /// <summary>Hint line of the editor-tab placeholder: the multi-selection
     /// count while one is active, otherwise the "select a connection" prompt.</summary>
@@ -307,6 +333,11 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>Returns an SSH terminal tab for script execution, reusing an open
     /// terminal for the same connection file when possible.</summary>
     public Func<Connection, string?, Task<TerminalScriptSession?>>? EnsureSshTerminalAsync { get; set; }
+
+    /// <summary>Like <see cref="EnsureSshTerminalAsync"/>, but does not bring the
+    /// tab to the front — batch runs open many terminals while the user watches
+    /// the aggregate panel.</summary>
+    public Func<Connection, string?, Task<TerminalScriptSession?>>? EnsureSshTerminalQuietlyAsync { get; set; }
 
     /// <summary>Prompts the user to trust a first-seen SSH host key (set by the view).
     /// (host, port, keyType, sha256Fingerprint) =&gt; trust?. Blocks the calling thread,
@@ -2215,6 +2246,207 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool CanRunScriptFile(RemoteScriptFile? scriptFile) =>
         ScriptPanel is not { IsRunning: true }
         && _scriptContext?.Terminal is not { IsScriptRunning: true };
+
+    // --- Batch script run over the tree multi-selection ---
+
+    // Caps how many servers connect and run at once; the rest queue up.
+    private const int BatchScriptMaxConcurrency = 8;
+
+    // Targets captured when the script-suite chooser opens, consumed by
+    // OpenBatchScriptSuiteChoice. Deduplicated by connection file path.
+    private List<TreeNodeViewModel> _batchScriptNodes = new();
+
+    /// <summary>
+    /// Collects the script-capable connections of the current multi-selection and
+    /// returns the suite choices for them (a suite counts as "bound" when any
+    /// target has saved parameters for it). Empty when fewer than two distinct
+    /// connections qualify.
+    /// </summary>
+    public IReadOnlyList<ScriptSuiteChoiceViewModel> PrepareBatchScriptSuiteChoices()
+    {
+        FlushPendingAutoSave();
+
+        var targets = new List<TreeNodeViewModel>();
+        foreach (var node in EffectiveSelection())
+        {
+            if (node is not
+                {
+                    IsConnection: true,
+                    IsNameEditing: false,
+                    Connection.Type: ConnectionType.Ssh or ConnectionType.Wsl,
+                })
+            {
+                continue;
+            }
+
+            // A Recent shadow and its real node share the connection file.
+            if (targets.Any(t => PathEquals(t.FullPath, node.FullPath)))
+                continue;
+
+            targets.Add(node);
+        }
+
+        if (targets.Count < 2)
+            return Array.Empty<ScriptSuiteChoiceViewModel>();
+
+        ReloadScripts();
+        if (ScriptSuites.Count == 0)
+        {
+            StatusMessage = L("StatusNoScripts", $"{_scriptStore.BuiltInRootPath}; {_scriptStore.RootPath}");
+            return Array.Empty<ScriptSuiteChoiceViewModel>();
+        }
+
+        _batchScriptNodes = targets;
+        return SortScriptSuiteChoices(
+            ScriptSuites,
+            targets.SelectMany(t => t.Connection!.ScriptBindings));
+    }
+
+    /// <summary>Opens the batch panel for the chosen suite on the targets captured
+    /// by <see cref="PrepareBatchScriptSuiteChoices"/>.</summary>
+    public void OpenBatchScriptSuiteChoice(ScriptSuiteChoiceViewModel? choice)
+    {
+        if (choice is null || _batchScriptNodes.Count == 0)
+            return;
+
+        var targets = new ObservableCollection<BatchScriptTargetViewModel>(
+            _batchScriptNodes.Select(n => new BatchScriptTargetViewModel(n.Connection!, n.FullPath)));
+
+        BatchScriptPanelViewModel? panel = null;
+        panel = new BatchScriptPanelViewModel(
+            choice.Suite,
+            targets,
+            scriptFile => RunBatchScriptFileAsync(panel!, scriptFile),
+            () =>
+            {
+                if (ReferenceEquals(BatchPanel, panel))
+                    BatchPanel = null;
+            });
+        BatchPanel = panel;
+        StatusMessage = L("StatusScriptSuiteOpened", choice.Suite.Name);
+    }
+
+    private async Task RunBatchScriptFileAsync(BatchScriptPanelViewModel panel, RemoteScriptFile scriptFile)
+    {
+        if (panel.IsRunning)
+            return;
+
+        var ensureTerminal = EnsureSshTerminalQuietlyAsync ?? EnsureSshTerminalAsync;
+        if (ensureTerminal is null)
+        {
+            panel.StatusText = Localizer.Get("StatusScriptTerminalUnavailable");
+            return;
+        }
+
+        var displayName = $"{panel.SuiteName}/{scriptFile.DisplayName}";
+        using var cts = new CancellationTokenSource();
+        panel.Cts = cts;
+        panel.IsRunning = true;
+        panel.BeginRun();
+        StatusMessage = L("StatusBatchScriptRunning", displayName, panel.Targets.Count);
+
+        try
+        {
+            using var slots = new SemaphoreSlim(BatchScriptMaxConcurrency);
+            await Task.WhenAll(panel.Targets.Select(target =>
+                RunBatchTargetAsync(panel, target, scriptFile, ensureTerminal, slots, cts.Token)));
+
+            var succeeded = panel.Targets.Count(t => t.State == BatchScriptTargetState.Succeeded);
+            var failed = panel.Targets.Count - succeeded;
+            panel.StatusText = L("BatchStatusSummary", succeeded, failed);
+            StatusMessage = failed == 0
+                ? L("StatusBatchScriptSucceeded", displayName, succeeded)
+                : L("StatusBatchScriptFailed", displayName, failed);
+        }
+        finally
+        {
+            panel.IsRunning = false;
+            panel.Cts = null;
+        }
+    }
+
+    private async Task RunBatchTargetAsync(
+        BatchScriptPanelViewModel panel,
+        BatchScriptTargetViewModel target,
+        RemoteScriptFile scriptFile,
+        Func<Connection, string?, Task<TerminalScriptSession?>> ensureTerminal,
+        SemaphoreSlim slots,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Each server runs with its own saved parameters; a target whose
+            // binding does not validate is skipped instead of failing the batch.
+            var binding = ResolveBatchScriptBinding(panel.Suite, target.Connection);
+            var errors = RemoteScriptLauncher.ValidateBinding(panel.Suite, binding);
+            if (errors.Count > 0)
+            {
+                target.SetState(BatchScriptTargetState.Skipped, L("BatchTargetSkipped", errors[0]));
+                return;
+            }
+
+            await slots.WaitAsync(cancellationToken);
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                target.SetState(BatchScriptTargetState.Connecting, L("BatchTargetConnecting"));
+
+                var terminal = await ensureTerminal(target.Connection, target.SourcePath)
+                    ?? throw new InvalidOperationException(Localizer.Get("StatusScriptTerminalUnavailable"));
+                target.Terminal = terminal;
+
+                if (terminal.IsScriptRunning)
+                {
+                    target.SetState(BatchScriptTargetState.Skipped, Localizer.Get("StatusScriptAlreadyRunning"));
+                    return;
+                }
+
+                await terminal.WaitUntilConnectedAsync(cancellationToken);
+                target.SetState(BatchScriptTargetState.Running, L("BatchTargetRunning"));
+
+                var result = await terminal.RunScriptAsync(panel.Suite, scriptFile, binding, cancellationToken);
+                var duration = FormatScriptDuration(result.FinishedAt - result.StartedAt);
+                if (result.ExitCode == 0)
+                    target.SetState(BatchScriptTargetState.Succeeded, L("BatchTargetSucceeded", duration));
+                else
+                    target.SetState(BatchScriptTargetState.Failed, L("BatchTargetFailed", result.ExitCode, duration));
+            }
+            finally
+            {
+                slots.Release();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            target.SetState(BatchScriptTargetState.Canceled, L("BatchTargetCanceled"));
+        }
+        catch (Exception ex)
+        {
+            target.SetState(BatchScriptTargetState.Failed, ex.Message);
+        }
+        finally
+        {
+            panel.ReportTargetFinished();
+        }
+    }
+
+    /// <summary>The connection's saved parameters for the suite (cloned, secrets
+    /// left protected — payload building decrypts them), or an empty binding that
+    /// falls back to the suite's defaults.</summary>
+    private static ConnectionScriptBinding ResolveBatchScriptBinding(RemoteScriptSuite suite, Connection connection)
+    {
+        var stored = connection.ScriptBindings.LastOrDefault(b =>
+            string.Equals(
+                RemoteScriptSuiteNames.NormalizeBindingName(b.Name),
+                suite.RelativePath,
+                StringComparison.OrdinalIgnoreCase));
+        if (stored is null)
+            return new ConnectionScriptBinding { Name = suite.RelativePath };
+
+        var binding = RemoteScriptLauncher.CloneBinding(stored);
+        binding.Name = suite.RelativePath;
+        return binding;
+    }
 
     private ConnectionScriptBinding? SaveScriptPanelBinding(bool flushImmediately = false)
     {

@@ -4,6 +4,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="using:JeekRemoteManager.ViewModels"
         xmlns:models="using:JeekRemoteManager.Models"
+        xmlns:views="using:JeekRemoteManager.Views"
         xmlns:l="using:Jeek.Avalonia.Localization"
         mc:Ignorable="d" d:DesignWidth="1040" d:DesignHeight="680"
         x:Class="JeekRemoteManager.Views.MainWindow"
@@ -710,7 +711,7 @@
                                     </MenuItem>
                                     <MenuItem Header="{l:Localize RunScript}"
                                               Click="OnRunScriptMenuClick"
-                                              IsVisible="{Binding IsShellConnectionContext}">
+                                              IsVisible="{Binding IsShellSelectionContext}">
                                         <MenuItem.Icon>
                                             <TextBlock Classes="menu-icon script" Text="&#xE756;" />
                                         </MenuItem.Icon>
@@ -828,7 +829,7 @@
                                     </MenuItem.Icon>
                                 </MenuItem>
                                 <MenuItem Header="{l:Localize RunScript}" Click="OnRunScriptMenuClick"
-                                          IsVisible="{Binding IsShellConnectionContext}">
+                                          IsVisible="{Binding IsShellSelectionContext}">
                                     <MenuItem.Icon>
                                         <TextBlock Classes="menu-icon script" Text="&#xE756;" />
                                     </MenuItem.Icon>
@@ -1185,6 +1186,16 @@
                                 </StackPanel>
                             </ScrollViewer>
                         </Grid>
+                    </DataTemplate>
+                </ContentControl.DataTemplates>
+            </ContentControl>
+
+            <!-- Batch script run over the multi-selection -->
+            <ContentControl Content="{Binding BatchPanel}"
+                            IsVisible="{Binding ShowBatchPanel}">
+                <ContentControl.DataTemplates>
+                    <DataTemplate DataType="vm:BatchScriptPanelViewModel">
+                        <views:BatchScriptPanelView />
                     </DataTemplate>
                 </ContentControl.DataTemplates>
             </ContentControl>

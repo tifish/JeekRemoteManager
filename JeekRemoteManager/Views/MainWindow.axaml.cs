@@ -161,6 +161,8 @@ public partial class MainWindow : Window
             _ = await EnsureSshTerminalAsync(connection, sourcePath, forceNew: true);
         };
         vm.EnsureSshTerminalAsync = EnsureSshTerminalAsync;
+        vm.EnsureSshTerminalQuietlyAsync = (connection, sourcePath) =>
+            EnsureSshTerminalAsync(connection, sourcePath, forceNew: false, select: false);
         vm.ApplyTerminalFontSize = ApplyTerminalFontToOpenTabs;
         vm.ConfirmHostKeyTrust = HostKeyDialog.PromptTrust;
         vm.RequestFocusTree = FocusSelectedTreeItem;
@@ -386,7 +388,11 @@ public partial class MainWindow : Window
     private Task<TerminalScriptSession?> EnsureSshTerminalAsync(Connection connection, string? sourcePath) =>
         EnsureSshTerminalAsync(connection, sourcePath, forceNew: false);
 
-    private Task<TerminalScriptSession?> EnsureSshTerminalAsync(Connection connection, string? sourcePath, bool forceNew)
+    private Task<TerminalScriptSession?> EnsureSshTerminalAsync(
+        Connection connection,
+        string? sourcePath,
+        bool forceNew,
+        bool select = true)
     {
         if (!forceNew)
         {
@@ -395,8 +401,11 @@ public partial class MainWindow : Window
             {
                 if (existing.Value.View.CanReuseSession)
                 {
-                    RightTabs.SelectedItem = existing.Value.Tab;
-                    existing.Value.View.FocusTerminal();
+                    if (select)
+                    {
+                        RightTabs.SelectedItem = existing.Value.Tab;
+                        existing.Value.View.FocusTerminal();
+                    }
                     return Task.FromResult<TerminalScriptSession?>(CreateTerminalScriptSession(existing.Value.View, existing.Value.Tab));
                 }
 
@@ -405,12 +414,12 @@ public partial class MainWindow : Window
             }
         }
 
-        var (view, tab) = CreateTerminalTab(connection, sourcePath);
+        var (view, tab) = CreateTerminalTab(connection, sourcePath, select);
         view.Start(connection, sourcePath);
         return Task.FromResult<TerminalScriptSession?>(CreateTerminalScriptSession(view, tab));
     }
 
-    private (TerminalView View, TabItem Tab) CreateTerminalTab(Connection connection, string? sourcePath)
+    private (TerminalView View, TabItem Tab) CreateTerminalTab(Connection connection, string? sourcePath, bool select = true)
     {
         var sessionNumber = NextTerminalSessionNumber(connection, sourcePath);
         var view = new TerminalView();
@@ -435,7 +444,8 @@ public partial class MainWindow : Window
         tab.DoubleTapped += (_, _) => CloseTerminalTab(tab);
 
         RightTabs.Items.Add(tab);
-        RightTabs.SelectedItem = tab;
+        if (select)
+            RightTabs.SelectedItem = tab;
 
         view.SetFontSize((DataContext as MainWindowViewModel)?.TerminalFontSize ?? 14);
         return (view, tab);
@@ -1037,6 +1047,38 @@ public partial class MainWindow : Window
         if (DataContext is not MainWindowViewModel vm || sender is not Control anchor)
             return;
 
+        // A multi-selection runs the chosen suite on every selected connection
+        // (each in its own terminal tab) with the batch panel aggregating status.
+        if (vm.HasMultiSelection)
+        {
+            var batchChoices = vm.PrepareBatchScriptSuiteChoices();
+            if (batchChoices.Count == 0)
+                return;
+
+            if (batchChoices.Count == 1)
+            {
+                OpenBatchScriptPanel(vm, batchChoices[0]);
+                e.Handled = true;
+                return;
+            }
+
+            var batchFlyout = new MenuFlyout();
+            foreach (var choice in batchChoices)
+            {
+                var item = new MenuItem
+                {
+                    Header = choice.ToString(),
+                    Icon = CreateMenuIcon("\uE756", "script"),
+                };
+                item.Click += (_, _) => OpenBatchScriptPanel(vm, choice);
+                batchFlyout.Items.Add(item);
+            }
+
+            ShowScriptSuiteFlyout(batchFlyout, anchor);
+            e.Handled = true;
+            return;
+        }
+
         if (vm.SelectedNode is not { IsConnection: true, Connection: not null } node)
             return;
 
@@ -1066,8 +1108,35 @@ public partial class MainWindow : Window
             flyout.Items.Add(item);
         }
 
-        flyout.ShowAt(anchor);
+        ShowScriptSuiteFlyout(flyout, anchor);
         e.Handled = true;
+    }
+
+    /// <summary>
+    /// Shows a script-suite chooser flyout. A click on a context-menu item closes
+    /// the menu — and a flyout anchored to the disappearing item never shows — so
+    /// in that case the flyout is deferred a beat and re-anchored to the selected
+    /// tree row (falling back to the tree itself).
+    /// </summary>
+    private void ShowScriptSuiteFlyout(MenuFlyout flyout, Control anchor)
+    {
+        if (anchor.FindAncestorOfType<ContextMenu>(includeSelf: true) is null)
+        {
+            flyout.ShowAt(anchor);
+            return;
+        }
+
+        var target = Tree.SelectedItem is { } selected
+            ? (Control?)FindTreeViewItem(Tree, selected) ?? Tree
+            : Tree;
+        Dispatcher.UIThread.Post(() => flyout.ShowAt(target));
+    }
+
+    private void OpenBatchScriptPanel(MainWindowViewModel vm, ScriptSuiteChoiceViewModel choice)
+    {
+        vm.OpenBatchScriptSuiteChoice(choice);
+        if (vm.BatchPanel is not null)
+            RightTabs.SelectedItem = EditorTab;
     }
 
     private async Task OpenScriptPanelInNewTerminalAsync(TreeNodeViewModel node, ScriptSuiteChoiceViewModel choice)

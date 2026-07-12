@@ -1,0 +1,128 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:JeekRemoteManager.ViewModels"
+             xmlns:models="using:JeekRemoteManager.Models"
+             xmlns:l="using:Jeek.Avalonia.Localization"
+             x:Class="JeekRemoteManager.Views.BatchScriptPanelView"
+             x:DataType="vm:BatchScriptPanelViewModel">
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="12" Margin="14,12,16,14">
+
+        <!-- Header: suite name + cancel/close -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+            <StackPanel Spacing="2">
+                <TextBlock Classes="page-title" Text="{Binding SuiteName}" />
+                <TextBlock Classes="hint" Text="{Binding TargetSummary}" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
+                <Button Classes="toolbar"
+                        Content="{l:Localize BatchCancel}"
+                        Command="{Binding CancelCommand}"
+                        IsVisible="{Binding IsRunning}" />
+                <Button Classes="toolbar icon-button"
+                        ToolTip.Tip="{l:Localize Close}"
+                        Command="{Binding CloseCommand}">
+                    <TextBlock Classes="icon"
+                               Text="&#xE711;"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               TextAlignment="Center" />
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <!-- Script buttons -->
+        <Border Grid.Row="1" Classes="form-card">
+            <ItemsControl ItemsSource="{Binding Scripts}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="models:RemoteScriptFile">
+                        <Button Classes="toolbar"
+                                Margin="0,0,8,0"
+                                Command="{Binding $parent[ItemsControl].((vm:BatchScriptPanelViewModel)DataContext).RunScriptCommand}"
+                                CommandParameter="{Binding}">
+                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                <TextBlock Classes="toolbar-action-icon script" Text="&#xE756;" />
+                                <TextBlock Text="{Binding DisplayName}" />
+                            </StackPanel>
+                        </Button>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </Border>
+
+        <!-- Per-server status rows -->
+        <Border Grid.Row="2" Classes="form-card" Padding="4">
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                          VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding Targets}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="vm:BatchScriptTargetViewModel">
+                            <Grid ColumnDefinitions="24,180,*,Auto" ColumnSpacing="10" Margin="8,5">
+                                <Grid Grid.Column="0" Width="20" Height="20" VerticalAlignment="Center">
+                                    <TextBlock Classes="icon"
+                                               Text="&#xE823;"
+                                               Foreground="{DynamicResource TextMutedBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
+                                               IsVisible="{Binding ShowPendingIcon}" />
+                                    <TextBlock Classes="icon"
+                                               Text="&#xE895;"
+                                               Foreground="{DynamicResource AccentBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
+                                               IsVisible="{Binding ShowBusyIcon}" />
+                                    <TextBlock Classes="icon"
+                                               Text="&#xE73E;"
+                                               Foreground="{DynamicResource SuccessBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
+                                               IsVisible="{Binding ShowSuccessIcon}" />
+                                    <TextBlock Classes="icon"
+                                               Text="&#xE711;"
+                                               Foreground="{DynamicResource DangerBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
+                                               IsVisible="{Binding ShowFailureIcon}" />
+                                    <TextBlock Classes="icon"
+                                               Text="&#xE7BA;"
+                                               Foreground="{DynamicResource TextMutedBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
+                                               IsVisible="{Binding ShowSkippedIcon}" />
+                                </Grid>
+                                <TextBlock Grid.Column="1"
+                                           Text="{Binding Name}"
+                                           FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="2"
+                                           Classes="hint"
+                                           Text="{Binding StatusText}"
+                                           TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center" />
+                                <Button Grid.Column="3"
+                                        Classes="toolbar icon-button"
+                                        ToolTip.Tip="{l:Localize BatchOpenTerminal}"
+                                        Command="{Binding ActivateCommand}">
+                                    <TextBlock Classes="icon"
+                                               Text="&#xE768;"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               TextAlignment="Center" />
+                                </Button>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
+
+        <!-- Aggregate status line -->
+        <TextBlock Grid.Row="3"
+                   Classes="hint"
+                   Text="{Binding StatusText}"
+                   FontSize="14"
+                   FontWeight="SemiBold"
+                   Foreground="{DynamicResource TextPrimaryBrush}" />
+    </Grid>
+</UserControl>
