@@ -190,6 +190,16 @@ try
     Check(AiCommandTerminalText.NormalizeForTerminalEcho("echo one\necho two\r\necho three\r") == "echo one\r\necho two\r\necho three",
           "AI command echo uses terminal CRLF line breaks");
 
+    var resizeOutput = new TerminalResizeOutputBuffer();
+    resizeOutput.Start();
+    Check(resizeOutput.TryAppend("\r"u8) && resizeOutput.TryAppend("user@host:~$ "u8)
+          && resizeOutput.IsActive && resizeOutput.PendingByteCount == 14,
+          "Terminal resize output buffers split prompt redraw packets");
+    Check(Encoding.UTF8.GetString(resizeOutput.StopAndDrain()) == "\ruser@host:~$ "
+          && !resizeOutput.IsActive && resizeOutput.PendingByteCount == 0
+          && !resizeOutput.TryAppend("later"u8),
+          "Terminal resize output drains atomically and then resumes direct display");
+
     // --- AI panel conversation reset ---
     var aiVm = new AgentChatViewModel(
         [

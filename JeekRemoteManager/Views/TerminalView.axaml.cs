@@ -32,6 +32,10 @@ namespace JeekRemoteManager.Views;
 /// </summary>
 public partial class TerminalView : UserControl
 {
+    private const int ResizeOutputInitialWaitMs = 500;
+    private const int ResizeOutputQuietPeriodMs = 150;
+    private const int ResizeOutputHardLimitMs = 800;
+
     private readonly TerminalControlModel _model = new(new TerminalOptions
     {
         Cols = 120,
@@ -75,6 +79,9 @@ public partial class TerminalView : UserControl
     private int _lastFedCursorRow;
     private DispatcherTimer? _windowSizeSyncTimer;
     private (uint Cols, uint Rows)? _lastSentWindowSize;
+    private readonly TerminalResizeOutputBuffer _resizeOutputBuffer = new();
+    private Timer? _resizeOutputFlushTimer;
+    private long _resizeOutputDeadlineTicks;
     private string? _pendingKeyboardCopyText;
     private AgentChatViewModel? _aiViewModel;
     private double _aiPanelWidth = 380;
@@ -336,6 +343,12 @@ public partial class TerminalView : UserControl
     public bool IsAiPanelOpen => AiPanelHost.IsVisible;
 
     public bool IsFileBrowserPanelOpen => FileBrowserHost.IsVisible;
+
+    // Exposed through the generic Debug MCP object-path tools so resize behavior
+    // can be checked against a running terminal without changing production UI.
+    public bool IsResizeOutputCoalescing => _resizeOutputBuffer.IsActive;
+
+    public int PendingResizeOutputByteCount => _resizeOutputBuffer.PendingByteCount;
 
     /// <summary>Shows or hides the AI assistant side panel for this terminal, creating its
     /// per-connection chat session on first open.</summary>
@@ -1646,6 +1659,30 @@ public partial class TerminalView : UserControl
         if (data.Length == 0)
             return;
 
+        if (_resizeOutputBuffer.TryAppend(data))
+        {
+            // Resize-triggered prompt redraws normally arrive immediately, but may
+            // be split across several SSH packets. Wait for a short quiet period so
+            // the carriage return and replacement prompt are rendered atomically.
+            // The absolute deadline keeps continuous command output from being held.
+            var remaining = Volatile.Read(ref _resizeOutputDeadlineTicks) - Environment.TickCount64;
+            if (remaining <= 0)
+                FlushResizeOutputBuffer();
+            else
+                _resizeOutputFlushTimer?.Change(
+                    (int)Math.Min(ResizeOutputQuietPeriodMs, remaining),
+                    Timeout.Infinite);
+            return;
+        }
+
+        FeedBytesDirect(data);
+    }
+
+    private void FeedBytesDirect(byte[] data)
+    {
+        if (data.Length == 0)
+            return;
+
         Dispatcher.UIThread.Post(() =>
         {
             if (_disposed)
@@ -1991,12 +2028,32 @@ public partial class TerminalView : UserControl
             if (_lastSentWindowSize == (cols, rows))
                 return;
             _lastSentWindowSize = (cols, rows);
+            BeginResizeOutputCoalescing();
             channel.Resize(cols, rows);
         }
         catch
         {
             // Ignore resize failures on a closing stream.
         }
+    }
+
+    private void BeginResizeOutputCoalescing()
+    {
+        _resizeOutputBuffer.Start();
+        _resizeOutputFlushTimer ??= new Timer(_ => FlushResizeOutputBuffer());
+        // Allow for a remote round trip, while placing a firm upper bound on how
+        // long unrelated live output can be delayed by a resize.
+        Volatile.Write(
+            ref _resizeOutputDeadlineTicks,
+            Environment.TickCount64 + ResizeOutputHardLimitMs);
+        _resizeOutputFlushTimer.Change(ResizeOutputInitialWaitMs, Timeout.Infinite);
+    }
+
+    private void FlushResizeOutputBuffer()
+    {
+        Volatile.Write(ref _resizeOutputDeadlineTicks, 0);
+        var data = _resizeOutputBuffer.StopAndDrain();
+        FeedBytesDirect(data);
     }
 
     private void FeedLine(string text)
@@ -2029,6 +2086,8 @@ public partial class TerminalView : UserControl
         _activeZmodemQueue?.Complete(new ObjectDisposedException(nameof(TerminalView)));
         _activeZmodemTrace?.Dispose();
         _zmodemDetectionFlushTimer?.Dispose();
+        _resizeOutputFlushTimer?.Dispose();
+        _resizeOutputBuffer.StopAndDrain();
         _windowSizeSyncTimer?.Stop();
         Interlocked.Exchange(ref _pendingSharedClient, null)?.Release();
         DisposeTransport();
