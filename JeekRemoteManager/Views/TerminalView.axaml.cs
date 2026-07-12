@@ -318,6 +318,16 @@ public partial class TerminalView : UserControl
         ScriptPanelOverlay.IsVisible = false;
     }
 
+    /// <summary>Raised when one of the side panels (monitor, AI, file browser) is
+    /// shown or hidden, so the main window can refresh its toggle-button states.</summary>
+    public event EventHandler? PanelStateChanged;
+
+    public bool IsMonitorPanelOpen => MonitorPanelHost.IsVisible;
+
+    public bool IsAiPanelOpen => AiPanelHost.IsVisible;
+
+    public bool IsFileBrowserPanelOpen => FileBrowserHost.IsVisible;
+
     /// <summary>Shows or hides the AI assistant side panel for this terminal, creating its
     /// per-connection chat session on first open.</summary>
     public void ToggleAiPanel()
@@ -331,6 +341,7 @@ public partial class TerminalView : UserControl
 
         AiPanelHost.IsVisible = show;
         ApplyAiPanelLayout();
+        PanelStateChanged?.Invoke(this, EventArgs.Empty);
 
         if (show)
             Dispatcher.UIThread.Post(() => AiPanel.FocusInput(), DispatcherPriority.Background);
@@ -353,6 +364,7 @@ public partial class TerminalView : UserControl
 
         FileBrowserHost.IsVisible = show;
         FileSplitter.IsVisible = show;
+        PanelStateChanged?.Invoke(this, EventArgs.Empty);
 
         if (show)
         {
@@ -466,6 +478,7 @@ public partial class TerminalView : UserControl
 
         MonitorPanelHost.IsVisible = show;
         MonitorSplitter.IsVisible = show;
+        PanelStateChanged?.Invoke(this, EventArgs.Empty);
 
         if (show)
         {

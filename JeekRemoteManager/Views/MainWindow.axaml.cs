@@ -406,6 +406,7 @@ public partial class MainWindow : Window
     {
         var sessionNumber = NextTerminalSessionNumber(connection, sourcePath);
         var view = new TerminalView();
+        view.PanelStateChanged += (_, _) => UpdateTerminalPanelToggleStates();
         var tab = new TabItem
         {
             Header = BuildTerminalTabHeader(connection, sessionNumber, out var closeButton),
@@ -940,7 +941,23 @@ public partial class MainWindow : Window
         if (DataContext is MainWindowViewModel vm)
             vm.IsTerminalActive = view is not null;
 
+        UpdateTerminalPanelToggleStates();
         view?.FocusTerminal();
+    }
+
+    /// <summary>Syncs the monitor/AI/file-browser toolbar buttons' "on" highlight
+    /// with the active terminal tab's panel visibility.</summary>
+    private void UpdateTerminalPanelToggleStates()
+    {
+        // Can run during XAML init (the TabControl auto-selects its first tab)
+        // before the named controls are assigned.
+        if (RightTabs is null || MonitorToolbarButton is null)
+            return;
+
+        var view = RightTabs.SelectedItem is TabItem { Content: TerminalView v } ? v : null;
+        MonitorToolbarButton.Classes.Set("panel-on", view?.IsMonitorPanelOpen == true);
+        AiPanelToolbarButton.Classes.Set("panel-on", view?.IsAiPanelOpen == true);
+        FileBrowserToolbarButton.Classes.Set("panel-on", view?.IsFileBrowserPanelOpen == true);
     }
 
     // The right-click already selected the connection, which binds its editor.

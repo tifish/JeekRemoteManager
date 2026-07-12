@@ -441,13 +441,15 @@
         <Style Selector="Grid#CommandBar.compact TextBlock.toolbar-label">
             <Setter Property="IsVisible" Value="False" />
         </Style>
-        <!-- Connection panel toggle: reads as an "on" toggle while the panel is
-             visible, so the two states are obvious at a glance. -->
+        <!-- Panel toggle buttons: read as an "on" toggle while their panel is
+             visible, so the two states are obvious at a glance. Only the tree
+             toggle recolors its icon — the terminal panel toggles keep their
+             per-feature icon colors. -->
         <Style Selector="Button.toolbar.panel-on">
             <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource SelectedBorderBrush}" />
         </Style>
-        <Style Selector="Button.toolbar.panel-on TextBlock.toolbar-action-icon">
+        <Style Selector="Button#ToggleTreePanelButton.panel-on TextBlock.toolbar-action-icon">
             <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
         </Style>
     </Window.Styles>
@@ -546,7 +548,8 @@
                             <TextBlock Classes="toolbar-label" Text="{l:Localize RunScriptShort}" />
                         </StackPanel>
                     </Button>
-                    <Button Click="OnMonitorToolbarClick"
+                    <Button x:Name="MonitorToolbarButton"
+                            Click="OnMonitorToolbarClick"
                             ToolTip.Tip="{l:Localize ServerMonitorTooltip}"
                             IsVisible="{Binding IsTerminalActive}"
                             Classes="toolbar">
@@ -555,7 +558,8 @@
                             <TextBlock Classes="toolbar-label" Text="{l:Localize ServerMonitor}" />
                         </StackPanel>
                     </Button>
-                    <Button Click="OnAiPanelToolbarClick"
+                    <Button x:Name="AiPanelToolbarButton"
+                            Click="OnAiPanelToolbarClick"
                             ToolTip.Tip="{l:Localize AiAssistant}"
                             IsVisible="{Binding IsTerminalActive}"
                             Classes="toolbar">
@@ -564,7 +568,8 @@
                             <TextBlock Classes="toolbar-label" Text="{l:Localize AiAssistantShort}" />
                         </StackPanel>
                     </Button>
-                    <Button Click="OnFileBrowserToolbarClick"
+                    <Button x:Name="FileBrowserToolbarButton"
+                            Click="OnFileBrowserToolbarClick"
                             ToolTip.Tip="{l:Localize FileBrowserTooltip}"
                             IsVisible="{Binding IsTerminalActive}"
                             Classes="toolbar">
