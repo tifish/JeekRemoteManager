@@ -44,7 +44,7 @@ public partial class MainWindow : Window
     // a potential multi-drag, and the selection collapses to this node on
     // release if no drag started (Explorer-style deferred deselection).
     private TreeNodeViewModel? _pendingCollapseToNode;
-    private bool _treePanelStateRestored;
+    private bool _treePanelWidthRestored;
     private double _treePanelWidth = 306;
 
     // Auto-locks "Show password" after a stretch of inactivity in the main
@@ -95,6 +95,7 @@ public partial class MainWindow : Window
             OnTerminalTabDragPointerMoved,
             RoutingStrategies.Tunnel,
             handledEventsToo: true);
+        TreeSplitter.DragCompleted += (_, _) => PersistConnectionPanelWidth();
         RightTabs.AddHandler(
             InputElement.PointerReleasedEvent,
             OnTerminalTabDragPointerReleased,
@@ -138,6 +139,7 @@ public partial class MainWindow : Window
         // Sync pending UI state into AppSettings before deciding whether the file changed.
         vm?.SaveLastSelectedConnection();
         SaveCurrentWindowSize(vm);
+        PersistConnectionPanelWidth();
         vm?.FlushSettings();
     }
 
@@ -171,17 +173,17 @@ public partial class MainWindow : Window
         vm.PropertyChanged -= OnViewModelPropertyChanged;
         vm.PropertyChanged += OnViewModelPropertyChanged;
         RestoreWindowSize(vm);
-        RestoreConnectionPanelState(vm);
+        RestoreConnectionPanelWidth(vm);
     }
 
-    private void RestoreConnectionPanelState(MainWindowViewModel vm)
+    private void RestoreConnectionPanelWidth(MainWindowViewModel vm)
     {
-        if (_treePanelStateRestored)
+        if (_treePanelWidthRestored)
             return;
 
-        _treePanelStateRestored = true;
-        if (vm.ConnectionPanelCollapsed)
-            ApplyConnectionPanelState(collapsed: true);
+        _treePanelWidthRestored = true;
+        _treePanelWidth = vm.ConnectionPanelWidth;
+        ApplyConnectionPanelState(collapsed: false);
     }
 
     // ColumnDefinitions don't generate fields, so reach the tree column through the grid.
@@ -191,8 +193,6 @@ public partial class MainWindow : Window
     {
         var collapsed = TreePanel.IsVisible;
         ApplyConnectionPanelState(collapsed);
-        if (DataContext is MainWindowViewModel vm)
-            vm.ConnectionPanelCollapsed = collapsed;
     }
 
     /// <summary>Collapses or expands the connection tree panel. Collapsing remembers
@@ -200,7 +200,10 @@ public partial class MainWindow : Window
     private void ApplyConnectionPanelState(bool collapsed)
     {
         if (collapsed && TreeColumn.Width.IsAbsolute && TreeColumn.Width.Value > 0)
+        {
             _treePanelWidth = TreeColumn.Width.Value;
+            PersistConnectionPanelWidth();
+        }
 
         TreePanel.IsVisible = !collapsed;
         TreeSplitter.IsVisible = !collapsed;
@@ -210,6 +213,15 @@ public partial class MainWindow : Window
         MainGrid.ColumnSpacing = collapsed ? 0 : 8;
         ToggleTreePanelIcon.Text = collapsed ? "\uE8A0" : "\uE89F"; // OpenPane / ClosePane
         ToggleTreePanelButton.Classes.Set("panel-on", !collapsed);
+    }
+
+    private void PersistConnectionPanelWidth()
+    {
+        if (TreePanel.IsVisible && TreeColumn.Width.IsAbsolute && TreeColumn.Width.Value > 0)
+            _treePanelWidth = TreeColumn.Width.Value;
+
+        if (DataContext is MainWindowViewModel vm)
+            vm.ConnectionPanelWidth = _treePanelWidth;
     }
 
     private void RestoreWindowSize(MainWindowViewModel vm)

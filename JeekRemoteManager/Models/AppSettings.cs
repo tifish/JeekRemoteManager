@@ -38,6 +38,9 @@ public class AppSettings
     /// <summary>Main window height in device-independent pixels. Null = default size.</summary>
     public double? MainWindowHeight { get; set; }
 
+    /// <summary>Width of the connection tree panel, in device-independent pixels.</summary>
+    public double ConnectionPanelWidth { get; set; } = 306;
+
     /// <summary>Whether to silently check for updates a few seconds after launch.</summary>
     public bool CheckUpdateOnStartup { get; set; } = true;
 
@@ -65,10 +68,6 @@ public class AppSettings
     /// new folders appear open. Restored on startup to persist the tree's
     /// expand/collapse state across runs.</summary>
     public List<string> CollapsedFolderPaths { get; set; } = new();
-
-    /// <summary>Whether the connection tree panel is collapsed, giving the
-    /// right pane the full window width.</summary>
-    public bool ConnectionPanelCollapsed { get; set; }
 
     /// <summary>Terminal font size in points, adjustable from the toolbar.</summary>
     public int TerminalFontSize { get; set; } = 14;
@@ -168,6 +167,9 @@ public class MachineAppSettings
     /// <summary>Main window height in device-independent pixels. Null = default size.</summary>
     public double? MainWindowHeight { get; set; }
 
+    /// <summary>Width of the connection tree panel, in device-independent pixels.</summary>
+    public double ConnectionPanelWidth { get; set; } = 306;
+
     /// <summary>Recently-used connection file paths, most-recent first.</summary>
     public List<string> RecentConnectionPaths { get; set; } = new();
 
@@ -180,8 +182,6 @@ public class MachineAppSettings
     /// <summary>Absolute paths of folders the user has collapsed in the tree.</summary>
     public List<string> CollapsedFolderPaths { get; set; } = new();
 
-    /// <summary>Whether the connection tree panel is collapsed.</summary>
-    public bool ConnectionPanelCollapsed { get; set; }
 }
 
 /// <summary>Machine-independent preferences stored with the selected storage mode.</summary>

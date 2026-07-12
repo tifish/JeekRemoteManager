@@ -150,11 +150,11 @@ public class SettingsService
             CustomStoragePath = machineSettings.CustomStoragePath,
             MainWindowWidth = machineSettings.MainWindowWidth,
             MainWindowHeight = machineSettings.MainWindowHeight,
+            ConnectionPanelWidth = machineSettings.ConnectionPanelWidth,
             RecentConnectionPaths = machineSettings.RecentConnectionPaths,
             LastSelectedConnectionPath = machineSettings.LastSelectedConnectionPath,
             RecentExpanded = machineSettings.RecentExpanded,
             CollapsedFolderPaths = machineSettings.CollapsedFolderPaths,
-            ConnectionPanelCollapsed = machineSettings.ConnectionPanelCollapsed,
             Language = roamingSettings.Language,
             Theme = roamingSettings.Theme,
             CheckUpdateOnStartup = roamingSettings.CheckUpdateOnStartup,
@@ -180,11 +180,11 @@ public class SettingsService
             CustomStoragePath = settings.CustomStoragePath,
             MainWindowWidth = settings.MainWindowWidth,
             MainWindowHeight = settings.MainWindowHeight,
+            ConnectionPanelWidth = settings.ConnectionPanelWidth,
             RecentConnectionPaths = settings.RecentConnectionPaths ?? new List<string>(),
             LastSelectedConnectionPath = settings.LastSelectedConnectionPath,
             RecentExpanded = settings.RecentExpanded,
             CollapsedFolderPaths = settings.CollapsedFolderPaths ?? new List<string>(),
-            ConnectionPanelCollapsed = settings.ConnectionPanelCollapsed,
         };
         NormalizeMachineSettings(machineSettings);
         return machineSettings;
@@ -224,11 +224,11 @@ public class SettingsService
         settings.CustomStoragePath = normalized.CustomStoragePath;
         settings.MainWindowWidth = normalized.MainWindowWidth;
         settings.MainWindowHeight = normalized.MainWindowHeight;
+        settings.ConnectionPanelWidth = normalized.ConnectionPanelWidth;
         settings.RecentConnectionPaths = normalized.RecentConnectionPaths;
         settings.LastSelectedConnectionPath = normalized.LastSelectedConnectionPath;
         settings.RecentExpanded = normalized.RecentExpanded;
         settings.CollapsedFolderPaths = normalized.CollapsedFolderPaths;
-        settings.ConnectionPanelCollapsed = normalized.ConnectionPanelCollapsed;
         settings.Language = normalized.Language;
         settings.Theme = normalized.Theme;
         settings.CheckUpdateOnStartup = normalized.CheckUpdateOnStartup;
@@ -263,6 +263,9 @@ public class SettingsService
             settings.MainWindowWidth = null;
         if (!IsValidWindowDimension(settings.MainWindowHeight))
             settings.MainWindowHeight = null;
+        settings.ConnectionPanelWidth = double.IsFinite(settings.ConnectionPanelWidth)
+            ? Math.Clamp(settings.ConnectionPanelWidth, 180, 600)
+            : 306;
     }
 
     private static void NormalizeRoamingSettings(RoamingAppSettings settings)

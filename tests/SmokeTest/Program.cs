@@ -669,6 +669,7 @@ try
         RecentExpanded = false,
         MainWindowWidth = 1200,
         MainWindowHeight = 760,
+        ConnectionPanelWidth = 360,
     };
     var machineSettingsJson = JsonSerializer.Serialize(new MachineAppSettings
     {
@@ -677,12 +678,15 @@ try
         RecentExpanded = settingsWithRecent.RecentExpanded,
         MainWindowWidth = settingsWithRecent.MainWindowWidth,
         MainWindowHeight = settingsWithRecent.MainWindowHeight,
+        ConnectionPanelWidth = settingsWithRecent.ConnectionPanelWidth,
     });
     Check(machineSettingsJson.Contains(nameof(MachineAppSettings.RecentConnectionPaths))
           && machineSettingsJson.Contains(nameof(MachineAppSettings.LastSelectedConnectionPath))
           && machineSettingsJson.Contains(nameof(MachineAppSettings.RecentExpanded))
           && machineSettingsJson.Contains(nameof(MachineAppSettings.MainWindowWidth))
           && machineSettingsJson.Contains(nameof(MachineAppSettings.MainWindowHeight))
+          && machineSettingsJson.Contains(nameof(MachineAppSettings.ConnectionPanelWidth))
+          && !machineSettingsJson.Contains("ConnectionPanelCollapsed")
           && !machineSettingsJson.Contains(nameof(RoamingAppSettings.Language))
           && !machineSettingsJson.Contains(nameof(RoamingAppSettings.Theme)),
           "Machine settings persist local paths and window size only");

@@ -404,16 +404,17 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    /// <summary>Whether the connection tree panel is collapsed, remembered across runs.</summary>
-    public bool ConnectionPanelCollapsed
+    /// <summary>Persisted width of the connection tree panel (device-independent pixels).</summary>
+    public double ConnectionPanelWidth
     {
-        get => _settings.Settings.ConnectionPanelCollapsed;
+        get => _settings.Settings.ConnectionPanelWidth;
         set
         {
-            if (value == _settings.Settings.ConnectionPanelCollapsed)
+            var clamped = Math.Clamp(value, 180, 600);
+            if (Math.Abs(clamped - _settings.Settings.ConnectionPanelWidth) < 0.5)
                 return;
 
-            _settings.Settings.ConnectionPanelCollapsed = value;
+            _settings.Settings.ConnectionPanelWidth = clamped;
             _settings.SaveIfChanged();
         }
     }
