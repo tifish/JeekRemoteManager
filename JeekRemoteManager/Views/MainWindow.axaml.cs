@@ -1249,6 +1249,7 @@ public partial class MainWindow : Window
         if (_pendingTreeFocusPath is null
             || e.Handled
             || !IsTreeNavigationKey(e.Key)
+            || IsTreeNameEditorSource(e.Source)
             || DataContext is not MainWindowViewModel vm)
         {
             return false;
@@ -1480,7 +1481,12 @@ public partial class MainWindow : Window
             || DataContext is not MainWindowViewModel vm)
             return;
 
-        if (HandleTreeNameEditorKey(vm, node, e.Key))
+        // Bubble handler on the editor, running after the TextBox consumed the
+        // keys it uses for caret movement. Navigation keys still unhandled here
+        // (Up/Down/PageUp/PageDown on a single-line editor) must not reach the
+        // TreeView: tree navigation would move the selection and kick the
+        // editor out of edit mode via LostFocus.
+        if (HandleTreeNameEditorKey(vm, node, e.Key) || IsEditorCaretNavigationKey(e.Key))
         {
             e.Handled = true;
         }
@@ -1502,6 +1508,9 @@ public partial class MainWindow : Window
 
         if (TryGetTreeNameEditorNode(e.Source, out var editingNode) && editingNode is not null)
         {
+            // Tunnel phase: commit/cancel immediately, but let every other key
+            // continue to the TextBox (caret movement); OnTreeNameEditorKeyDown
+            // swallows whatever the TextBox leaves unhandled.
             if (HandleTreeNameEditorKey(vm, editingNode, e.Key))
                 e.Handled = true;
             return;
@@ -1553,6 +1562,10 @@ public partial class MainWindow : Window
 
         return false;
     }
+
+    private static bool IsEditorCaretNavigationKey(Key key) =>
+        key is Key.Up or Key.Down or Key.PageUp or Key.PageDown
+            or Key.Left or Key.Right or Key.Home or Key.End;
 
     private void OnTreeDoubleTapped(object? sender, TappedEventArgs e)
     {

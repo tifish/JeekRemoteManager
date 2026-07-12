@@ -1944,6 +1944,7 @@ public partial class MainWindowViewModel : ViewModelBase
         CopyCommand.NotifyCanExecuteChanged();
         CutCommand.NotifyCanExecuteChanged();
         PasteCommand.NotifyCanExecuteChanged();
+        ClearSelectionCommand.NotifyCanExecuteChanged();
     }
 
     private void ClearClipboard()
@@ -2792,8 +2793,12 @@ public partial class MainWindowViewModel : ViewModelBase
     private void Refresh() => ReloadTree(SelectedNode?.FullPath);
 
     /// <summary>Clears the tree selection so subsequent new/paste operations target the root.</summary>
-    [RelayCommand]
+    // Disabled while renaming so the tree's Escape key binding doesn't swallow
+    // the key before the name editor can cancel the edit.
+    [RelayCommand(CanExecute = nameof(CanClearSelection))]
     private void ClearSelection() => SelectedNode = null;
+
+    private bool CanClearSelection() => _renamingNode is null;
 
     [RelayCommand]
     private void OpenStorageFolder()
