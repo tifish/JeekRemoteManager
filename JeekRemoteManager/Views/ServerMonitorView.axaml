@@ -24,7 +24,7 @@
             <Setter Property="MinWidth" Value="0" />
             <Setter Property="MinHeight" Value="20" />
             <Setter Property="Background" Value="Transparent" />
-            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="HorizontalContentAlignment" Value="Right" />
         </Style>
     </UserControl.Styles>
 
@@ -136,8 +136,14 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:ServerMonitorProcessRow">
                                     <Grid ColumnDefinitions="62,54,*" ColumnSpacing="6" Margin="0,1">
-                                        <TextBlock Classes="monitor-value" Text="{Binding MemText}" />
-                                        <TextBlock Grid.Column="1" Classes="monitor-value" Text="{Binding CpuText}" />
+                                        <TextBlock x:Name="ProcessMemoryValue"
+                                                   Classes="monitor-value"
+                                                   Text="{Binding MemText}"
+                                                   TextAlignment="Right" />
+                                        <TextBlock x:Name="ProcessCpuValue"
+                                                   Grid.Column="1" Classes="monitor-value"
+                                                   Text="{Binding CpuText}"
+                                                   TextAlignment="Right" />
                                         <TextBlock Grid.Column="2" Classes="monitor-value"
                                                    Text="{Binding Command}"
                                                    TextTrimming="CharacterEllipsis" />
