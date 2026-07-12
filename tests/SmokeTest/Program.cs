@@ -136,6 +136,39 @@ try
         .Invoke(null, [coloredMonitorSections.GetValueOrDefault("ip")]);
     Check(parsedColoredIp == "172.18.6.30",
           "Server monitor strips PTY ANSI and OSC sequences before parsing target fields");
+    using (var processSortVm = new ServerMonitorViewModel(
+               () => null,
+               Connection.DefaultTerminalType,
+               "",
+               "test",
+               "127.0.0.1"))
+    {
+        var processSnapshot = new List<ServerMonitorProcess>
+        {
+            new(1_000, 1, "memory-heavy"),
+            new(100, 2, "filler-1"),
+            new(99, 3, "filler-2"),
+            new(98, 4, "filler-3"),
+            new(97, 5, "filler-4"),
+            new(96, 6, "filler-5"),
+            new(95, 7, "filler-6"),
+            new(94, 8, "filler-7"),
+            new(1, 99, "cpu-heavy"),
+        };
+        typeof(ServerMonitorViewModel)
+            .GetField("_latestProcesses", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(processSortVm, processSnapshot);
+        typeof(ServerMonitorViewModel)
+            .GetMethod("UpdateProcessRows", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(processSortVm, null);
+        var memoryFirst = processSortVm.Processes.FirstOrDefault()?.Command;
+        processSortVm.SortProcessesByCpuCommand.Execute(null);
+        Check(memoryFirst == "memory-heavy"
+              && processSortVm.Processes.FirstOrDefault()?.Command == "cpu-heavy"
+              && processSortVm.ProcessSort == ServerMonitorProcessSort.Cpu
+              && processSortVm.IsProcessSortByCpu,
+              "Server monitor process list switches between memory and CPU top-eight sorting");
+    }
 
     // --- Terminal clipboard text ---
     var softWrapTerminal = new TerminalControlModel(new TerminalOptions { Cols = 10, Rows = 5, Scrollback = 10 });

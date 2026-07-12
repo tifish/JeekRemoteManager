@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Linq;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -10,7 +11,18 @@ using JeekRemoteManager.Services;
 namespace JeekRemoteManager.ViewModels;
 
 /// <summary>One row of the top-processes table.</summary>
-public sealed record ServerMonitorProcessRow(string MemText, string CpuText, string Command);
+public sealed record ServerMonitorProcessRow(
+    long? MemBytes,
+    double? CpuPercent,
+    string MemText,
+    string CpuText,
+    string Command);
+
+public enum ServerMonitorProcessSort
+{
+    Memory,
+    Cpu,
+}
 
 /// <summary>One row of the disks table.</summary>
 public sealed record ServerMonitorDiskRow(string MountPoint, string SizeText, double UsedPercent);
@@ -24,10 +36,13 @@ public sealed record ServerMonitorDiskRow(string MountPoint, string SizeText, do
 public sealed partial class ServerMonitorViewModel : ViewModelBase, IDisposable
 {
     private const int NetHistoryLength = 60;
+    private const int VisibleProcessCount = 8;
 
     private readonly ServerMonitorSession _session;
     private readonly List<double> _uploadHistory = new();
     private readonly List<double> _downloadHistory = new();
+    private IReadOnlyList<ServerMonitorProcess> _latestProcesses = Array.Empty<ServerMonitorProcess>();
+    private ServerMonitorProcessSort _processSort = ServerMonitorProcessSort.Memory;
 
     public string HostLabel { get; }
 
@@ -78,6 +93,23 @@ public sealed partial class ServerMonitorViewModel : ViewModelBase, IDisposable
 
     public ObservableCollection<ServerMonitorProcessRow> Processes { get; } = new();
 
+    public ServerMonitorProcessSort ProcessSort
+    {
+        get => _processSort;
+        private set
+        {
+            if (!SetProperty(ref _processSort, value))
+                return;
+
+            OnPropertyChanged(nameof(IsProcessSortByMemory));
+            OnPropertyChanged(nameof(IsProcessSortByCpu));
+            UpdateProcessRows();
+        }
+    }
+
+    public bool IsProcessSortByMemory => ProcessSort == ServerMonitorProcessSort.Memory;
+    public bool IsProcessSortByCpu => ProcessSort == ServerMonitorProcessSort.Cpu;
+
     public ObservableCollection<ServerMonitorDiskRow> Disks { get; } = new();
 
     /// <summary>Raised on the UI thread whenever the network rate history gains a
@@ -117,6 +149,12 @@ public sealed partial class ServerMonitorViewModel : ViewModelBase, IDisposable
     public bool IsMonitorShellReady => _session.IsShellReady;
     public long MonitorSampleCount => _session.SampleCount;
     public long MonitorShellGeneration => _session.ShellGeneration;
+
+    [RelayCommand]
+    private void SortProcessesByMemory() => ProcessSort = ServerMonitorProcessSort.Memory;
+
+    [RelayCommand]
+    private void SortProcessesByCpu() => ProcessSort = ServerMonitorProcessSort.Cpu;
 
     [RelayCommand]
     private void Retry()
@@ -193,16 +231,8 @@ public sealed partial class ServerMonitorViewModel : ViewModelBase, IDisposable
 
         if (snapshot.Processes is { } processes)
         {
-            Processes.Clear();
-            foreach (var process in processes)
-            {
-                Processes.Add(new ServerMonitorProcessRow(
-                    process.MemBytes is { } mem ? FileBrowserViewModel.FormatSize(mem) : "—",
-                    process.CpuPercent is { } processCpu
-                        ? processCpu.ToString("0.0", CultureInfo.InvariantCulture)
-                        : "—",
-                    process.Command));
-            }
+            _latestProcesses = processes;
+            UpdateProcessRows();
         }
 
         if (snapshot.Disks is { } disks)
@@ -216,6 +246,32 @@ public sealed partial class ServerMonitorViewModel : ViewModelBase, IDisposable
                         + " / " + FileBrowserViewModel.FormatSize(disk.TotalBytes),
                     disk.UsedPercent));
             }
+        }
+    }
+
+    private void UpdateProcessRows()
+    {
+        IEnumerable<ServerMonitorProcess> sorted = ProcessSort switch
+        {
+            ServerMonitorProcessSort.Cpu => _latestProcesses
+                .OrderByDescending(process => process.CpuPercent ?? double.MinValue)
+                .ThenByDescending(process => process.MemBytes ?? long.MinValue),
+            _ => _latestProcesses
+                .OrderByDescending(process => process.MemBytes ?? long.MinValue)
+                .ThenByDescending(process => process.CpuPercent ?? double.MinValue),
+        };
+
+        Processes.Clear();
+        foreach (var process in sorted.Take(VisibleProcessCount))
+        {
+            Processes.Add(new ServerMonitorProcessRow(
+                process.MemBytes,
+                process.CpuPercent,
+                process.MemBytes is { } mem ? FileBrowserViewModel.FormatSize(mem) : "—",
+                process.CpuPercent is { } processCpu
+                    ? processCpu.ToString("0.0", CultureInfo.InvariantCulture)
+                    : "—",
+                process.Command));
         }
     }
 

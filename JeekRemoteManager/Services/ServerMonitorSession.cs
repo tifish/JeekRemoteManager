@@ -67,7 +67,6 @@ public sealed class ServerMonitorSession : IDisposable
     private const int SampleTimeoutSeconds = 10;
     private const int LoginQuietMilliseconds = 500;
     private const int LoginStepTimeoutSeconds = 30;
-    private const int TopProcessCount = 8;
 
     private const string SectionMarker = "@JRM@";
 
@@ -696,9 +695,10 @@ public sealed class ServerMonitorSession : IDisposable
         if (rows.Count == 0)
             return null;
 
-        return procpsFormat
-            ? rows.OrderByDescending(p => p.MemBytes ?? 0).Take(TopProcessCount).ToList()
-            : rows.Take(TopProcessCount).ToList();
+        // Keep the complete snapshot. The panel chooses its top rows according to
+        // the user's memory/CPU sort selection, so CPU-heavy processes are not lost
+        // merely because they were outside the memory top eight.
+        return rows;
     }
 
     /// <summary>Parses `df -P -k`, keeping real block devices (filesystem starts with /)
