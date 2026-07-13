@@ -613,7 +613,9 @@
                                        VerticalAlignment="Center" />
                         </Button>
                     </StackPanel>
-                    <Button ToolTip.Tip="{l:Localize MoreActions}" Classes="toolbar icon-button">
+                    <Button x:Name="MoreActionsButton"
+                            ToolTip.Tip="{l:Localize MoreActions}"
+                            Classes="toolbar icon-button">
                         <Button.Content>
                             <TextBlock Classes="icon"
                                        Text="&#xE712;"
@@ -621,31 +623,6 @@
                                        VerticalAlignment="Center"
                                        TextAlignment="Center" />
                         </Button.Content>
-                        <Button.Flyout>
-                            <MenuFlyout>
-                                <MenuItem Header="{l:Localize Settings}"
-                                          Command="{Binding OpenSettingsCommand}"
-                                          ToolTip.Tip="{l:Localize SettingsTooltip}">
-                                    <MenuItem.Icon>
-                                        <TextBlock Classes="menu-icon" Text="&#xE713;" />
-                                    </MenuItem.Icon>
-                                </MenuItem>
-                                <Separator />
-                                <MenuItem Header="{l:Localize ImportFromFinalShell}"
-                                          Command="{Binding ImportFinalShellCommand}">
-                                    <MenuItem.Icon>
-                                        <TextBlock Classes="menu-icon" Text="&#xE8B5;" />
-                                    </MenuItem.Icon>
-                                </MenuItem>
-                                <Separator />
-                                <MenuItem Header="{l:Localize CheckForUpdates}"
-                                          Command="{Binding CheckForUpdatesCommand}">
-                                    <MenuItem.Icon>
-                                        <TextBlock Classes="menu-icon accent" Text="&#xE895;" />
-                                    </MenuItem.Icon>
-                                </MenuItem>
-                            </MenuFlyout>
-                        </Button.Flyout>
                     </Button>
                 </StackPanel>
             </Grid>

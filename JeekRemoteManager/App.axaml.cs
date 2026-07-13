@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -9,6 +10,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Jeek.Avalonia.Localization;
+using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
 using JeekRemoteManager.ViewModels;
 using JeekRemoteManager.Views;
@@ -217,7 +219,9 @@ public partial class App : Application
 
     private void OnTrayShowClicked(object? sender, EventArgs e) => ShowMainWindow();
 
-    private void OnTrayExitClicked(object? sender, EventArgs e)
+    private void OnTrayExitClicked(object? sender, EventArgs e) => RequestExit();
+
+    public void RequestExit()
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
@@ -239,6 +243,14 @@ public partial class App : Application
         _vm?.SaveLastSelectedConnection();
         _vm?.FlushSettings();
     }
+
+    /// <summary>Localized tray labels exposed for Debug MCP verification.</summary>
+    public IReadOnlyList<string> TrayMenuHeaders =>
+        TrayIcon.GetIcons(this)?.FirstOrDefault()?.Menu?.Items
+        .OfType<NativeMenuItem>()
+        .Where(item => item is not NativeMenuItemSeparator)
+        .Select(item => item.Header ?? string.Empty)
+        .ToArray() ?? [];
 
     private void ShowMainWindow()
     {
@@ -282,9 +294,9 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Builds the tray icon's right-click menu so it mirrors the main window's
-    /// overflow (⋮) menu: Settings, Import and Check for Updates, bracketed by
-    /// Show/Exit. Rebuilt on language changes so the labels stay current.
+    /// Builds the tray icon's right-click menu from the same common action list
+    /// as the main window, with a tray-specific Show item prepended. Rebuilt on
+    /// language changes so the labels stay current.
     /// </summary>
     private void BuildTrayMenu()
     {
@@ -305,17 +317,26 @@ public partial class App : Application
 
         menu.Items.Add(new NativeMenuItemSeparator());
 
-        menu.Items.Add(CommandItem(Localizer.Get("Settings"), vm.OpenSettingsCommand));
-        menu.Items.Add(new NativeMenuItemSeparator());
-        menu.Items.Add(CommandItem(Localizer.Get("ImportFromFinalShell"), vm.ImportFinalShellCommand));
-        menu.Items.Add(new NativeMenuItemSeparator());
-        menu.Items.Add(CommandItem(Localizer.Get("CheckForUpdates"), vm.CheckForUpdatesCommand));
+        var firstCommonItem = true;
+        foreach (var entry in ApplicationMenuDefinition.CommonItems)
+        {
+            if (!firstCommonItem)
+                menu.Items.Add(new NativeMenuItemSeparator());
+            firstCommonItem = false;
 
-        menu.Items.Add(new NativeMenuItemSeparator());
-
-        var exit = new NativeMenuItem { Header = Localizer.Get("TrayExit") };
-        exit.Click += OnTrayExitClicked;
-        menu.Items.Add(exit);
+            var item = entry.Action switch
+            {
+                ApplicationMenuAction.Settings =>
+                    CommandItem(Localizer.Get(entry.LocalizationKey), vm.OpenSettingsCommand),
+                ApplicationMenuAction.ImportFromFinalShell =>
+                    CommandItem(Localizer.Get(entry.LocalizationKey), vm.ImportFinalShellCommand),
+                ApplicationMenuAction.CheckForUpdates =>
+                    CommandItem(Localizer.Get(entry.LocalizationKey), vm.CheckForUpdatesCommand),
+                ApplicationMenuAction.Exit => ActionItem(Localizer.Get(entry.LocalizationKey), RequestExit),
+                _ => throw new ArgumentOutOfRangeException(),
+            };
+            menu.Items.Add(item);
+        }
 
         icon.Menu = menu;
     }
@@ -338,6 +359,13 @@ public partial class App : Application
             if (command.CanExecute(null))
                 command.Execute(null);
         };
+        return item;
+    }
+
+    private static NativeMenuItem ActionItem(string header, Action action)
+    {
+        var item = new NativeMenuItem { Header = header };
+        item.Click += (_, _) => action();
         return item;
     }
 

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -116,7 +117,12 @@ public partial class MainWindow : Window
             OnKeyActivity,
             RoutingStrategies.Tunnel,
             handledEventsToo: true);
-        DataContextChanged += (_, _) => WireUp();
+        DataContextChanged += (_, _) =>
+        {
+            WireUp();
+            BuildMoreActionsMenu();
+        };
+        Localizer.LanguageChanged += (_, _) => BuildMoreActionsMenu();
         SizeChanged += OnWindowSizeChanged;
         CommandBar.LayoutUpdated += (_, _) => UpdateToolbarCompactMode();
         Opened += (_, _) =>
@@ -131,6 +137,59 @@ public partial class MainWindow : Window
         };
         Closing += (_, _) =>
             FlushCurrentSettingsState();
+    }
+
+    /// <summary>Localized common-menu labels exposed for Debug MCP verification.</summary>
+    public IReadOnlyList<string> MoreActionsMenuHeaders =>
+        (MoreActionsButton.Flyout as MenuFlyout)?.Items
+        .OfType<MenuItem>()
+        .Select(item => item.Header?.ToString() ?? string.Empty)
+        .ToArray() ?? [];
+
+    private void BuildMoreActionsMenu()
+    {
+        if (DataContext is not MainWindowViewModel vm)
+            return;
+
+        var menu = new MenuFlyout();
+        foreach (var entry in ApplicationMenuDefinition.CommonItems)
+        {
+            if (menu.Items.Count > 0)
+                menu.Items.Add(new Separator());
+
+            var icon = new TextBlock { Text = entry.IconGlyph };
+            icon.Classes.Add("menu-icon");
+            if (entry.IsAccent)
+                icon.Classes.Add("accent");
+
+            var item = new MenuItem
+            {
+                Header = Localizer.Get(entry.LocalizationKey),
+                Icon = icon,
+            };
+            if (entry.ToolTipLocalizationKey is { } toolTipKey)
+                ToolTip.SetTip(item, Localizer.Get(toolTipKey));
+
+            switch (entry.Action)
+            {
+                case ApplicationMenuAction.Settings:
+                    item.Command = vm.OpenSettingsCommand;
+                    break;
+                case ApplicationMenuAction.ImportFromFinalShell:
+                    item.Command = vm.ImportFinalShellCommand;
+                    break;
+                case ApplicationMenuAction.CheckForUpdates:
+                    item.Command = vm.CheckForUpdatesCommand;
+                    break;
+                case ApplicationMenuAction.Exit:
+                    item.Click += (_, _) => (Application.Current as App)?.RequestExit();
+                    break;
+            }
+
+            menu.Items.Add(item);
+        }
+
+        MoreActionsButton.Flyout = menu;
     }
 
     public void FlushCurrentSettingsState()

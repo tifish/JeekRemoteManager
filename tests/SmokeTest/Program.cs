@@ -36,6 +36,18 @@ try
 {
     Check(Directory.Exists(root), "Store creates its root folder");
 
+    Check(ApplicationMenuDefinition.CommonItems.Select(item => item.Action).SequenceEqual(
+          [
+              ApplicationMenuAction.Settings,
+              ApplicationMenuAction.ImportFromFinalShell,
+              ApplicationMenuAction.CheckForUpdates,
+              ApplicationMenuAction.Exit,
+          ]),
+          "Window and tray menus share one ordered common-action definition");
+    Check(ApplicationMenuDefinition.CommonItems.Select(item => item.LocalizationKey).Distinct().Count()
+          == ApplicationMenuDefinition.CommonItems.Count,
+          "Shared application-menu actions use unique localization keys");
+
     // --- Master-password setup (password material cached via DPAPI) ---
     // Point the DPAPI cache at the temp root so we never touch the real one.
     MasterKeyService.CachePath = Path.Combine(root, "master-password.bin");
