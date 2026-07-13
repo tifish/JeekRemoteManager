@@ -46,6 +46,43 @@ public partial class AgentChatView : UserControl
             RoutingStrategies.Tunnel);
     }
 
+    private void OnMarkdownLayoutUpdated(object? sender, EventArgs e)
+    {
+        if (sender is Visual markdown)
+            EnsureSelectableCodeBlocks(markdown);
+    }
+
+    /// <summary>Replaces Markdown.Avalonia.Tight's plain fenced-code text controls with
+    /// selectable equivalents while leaving their scroll viewers and styles intact.
+    /// Public so Debug MCP can verify the rendered control type.</summary>
+    public int EnsureSelectableCodeBlocks() => EnsureSelectableCodeBlocks(MessagesList);
+
+    private static int EnsureSelectableCodeBlocks(Visual root)
+    {
+        var replaced = 0;
+        foreach (var scroller in root.GetVisualDescendants()
+                     .OfType<ScrollViewer>()
+                     .Where(control => control.Classes.Contains("CodeBlock")))
+        {
+            if (scroller.Content is not TextBlock code || code is SelectableTextBlock)
+                continue;
+
+            var selectable = new SelectableTextBlock
+            {
+                Name = "SelectableCodeBlock",
+                Text = code.Text,
+                TextWrapping = code.TextWrapping,
+            };
+            foreach (var @class in code.Classes)
+                selectable.Classes.Add(@class);
+
+            scroller.Content = selectable;
+            replaced++;
+        }
+
+        return replaced;
+    }
+
     private void OnMessageContextRequested(object? sender, ContextRequestedEventArgs e)
     {
         if (e.Source is Visual source && OpenMessageContextMenu(source))

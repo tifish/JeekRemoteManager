@@ -59,6 +59,17 @@
         <Setter Property="FontSize" Value="12.5" />
         <Setter Property="Foreground" Value="#C9D1D9" />
     </Style>
+    <Style Selector=".Markdown_Avalonia_MarkdownViewer SelectableTextBlock.CodeBlock">
+        <Setter Property="FontFamily" Value="Consolas,Menlo,Monaco,monospace" />
+        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="Foreground" Value="#C9D1D9" />
+    </Style>
+    <!-- Markdown.Avalonia overlays its 16px horizontal scrollbar on the code text.
+         Reserve that height so a single-line block remains visible and selectable. -->
+    <Style Selector=".Markdown_Avalonia_MarkdownViewer ScrollViewer.CodeBlock">
+        <Setter Property="MinHeight" Value="32" />
+        <Setter Property="Padding" Value="0,0,0,16" />
+    </Style>
 
     <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.Blockquote">
         <Setter Property="BorderBrush" Value="#30363D" />
