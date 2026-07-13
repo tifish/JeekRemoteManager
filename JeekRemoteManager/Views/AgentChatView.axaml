@@ -226,12 +226,20 @@
             <ItemsControl x:Name="MessagesList" ItemsSource="{Binding Messages}" Margin="10,10,10,12">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:ChatMessageViewModel">
-                        <Border Classes="chat-bubble"
+                        <Border x:Name="ChatBubble"
+                                Classes="chat-bubble"
                                 Classes.chat-user="{Binding IsUser}"
                                 Classes.chat-assistant="{Binding IsAssistant}"
                                 Classes.chat-system="{Binding IsSystem}"
                                 Classes.chat-tool="{Binding IsTool}"
                                 Classes.chat-confirm="{Binding IsConfirmation}">
+                            <Border.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="{l:Localize Copy}"
+                                              CommandParameter="{Binding}"
+                                              Click="OnCopyMessageClick" />
+                                </ContextMenu>
+                            </Border.ContextMenu>
                             <Panel>
                                 <!-- Assistant answers are Markdown; user/system/tool are plain text. -->
                                 <SelectableTextBlock Text="{Binding Text}"

@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Specialized;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -36,6 +38,35 @@ public partial class AgentChatView : UserControl
         // Each bubble keeps its own text selection; starting a selection in one bubble
         // should drop the highlight left in the others.
         MessagesList.AddHandler(PointerPressedEvent, OnMessagesPointerPressed, RoutingStrategies.Tunnel);
+
+        // Selectable text and Markdown controls have their own selection-only copy menu.
+        // Intercept the request before those children so right-clicking anywhere in a
+        // bubble consistently opens the whole-message menu instead.
+        MessagesList.AddHandler(InputElement.ContextRequestedEvent, OnMessageContextRequested,
+            RoutingStrategies.Tunnel);
+    }
+
+    private void OnMessageContextRequested(object? sender, ContextRequestedEventArgs e)
+    {
+        if (e.Source is Visual source && OpenMessageContextMenu(source))
+            e.Handled = true;
+    }
+
+    /// <summary>Opens the context menu for the chat bubble containing <paramref name="source"/>.
+    /// Public so Debug MCP can verify the same routing used by right-click.</summary>
+    public bool OpenMessageContextMenu(Visual source)
+    {
+        var bubble = source is Border sourceBorder && sourceBorder.Classes.Contains("chat-bubble")
+            ? sourceBorder
+            : source.GetVisualAncestors()
+                .OfType<Border>()
+                .FirstOrDefault(border => border.Classes.Contains("chat-bubble"));
+
+        if (bubble?.ContextMenu is not { } menu)
+            return false;
+
+        menu.Open(bubble);
+        return true;
     }
 
     private void OnMessagesPointerPressed(object? sender, PointerPressedEventArgs e)
@@ -54,6 +85,21 @@ public partial class AgentChatView : UserControl
             if (text != source && !text.IsVisualAncestorOf(source))
                 text.ClearSelection();
         }
+    }
+
+    private async void OnCopyMessageClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem { CommandParameter: ChatMessageViewModel message })
+            await CopyMessageAsync(message);
+    }
+
+    /// <summary>Copies one complete chat bubble. Public so Debug MCP can exercise
+    /// the same clipboard path used by the bubble context menu.</summary>
+    public async Task CopyMessageAsync(ChatMessageViewModel message)
+    {
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard is not null)
+            await clipboard.SetTextAsync(message.Text);
     }
 
     private void OnDataContextChanged(object? sender, System.EventArgs e)
