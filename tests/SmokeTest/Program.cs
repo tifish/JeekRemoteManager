@@ -334,6 +334,33 @@ try
     Check(activeAiSession.DisposeCount == 1,
           "AI new conversation disposes the active session");
 
+    var steeringSession = new FakeAgentChatSession(supportsSteering: true);
+    var steerVm = new AgentChatViewModel(
+        [
+            new AgentProvider(
+                "Codex",
+                "",
+                [new AgentOption("Default", null)],
+                [new AgentOption("Default", null)],
+                (_, _) => steeringSession),
+        ],
+        () => null,
+        null);
+    steerVm.InputText = "start the task";
+    await steerVm.SendCommand.ExecuteAsync(null);
+    Check(steerVm.IsBusy && steerVm.IsModelTurnActive && steerVm.CanSteer
+          && steerVm.SteerCommand.CanExecute(null),
+          "AI chat enables steer only during a steerable provider turn");
+    steerVm.InputText = "use the safer approach";
+    await steerVm.SteerCommand.ExecuteAsync(null);
+    Check(steeringSession.SteeredTexts.SequenceEqual(["use the safer approach"])
+          && steerVm.InputText == ""
+          && steerVm.IsBusy
+          && steerVm.Messages.Select(m => m.Role).SequenceEqual(
+              [ChatRole.User, ChatRole.User, ChatRole.Assistant]),
+          "AI steer appends to the active turn and splits the transcript at the insertion point");
+    await steerVm.DisposeAsync();
+
     var exitedAiSession = new FakeAgentChatSession();
     typeof(AgentChatViewModel)
         .GetField("_session", BindingFlags.Instance | BindingFlags.NonPublic)!
@@ -2033,11 +2060,15 @@ finally
 
 return failures;
 
-sealed class FakeAgentChatSession : IAgentChatSession
+sealed class FakeAgentChatSession(bool supportsSteering = false) : IAgentChatSession
 {
     public string? SessionId => "fake";
 
+    public bool SupportsSteering => supportsSteering;
+
     public int DisposeCount { get; private set; }
+
+    public List<string> SteeredTexts { get; } = [];
 
     public event Action<string>? SessionInitialized { add { } remove { } }
 
@@ -2054,6 +2085,12 @@ sealed class FakeAgentChatSession : IAgentChatSession
     }
 
     public Task SendAsync(string text, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public Task SteerAsync(string text, CancellationToken cancellationToken = default)
+    {
+        SteeredTexts.Add(text);
+        return Task.CompletedTask;
+    }
 
     public ValueTask DisposeAsync()
     {

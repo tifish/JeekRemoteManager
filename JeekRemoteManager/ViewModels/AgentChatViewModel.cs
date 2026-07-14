@@ -126,6 +126,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     private AiConversation? _currentConversation;
     private string? _pendingResumeSessionId;
     private int _conversationStartIndex;
+    private bool _isModelTurnActive;
 
     // One CTS per user-initiated turn (covering the whole auto-run loop); Stop cancels it.
     private CancellationTokenSource? _turnCts;
@@ -500,14 +501,24 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
     public bool CanStop => IsBusy;
 
+    /// <summary>True only while the selected session has a live model turn that accepts
+    /// same-turn input. Public so Debug MCP can verify the running state.</summary>
+    public bool IsModelTurnActive => _isModelTurnActive;
+
+    /// <summary>Whether the current busy state can accept a steer message. Command and
+    /// transfer activity remains busy but is deliberately not steerable.</summary>
+    public bool CanSteer => IsBusy && IsModelTurnActive && _session?.SupportsSteering == true;
+
     partial void OnIsBusyChanged(bool value)
     {
         SendCommand.NotifyCanExecuteChanged();
+        SteerCommand.NotifyCanExecuteChanged();
         NewConversationCommand.NotifyCanExecuteChanged();
         ShowConversationHistoryCommand.NotifyCanExecuteChanged();
         StopCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(CanStop));
         OnPropertyChanged(nameof(CanShowConversationHistory));
+        OnPropertyChanged(nameof(CanSteer));
     }
 
     partial void OnIsAvailableChanged(bool value) => SendCommand.NotifyCanExecuteChanged();
@@ -939,23 +950,12 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         if (!IsAvailable)
             return;
 
-        var prompt = InputText.Trim();
-        if (prompt.Length == 0)
+        var message = TakeUserMessage();
+        if (message is null)
             return;
 
-        // A terminal selection always rides along when present; the panel shows a hint
-        // (bound to HasTerminalSelection) so the user knows it will be attached.
-        var displayText = prompt;
-        var payload = prompt;
-        var selection = _takeSelection()?.Trim();
-        if (!string.IsNullOrEmpty(selection))
-        {
-            displayText = $"{prompt}\n\n{L("AiSelectionAttached")}";
-            payload = $"{prompt}\n\nHere is the relevant terminal output:\n```\n{selection}\n```";
-        }
-
-        BeginConversation(displayText);
-        Messages.Add(new ChatMessageViewModel(ChatRole.User, displayText));
+        BeginConversation(message.Value.DisplayText);
+        Messages.Add(new ChatMessageViewModel(ChatRole.User, message.Value.DisplayText));
         _pendingAssistant = new ChatMessageViewModel(ChatRole.Assistant, "");
         Messages.Add(_pendingAssistant);
         DiscardPendingTextDeltas();
@@ -972,7 +972,83 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         _turnCts?.Dispose();
         _turnCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
 
-        await SendToSessionAsync(payload);
+        await SendToSessionAsync(message.Value.Payload);
+    }
+
+    [RelayCommand(CanExecute = nameof(CanSteer))]
+    private async Task SteerAsync()
+    {
+        if (!CanSteer || _session is not { } session)
+            return;
+
+        var draft = InputText;
+        var message = TakeUserMessage();
+        if (message is null)
+            return;
+
+        // Split the streaming answer at the insertion point so transcript order remains
+        // assistant output -> steering message -> continued assistant output.
+        var previousAssistant = _pendingAssistant;
+        var previousIndex = previousAssistant is null ? -1 : Messages.IndexOf(previousAssistant);
+        var previousWasThinking = previousAssistant?.IsThinking == true;
+        StopThinking();
+        if (previousAssistant is not null && string.IsNullOrEmpty(previousAssistant.Text))
+            Messages.Remove(previousAssistant);
+
+        var userMessage = new ChatMessageViewModel(ChatRole.User, message.Value.DisplayText);
+        var continuedAssistant = new ChatMessageViewModel(ChatRole.Assistant, "");
+        Messages.Add(userMessage);
+        Messages.Add(continuedAssistant);
+        _pendingAssistant = continuedAssistant;
+        InputText = "";
+        StatusText = L("AiWaiting");
+        StartThinking();
+
+        try
+        {
+            await session.SteerAsync(message.Value.Payload, _turnCts?.Token ?? _cts.Token);
+        }
+        catch (Exception ex)
+        {
+            // A failed write must not visually pretend that the active turn accepted the
+            // steer. Restore the original stream bubble and keep the draft available.
+            if (ReferenceEquals(_pendingAssistant, continuedAssistant))
+            {
+                StopThinking();
+                if (continuedAssistant.Text.Length > 0 && previousAssistant is not null)
+                    previousAssistant.Text += continuedAssistant.Text;
+                Messages.Remove(continuedAssistant);
+                Messages.Remove(userMessage);
+                if (previousAssistant is not null && !Messages.Contains(previousAssistant))
+                    Messages.Insert(Math.Clamp(previousIndex, 0, Messages.Count), previousAssistant);
+                _pendingAssistant = previousAssistant;
+                if (previousWasThinking)
+                    StartThinking();
+            }
+
+            InputText = draft;
+            Messages.Add(new ChatMessageViewModel(ChatRole.System, L("AiSteerFailed", ex.Message)));
+        }
+    }
+
+    private (string DisplayText, string Payload)? TakeUserMessage()
+    {
+        var prompt = InputText.Trim();
+        if (prompt.Length == 0)
+            return null;
+
+        // A terminal selection always rides along when present; the panel shows a hint
+        // (bound to HasTerminalSelection) so the user knows it will be attached.
+        var displayText = prompt;
+        var payload = prompt;
+        var selection = _takeSelection()?.Trim();
+        if (!string.IsNullOrEmpty(selection))
+        {
+            displayText = $"{prompt}\n\n{L("AiSelectionAttached")}";
+            payload = $"{prompt}\n\nHere is the relevant terminal output:\n```\n{selection}\n```";
+        }
+
+        return (displayText, payload);
     }
 
     /// <summary>Aborts the current turn: cancels the running command (if any), asks the
@@ -998,6 +1074,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             _ = SafeInterruptAsync(session);
 
         FlushPendingTextDeltas();
+        SetModelTurnActive(false);
         StopThinking();
         if (_pendingAssistant is not null)
         {
@@ -1050,6 +1127,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
                 _session.TurnCompleted += OnTurnCompleted;
                 _session.Errored += OnErrored;
                 _session.Exited += OnExited;
+                NotifySteerAvailabilityChanged();
             }
 
             if (!_sessionStarted)
@@ -1058,12 +1136,15 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
                 _sessionStarted = true;
             }
 
+            SetModelTurnActive(true);
+
             // The per-turn token lets Stop abort HTTP-backed sessions mid-stream; CLI-backed
             // sessions return quickly here and are interrupted via InterruptAsync instead.
             await _session.SendAsync(payload, _turnCts?.Token ?? _cts.Token);
         }
         catch (Exception ex)
         {
+            SetModelTurnActive(false);
             OnErrored(ex.Message);
         }
     }
@@ -1086,6 +1167,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         var session = _session;
         _session = null;
         _sessionStarted = false;
+        SetModelTurnActive(false);
         StopThinking();
         DiscardPendingTextDeltas();
         if (_pendingAssistant is not null)
@@ -1181,6 +1263,8 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             DiscardPendingTextDeltas();
             return;
         }
+
+        SetModelTurnActive(false);
 
         var answer = "";
         if (_pendingAssistant is not null)
@@ -1439,9 +1523,14 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         {
             FlushPendingTextDeltas();
             Messages.Add(new ChatMessageViewModel(ChatRole.System, message));
+            SetModelTurnActive(false);
             StopThinking();
             if (_pendingAssistant is not null)
+            {
                 _pendingAssistant.IsStreaming = false;
+                if (string.IsNullOrEmpty(_pendingAssistant.Text))
+                    Messages.Remove(_pendingAssistant);
+            }
             _pendingAssistant = null;
             IsBusy = false;
             if (IsAuthenticationError(message))
@@ -1451,6 +1540,22 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             PersistCurrentConversation();
         }
     });
+
+    private void SetModelTurnActive(bool value)
+    {
+        if (_isModelTurnActive == value)
+            return;
+
+        _isModelTurnActive = value;
+        OnPropertyChanged(nameof(IsModelTurnActive));
+        NotifySteerAvailabilityChanged();
+    }
+
+    private void NotifySteerAvailabilityChanged()
+    {
+        SteerCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(CanSteer));
+    }
 
     private void OnExited() => Dispatcher.UIThread.Post(HandleSessionExited);
 

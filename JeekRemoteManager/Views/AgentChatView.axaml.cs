@@ -429,7 +429,12 @@ public partial class AgentChatView : UserControl
             return;
 
         e.Handled = true;
-        if (DataContext is AgentChatViewModel vm && vm.SendCommand.CanExecute(null))
+        if (DataContext is not AgentChatViewModel vm)
+            return;
+
+        if (vm.IsBusy && vm.SteerCommand.CanExecute(null))
+            vm.SteerCommand.Execute(null);
+        else if (vm.SendCommand.CanExecute(null))
             vm.SendCommand.Execute(null);
     }
 

@@ -85,7 +85,10 @@ public sealed class CodexChatSession : IAgentChatSession
     private int _initializeRequestId = -1;
     private int _threadStartRequestId = -1;
     private int _turnStartRequestId = -1;
+    private int _steerRequestId = -1;
     private volatile string? _currentTurnId;
+    private TaskCompletionSource<string>? _activeTurnReady;
+    private TaskCompletionSource<bool>? _steerResponse;
     private string _finalText = "";
     private long _lastOutputTokens;
     private int _numTurns;
@@ -108,6 +111,8 @@ public sealed class CodexChatSession : IAgentChatSession
 
     /// <summary>The Codex thread id reported by the <c>thread/start</c> response.</summary>
     public string? SessionId { get; private set; }
+
+    public bool SupportsSteering => true;
 
     public event Action<string>? SessionInitialized;
     public event Action<string>? TextDelta;
@@ -320,6 +325,9 @@ public sealed class CodexChatSession : IAgentChatSession
         if (_disposed || process is null || process.HasExited)
             throw new InvalidOperationException("The Codex CLI session is not running.");
 
+        _currentTurnId = null;
+        _activeTurnReady = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+
         // The first send can race the initialize → thread/start handshake; wait for the
         // thread id rather than failing.
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -329,14 +337,45 @@ public sealed class CodexChatSession : IAgentChatSession
         _currentText.Clear();
         _finalText = "";
         _lastOutputTokens = 0;
-        _currentTurnId = null;
 
         _turnStartRequestId = await SendRequestAsync("turn/start", new
         {
             threadId,
             input = new[] { new { type = "text", text } },
             effort = string.IsNullOrWhiteSpace(_effort) ? null : _effort,
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken, id => _turnStartRequestId = id).ConfigureAwait(false);
+    }
+
+    /// <summary>Appends input to the active Codex turn. The turn id may arrive just after
+    /// <c>turn/start</c>, so an immediate steer waits briefly for that response.</summary>
+    public async Task SteerAsync(string text, CancellationToken cancellationToken = default)
+    {
+        var process = _process;
+        if (_disposed || process is null || process.HasExited)
+            throw new InvalidOperationException("The Codex CLI session is not running.");
+
+        var activeTurnReady = _activeTurnReady
+            ?? throw new InvalidOperationException("There is no active Codex turn to steer.");
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(HandshakeTimeout);
+        var threadId = SessionId
+            ?? await _threadReady.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
+        var turnId = _currentTurnId
+            ?? await activeTurnReady.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
+
+        if (!ReferenceEquals(activeTurnReady, _activeTurnReady) || _currentTurnId != turnId)
+            throw new InvalidOperationException("The active Codex turn finished before it could be steered.");
+
+        var steerResponse = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _steerResponse = steerResponse;
+        _steerRequestId = await SendRequestAsync("turn/steer", new
+        {
+            threadId,
+            expectedTurnId = turnId,
+            input = new[] { new { type = "text", text } },
+        }, cancellationToken, id => _steerRequestId = id).ConfigureAwait(false);
+        await steerResponse.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
     }
 
     /// <summary>Asks the app-server to abort the in-flight turn; it still ends with a
@@ -372,9 +411,14 @@ public sealed class CodexChatSession : IAgentChatSession
         }
     }
 
-    private async Task<int> SendRequestAsync(string method, object? @params, CancellationToken cancellationToken = default)
+    private async Task<int> SendRequestAsync(
+        string method,
+        object? @params,
+        CancellationToken cancellationToken = default,
+        Action<int>? requestIdAssigned = null)
     {
         var id = Interlocked.Increment(ref _nextRequestId);
+        requestIdAssigned?.Invoke(id);
         await WriteMessageAsync(new { jsonrpc = "2.0", id, method, @params }, cancellationToken).ConfigureAwait(false);
         return id;
     }
@@ -500,8 +544,16 @@ public sealed class CodexChatSession : IAgentChatSession
         if (root.TryGetProperty("error", out var error))
         {
             var message = error.TryGetProperty("message", out var msg) ? msg.GetString() ?? "unknown error" : "unknown error";
+            if (id == _steerRequestId && Interlocked.Exchange(ref _steerResponse, null) is { } steerResponse)
+            {
+                Interlocked.Exchange(ref _steerRequestId, -1);
+                steerResponse.TrySetException(new InvalidOperationException(message));
+                return;
+            }
             if (id == _initializeRequestId || id == _threadStartRequestId)
                 _threadReady.TrySetException(new InvalidOperationException(message));
+            if (id == _turnStartRequestId)
+                _activeTurnReady?.TrySetException(new InvalidOperationException(message));
             if (!_disposed)
                 Errored?.Invoke($"Codex error: {message}");
             return;
@@ -509,6 +561,13 @@ public sealed class CodexChatSession : IAgentChatSession
 
         if (!root.TryGetProperty("result", out var result))
             return;
+
+        if (id == _steerRequestId && Interlocked.Exchange(ref _steerResponse, null) is { } steerResponseResult)
+        {
+            Interlocked.Exchange(ref _steerRequestId, -1);
+            steerResponseResult.TrySetResult(true);
+            return;
+        }
 
         if (id == _initializeRequestId)
         {
@@ -556,7 +615,11 @@ public sealed class CodexChatSession : IAgentChatSession
                 && turnIdProp.GetString() is { } turnId)
             {
                 _currentTurnId = turnId;
+                // The response can precede actual activation by several seconds while MCP
+                // servers start. Only turn/started below releases same-turn steering.
             }
+            else
+                _activeTurnReady?.TrySetException(new InvalidOperationException("Codex turn/start returned no turn id."));
         }
     }
 
@@ -620,11 +683,20 @@ public sealed class CodexChatSession : IAgentChatSession
                     && startedTurnId.GetString() is { } newTurnId)
                 {
                     _currentTurnId = newTurnId;
+                    _activeTurnReady?.TrySetResult(newTurnId);
                 }
                 break;
 
             case "turn/completed":
-                _currentTurnId = null;
+                var completedTurnId = p.TryGetProperty("turn", out var completedTurn)
+                    && completedTurn.TryGetProperty("id", out var completedTurnIdProperty)
+                        ? completedTurnIdProperty.GetString()
+                        : null;
+                if (completedTurnId is null || completedTurnId == _currentTurnId)
+                {
+                    _currentTurnId = null;
+                    _activeTurnReady = null;
+                }
                 HandleTurnCompleted(p);
                 break;
 
@@ -671,6 +743,8 @@ public sealed class CodexChatSession : IAgentChatSession
             return;
         _disposed = true;
         _threadReady.TrySetCanceled();
+        _activeTurnReady?.TrySetCanceled();
+        _steerResponse?.TrySetCanceled();
 
         var process = _process;
         if (process is null)

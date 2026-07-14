@@ -232,6 +232,9 @@ PassphraseWatermark	optional, only if the key is encrypted	可选，仅在私钥
 AiAssistant	AI assistant	AI 助手
 AiAssistantShort	AI	AI
 AiSend	Send	发送
+AiSteer	Steer	插入当前工作
+AiSteerHint	Add this message to the assistant's current work.	将这条消息直接插入助手当前正在进行的工作。
+AiSteerFailed	Could not steer the current work: {0}	无法插入当前工作：{0}
 AiStop	Stop	停止
 AiStopHint	Stop the assistant and cancel the running command.	停止助手并取消正在执行的命令。
 AiStopped	Stopped.	已停止。

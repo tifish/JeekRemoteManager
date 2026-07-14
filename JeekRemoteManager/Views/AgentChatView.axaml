@@ -300,13 +300,25 @@
                                    Foreground="{DynamicResource AccentForegroundBrush}"
                                    Text="&#xE72A;" />
                     </Button>
-                    <Button Grid.Column="1"
-                            Classes="composer-action"
-                            Command="{Binding StopCommand}"
-                            ToolTip.Tip="{l:Localize AiStopHint}"
-                            IsVisible="{Binding IsBusy}">
-                        <TextBlock FontSize="11" Text="■" />
-                    </Button>
+                    <StackPanel Grid.Column="1"
+                                Orientation="Horizontal"
+                                Spacing="6"
+                                IsVisible="{Binding IsBusy}">
+                        <Button Classes="accent composer-action"
+                                Command="{Binding SteerCommand}"
+                                ToolTip.Tip="{l:Localize AiSteerHint}"
+                                IsVisible="{Binding CanSteer}">
+                            <TextBlock FontFamily="Segoe MDL2 Assets"
+                                       FontSize="13"
+                                       Foreground="{DynamicResource AccentForegroundBrush}"
+                                       Text="&#xE72A;" />
+                        </Button>
+                        <Button Classes="composer-action"
+                                Command="{Binding StopCommand}"
+                                ToolTip.Tip="{l:Localize AiStopHint}">
+                            <TextBlock FontSize="11" Text="■" />
+                        </Button>
+                    </StackPanel>
                 </Grid>
             </StackPanel>
         </Border>

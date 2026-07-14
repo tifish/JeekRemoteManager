@@ -43,9 +43,18 @@ public interface IAgentChatSession : IAsyncDisposable
     /// <summary>Launches the subprocess. Call once before the first <see cref="SendAsync"/>.</summary>
     void Start();
 
+    /// <summary>Whether the provider can append another user message to the currently
+    /// active turn without interrupting it or creating a new turn.</summary>
+    bool SupportsSteering => false;
+
     /// <summary>Sends one user message; the reply arrives via <see cref="TextDelta"/> and
     /// <see cref="TurnCompleted"/>.</summary>
     Task SendAsync(string text, CancellationToken cancellationToken = default);
+
+    /// <summary>Appends user input to the currently active turn. Providers that do not
+    /// expose same-turn steering keep the default unsupported implementation.</summary>
+    Task SteerAsync(string text, CancellationToken cancellationToken = default) =>
+        Task.FromException(new NotSupportedException("This AI provider does not support steering an active turn."));
 
     /// <summary>Best-effort abort of the in-flight turn. Sessions without a wire-level
     /// interrupt (HTTP APIs) rely on the caller cancelling <see cref="SendAsync"/>'s token
