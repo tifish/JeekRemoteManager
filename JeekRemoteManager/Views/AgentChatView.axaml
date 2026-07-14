@@ -351,13 +351,28 @@
                 </StackPanel>
             </Border>
 
-            <ScrollViewer x:Name="MessagesScroll"
-                          IsVisible="{Binding HasMessages}"
-                          ScrollChanged="OnMessagesScrollChanged">
-                <ItemsControl x:Name="MessagesList"
-                              ItemsSource="{Binding Messages}"
-                              Margin="16,12,16,18">
-                    <ItemsControl.ItemTemplate>
+            <ListBox x:Name="MessagesList"
+                     ItemsSource="{Binding Messages}"
+                     IsVisible="{Binding HasMessages}"
+                     Margin="16,12,16,18"
+                     Padding="0"
+                     BorderThickness="0"
+                     Background="Transparent"
+                     Focusable="False"
+                     SelectionChanged="OnMessagesSelectionChanged">
+                <ListBox.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <VirtualizingStackPanel CacheLength="1" />
+                    </ItemsPanelTemplate>
+                </ListBox.ItemsPanel>
+                <ListBox.Styles>
+                    <Style Selector="ListBoxItem">
+                        <Setter Property="Padding" Value="0" />
+                        <Setter Property="Margin" Value="0" />
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                    </Style>
+                </ListBox.Styles>
+                    <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="vm:ChatMessageViewModel">
                             <Border x:Name="ChatBubble"
                                     Classes="chat-bubble"
@@ -384,7 +399,7 @@
                                     <Panel Classes="message-content">
                                         <SelectableTextBlock Text="{Binding Text}"
                                                              TextWrapping="Wrap"
-                                                             IsVisible="{Binding IsPlainBubble}"
+                                                             IsVisible="{Binding ShowsPlainText}"
                                                              Foreground="{DynamicResource TextPrimaryBrush}" />
 
                                         <StackPanel IsVisible="{Binding IsConfirmation}" Spacing="8">
@@ -436,9 +451,8 @@
                                 </Panel>
                             </Border>
                         </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ScrollViewer>
+                    </ListBox.ItemTemplate>
+            </ListBox>
 
             <!-- Shown when the transcript is scrolled away from the latest messages. -->
             <Button x:Name="ScrollToBottomButton"

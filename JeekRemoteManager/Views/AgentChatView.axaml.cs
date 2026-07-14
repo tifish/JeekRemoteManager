@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
@@ -19,8 +21,10 @@ public partial class AgentChatView : UserControl
     private const double NearBottomThreshold = 48;
 
     private INotifyCollectionChanged? _observed;
+    private ScrollViewer? _messagesScroll;
     private bool _stickToBottom = true;
     private bool _isProgrammaticScroll;
+    private bool _scrollUpdateScheduled;
 
     /// <summary>Raised by the panel's own close button; the hosting TerminalView
     /// collapses the panel.</summary>
@@ -33,6 +37,8 @@ public partial class AgentChatView : UserControl
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
+        Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
 
         // Handle Enter on the tunnel (preview) route so it fires before the multi-line
         // TextBox consumes Enter to insert a newline.
@@ -53,6 +59,57 @@ public partial class AgentChatView : UserControl
     /// <summary>True when the transcript is not following the latest messages and the
     /// floating jump-to-bottom control is shown. Public for Debug MCP.</summary>
     public bool IsScrollToBottomButtonVisible => ScrollToBottomButton.IsVisible;
+
+    /// <summary>Number of currently realized chat bubbles. With virtualization this stays
+    /// close to the viewport size even when the transcript contains hundreds of messages.</summary>
+    public int RealizedMessageCount => MessagesList.GetVisualDescendants()
+        .OfType<Border>()
+        .Count(border => border.Classes.Contains("chat-bubble"));
+
+    public int FirstRealizedMessageIndex => MessagesList.GetVisualDescendants()
+        .OfType<VirtualizingStackPanel>()
+        .FirstOrDefault()?.FirstRealizedIndex ?? -1;
+
+    public int LastRealizedMessageIndex => MessagesList.GetVisualDescendants()
+        .OfType<VirtualizingStackPanel>()
+        .FirstOrDefault()?.LastRealizedIndex ?? -1;
+
+    private ScrollViewer? MessagesScroll
+    {
+        get
+        {
+            AttachMessagesScroll();
+            return _messagesScroll;
+        }
+    }
+
+    private void OnLoaded(object? sender, RoutedEventArgs e)
+    {
+        AttachMessagesScroll();
+        ScrollMessagesToEnd();
+    }
+
+    private void AttachMessagesScroll()
+    {
+        if (_messagesScroll is not null)
+            return;
+
+        var scroll = MessagesList.GetVisualDescendants()
+            .OfType<ScrollViewer>()
+            .FirstOrDefault(control => !control.Classes.Contains("CodeBlock"));
+        if (scroll is null)
+            return;
+
+        _messagesScroll = scroll;
+        _messagesScroll.ScrollChanged += OnMessagesScrollChanged;
+    }
+
+    private void OnUnloaded(object? sender, RoutedEventArgs e)
+    {
+        if (_messagesScroll is not null)
+            _messagesScroll.ScrollChanged -= OnMessagesScrollChanged;
+        _messagesScroll = null;
+    }
 
     /// <summary>Scrolls the transcript to the end and resumes following new messages.
     /// Public for Debug MCP and the floating button.</summary>
@@ -86,6 +143,56 @@ public partial class AgentChatView : UserControl
         var message = new ChatMessageViewModel(ChatRole.Assistant, markdown);
         vm.Messages.Add(message);
         return message;
+    }
+
+    /// <summary>Adds a temporary large transcript, lets the live ListBox lay it out, and
+    /// removes it again. The returned counters let Debug MCP verify virtualization without
+    /// changing the user's conversation.</summary>
+    public async Task<string> RunDebugTranscriptStressAsync(int messageCount, int charactersPerMessage)
+    {
+        if (messageCount is < 1 or > 2_000)
+            throw new ArgumentOutOfRangeException(nameof(messageCount));
+        if (charactersPerMessage is < 1 or > 20_000)
+            throw new ArgumentOutOfRangeException(nameof(charactersPerMessage));
+        if (DataContext is not AgentChatViewModel vm)
+            throw new InvalidOperationException("The AI panel is not initialized.");
+
+        var added = new List<ChatMessageViewModel>(messageCount);
+        var payload = new string('x', charactersPerMessage);
+        var stopwatch = Stopwatch.StartNew();
+        for (var i = 0; i < messageCount; i++)
+        {
+            var message = new ChatMessageViewModel(ChatRole.User, $"stress-{i}: {payload}");
+            added.Add(message);
+            vm.Messages.Add(message);
+        }
+
+        await Task.Delay(100);
+        ScrollToLatest();
+        await Task.Delay(150);
+
+        var realized = RealizedMessageCount;
+        var first = FirstRealizedMessageIndex;
+        var last = LastRealizedMessageIndex;
+        var bottomButtonHidden = !IsScrollToBottomButtonVisible;
+
+        MessagesScroll?.ScrollToHome();
+        await Task.Delay(50);
+        var awayButtonVisible = IsScrollToBottomButtonVisible;
+        ScrollToLatest();
+        await Task.Delay(50);
+        var returnedToLast = LastRealizedMessageIndex == vm.Messages.Count - 1;
+        var returnedButtonHidden = !IsScrollToBottomButtonVisible;
+        stopwatch.Stop();
+
+        foreach (var message in added)
+            vm.Messages.Remove(message);
+
+        return $"messages={messageCount}; chars={messageCount * charactersPerMessage}; "
+               + $"realized={realized}; range={first}-{last}; "
+               + $"bottomButtonHidden={bottomButtonHidden}; awayButtonVisible={awayButtonVisible}; "
+               + $"returnedToLast={returnedToLast}; returnedButtonHidden={returnedButtonHidden}; "
+               + $"elapsedMs={stopwatch.ElapsedMilliseconds}";
     }
 
     private static int EnsureSelectableCodeBlocks(Visual root)
@@ -171,6 +278,14 @@ public partial class AgentChatView : UserControl
         }
     }
 
+    private void OnMessagesSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        // ListBox supplies virtualization, but the transcript itself is not a selectable
+        // list: selection belongs to the text controls inside each bubble.
+        if (MessagesList.SelectedIndex >= 0)
+            MessagesList.SelectedIndex = -1;
+    }
+
     private async void OnCopyMessageClick(object? sender, RoutedEventArgs e)
     {
         if (sender is MenuItem { CommandParameter: ChatMessageViewModel message })
@@ -219,10 +334,18 @@ public partial class AgentChatView : UserControl
             or NotifyCollectionChangedAction.Remove))
             return;
 
-        if (_stickToBottom)
-            Dispatcher.UIThread.Post(ScrollMessagesToEnd, DispatcherPriority.Background);
-        else
-            Dispatcher.UIThread.Post(UpdateScrollToBottomButton, DispatcherPriority.Background);
+        if (_scrollUpdateScheduled)
+            return;
+
+        _scrollUpdateScheduled = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _scrollUpdateScheduled = false;
+            if (_stickToBottom)
+                ScrollMessagesToEnd();
+            else
+                UpdateScrollToBottomButton();
+        }, DispatcherPriority.Background);
     }
 
     private void OnMessagesScrollChanged(object? sender, ScrollChangedEventArgs e)
@@ -245,6 +368,9 @@ public partial class AgentChatView : UserControl
 
     private void ScrollMessagesToEnd()
     {
+        if (DataContext is AgentChatViewModel vm && vm.Messages.Count > 0)
+            MessagesList.ScrollIntoView(vm.Messages.Count - 1);
+
         if (MessagesScroll is null)
             return;
 

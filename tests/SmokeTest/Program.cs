@@ -436,6 +436,56 @@ try
     Check(ChatMessageViewModel.NormalizeMarkdown(mentionedFence) == mentionedFence,
           "AI Markdown keeps inline fence mentions separate from later code blocks");
 
+    var streamingMessage = new ChatMessageViewModel(ChatRole.Assistant, "partial answer")
+    {
+        IsStreaming = true,
+    };
+    Check(streamingMessage.ShowsPlainText && !streamingMessage.ShowsAssistantMarkdown
+          && streamingMessage.RenderedMarkdown == "",
+          "AI streamed answers skip Markdown parsing until the turn completes");
+    streamingMessage.IsStreaming = false;
+    Check(!streamingMessage.ShowsPlainText && streamingMessage.ShowsAssistantMarkdown
+          && streamingMessage.RenderedMarkdown == "partial answer",
+          "AI completed answers switch to one final Markdown render");
+
+    var oversizedMessage = new ChatMessageViewModel(
+        ChatRole.Assistant,
+        new string('x', ChatMessageViewModel.MarkdownCharacterLimit + 1));
+    Check(oversizedMessage.ShowsPlainText && !oversizedMessage.ShowsAssistantMarkdown
+          && oversizedMessage.RenderedMarkdown == "",
+          "AI oversized answers remain plain text instead of building an unbounded Markdown tree");
+
+    var streamingVm = new AgentChatViewModel(
+        [
+            new AgentProvider(
+                "Test",
+                "",
+                [new AgentOption("Default", null)],
+                [new AgentOption("Default", null)],
+                (_, _) => null),
+        ],
+        () => null,
+        null);
+    var coalescedMessage = new ChatMessageViewModel(ChatRole.Assistant, "");
+    streamingVm.Messages.Add(coalescedMessage);
+    typeof(AgentChatViewModel)
+        .GetField("_pendingAssistant", BindingFlags.Instance | BindingFlags.NonPublic)!
+        .SetValue(streamingVm, coalescedMessage);
+    var onTextDelta = typeof(AgentChatViewModel)
+        .GetMethod("OnTextDelta", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    for (var i = 0; i < 1_000; i++)
+        onTextDelta.Invoke(streamingVm, ["0123456789"]);
+    Check(streamingVm.PendingStreamCharacterCount == 10_000 && coalescedMessage.Text.Length == 0,
+          "AI token bursts wait in one coalescing buffer before touching the UI message");
+    typeof(AgentChatViewModel)
+        .GetMethod("FlushPendingTextDeltas", BindingFlags.Instance | BindingFlags.NonPublic)!
+        .Invoke(streamingVm, null);
+    Check(coalescedMessage.Text.Length == 10_000 && coalescedMessage.IsStreaming
+          && streamingVm.StreamRenderUpdateCount == 1
+          && streamingVm.PendingStreamCharacterCount == 0,
+          "AI token burst is applied as one plain-text UI update");
+    await streamingVm.DisposeAsync();
+
     var runningMessage = new ChatMessageViewModel(ChatRole.Assistant, "")
     {
         IsThinking = true,

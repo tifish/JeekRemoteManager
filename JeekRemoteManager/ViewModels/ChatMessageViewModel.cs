@@ -18,6 +18,10 @@ public enum ChatRole
 /// tokens append live.</summary>
 public sealed partial class ChatMessageViewModel : ObservableObject
 {
+    /// <summary>Very large responses stay as selectable plain text. Parsing and laying out
+    /// unbounded Markdown on the UI thread can otherwise make the panel unresponsive.</summary>
+    public const int MarkdownCharacterLimit = 50_000;
+
     public ChatMessageViewModel(ChatRole role, string text)
     {
         Role = role;
@@ -37,31 +41,45 @@ public sealed partial class ChatMessageViewModel : ObservableObject
     public bool IsConfirmation => Role == ChatRole.Confirmation;
 
     /// <summary>Rendered as a plain selectable text bubble (user/system/tool); assistant
-    /// messages use Markdown and confirmations use their own card layout.</summary>
+    /// messages normally use Markdown and confirmations use their own card layout.</summary>
     public bool IsPlainBubble => Role is ChatRole.User or ChatRole.System or ChatRole.Tool;
 
     public bool HasText => !string.IsNullOrEmpty(Text);
 
     public bool ShowsThinking => IsAssistant && IsThinking && !HasText;
 
-    public bool ShowsAssistantMarkdown => IsAssistant && !ShowsThinking;
+    /// <summary>While an answer is streaming, or after it grows beyond the safe Markdown
+    /// limit, render selectable plain text instead of repeatedly rebuilding a Markdown tree.</summary>
+    public bool ShowsPlainText => IsPlainBubble || IsAssistant && !ShowsThinking
+        && (IsStreaming || Text.Length > MarkdownCharacterLimit);
+
+    public bool ShowsAssistantMarkdown => IsAssistant && !ShowsThinking && !ShowsPlainText;
 
     /// <summary>Markdown used by the assistant bubble. Some agents emit an opening
     /// fenced-code marker immediately after prose; Markdown requires that marker to
     /// start a line, so repair that boundary for display without changing <see cref="Text"/>.</summary>
-    public string RenderedMarkdown => NormalizeMarkdown(Text);
+    public string RenderedMarkdown => ShowsAssistantMarkdown ? NormalizeMarkdown(Text) : "";
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasText))]
     [NotifyPropertyChangedFor(nameof(ShowsThinking))]
+    [NotifyPropertyChangedFor(nameof(ShowsPlainText))]
     [NotifyPropertyChangedFor(nameof(ShowsAssistantMarkdown))]
     [NotifyPropertyChangedFor(nameof(RenderedMarkdown))]
     private string _text;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowsThinking))]
+    [NotifyPropertyChangedFor(nameof(ShowsPlainText))]
     [NotifyPropertyChangedFor(nameof(ShowsAssistantMarkdown))]
+    [NotifyPropertyChangedFor(nameof(RenderedMarkdown))]
     private bool _isThinking;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowsPlainText))]
+    [NotifyPropertyChangedFor(nameof(ShowsAssistantMarkdown))]
+    [NotifyPropertyChangedFor(nameof(RenderedMarkdown))]
+    private bool _isStreaming;
 
     [ObservableProperty]
     private string _thinkingText = "Thinking...";

@@ -19,6 +19,8 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using JeekTools;
+using JeekRemoteManager.ViewModels;
+using JeekRemoteManager.Views;
 using Microsoft.Extensions.Logging;
 using ZLogger;
 
@@ -363,6 +365,15 @@ internal static class DebugMcpServer
             {
                 ["lines"] = Prop("integer", "Number of lines to return, 1-2000 (default 200)."),
                 ["filter"] = Prop("string", "Only return lines containing this text (case-insensitive)."),
+            }),
+        Tool("ai_chat_stress",
+            "Create a temporary AI panel and verify streaming coalescing plus transcript virtualization on the live UI thread.",
+            new JsonObject
+            {
+                ["message_count"] = Prop("integer", "Temporary transcript messages (default 500)."),
+                ["characters_per_message"] = Prop("integer", "Characters per temporary message (default 200)."),
+                ["stream_chunk_count"] = Prop("integer", "Streamed chunks in one burst (default 2000)."),
+                ["characters_per_chunk"] = Prop("integer", "Characters per streamed chunk (default 10)."),
             }));
 
     private static JsonObject Tool(string name, string description, JsonObject properties, string[]? required = null)
@@ -408,6 +419,7 @@ internal static class DebugMcpServer
                 "visual_tree" => await VisualTreeAsync(args),
                 "screenshot" => await ScreenshotAsync(),
                 "read_logs" => ReadLogs(args),
+                "ai_chat_stress" => await AiChatStressAsync(args),
                 _ => throw new InvalidOperationException($"Unknown tool: {name}"),
             };
         }
@@ -802,6 +814,63 @@ internal static class DebugMcpServer
 
         var result = selected.TakeLast(lineCount).ToList();
         return ToolText(result.Count == 0 ? "(no matching log lines)" : string.Join('\n', result));
+    }
+
+    private static async Task<JsonObject> AiChatStressAsync(JsonObject args)
+    {
+        var messageCount = args["message_count"]?.GetValue<int>() ?? 500;
+        var charactersPerMessage = args["characters_per_message"]?.GetValue<int>() ?? 200;
+        var streamChunkCount = args["stream_chunk_count"]?.GetValue<int>() ?? 2_000;
+        var charactersPerChunk = args["characters_per_chunk"]?.GetValue<int>() ?? 10;
+
+        var state = await OnUiAsync(() =>
+        {
+            var vm = new AgentChatViewModel(
+                [
+                    new AgentProvider(
+                        "Debug",
+                        "",
+                        [new AgentOption("Default", null)],
+                        [new AgentOption("Default", null)],
+                        (_, _) => null),
+                ],
+                () => null,
+                null);
+            var view = new AgentChatView { DataContext = vm };
+            var window = new Window
+            {
+                Width = 600,
+                Height = 800,
+                ShowInTaskbar = false,
+                WindowDecorations = WindowDecorations.None,
+                Opacity = 0,
+                Content = view,
+            };
+            window.Show();
+            return (vm, view, window);
+        });
+
+        try
+        {
+            await Task.Delay(150);
+            var streamingTask = await OnUiAsync(() =>
+                state.vm.RunDebugStreamingStressAsync(streamChunkCount, charactersPerChunk));
+            var streaming = await streamingTask.WaitAsync(TimeSpan.FromSeconds(15));
+
+            var transcriptTask = await OnUiAsync(() =>
+                state.view.RunDebugTranscriptStressAsync(messageCount, charactersPerMessage));
+            var transcript = await transcriptTask.WaitAsync(TimeSpan.FromSeconds(15));
+            return ToolText($"streaming: {streaming}\ntranscript: {transcript}");
+        }
+        finally
+        {
+            var disposeTask = await OnUiAsync(() =>
+            {
+                state.window.Close();
+                return state.vm.DisposeAsync().AsTask();
+            });
+            await disposeTask;
+        }
     }
 
     #endregion

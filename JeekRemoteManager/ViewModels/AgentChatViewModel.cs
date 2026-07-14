@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -56,6 +57,8 @@ public sealed record AgentProvider(
 /// </summary>
 public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 {
+    private const int StreamRenderIntervalMilliseconds = 50;
+
     // Only blocks explicitly tagged as shell are executable; plain ``` blocks (quotes,
     // translations, sample output) must never reach the server. A "-danger" suffix is the
     // model self-reporting a destructive command; it forces the confirmation flow.
@@ -101,6 +104,10 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     private readonly Func<AgentFileTransfer, CancellationToken, Task<string>>? _transferFiles;
     private readonly CancellationTokenSource _cts = new();
     private readonly DispatcherTimer _thinkingTimer = new() { Interval = TimeSpan.FromMilliseconds(450) };
+    private readonly object _streamDeltaGate = new();
+    private readonly StringBuilder _streamDeltaBuffer = new();
+    private bool _streamFlushScheduled;
+    private int _streamRenderUpdateCount;
 
     private readonly Dictionary<AgentProvider, (IReadOnlyList<AgentOption> Models, IReadOnlyList<AgentOption> Efforts)> _fetchedCatalogs = new();
     private readonly HashSet<AgentProvider> _catalogRefreshesStarted = new();
@@ -281,6 +288,20 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     }
 
     public ObservableCollection<ChatMessageViewModel> Messages { get; } = new();
+
+    /// <summary>Number of UI text updates used for the current streamed answer. Public so
+    /// Debug MCP can verify that token bursts are coalesced instead of rendered one by one.</summary>
+    public int StreamRenderUpdateCount => _streamRenderUpdateCount;
+
+    /// <summary>Characters waiting for the next coalesced UI update. Public for Debug MCP.</summary>
+    public int PendingStreamCharacterCount
+    {
+        get
+        {
+            lock (_streamDeltaGate)
+                return _streamDeltaBuffer.Length;
+        }
+    }
 
     /// <summary>True while the transcript contains at least one message. The view uses this
     /// to swap the empty-conversation welcome state for the live transcript.</summary>
@@ -637,6 +658,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     private void NewConversation()
     {
         DetachAndDisposeSession();
+        DiscardPendingTextDeltas();
         Messages.Clear();
         StatusText = IsAvailable ? "" : UnavailableText;
     }
@@ -665,6 +687,9 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         Messages.Add(new ChatMessageViewModel(ChatRole.User, displayText));
         _pendingAssistant = new ChatMessageViewModel(ChatRole.Assistant, "");
         Messages.Add(_pendingAssistant);
+        DiscardPendingTextDeltas();
+        _streamRenderUpdateCount = 0;
+        OnPropertyChanged(nameof(StreamRenderUpdateCount));
 
         InputText = "";
         IsBusy = true;
@@ -700,9 +725,14 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         if (_session is { } session)
             _ = SafeInterruptAsync(session);
 
+        FlushPendingTextDeltas();
         StopThinking();
-        if (_pendingAssistant is not null && string.IsNullOrEmpty(_pendingAssistant.Text))
-            Messages.Remove(_pendingAssistant);
+        if (_pendingAssistant is not null)
+        {
+            _pendingAssistant.IsStreaming = false;
+            if (string.IsNullOrEmpty(_pendingAssistant.Text))
+                Messages.Remove(_pendingAssistant);
+        }
         _pendingAssistant = null;
         IsBusy = false;
         StatusText = L("AiStopped");
@@ -778,6 +808,9 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         _session = null;
         _sessionStarted = false;
         StopThinking();
+        DiscardPendingTextDeltas();
+        if (_pendingAssistant is not null)
+            _pendingAssistant.IsStreaming = false;
         _pendingAssistant = null;
         if (session is not null)
         {
@@ -789,25 +822,83 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         }
     }
 
-    private void OnTextDelta(string delta) => Dispatcher.UIThread.Post(() =>
+    private void OnTextDelta(string delta)
     {
-        if (_pendingAssistant is not null)
-        {
-            if (delta.Length > 0)
-                StopThinking();
+        if (string.IsNullOrEmpty(delta) || _cts.IsCancellationRequested)
+            return;
 
-            _pendingAssistant.Text += delta;
+        var scheduleFlush = false;
+        lock (_streamDeltaGate)
+        {
+            _streamDeltaBuffer.Append(delta);
+            if (!_streamFlushScheduled)
+            {
+                _streamFlushScheduled = true;
+                scheduleFlush = true;
+            }
         }
-    });
+
+        if (scheduleFlush)
+            _ = FlushPendingTextDeltasAfterDelayAsync();
+    }
+
+    private async Task FlushPendingTextDeltasAfterDelayAsync()
+    {
+        try
+        {
+            await Task.Delay(StreamRenderIntervalMilliseconds, _cts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        Dispatcher.UIThread.Post(FlushPendingTextDeltas, DispatcherPriority.Background);
+    }
+
+    private void FlushPendingTextDeltas()
+    {
+        string delta;
+        lock (_streamDeltaGate)
+        {
+            delta = _streamDeltaBuffer.ToString();
+            _streamDeltaBuffer.Clear();
+            _streamFlushScheduled = false;
+        }
+
+        if (delta.Length == 0 || _pendingAssistant is null)
+            return;
+
+        _pendingAssistant.IsStreaming = true;
+        StopThinking();
+        _pendingAssistant.Text += delta;
+        _streamRenderUpdateCount++;
+        OnPropertyChanged(nameof(StreamRenderUpdateCount));
+        OnPropertyChanged(nameof(PendingStreamCharacterCount));
+    }
+
+    private void DiscardPendingTextDeltas()
+    {
+        lock (_streamDeltaGate)
+        {
+            _streamDeltaBuffer.Clear();
+            _streamFlushScheduled = false;
+        }
+
+        OnPropertyChanged(nameof(PendingStreamCharacterCount));
+    }
 
     private void OnTurnCompleted(AgentTurnResult result) => Dispatcher.UIThread.Post(() =>
     {
+        FlushPendingTextDeltas();
+
         // The completion of a turn the user stopped (interrupted backends still emit one):
         // the panel is already idle and shows "Stopped"; don't run its command or overwrite
         // the status.
         if (_stopRequested)
         {
             _stopRequested = false;
+            DiscardPendingTextDeltas();
             return;
         }
 
@@ -817,6 +908,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             StopThinking();
             if (string.IsNullOrEmpty(_pendingAssistant.Text))
                 _pendingAssistant.Text = result.Text;
+            _pendingAssistant.IsStreaming = false;
             answer = _pendingAssistant.Text;
             _pendingAssistant = null;
         }
@@ -876,6 +968,53 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     /// <summary>Removes a temporary activity bubble created for Debug MCP checks.</summary>
     public void DebugClearActivity() => ClearActivityPlaceholder();
 
+    /// <summary>Queues a temporary burst of streamed text through the production coalescer,
+    /// finalizes its rendering, then removes it. Debug MCP uses the result to verify that a
+    /// large token burst does not create one UI update per chunk.</summary>
+    public async Task<string> RunDebugStreamingStressAsync(int chunkCount, int charactersPerChunk)
+    {
+        if (chunkCount is < 1 or > 20_000)
+            throw new ArgumentOutOfRangeException(nameof(chunkCount));
+        if (charactersPerChunk is < 1 or > 1_000)
+            throw new ArgumentOutOfRangeException(nameof(charactersPerChunk));
+        if (IsBusy || _pendingAssistant is not null)
+            throw new InvalidOperationException("The AI panel must be idle for a streaming stress check.");
+
+        var message = new ChatMessageViewModel(ChatRole.Assistant, "") { IsThinking = true };
+        Messages.Add(message);
+        _pendingAssistant = message;
+        DiscardPendingTextDeltas();
+        _streamRenderUpdateCount = 0;
+        OnPropertyChanged(nameof(StreamRenderUpdateCount));
+
+        var chunk = new string('x', charactersPerChunk);
+        for (var i = 0; i < chunkCount; i++)
+            OnTextDelta(chunk);
+        var queuedCharacters = PendingStreamCharacterCount;
+
+        await Task.Delay(StreamRenderIntervalMilliseconds * 3).ConfigureAwait(false);
+        var state = await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            FlushPendingTextDeltas();
+            var streamedAsPlainText = message.ShowsPlainText
+                                      && !message.ShowsAssistantMarkdown
+                                      && message.RenderedMarkdown.Length == 0;
+            message.IsStreaming = false;
+            _pendingAssistant = null;
+            return (streamedAsPlainText, message.ShowsAssistantMarkdown, message.ShowsPlainText,
+                message.Text.Length, StreamRenderUpdateCount, PendingStreamCharacterCount);
+        });
+
+        // Give the final Markdown (when below the safety limit) one real layout pass.
+        await Task.Delay(100).ConfigureAwait(false);
+        await Dispatcher.UIThread.InvokeAsync(() => Messages.Remove(message));
+
+        return $"chunks={chunkCount}; queuedChars={queuedCharacters}; textChars={state.Length}; "
+               + $"uiUpdates={state.StreamRenderUpdateCount}; pending={state.PendingStreamCharacterCount}; "
+               + $"streamPlain={state.streamedAsPlainText}; finalMarkdown={state.ShowsAssistantMarkdown}; "
+               + $"finalPlain={state.ShowsPlainText}";
+    }
+
     // The dangerous command (and its bubble) waiting for the user's run/skip decision.
     // IsBusy stays true while waiting, so the input box is blocked but Stop still works.
     private string? _pendingDangerCommand;
@@ -911,6 +1050,9 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             return;
 
         IsBusy = true;
+        DiscardPendingTextDeltas();
+        _streamRenderUpdateCount = 0;
+        OnPropertyChanged(nameof(StreamRenderUpdateCount));
         _pendingAssistant = new ChatMessageViewModel(ChatRole.Assistant, "");
         Messages.Add(_pendingAssistant);
         StatusText = L("AiWaiting");
@@ -1008,8 +1150,11 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         // stderr can be chatty; only surface it as a system bubble when a turn is in flight.
         if (IsBusy)
         {
+            FlushPendingTextDeltas();
             Messages.Add(new ChatMessageViewModel(ChatRole.System, message));
             StopThinking();
+            if (_pendingAssistant is not null)
+                _pendingAssistant.IsStreaming = false;
             _pendingAssistant = null;
             IsBusy = false;
             if (IsAuthenticationError(message))
@@ -1023,6 +1168,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
     private void HandleSessionExited()
     {
+        FlushPendingTextDeltas();
         DetachAndDisposeSession();
         IsBusy = false;
         StatusText = L("AiSessionEnded");
@@ -1062,6 +1208,9 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     /// (Thinking… / Running…).</summary>
     private void BeginActivityPlaceholder(ActivityKind kind)
     {
+        DiscardPendingTextDeltas();
+        _streamRenderUpdateCount = 0;
+        OnPropertyChanged(nameof(StreamRenderUpdateCount));
         _pendingAssistant = new ChatMessageViewModel(ChatRole.Assistant, "");
         Messages.Add(_pendingAssistant);
         StatusText = kind == ActivityKind.Running ? L("AiWaitingCommand") : L("AiWaiting");
@@ -1072,9 +1221,14 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     /// finishes. Leaves bubbles that already received streamed text alone.</summary>
     private void ClearActivityPlaceholder()
     {
+        FlushPendingTextDeltas();
         StopThinking();
-        if (_pendingAssistant is not null && string.IsNullOrEmpty(_pendingAssistant.Text))
-            Messages.Remove(_pendingAssistant);
+        if (_pendingAssistant is not null)
+        {
+            _pendingAssistant.IsStreaming = false;
+            if (string.IsNullOrEmpty(_pendingAssistant.Text))
+                Messages.Remove(_pendingAssistant);
+        }
         _pendingAssistant = null;
     }
 
@@ -1187,6 +1341,10 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _cts.Cancel();
+        DiscardPendingTextDeltas();
+        if (_pendingAssistant is not null)
+            _pendingAssistant.IsStreaming = false;
+        _pendingAssistant = null;
         _turnCts?.Dispose();
         _turnCts = null;
         StopThinking();
