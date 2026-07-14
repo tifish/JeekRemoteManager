@@ -425,6 +425,17 @@ try
     Check(!thinkingMessage.ShowsThinking && thinkingMessage.ShowsAssistantMarkdown,
           "AI thinking placeholder hides after response text appears");
 
+    const string attachedFence = "Checking the server```bash\nuname -a\n```";
+    Check(ChatMessageViewModel.NormalizeMarkdown(attachedFence)
+          == "Checking the server\n```bash\nuname -a\n```",
+          "AI Markdown repairs a code fence attached directly to prose");
+
+    const string mentionedFence =
+        "Checking the server; use ```bash code blocks for remote commands.\n\n"
+        + "```bash\nuname -a\n```";
+    Check(ChatMessageViewModel.NormalizeMarkdown(mentionedFence) == mentionedFence,
+          "AI Markdown keeps inline fence mentions separate from later code blocks");
+
     var runningMessage = new ChatMessageViewModel(ChatRole.Assistant, "")
     {
         IsThinking = true,

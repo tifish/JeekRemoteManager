@@ -157,12 +157,32 @@ public sealed partial class ChatMessageViewModel : ObservableObject
                 continue;
             }
 
+            // An attached opening fence may end with a single info token such as
+            // "bash". If natural-language text follows that token, the backticks are
+            // an inline mention (for example "use ```bash code blocks"), not a fence.
+            if (!prefixIsOnlyIndentation && HasWhitespace(line[(i + runLength)..].Trim()))
+            {
+                i += runLength - 1;
+                continue;
+            }
+
             // Up to three leading spaces already form a valid Markdown fence and
             // must not gain an extra newline. Only a fence attached to prose does.
             index = prefixIsOnlyIndentation ? 0 : i;
             marker = line[i];
             length = runLength;
             return true;
+        }
+
+        return false;
+    }
+
+    private static bool HasWhitespace(ReadOnlySpan<char> text)
+    {
+        foreach (var character in text)
+        {
+            if (char.IsWhiteSpace(character))
+                return true;
         }
 
         return false;
