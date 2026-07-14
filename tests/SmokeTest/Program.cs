@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Reflection;
 using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
@@ -1257,6 +1258,42 @@ try
           "Machine settings.json does not include roaming preferences");
     Check(!File.ReadAllText(tempRoamingSettingsPath).Contains("\"MainWindowWidth\""),
           "Roaming settings.json does not include machine-local state");
+
+    var concurrentMachinePath = Path.Combine(root, "ConcurrentLocal", "settings.json");
+    var concurrentRoamingPath = Path.Combine(root, "ConcurrentRoaming", "settings.json");
+    var concurrentA = new SettingsService(concurrentMachinePath, concurrentRoamingPath);
+    var concurrentB = new SettingsService(concurrentMachinePath, concurrentRoamingPath);
+    concurrentA.Settings.Language = "zh";
+    concurrentB.Settings.Theme = "Dark";
+    Check(concurrentA.SaveIfChanged() && concurrentB.SaveIfChanged(),
+          "Concurrent settings instances can save through the shared-data lock");
+    var concurrentMerged = new SettingsService(concurrentMachinePath, concurrentRoamingPath);
+    Check(concurrentMerged.Settings.Language == "zh" && concurrentMerged.Settings.Theme == "Dark",
+          "Three-way settings merge preserves unrelated fields from different instances");
+    var sameFieldA = new SettingsService(concurrentMachinePath, concurrentRoamingPath);
+    var sameFieldB = new SettingsService(concurrentMachinePath, concurrentRoamingPath);
+    sameFieldA.Settings.Language = "en";
+    sameFieldB.Settings.Language = null;
+    Check(sameFieldA.SaveIfChanged() && sameFieldB.SaveIfChanged()
+          && new SettingsService(concurrentMachinePath, concurrentRoamingPath).Settings.Language is null,
+          "Three-way settings merge uses the last completed write for the same field");
+    Check(JsonNode.Parse(File.ReadAllText(concurrentRoamingPath)) is JsonObject
+          && Directory.GetFiles(Path.GetDirectoryName(concurrentRoamingPath)!, "*.tmp").Length == 0,
+          "Atomic settings replacement leaves valid JSON and no temporary file");
+
+    var alternateDebugPath = Path.Combine(root, "other-worktree", "bin");
+    Check(DebugInstanceContext.IsDebugBuild
+          && DebugInstanceContext.InstanceId.Length == 12
+          && DebugInstanceContext.CreateInstanceId(AppContext.BaseDirectory)
+             != DebugInstanceContext.CreateInstanceId(alternateDebugPath)
+          && DebugInstanceContext.RuntimeTempRoot.Contains(DebugInstanceContext.InstanceId,
+              StringComparison.OrdinalIgnoreCase),
+          "Debug worktrees receive stable distinct identities and runtime temp roots");
+    Check(!Path.GetFullPath(DebugInstanceContext.Info.ConfigRoot).StartsWith(
+              Path.GetFullPath(DebugInstanceContext.RuntimeTempRoot),
+              StringComparison.OrdinalIgnoreCase)
+          && !DebugInstanceContext.Info.ConfigRoot.Contains("DebugProfile", StringComparison.OrdinalIgnoreCase),
+          "Debug instance metadata keeps Config outside the isolated runtime root");
 
     var legacyMachineSettingsPath = Path.Combine(root, "LegacyLocal", "settings.json");
     var missingLegacyRoamingPath = Path.Combine(root, "LegacyRoaming", "settings.json");

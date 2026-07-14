@@ -10,6 +10,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using Avalonia;
@@ -32,8 +33,8 @@ namespace JeekRemoteManager.Services;
 /// execute commands and methods on the UI thread, dump the visual tree, take
 /// screenshots and tail logs. Bound to the loopback interface only. Compiled
 /// into all configurations so Debug and Release behave identically, but the
-/// listener only starts in Debug builds. Registered for agents in the repo-root
-/// .mcp.json (http://127.0.0.1:8737/mcp, port overridable via JRM_MCP_PORT).
+/// listener only starts in Debug builds. Registered for agents through the
+/// repo MCP bridge (port overridable via JRM_MCP_PORT).
 /// </summary>
 internal static class DebugMcpServer
 {
@@ -49,9 +50,6 @@ internal static class DebugMcpServer
 #endif
 
     private const int DefaultPort = 8737;
-    private const string SupportedProtocolVersion = "2025-06-18";
-    private static readonly string[] KnownProtocolVersions = ["2024-11-05", "2025-03-26", "2025-06-18"];
-
     private static readonly JsonSerializerOptions ConvertOptions = new()
     {
         Converters = { new JsonStringEnumConverter() },
@@ -63,6 +61,7 @@ internal static class DebugMcpServer
     private static readonly JsonSerializerOptions PrettyOptions = new() { WriteIndented = true };
 
     private static HttpListener? _listener;
+    private static Mutex? _portReservation;
     private static string _url = "";
 
     public static void Start()
@@ -70,34 +69,63 @@ internal static class DebugMcpServer
         if (!ListeningEnabled || _listener != null)
             return;
 
-        var port = DefaultPort;
-        if (int.TryParse(Environment.GetEnvironmentVariable("JRM_MCP_PORT"), out var envPort) && envPort > 0)
-            port = envPort;
+        var hasExplicitPort = int.TryParse(
+            Environment.GetEnvironmentVariable("JRM_MCP_PORT"), out var envPort) && envPort > 0;
+        var ports = hasExplicitPort ? [envPort] : Enumerable.Range(DefaultPort, 100);
 
         // http.sys may require a URL ACL for the explicit 127.0.0.1 prefix;
         // "localhost" is exempt and still binds loopback only.
-        foreach (var host in new[] { "127.0.0.1", "localhost" })
+        Exception? lastError = null;
+        foreach (var port in ports)
         {
-            var listener = new HttpListener();
-            listener.Prefixes.Add($"http://{host}:{port}/");
-            try
+            var reservation = new Mutex(
+                initiallyOwned: true,
+                $"JeekRemoteManager.DebugMcp.Port.{port}",
+                out var portAvailable);
+            if (!portAvailable)
             {
-                listener.Start();
-            }
-            catch (Exception ex)
-            {
-                Log.ZLogWarning(ex, $"Debug MCP server failed to bind http://{host}:{port}/");
+                reservation.Dispose();
                 continue;
             }
 
-            _listener = listener;
-            _url = $"http://{host}:{port}/mcp";
-            _ = Task.Run(() => ListenLoopAsync(listener));
-            Log.ZLogInformation($"Debug MCP server listening on {_url}");
-            return;
+            var started = false;
+            foreach (var host in new[] { "localhost", "127.0.0.1" })
+            {
+                var listener = new HttpListener();
+                listener.Prefixes.Add($"http://{host}:{port}/");
+                try
+                {
+                    listener.Start();
+                }
+                catch (Exception ex)
+                {
+                    lastError = ex;
+                    listener.Close();
+                    continue;
+                }
+
+                _listener = listener;
+                _portReservation = reservation;
+                started = true;
+                _url = $"http://{host}:{port}/mcp";
+                DebugInstanceContext.SetMcpUrl(_url);
+                WriteDiscovery();
+                _ = Task.Run(() => ListenLoopAsync(listener));
+                Log.ZLogInformation($"Debug MCP server listening on {_url} for {DebugInstanceContext.InstanceLabel}");
+                return;
+            }
+
+            if (!started)
+            {
+                reservation.ReleaseMutex();
+                reservation.Dispose();
+            }
         }
 
-        Log.ZLogError($"Debug MCP server could not start on port {port}");
+        if (hasExplicitPort)
+            Log.ZLogError(lastError, $"Debug MCP server could not start on explicit port {envPort}");
+        else
+            Log.ZLogError(lastError, $"Debug MCP server could not start on ports {DefaultPort}-{DefaultPort + 99}");
     }
 
     public static void Stop()
@@ -113,6 +141,63 @@ internal static class DebugMcpServer
         }
 
         _listener = null;
+        if (_portReservation is { } reservation)
+        {
+            _portReservation = null;
+            try { reservation.ReleaseMutex(); } finally { reservation.Dispose(); }
+        }
+        DeleteOwnedDiscovery();
+        DebugInstanceContext.SetMcpUrl("");
+        _url = "";
+    }
+
+    public static void RefreshDiscovery()
+    {
+        if (_listener is not null)
+            WriteDiscovery();
+    }
+
+    private static void WriteDiscovery()
+    {
+        try
+        {
+            var info = DebugInstanceContext.Info;
+            var discovery = new DebugMcpDiscovery
+            {
+                Url = _url,
+                ProcessId = Environment.ProcessId,
+                ExecutablePath = Environment.ProcessPath ?? "",
+                InstanceId = info.InstanceId,
+                InstanceLabel = info.InstanceLabel,
+                WorkspaceRoot = info.WorkspaceRoot,
+                ConfigRoot = info.ConfigRoot,
+                RuntimeTempRoot = info.RuntimeTempRoot,
+            };
+            SharedDataFile.WriteAllTextAtomic(
+                DebugInstanceContext.DiscoveryPath,
+                JsonSerializer.Serialize(discovery, PrettyOptions));
+        }
+        catch (Exception ex)
+        {
+            Log.ZLogWarning(ex, $"Could not write Debug MCP discovery file");
+        }
+    }
+
+    private static void DeleteOwnedDiscovery()
+    {
+        try
+        {
+            var path = DebugInstanceContext.DiscoveryPath;
+            if (!File.Exists(path))
+                return;
+            var discovery = JsonSerializer.Deserialize<DebugMcpDiscovery>(File.ReadAllText(path));
+            if (discovery?.ProcessId == Environment.ProcessId)
+                File.Delete(path);
+        }
+        catch
+        {
+            // Best-effort cleanup; the bridge rejects stale process ids.
+        }
     }
 
     private static async Task ListenLoopAsync(HttpListener listener)
@@ -264,7 +349,7 @@ internal static class DebugMcpServer
                 case "ping":
                     return RpcResult(id, new JsonObject());
                 case "tools/list":
-                    return RpcResult(id, new JsonObject { ["tools"] = BuildToolList() });
+                    return RpcResult(id, new JsonObject { ["tools"] = DebugMcpContract.BuildToolList() });
                 case "tools/call":
                     return RpcResult(id, await HandleToolCallAsync(message["params"] as JsonObject));
                 default:
@@ -283,18 +368,11 @@ internal static class DebugMcpServer
     private static JsonObject HandleInitialize(JsonObject? parameters)
     {
         var requested = parameters?["protocolVersion"]?.GetValue<string>();
-        var version = KnownProtocolVersions.Contains(requested) ? requested! : SupportedProtocolVersion;
-        return new JsonObject
-        {
-            ["protocolVersion"] = version,
-            ["capabilities"] = new JsonObject { ["tools"] = new JsonObject() },
-            ["serverInfo"] = new JsonObject
-            {
-                ["name"] = "jeek-remote-manager-debug",
-                ["title"] = "JeekRemoteManager Debug Server",
-                ["version"] = $"{AutoUpdateService.GetLocalCommitCount()}",
-            },
-        };
+        return DebugMcpContract.InitializeResult(
+            "jeek-remote-manager-debug",
+            "JeekRemoteManager Debug Server",
+            $"{AutoUpdateService.GetLocalCommitCount()}",
+            requested);
     }
 
     private static JsonObject RpcResult(JsonNode? id, JsonNode result) =>
@@ -311,91 +389,6 @@ internal static class DebugMcpServer
         "(non-public included), '[0]' indexes a list, '[\"key\"]' indexes a dictionary, and " +
         "'#Name' finds a named control in the visual tree below the current object. " +
         "Examples: MainVm.Nodes[0].Name, MainWindow.#ConnectionTree.SelectedItem";
-
-    private static JsonArray BuildToolList() => new(
-        Tool("describe",
-            "Overview of the running app: windows, roots for object paths, path syntax, log file. Start here.",
-            new JsonObject()),
-        Tool("get_value",
-            "Read a value from the app's object graph. " + PathHelp,
-            new JsonObject
-            {
-                ["path"] = Prop("string", "Object path to read."),
-                ["depth"] = Prop("integer", "Levels of nested objects to expand, 0-5 (default 1)."),
-            },
-            ["path"]),
-        Tool("set_value",
-            "Write a property, field, or list element in the app's object graph (runs on the UI thread). " + PathHelp,
-            new JsonObject
-            {
-                ["path"] = Prop("string", "Object path to write; must end with a property, field, or list index."),
-                ["value"] = new JsonObject { ["description"] = "New value as JSON; deserialized to the member's type (enums accept their string names). {\"$path\": \"MainVm.Nodes[0]\"} passes the live object at that path instead of deserializing." },
-            },
-            ["path", "value"]),
-        Tool("invoke",
-            "Execute an ICommand property or call a method on the UI thread; returned Tasks are awaited. " + PathHelp,
-            new JsonObject
-            {
-                ["path"] = Prop("string", "Object path ending with the command property or method name, e.g. MainVm.OpenSettingsCommand."),
-                ["args"] = new JsonObject
-                {
-                    ["type"] = "array",
-                    ["description"] = "Arguments as JSON values. For a command this is the single command parameter; for a method the argument list. {\"$path\": \"MainVm.Nodes[0]\"} passes the live object at that path instead of deserializing.",
-                },
-                ["depth"] = Prop("integer", "Levels of the return value to expand, 0-5 (default 1)."),
-            },
-            ["path"]),
-        Tool("list_members",
-            "List properties (with current values), fields, and methods of the object at a path. " + PathHelp,
-            new JsonObject { ["path"] = Prop("string", "Object path to inspect.") },
-            ["path"]),
-        Tool("visual_tree",
-            "Dump the visual tree (control types, #names, classes, bounds, text, data contexts) below a visual.",
-            new JsonObject
-            {
-                ["path"] = Prop("string", "Path to a Visual to start from (default MainWindow)."),
-                ["max_depth"] = Prop("integer", "Maximum tree depth (default 12)."),
-            }),
-        Tool("screenshot",
-            "Render the main window to a PNG image and return it.",
-            new JsonObject()),
-        Tool("read_logs",
-            "Read the tail of the app's current log file.",
-            new JsonObject
-            {
-                ["lines"] = Prop("integer", "Number of lines to return, 1-2000 (default 200)."),
-                ["filter"] = Prop("string", "Only return lines containing this text (case-insensitive)."),
-            }),
-        Tool("ai_chat_stress",
-            "Create a temporary AI panel and verify streaming coalescing plus transcript virtualization on the live UI thread.",
-            new JsonObject
-            {
-                ["message_count"] = Prop("integer", "Temporary transcript messages (default 500)."),
-                ["characters_per_message"] = Prop("integer", "Characters per temporary message (default 200)."),
-                ["stream_chunk_count"] = Prop("integer", "Streamed chunks in one burst (default 2000)."),
-                ["characters_per_chunk"] = Prop("integer", "Characters per streamed chunk (default 10)."),
-            }));
-
-    private static JsonObject Tool(string name, string description, JsonObject properties, string[]? required = null)
-    {
-        var schema = new JsonObject
-        {
-            ["type"] = "object",
-            ["properties"] = properties,
-        };
-        if (required is { Length: > 0 })
-            schema["required"] = new JsonArray(required.Select(JsonNode (r) => r).ToArray());
-
-        return new JsonObject
-        {
-            ["name"] = name,
-            ["description"] = description,
-            ["inputSchema"] = schema,
-        };
-    }
-
-    private static JsonObject Prop(string type, string description) =>
-        new() { ["type"] = type, ["description"] = description };
 
     #endregion
 
@@ -455,7 +448,15 @@ internal static class DebugMcpServer
         var text = await OnUiAsync(() =>
         {
             var sb = new StringBuilder();
+            var instance = DebugInstanceContext.Info;
             sb.AppendLine($"JeekRemoteManager debug MCP server at {_url} (build {AutoUpdateService.GetLocalCommitCount()}).");
+            sb.AppendLine($"InstanceId: {instance.InstanceId}");
+            sb.AppendLine($"InstanceLabel: {instance.InstanceLabel}");
+            sb.AppendLine($"WorkspaceRoot: {instance.WorkspaceRoot}");
+            sb.AppendLine($"ProcessId: {instance.ProcessId}");
+            sb.AppendLine($"McpUrl: {instance.McpUrl}");
+            sb.AppendLine($"ConfigRoot: {instance.ConfigRoot}");
+            sb.AppendLine($"RuntimeTempRoot: {instance.RuntimeTempRoot}");
             sb.AppendLine($"Process uptime: {DateTime.Now - Process.GetCurrentProcess().StartTime:hh\\:mm\\:ss}.");
             sb.AppendLine($"Log file: {LogManager.CurrentRollingLogFile}");
             sb.AppendLine();

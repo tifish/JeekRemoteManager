@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using JeekRemoteManager.Models;
 
@@ -53,6 +54,8 @@ public class SettingsService
     private string _lastSavedMachineJson;
     private string _lastSavedRoamingJson;
     private string _lastSavedRoamingPath;
+    private MachineAppSettings _baseMachineSettings;
+    private RoamingAppSettings _baseRoamingSettings;
     private readonly string? _roamingSettingsPathOverride;
 
     public SettingsService(string? machineSettingsPath = null, string? roamingSettingsPath = null)
@@ -78,9 +81,11 @@ public class SettingsService
         Settings = MergeSettings(machineSettings, roamingSettings);
         NormalizeSettings(Settings);
 
-        _lastSavedMachineJson = Serialize(ToMachineSettings(Settings));
+        _baseMachineSettings = ToMachineSettings(Settings);
+        _baseRoamingSettings = ToRoamingSettings(Settings);
+        _lastSavedMachineJson = Serialize(_baseMachineSettings);
         _lastSavedRoamingPath = CurrentRoamingSettingsPath();
-        _lastSavedRoamingJson = Serialize(ToRoamingSettings(Settings));
+        _lastSavedRoamingJson = Serialize(_baseRoamingSettings);
     }
 
     /// <summary>Compatibility property for callers that report the settings path.</summary>
@@ -375,7 +380,8 @@ public class SettingsService
         NormalizeSettings(Settings);
         RoamingSettingsPath = CurrentRoamingSettingsPath();
         _lastSavedRoamingPath = RoamingSettingsPath;
-        _lastSavedRoamingJson = Serialize(ToRoamingSettings(Settings));
+        _baseRoamingSettings = ToRoamingSettings(Settings);
+        _lastSavedRoamingJson = Serialize(_baseRoamingSettings);
     }
 
     /// <summary>Persists changed settings to their machine-local and roaming files.</summary>
@@ -383,45 +389,93 @@ public class SettingsService
     {
         NormalizeSettings(Settings);
 
-        var machineJson = Serialize(ToMachineSettings(Settings));
+        var localMachine = ToMachineSettings(Settings);
+        var localRoaming = ToRoamingSettings(Settings);
+        var machineJson = Serialize(localMachine);
         var roamingPath = CurrentRoamingSettingsPath();
-        var roamingJson = Serialize(ToRoamingSettings(Settings));
+        var roamingJson = Serialize(localRoaming);
 
         var saved = true;
+        var mergedMachine = localMachine;
+        var mergedRoaming = localRoaming;
 
         if (!string.Equals(machineJson, _lastSavedMachineJson, StringComparison.Ordinal))
         {
-            saved &= TryWriteFile(MachineSettingsPath, machineJson);
-            if (saved)
-                _lastSavedMachineJson = machineJson;
+            var machineSaved = TryMergeAndWrite<MachineAppSettings>(
+                MachineSettingsPath, _baseMachineSettings, localMachine,
+                NormalizeMachineSettings, forceAllLocal: false, out mergedMachine);
+            saved &= machineSaved;
+            if (machineSaved)
+            {
+                _baseMachineSettings = mergedMachine;
+                _lastSavedMachineJson = Serialize(mergedMachine);
+            }
         }
 
-        if (!string.Equals(roamingPath, _lastSavedRoamingPath, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(roamingJson, _lastSavedRoamingJson, StringComparison.Ordinal))
+        var roamingPathChanged = !string.Equals(
+            roamingPath, _lastSavedRoamingPath, StringComparison.OrdinalIgnoreCase);
+        if (roamingPathChanged || !string.Equals(roamingJson, _lastSavedRoamingJson, StringComparison.Ordinal))
         {
-            var roamingSaved = TryWriteFile(roamingPath, roamingJson);
+            var roamingSaved = TryMergeAndWrite<RoamingAppSettings>(
+                roamingPath, _baseRoamingSettings, localRoaming,
+                NormalizeRoamingSettings,
+                forceAllLocal: roamingPathChanged && !File.Exists(roamingPath),
+                out mergedRoaming);
             saved &= roamingSaved;
             if (roamingSaved)
             {
                 RoamingSettingsPath = roamingPath;
                 _lastSavedRoamingPath = roamingPath;
-                _lastSavedRoamingJson = roamingJson;
+                _baseRoamingSettings = mergedRoaming;
+                _lastSavedRoamingJson = Serialize(mergedRoaming);
             }
         }
 
         if (saved)
+        {
+            Settings = MergeSettings(mergedMachine, mergedRoaming);
+            NormalizeSettings(Settings);
             Touch();
+        }
         return saved;
     }
 
-    private static bool TryWriteFile(string path, string contents)
+    private static bool TryMergeAndWrite<T>(
+        string path,
+        T baseline,
+        T local,
+        Action<T> normalize,
+        bool forceAllLocal,
+        out T merged)
+        where T : class, new()
     {
+        merged = local;
         try
         {
-            var directory = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(directory))
-                Directory.CreateDirectory(directory);
-            File.WriteAllText(path, contents);
+            using var lease = SharedDataFile.Acquire(path);
+            var latest = TryLoadSettingsFile(path, out T disk) ? disk : Clone(baseline);
+            normalize(latest);
+
+            if (forceAllLocal)
+            {
+                merged = Clone(local);
+            }
+            else
+            {
+                var baselineNode = JsonSerializer.SerializeToNode(baseline, JsonOptions) as JsonObject ?? new();
+                var localNode = JsonSerializer.SerializeToNode(local, JsonOptions) as JsonObject ?? new();
+                var resultNode = JsonSerializer.SerializeToNode(latest, JsonOptions) as JsonObject ?? new();
+                foreach (var property in localNode)
+                {
+                    baselineNode.TryGetPropertyValue(property.Key, out var baselineValue);
+                    if (!JsonNode.DeepEquals(property.Value, baselineValue))
+                        resultNode[property.Key] = property.Value?.DeepClone();
+                }
+                merged = resultNode.Deserialize<T>(JsonOptions) ?? new T();
+            }
+
+            normalize(merged);
+            SharedDataFile.WriteAllTextAtomic(path, Serialize(merged));
             return true;
         }
         catch
@@ -429,6 +483,9 @@ public class SettingsService
             return false;
         }
     }
+
+    private static T Clone<T>(T value) where T : class, new() =>
+        JsonSerializer.Deserialize<T>(Serialize(value), JsonOptions) ?? new T();
 
     /// <summary>Resolves the active Config folder for roaming settings and user data.</summary>
     public string ResolveConfigRoot() =>
@@ -474,6 +531,7 @@ public class SettingsService
     {
         var source = NormalizeDirectoryPath(sourceRoot);
         var dest = NormalizeDirectoryPath(destRoot);
+        using var lease = SharedDataFile.AcquireMany(source, dest);
         if (string.Equals(source, dest, StringComparison.OrdinalIgnoreCase))
             return;
 

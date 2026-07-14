@@ -53,6 +53,9 @@ public static class AutoUpdateService
         FailureReason = "";
         LocalCommitCount = GetLocalCommitCount();
 
+        if (DebugInstanceContext.IsDebugBuild)
+            return Fail("updates are disabled in Debug builds");
+
         try
         {
             // Race version.txt mirrors directly. The first successful response
@@ -89,6 +92,9 @@ public static class AutoUpdateService
 
     public static bool LaunchUpdate()
     {
+        if (DebugInstanceContext.IsDebugBuild)
+            return false;
+
         try
         {
             if (string.IsNullOrEmpty(DownloadUrl))

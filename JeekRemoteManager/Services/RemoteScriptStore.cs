@@ -28,6 +28,7 @@ public class RemoteScriptStore
 
     public void SetRoot(string newRoot)
     {
+        using var lease = SharedDataFile.Acquire(newRoot);
         RootPath = newRoot;
         Directory.CreateDirectory(RootPath);
     }
@@ -319,6 +320,7 @@ public class RemoteScriptStore
 
     public void CopyTreeContents(string sourceRoot, string destRoot)
     {
+        using var lease = SharedDataFile.AcquireMany(RootPath, sourceRoot, destRoot);
         if (!Directory.Exists(sourceRoot) || ConnectionStore.IsSameOrInside(sourceRoot, destRoot))
             return;
 
@@ -337,7 +339,7 @@ public class RemoteScriptStore
         Directory.CreateDirectory(destDir);
 
         foreach (var file in Directory.GetFiles(sourceDir))
-            File.Copy(file, Path.Combine(destDir, Path.GetFileName(file)), overwrite: false);
+            SharedDataFile.CopyAtomic(file, Path.Combine(destDir, Path.GetFileName(file)));
 
         foreach (var dir in Directory.GetDirectories(sourceDir))
             CopyDirectory(dir, Path.Combine(destDir, Path.GetFileName(dir)));

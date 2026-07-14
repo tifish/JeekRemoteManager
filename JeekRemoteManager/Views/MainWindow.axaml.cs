@@ -63,6 +63,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        UpdateWindowTitle();
         _defaultMinWidth = MinWidth;
         _defaultMinHeight = MinHeight;
         Tree.SelectionChanged += OnTreeSelectionChanged;
@@ -122,7 +123,11 @@ public partial class MainWindow : Window
             WireUp();
             BuildMoreActionsMenu();
         };
-        Localizer.LanguageChanged += (_, _) => BuildMoreActionsMenu();
+        Localizer.LanguageChanged += (_, _) =>
+        {
+            BuildMoreActionsMenu();
+            UpdateWindowTitle();
+        };
         SizeChanged += OnWindowSizeChanged;
         CommandBar.LayoutUpdated += (_, _) => UpdateToolbarCompactMode();
         Opened += (_, _) =>
@@ -138,6 +143,9 @@ public partial class MainWindow : Window
         Closing += (_, _) =>
             FlushCurrentSettingsState();
     }
+
+    private void UpdateWindowTitle() =>
+        Title = DebugInstanceContext.DecorateTitle(Localizer.Get("WindowTitle"));
 
     /// <summary>Localized common-menu labels exposed for Debug MCP verification.</summary>
     public IReadOnlyList<string> MoreActionsMenuHeaders =>

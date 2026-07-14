@@ -16,9 +16,6 @@ internal static class Program
     private static readonly ILogger Log = LogManager.CreateLogger(nameof(Program));
     private static Mutex? _singleInstanceMutex;
     private static EventWaitHandle? _activationEvent;
-    private const string SingleInstanceMutexName = "JeekRemoteManager.App.SingleInstance";
-    private const string ActivationEventName = "JeekRemoteManager.App.Activate";
-
     internal static event Action? ActivationRequested;
 
     // Initialization code. Don't use any Avalonia, third-party APIs or any
@@ -27,7 +24,7 @@ internal static class Program
     [STAThread]
     public static void Main(string[] args)
     {
-        _singleInstanceMutex = new Mutex(true, SingleInstanceMutexName, out var createdNew);
+        _singleInstanceMutex = new Mutex(true, DebugInstanceContext.SingleInstanceMutexName, out var createdNew);
         if (!createdNew)
         {
             SignalExistingInstance();
@@ -35,7 +32,7 @@ internal static class Program
         }
 
         StartActivationListener();
-        SetCurrentProcessExplicitAppUserModelID("JeekRemoteManager.App");
+        SetCurrentProcessExplicitAppUserModelID(DebugInstanceContext.AppUserModelId);
 
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
         {
@@ -71,7 +68,7 @@ internal static class Program
 
     private static void StartActivationListener()
     {
-        _activationEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ActivationEventName);
+        _activationEvent = new EventWaitHandle(false, EventResetMode.AutoReset, DebugInstanceContext.ActivationEventName);
         _ = Task.Run(() =>
         {
             var activationEvent = _activationEvent;
@@ -94,7 +91,7 @@ internal static class Program
     {
         try
         {
-            using var activationEvent = EventWaitHandle.OpenExisting(ActivationEventName);
+            using var activationEvent = EventWaitHandle.OpenExisting(DebugInstanceContext.ActivationEventName);
             activationEvent.Set();
         }
         catch
@@ -115,6 +112,16 @@ internal static class Program
         {
             if (process.Id == current.Id)
                 continue;
+
+            try
+            {
+                if (!DebugInstanceContext.IsCurrentExecutable(process.MainModule?.FileName))
+                    continue;
+            }
+            catch
+            {
+                continue;
+            }
 
             var handle = process.MainWindowHandle;
             if (handle == IntPtr.Zero)

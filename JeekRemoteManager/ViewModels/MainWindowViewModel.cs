@@ -3090,6 +3090,8 @@ public partial class MainWindowViewModel : ViewModelBase
         _settings.Settings.StorageLocation = result.StorageLocation;
         _settings.Settings.CustomStoragePath = result.CustomStoragePath;
         var settingsSaved = _settings.SaveIfChanged();
+        DebugInstanceContext.SetConfigRoot(_settings.ResolveConfigRoot());
+        DebugMcpServer.RefreshDiscovery();
         _store.SetRoot(newRoot);
         _scriptStore.SetRoot(newScriptsRoot);
         ReloadScripts();

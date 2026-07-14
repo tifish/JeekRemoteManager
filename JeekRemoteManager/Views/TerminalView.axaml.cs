@@ -719,7 +719,7 @@ public partial class TerminalView : UserControl
         var claudePath = AgentCliLocator.FindClaude();
         var codexPath = AgentCliLocator.FindCodex();
         var grokPath = AgentCliLocator.FindGrok();
-        var workingDir = Path.Combine(Path.GetTempPath(), "JeekRemoteManager", "agent");
+        var workingDir = Path.Combine(DebugInstanceContext.RuntimeTempRoot, "agent");
 
         var providers = new List<AgentProvider>
         {

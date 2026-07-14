@@ -35,7 +35,7 @@ public sealed class ZmodemTraceLog : IDisposable
 
     private static ZmodemTraceLog Create()
     {
-        var dir = Path.Combine(Path.GetTempPath(), "JeekRemoteManager", "ZmodemLogs");
+        var dir = Path.Combine(DebugInstanceContext.RuntimeTempRoot, "ZmodemLogs");
         Directory.CreateDirectory(dir);
         var name = $"zmodem-{DateTime.Now:yyyyMMdd-HHmmss-fff}-{Environment.ProcessId}-{Guid.NewGuid():N}.log";
         return new ZmodemTraceLog(Path.Combine(dir, name));

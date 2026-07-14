@@ -1,8 +1,20 @@
 {
   "mcpServers": {
     "jrm-debug": {
-      "type": "http",
-      "url": "http://127.0.0.1:8737/mcp"
+      "type": "stdio",
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "tools/DebugMcpBridge/DebugMcpBridge.csproj",
+        "--configuration",
+        "Debug",
+        "--no-launch-profile",
+        "--",
+        "--workspace",
+        "."
+      ],
+      "cwd": "."
     }
   }
 }

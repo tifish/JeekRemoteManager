@@ -45,6 +45,7 @@ public class ConnectionStore
     /// <summary>Switches the store to a different root folder, creating it if needed.</summary>
     public void SetRoot(string newRoot)
     {
+        using var lease = SharedDataFile.Acquire(newRoot);
         RootPath = newRoot;
         Directory.CreateDirectory(RootPath);
         Touch();
@@ -80,10 +81,11 @@ public class ConnectionStore
     /// </summary>
     public void SaveInPlace(Connection connection, string filePath)
     {
+        using var lease = SharedDataFile.Acquire(RootPath);
         EnsureConnectionId(connection);
         var json = JsonSerializer.Serialize(connection, JsonOptions);
         Touch();
-        File.WriteAllText(filePath, json);
+        SharedDataFile.WriteAllTextAtomic(filePath, json);
         Touch();
     }
 
@@ -111,6 +113,7 @@ public class ConnectionStore
     /// </summary>
     public string Save(Connection connection, string folderPath, string? previousFilePath = null)
     {
+        using var lease = SharedDataFile.Acquire(RootPath);
         Touch();
         Directory.CreateDirectory(folderPath);
         EnsureConnectionId(connection);
@@ -125,7 +128,7 @@ public class ConnectionStore
         connection.Name = Path.GetFileNameWithoutExtension(targetPath);
 
         var json = JsonSerializer.Serialize(connection, JsonOptions);
-        File.WriteAllText(targetPath, json);
+        SharedDataFile.WriteAllTextAtomic(targetPath, json);
 
         if (!string.IsNullOrEmpty(previousFilePath)
             && !PathsEqual(targetPath, previousFilePath)
@@ -140,6 +143,7 @@ public class ConnectionStore
 
     public void DeleteFile(string filePath)
     {
+        using var lease = SharedDataFile.Acquire(RootPath);
         if (File.Exists(filePath))
         {
             Touch();
@@ -150,6 +154,7 @@ public class ConnectionStore
 
     public void DeleteFolder(string folderPath)
     {
+        using var lease = SharedDataFile.Acquire(RootPath);
         if (Directory.Exists(folderPath))
         {
             Touch();
@@ -161,6 +166,7 @@ public class ConnectionStore
     /// <summary>Creates a new sub-folder with a unique name; returns its path.</summary>
     public string CreateFolder(string parentPath, string desiredName)
     {
+        using var lease = SharedDataFile.Acquire(RootPath);
         Touch();
         Directory.CreateDirectory(parentPath);
         var path = UniqueFolderPath(parentPath, SanitizeName(desiredName));
@@ -172,6 +178,7 @@ public class ConnectionStore
     /// <summary>Renames a folder; returns the new path.</summary>
     public string RenameFolder(string folderPath, string newName)
     {
+        using var lease = SharedDataFile.Acquire(RootPath);
         var parent = Path.GetDirectoryName(folderPath)!;
         var target = Path.Combine(parent, SanitizeName(newName));
         if (PathsEqual(target, folderPath))
@@ -198,6 +205,7 @@ public class ConnectionStore
         bool includeSshScriptBindings,
         bool createNewConnectionId)
     {
+        using var lease = SharedDataFile.Acquire(RootPath);
         Touch();
         Directory.CreateDirectory(targetFolder);
         var baseName = Path.GetFileNameWithoutExtension(filePath);
@@ -214,6 +222,7 @@ public class ConnectionStore
     /// </summary>
     public string MoveFileInto(string filePath, string targetFolder)
     {
+        using var lease = SharedDataFile.Acquire(RootPath);
         var sourceFolder = Path.GetDirectoryName(filePath);
         if (PathsEqual(sourceFolder, targetFolder))
             return filePath;
@@ -237,6 +246,7 @@ public class ConnectionStore
         bool includeSshScriptBindings,
         bool createNewConnectionIds)
     {
+        using var lease = SharedDataFile.Acquire(RootPath);
         Touch();
         Directory.CreateDirectory(targetParent);
         var name = Path.GetFileName(folderPath.TrimEnd(Path.DirectorySeparatorChar));
@@ -252,6 +262,7 @@ public class ConnectionStore
     /// </summary>
     public string MoveFolderInto(string folderPath, string targetParent)
     {
+        using var lease = SharedDataFile.Acquire(RootPath);
         var currentParent = Path.GetDirectoryName(folderPath.TrimEnd(Path.DirectorySeparatorChar));
         if (PathsEqual(currentParent, targetParent))
             return folderPath;
@@ -283,6 +294,7 @@ public class ConnectionStore
     /// <summary>Copies every file and sub-folder from one folder into another (used for migration).</summary>
     public void CopyTreeContents(string sourceRoot, string destRoot)
     {
+        using var lease = SharedDataFile.AcquireMany(RootPath, sourceRoot, destRoot);
         // Refuse to copy a tree into itself or its own subtree (would recurse forever).
         if (!Directory.Exists(sourceRoot) || IsSameOrInside(sourceRoot, destRoot))
             return;
@@ -303,6 +315,7 @@ public class ConnectionStore
     /// </summary>
     public void MoveTreeContents(string sourceRoot, string destRoot)
     {
+        using var lease = SharedDataFile.AcquireMany(RootPath, sourceRoot, destRoot);
         // Refuse to move a tree into itself or its own subtree.
         if (!Directory.Exists(sourceRoot) || IsSameOrInside(sourceRoot, destRoot))
             return;
@@ -330,7 +343,7 @@ public class ConnectionStore
             if (string.Equals(Path.GetExtension(target), FileExtension, StringComparison.OrdinalIgnoreCase))
                 CopyConnectionFile(file, target, includeSshScriptBindings, createNewConnectionIds);
             else
-                File.Copy(file, target, overwrite: false);
+                SharedDataFile.CopyAtomic(file, target);
         }
 
         foreach (var dir in Directory.GetDirectories(sourceDir))

@@ -41,6 +41,7 @@ public static class KnownHostsStore
     {
         lock (Gate)
         {
+            using var lease = SharedDataFile.Acquire(FilePath);
             var map = Load();
             if (!map.TryGetValue(Key(host, port), out var saved))
                 return Status.Unknown;
@@ -55,6 +56,7 @@ public static class KnownHostsStore
     {
         lock (Gate)
         {
+            using var lease = SharedDataFile.Acquire(FilePath);
             var map = Load();
             map[Key(host, port)] = fingerprintSha256;
             Save(map);
@@ -81,10 +83,10 @@ public static class KnownHostsStore
     {
         try
         {
-            var dir = Path.GetDirectoryName(FilePath);
-            if (!string.IsNullOrEmpty(dir))
-                Directory.CreateDirectory(dir);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(map, new JsonSerializerOptions { WriteIndented = true }));
+            using var lease = SharedDataFile.Acquire(FilePath);
+            SharedDataFile.WriteAllTextAtomic(
+                FilePath,
+                JsonSerializer.Serialize(map, new JsonSerializerOptions { WriteIndented = true }));
         }
         catch
         {

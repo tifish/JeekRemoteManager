@@ -71,6 +71,7 @@ public sealed class AiConversationStore
     {
         lock (Gate)
         {
+            using var lease = SharedDataFile.Acquire(RootPath);
             if (!Directory.Exists(RootPath))
                 return Array.Empty<AiConversationSummary>();
 
@@ -114,6 +115,7 @@ public sealed class AiConversationStore
 
         lock (Gate)
         {
+            using var lease = SharedDataFile.Acquire(RootPath);
             if (!Directory.Exists(RootPath))
                 return 0;
 
@@ -141,7 +143,10 @@ public sealed class AiConversationStore
             return null;
 
         lock (Gate)
+        {
+            using var lease = SharedDataFile.Acquire(RootPath);
             return TryLoadPath(PathFor(id));
+        }
     }
 
     public void Save(AiConversation conversation)
@@ -151,18 +156,10 @@ public sealed class AiConversationStore
 
         lock (Gate)
         {
+            using var lease = SharedDataFile.Acquire(RootPath);
             Directory.CreateDirectory(RootPath);
             var path = PathFor(conversation.Id);
-            var temporary = path + ".tmp";
-            try
-            {
-                File.WriteAllText(temporary, JsonSerializer.Serialize(conversation, JsonOptions));
-                File.Move(temporary, path, overwrite: true);
-            }
-            finally
-            {
-                try { File.Delete(temporary); } catch { /* best-effort cleanup */ }
-            }
+            SharedDataFile.WriteAllTextAtomic(path, JsonSerializer.Serialize(conversation, JsonOptions));
         }
     }
 
@@ -173,6 +170,7 @@ public sealed class AiConversationStore
 
         lock (Gate)
         {
+            using var lease = SharedDataFile.Acquire(RootPath);
             var path = PathFor(id);
             if (!File.Exists(path))
                 return false;

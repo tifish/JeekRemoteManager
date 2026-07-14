@@ -231,9 +231,9 @@ public sealed class MasterKeyService
     {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(CachePath)!);
+            using var lease = SharedDataFile.Acquire(CachePath);
             var protectedSecret = ProtectedData.Protect(secret, CacheEntropy, DataProtectionScope.CurrentUser);
-            File.WriteAllBytes(CachePath, protectedSecret);
+            SharedDataFile.WriteAllBytesAtomic(CachePath, protectedSecret);
         }
         catch
         {
@@ -246,6 +246,7 @@ public sealed class MasterKeyService
     {
         try
         {
+            using var lease = SharedDataFile.Acquire(CachePath);
             if (File.Exists(CachePath))
                 File.Delete(CachePath);
         }

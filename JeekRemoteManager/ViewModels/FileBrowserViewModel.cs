@@ -813,7 +813,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     private void DownloadAndOpen(RemoteFileEntry entry)
     {
         var tempDir = Path.Combine(
-            Path.GetTempPath(), "JeekRemoteManager", "sftp", Guid.NewGuid().ToString("N"));
+            DebugInstanceContext.RuntimeTempRoot, "sftp", Guid.NewGuid().ToString("N"));
         EnqueueDownload(entry.FullPath, Path.Combine(tempDir, entry.Name), entry.Length, openWhenDone: true);
     }
 
@@ -849,7 +849,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     {
         var hash = Convert.ToHexString(
             MD5.HashData(Encoding.UTF8.GetBytes(ConnectionLabel + ":" + remotePath)))[..12];
-        return Path.Combine(Path.GetTempPath(), "JeekRemoteManager", "edit", hash, name);
+        return Path.Combine(DebugInstanceContext.RuntimeTempRoot, "edit", hash, name);
     }
 
     private void StartEditWatch(string remotePath, string localPath)

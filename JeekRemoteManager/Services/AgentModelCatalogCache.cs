@@ -29,6 +29,7 @@ public static class AgentModelCatalogCache
 
         lock (SyncRoot)
         {
+            using var lease = SharedDataFile.Acquire(CachePath);
             var catalogs = ReadAll();
             return catalogs.TryGetValue(provider, out var models)
                 ? Normalize(models)
@@ -49,6 +50,7 @@ public static class AgentModelCatalogCache
         {
             try
             {
+                using var lease = SharedDataFile.Acquire(CachePath);
                 var catalogs = ReadAll();
                 catalogs[provider] = normalized.ToList();
 
@@ -56,10 +58,7 @@ public static class AgentModelCatalogCache
                 if (string.IsNullOrWhiteSpace(directory))
                     return;
 
-                Directory.CreateDirectory(directory);
-                var tempPath = CachePath + ".tmp";
-                File.WriteAllText(tempPath, JsonSerializer.Serialize(catalogs, JsonOptions));
-                File.Move(tempPath, CachePath, overwrite: true);
+                SharedDataFile.WriteAllTextAtomic(CachePath, JsonSerializer.Serialize(catalogs, JsonOptions));
             }
             catch
             {

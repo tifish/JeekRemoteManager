@@ -26,6 +26,9 @@ public partial class App : Application
     private bool _exitRequested;
     private MainWindowViewModel? _vm;
 
+    /// <summary>Current worktree/process identity, exposed for Debug MCP and SmokeTest.</summary>
+    public DebugInstanceInfo DebugInstanceInfo => DebugInstanceContext.Info;
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
@@ -47,6 +50,7 @@ public partial class App : Application
                 activatable.Deactivated += (_, _) => FlushSettingsState();
 
             var settings = new SettingsService();
+            DebugInstanceContext.SetConfigRoot(settings.ResolveConfigRoot());
             var store = new ConnectionStore();
             var launcher = new ConnectionLauncher();
             var master = new MasterKeyService();
@@ -307,7 +311,7 @@ public partial class App : Application
         if (icon == null)
             return;
 
-        icon.ToolTipText = Localizer.Get("WindowTitle");
+        icon.ToolTipText = DebugInstanceContext.DecorateTitle(Localizer.Get("WindowTitle"));
 
         var menu = new NativeMenu();
 
