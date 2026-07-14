@@ -154,6 +154,25 @@ public partial class MainWindow : Window
         .Select(item => item.Header?.ToString() ?? string.Empty)
         .ToArray() ?? [];
 
+    /// <summary>Rendered terminal panel toolbar order exposed for Debug MCP verification.</summary>
+    public IReadOnlyList<string> TerminalPanelToolbarOrder =>
+        ToolbarTerminal.Children
+            .OfType<Button>()
+            .Where(button => ReferenceEquals(button, AiPanelToolbarButton)
+                          || ReferenceEquals(button, MonitorToolbarButton)
+                          || ReferenceEquals(button, FileBrowserToolbarButton))
+            .Select(button => ReferenceEquals(button, AiPanelToolbarButton) ? "AI"
+                : ReferenceEquals(button, MonitorToolbarButton) ? "Monitor"
+                : "FileBrowser")
+            .ToArray();
+
+    /// <summary>Active terminal tab menu labels exposed for Debug MCP verification.</summary>
+    public IReadOnlyList<string> ActiveTerminalTabMenuHeaders =>
+        (RightTabs.SelectedItem as TabItem)?.ContextMenu?.Items
+            .OfType<MenuItem>()
+            .Select(item => item.Header?.ToString() ?? string.Empty)
+            .ToArray() ?? [];
+
     private void BuildMoreActionsMenu()
     {
         if (DataContext is not MainWindowViewModel vm)
@@ -708,10 +727,10 @@ public partial class MainWindow : Window
         var menu = new ContextMenu();
         menu.Items.Add(duplicate);
         menu.Items.Add(runScript);
+        menu.Items.Add(aiPanel);
         // The monitor samples over SSH exec channels; a local WSL shell has none.
         if (connection.IsSsh)
             menu.Items.Add(monitor);
-        menu.Items.Add(aiPanel);
         menu.Items.Add(fileBrowser);
         // Public keys are an SSH concept; a local WSL shell has no server to copy to.
         if (!connection.IsWsl)

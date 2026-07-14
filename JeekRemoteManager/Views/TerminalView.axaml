@@ -22,16 +22,16 @@
             <RowDefinition Height="0" MinHeight="0" />
         </Grid.RowDefinitions>
 
-        <Border x:Name="MonitorPanelHost"
+        <Border x:Name="AiPanelHost"
                 Grid.Column="0"
                 Grid.RowSpan="3"
                 IsVisible="False"
                 BorderBrush="{DynamicResource BorderBrushSoft}"
                 BorderThickness="0,0,1,0">
-            <views:ServerMonitorView x:Name="MonitorPanel" />
+            <views:AgentChatView x:Name="AiPanel" />
         </Border>
 
-        <GridSplitter x:Name="MonitorSplitter"
+        <GridSplitter x:Name="AiSplitter"
                       Grid.Column="1"
                       Grid.RowSpan="3"
                       Width="5"
@@ -79,7 +79,7 @@
             <views:FileBrowserView x:Name="FileBrowser" />
         </Border>
 
-        <GridSplitter x:Name="AiSplitter"
+        <GridSplitter x:Name="MonitorSplitter"
                       Grid.Column="3"
                       Grid.RowSpan="3"
                       Width="5"
@@ -88,13 +88,13 @@
                       Background="Transparent"
                       IsVisible="False" />
 
-        <Border x:Name="AiPanelHost"
+        <Border x:Name="MonitorPanelHost"
                 Grid.Column="4"
                 Grid.RowSpan="3"
                 IsVisible="False"
                 BorderBrush="{DynamicResource BorderBrushSoft}"
                 BorderThickness="1,0,0,0">
-            <views:AgentChatView x:Name="AiPanel" />
+            <views:ServerMonitorView x:Name="MonitorPanel" />
         </Border>
 
         <Border x:Name="ScriptPanelOverlay"

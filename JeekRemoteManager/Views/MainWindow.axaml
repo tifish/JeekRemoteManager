@@ -600,16 +600,6 @@
                             <TextBlock Classes="toolbar-label" Text="{l:Localize RunScriptShort}" />
                         </StackPanel>
                     </Button>
-                    <Button x:Name="MonitorToolbarButton"
-                            Click="OnMonitorToolbarClick"
-                            ToolTip.Tip="{l:Localize ServerMonitorTooltip}"
-                            IsVisible="{Binding IsTerminalActive}"
-                            Classes="toolbar">
-                        <StackPanel Orientation="Horizontal" Spacing="7">
-                            <TextBlock Classes="toolbar-action-icon monitor" Text="&#xE9D2;" />
-                            <TextBlock Classes="toolbar-label" Text="{l:Localize ServerMonitor}" />
-                        </StackPanel>
-                    </Button>
                     <Button x:Name="AiPanelToolbarButton"
                             Click="OnAiPanelToolbarClick"
                             ToolTip.Tip="{l:Localize AiAssistant}"
@@ -618,6 +608,16 @@
                         <StackPanel Orientation="Horizontal" Spacing="7">
                             <TextBlock Classes="toolbar-action-icon ai" Text="&#xE99A;" />
                             <TextBlock Classes="toolbar-label" Text="{l:Localize AiAssistantShort}" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="MonitorToolbarButton"
+                            Click="OnMonitorToolbarClick"
+                            ToolTip.Tip="{l:Localize ServerMonitorTooltip}"
+                            IsVisible="{Binding IsTerminalActive}"
+                            Classes="toolbar">
+                        <StackPanel Orientation="Horizontal" Spacing="7">
+                            <TextBlock Classes="toolbar-action-icon monitor" Text="&#xE9D2;" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize ServerMonitor}" />
                         </StackPanel>
                     </Button>
                     <Button x:Name="FileBrowserToolbarButton"

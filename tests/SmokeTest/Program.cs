@@ -49,6 +49,26 @@ try
           == ApplicationMenuDefinition.CommonItems.Count,
           "Shared application-menu actions use unique localization keys");
 
+    var repoRoot = FindRepoRoot();
+    var terminalViewXaml = File.ReadAllText(Path.Combine(
+            repoRoot, "JeekRemoteManager", "Views", "TerminalView.axaml"))
+        .Replace("\r\n", "\n", StringComparison.Ordinal);
+    var mainWindowXaml = File.ReadAllText(Path.Combine(
+        repoRoot, "JeekRemoteManager", "Views", "MainWindow.axaml"));
+    var mainWindowCode = File.ReadAllText(Path.Combine(
+        repoRoot, "JeekRemoteManager", "Views", "MainWindow.axaml.cs"));
+    Check(terminalViewXaml.IndexOf("x:Name=\"AiPanelHost\"", StringComparison.Ordinal)
+              < terminalViewXaml.IndexOf("x:Name=\"MonitorPanelHost\"", StringComparison.Ordinal)
+          && terminalViewXaml.Contains("x:Name=\"AiPanelHost\"\n                Grid.Column=\"0\"", StringComparison.Ordinal)
+          && terminalViewXaml.Contains("x:Name=\"MonitorPanelHost\"\n                Grid.Column=\"4\"", StringComparison.Ordinal),
+          "AI panel is left of the terminal and monitor panel is right of it");
+    Check(mainWindowXaml.IndexOf("x:Name=\"AiPanelToolbarButton\"", StringComparison.Ordinal)
+              < mainWindowXaml.IndexOf("x:Name=\"MonitorToolbarButton\"", StringComparison.Ordinal),
+          "Terminal toolbar places AI before monitor");
+    Check(mainWindowCode.IndexOf("menu.Items.Add(aiPanel);", StringComparison.Ordinal)
+              < mainWindowCode.IndexOf("menu.Items.Add(monitor);", StringComparison.Ordinal),
+          "Terminal tab menu places AI before monitor");
+
     // --- Master-password setup (password material cached via DPAPI) ---
     // Point the DPAPI cache at the temp root so we never touch the real one.
     MasterKeyService.CachePath = Path.Combine(root, "master-password.bin");

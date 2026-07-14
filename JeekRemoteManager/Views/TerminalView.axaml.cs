@@ -99,11 +99,11 @@ public partial class TerminalView : UserControl
     private long _terminalRecoveryCount;
     private volatile bool _disposed;
 
-    // The monitor panel, terminal, and AI panel live in grid columns 0, 2, and 4; named
+    // The AI panel, terminal, and monitor panel live in grid columns 0, 2, and 4; named
     // ColumnDefinitions don't generate fields, so reach them through the grid.
-    private ColumnDefinition MonitorColumn => RootGrid.ColumnDefinitions[0];
+    private ColumnDefinition AiColumn => RootGrid.ColumnDefinitions[0];
     private ColumnDefinition TerminalColumn => RootGrid.ColumnDefinitions[2];
-    private ColumnDefinition AiColumn => RootGrid.ColumnDefinitions[4];
+    private ColumnDefinition MonitorColumn => RootGrid.ColumnDefinitions[4];
 
     // The file browser lives in row 2 of the terminal-area grid.
     private RowDefinition FileBrowserRow => RootGrid.RowDefinitions[2];
@@ -408,6 +408,11 @@ public partial class TerminalView : UserControl
 
     public bool IsAiPanelOpen => AiPanelHost.IsVisible;
 
+    /// <summary>Rendered side-panel columns exposed for Debug MCP verification.</summary>
+    public int AiPanelColumn => Grid.GetColumn(AiPanelHost);
+
+    public int MonitorPanelColumn => Grid.GetColumn(MonitorPanelHost);
+
     public bool IsFileBrowserPanelOpen => FileBrowserHost.IsVisible;
 
     // Exposed through the generic Debug MCP object-path tools so resize behavior
@@ -579,7 +584,7 @@ public partial class TerminalView : UserControl
             vm.FileBrowserPanelHeight = _fileBrowserHeight;
     }
 
-    /// <summary>Shows or hides the server monitor panel left of the terminal. Sampling
+    /// <summary>Shows or hides the server monitor panel right of the terminal. Sampling
     /// runs only while the panel is visible, over a hidden duplicated shell on this
     /// terminal's SSH connection — SSH-type connections only.</summary>
     public void ToggleMonitorPanel()
@@ -695,7 +700,7 @@ public partial class TerminalView : UserControl
     private void ApplyFileBrowserPlacement()
     {
         var agentMode = AiPanelHost.IsVisible && _aiViewModel?.AgentMode == true;
-        var column = agentMode ? 4 : 2;
+        var column = agentMode ? 0 : 2;
         Grid.SetColumn(FileSplitter, column);
         Grid.SetColumn(FileBrowserHost, column);
 
