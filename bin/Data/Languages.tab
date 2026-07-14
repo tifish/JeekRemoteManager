@@ -220,6 +220,8 @@ IntervalDaily	Daily	每天
 IntervalWeekly	Every week	每周
 FontIncrease	Increase terminal font	增大终端字体
 FontDecrease	Decrease terminal font	减小终端字体
+ScrollToLatest	Scroll to latest	滚动到最新
+ScrollToLatestHint	Jump to the bottom and keep following new output	跳到底部并继续显示最新内容
 HostKeyTitle	Unknown host key	未知主机密钥
 HostKeyPrompt	The server "{0}" presented a {1} host key. Trust this host and remember its key?	服务器“{0}”提供了一个 {1} 主机密钥。是否信任此主机并记住它的密钥？
 HostKeyHint	If you don't recognize this server, rejecting is safer.	如果你不认识这台服务器，拒绝更安全。

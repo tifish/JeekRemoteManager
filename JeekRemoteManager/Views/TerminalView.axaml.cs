@@ -148,6 +148,15 @@ public partial class TerminalView : UserControl
         Term.AddHandler(DragDrop.DragOverEvent, OnTerminalDragOver);
         Term.AddHandler(DragDrop.DropEvent, OnTerminalDrop);
 
+        // TerminalControl owns UpdateUI; chain so the "scroll to latest" button tracks
+        // viewport changes from feed, wheel, and scrollbar without a timer.
+        var previousUpdateUi = _model.UpdateUI;
+        _model.UpdateUI = () =>
+        {
+            previousUpdateUi?.Invoke();
+            UpdateScrollToBottomButton();
+        };
+
         // Persist the AI panel width whenever the user finishes dragging the splitter.
         AiSplitter.DragCompleted += (_, _) => PersistAiPanelWidth();
         FileSplitter.DragCompleted += (_, _) => PersistFileBrowserHeight();
@@ -174,6 +183,31 @@ public partial class TerminalView : UserControl
             if (!string.IsNullOrWhiteSpace(title))
                 TitleChanged?.Invoke(this, title);
         });
+    }
+
+    /// <summary>True when the terminal viewport is not following the latest output
+    /// and the floating jump-to-bottom control is shown. Public for Debug MCP.</summary>
+    public bool IsScrollToBottomButtonVisible => ScrollToBottomButton.IsVisible;
+
+    /// <summary>Scrolls the terminal to the live bottom and resumes following new output.
+    /// Public for Debug MCP and the floating button.</summary>
+    public void ScrollToLatest()
+    {
+        _model.EnsureCaretIsVisible();
+        UpdateScrollToBottomButton();
+    }
+
+    private void OnScrollToBottomClick(object? sender, RoutedEventArgs e) => ScrollToLatest();
+
+    private void UpdateScrollToBottomButton()
+    {
+        // Alternate-buffer TUIs have no useful scrollback; only offer the jump when
+        // the normal buffer has history and the viewport is not already at the bottom.
+        var show = !_disposed
+                   && _model.CanScroll
+                   && !_model.Terminal.Buffer.IsAtBottom;
+        if (ScrollToBottomButton.IsVisible != show)
+            ScrollToBottomButton.IsVisible = show;
     }
 
     /// <summary>

@@ -2,7 +2,9 @@
 
 - After finishing a feature or fixing a bug
   - Add any interface it need for testing to debug MCP interface.
-  - Automatically build and launch the program. If the program is already running, kill the process and run it again.
+  - Automatically build and launch the program. 
+    - Do not use job to run program, which will kill the process after job finished.
+    - If the program is already running, kill the process and run it again.
   - Use Debug MCP to test the feature or bug, if anything wrong, try to fix it and test again, until all done.
 - Always use rebase and fast-forward for Git, never merge.
 - Use English for commit messages, keeping them to a brief sentence or two stating the purpose without elaborating on implementation details.

@@ -16,7 +16,11 @@ namespace JeekRemoteManager.Views;
 
 public partial class AgentChatView : UserControl
 {
+    private const double NearBottomThreshold = 48;
+
     private INotifyCollectionChanged? _observed;
+    private bool _stickToBottom = true;
+    private bool _isProgrammaticScroll;
 
     /// <summary>Raised by the panel's own close button; the hosting TerminalView
     /// collapses the panel.</summary>
@@ -45,6 +49,21 @@ public partial class AgentChatView : UserControl
         MessagesList.AddHandler(InputElement.ContextRequestedEvent, OnMessageContextRequested,
             RoutingStrategies.Tunnel);
     }
+
+    /// <summary>True when the transcript is not following the latest messages and the
+    /// floating jump-to-bottom control is shown. Public for Debug MCP.</summary>
+    public bool IsScrollToBottomButtonVisible => ScrollToBottomButton.IsVisible;
+
+    /// <summary>Scrolls the transcript to the end and resumes following new messages.
+    /// Public for Debug MCP and the floating button.</summary>
+    public void ScrollToLatest()
+    {
+        _stickToBottom = true;
+        ScrollMessagesToEnd();
+        UpdateScrollToBottomButton();
+    }
+
+    private void OnScrollToBottomClick(object? sender, RoutedEventArgs e) => ScrollToLatest();
 
     private void OnMarkdownLayoutUpdated(object? sender, EventArgs e)
     {
@@ -176,17 +195,95 @@ public partial class AgentChatView : UserControl
         {
             _observed = vm.Messages;
             _observed.CollectionChanged += OnMessagesChanged;
+            _stickToBottom = true;
+            UpdateScrollToBottomButton();
         }
         else
         {
             _observed = null;
+            ScrollToBottomButton.IsVisible = false;
         }
     }
 
     private void OnMessagesChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        if (e.Action == NotifyCollectionChangedAction.Add)
-            Dispatcher.UIThread.Post(() => MessagesScroll?.ScrollToEnd(), DispatcherPriority.Background);
+        if (e.Action == NotifyCollectionChangedAction.Reset)
+        {
+            _stickToBottom = true;
+            UpdateScrollToBottomButton();
+            return;
+        }
+
+        if (e.Action is not (NotifyCollectionChangedAction.Add
+            or NotifyCollectionChangedAction.Replace
+            or NotifyCollectionChangedAction.Remove))
+            return;
+
+        if (_stickToBottom)
+            Dispatcher.UIThread.Post(ScrollMessagesToEnd, DispatcherPriority.Background);
+        else
+            Dispatcher.UIThread.Post(UpdateScrollToBottomButton, DispatcherPriority.Background);
+    }
+
+    private void OnMessagesScrollChanged(object? sender, ScrollChangedEventArgs e)
+    {
+        if (MessagesScroll is null)
+            return;
+
+        // Content growth while pinned keeps the viewport on the latest messages.
+        if (_stickToBottom && e.ExtentDelta.Y > 0.5)
+        {
+            ScrollMessagesToEnd();
+            return;
+        }
+
+        if (!_isProgrammaticScroll && Math.Abs(e.OffsetDelta.Y) > 0.5)
+            _stickToBottom = IsNearBottom();
+
+        UpdateScrollToBottomButton();
+    }
+
+    private void ScrollMessagesToEnd()
+    {
+        if (MessagesScroll is null)
+            return;
+
+        _isProgrammaticScroll = true;
+        try
+        {
+            MessagesScroll.ScrollToEnd();
+        }
+        finally
+        {
+            // Defer clearing so the ScrollChanged raised by ScrollToEnd still sees the flag.
+            Dispatcher.UIThread.Post(() => _isProgrammaticScroll = false, DispatcherPriority.Background);
+        }
+
+        _stickToBottom = true;
+        UpdateScrollToBottomButton();
+    }
+
+    private bool IsNearBottom()
+    {
+        if (MessagesScroll is null)
+            return true;
+
+        var extent = MessagesScroll.Extent.Height;
+        var viewport = MessagesScroll.Viewport.Height;
+        if (extent <= viewport + 1)
+            return true;
+
+        var maxOffset = extent - viewport;
+        return MessagesScroll.Offset.Y >= maxOffset - NearBottomThreshold;
+    }
+
+    private void UpdateScrollToBottomButton()
+    {
+        var show = MessagesScroll is { IsVisible: true }
+                   && MessagesScroll.Extent.Height > MessagesScroll.Viewport.Height + 1
+                   && !IsNearBottom();
+        if (ScrollToBottomButton.IsVisible != show)
+            ScrollToBottomButton.IsVisible = show;
     }
 
     private void OnShortcutKeyDown(object? sender, KeyEventArgs e)
