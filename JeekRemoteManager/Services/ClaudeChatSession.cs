@@ -60,6 +60,9 @@ public sealed class ClaudeChatSession : IAgentChatSession
     /// <summary>Incremental assistant answer text (a <c>text_delta</c>). Thinking is ignored.</summary>
     public event Action<string>? TextDelta;
 
+    /// <summary>The authoritative final result replaces any partial stream preview.</summary>
+    public event Action<string>? TextReplaced;
+
     /// <summary>A turn finished; carries the final text plus cost/usage.</summary>
     public event Action<AgentTurnResult>? TurnCompleted;
 
@@ -310,6 +313,9 @@ public sealed class ClaudeChatSession : IAgentChatSession
         var text = root.TryGetProperty("result", out var resultProp) ? resultProp.GetString() ?? "" : "";
         if (string.IsNullOrEmpty(text))
             text = _currentText.ToString();
+
+        if (!string.IsNullOrEmpty(text))
+            TextReplaced?.Invoke(text);
 
         var cost = root.TryGetProperty("total_cost_usd", out var costProp) && costProp.TryGetDouble(out var c) ? c : 0;
         var numTurns = root.TryGetProperty("num_turns", out var ntProp) && ntProp.TryGetInt32(out var nt) ? nt : 0;

@@ -90,6 +90,7 @@ public sealed class CodexChatSession : IAgentChatSession
     private TaskCompletionSource<string>? _activeTurnReady;
     private TaskCompletionSource<bool>? _steerResponse;
     private string _finalText = "";
+    private string? _activeAgentMessageItemId;
     private long _lastOutputTokens;
     private int _numTurns;
 
@@ -116,6 +117,7 @@ public sealed class CodexChatSession : IAgentChatSession
 
     public event Action<string>? SessionInitialized;
     public event Action<string>? TextDelta;
+    public event Action<string>? TextReplaced;
     public event Action<AgentTurnResult>? TurnCompleted;
     public event Action<string>? Errored;
     public event Action? Exited;
@@ -336,6 +338,7 @@ public sealed class CodexChatSession : IAgentChatSession
 
         _currentText.Clear();
         _finalText = "";
+        _activeAgentMessageItemId = null;
         _lastOutputTokens = 0;
 
         _turnStartRequestId = await SendRequestAsync("turn/start", new
@@ -648,9 +651,24 @@ public sealed class CodexChatSession : IAgentChatSession
 
         switch (method)
         {
+            case "item/started":
+                if (p.TryGetProperty("item", out var startedItem)
+                    && startedItem.TryGetProperty("type", out var startedItemType)
+                    && startedItemType.GetString() == "agentMessage"
+                    && startedItem.TryGetProperty("id", out var startedItemId))
+                {
+                    BeginAgentMessageItem(startedItemId.GetString());
+                }
+                break;
+
             case "item/agentMessage/delta":
                 if (p.TryGetProperty("delta", out var delta) && delta.GetString() is { Length: > 0 } text)
                 {
+                    var itemId = p.TryGetProperty("itemId", out var deltaItemId)
+                        ? deltaItemId.GetString()
+                        : null;
+                    if (!string.IsNullOrEmpty(itemId) && itemId != _activeAgentMessageItemId)
+                        BeginAgentMessageItem(itemId);
                     _currentText.Append(text);
                     TextDelta?.Invoke(text);
                 }
@@ -662,7 +680,15 @@ public sealed class CodexChatSession : IAgentChatSession
                     && itemType.GetString() == "agentMessage"
                     && item.TryGetProperty("text", out var itemText))
                 {
+                    var itemId = item.TryGetProperty("id", out var completedItemId)
+                        ? completedItemId.GetString()
+                        : null;
+                    if (!string.IsNullOrEmpty(itemId) && itemId != _activeAgentMessageItemId)
+                        BeginAgentMessageItem(itemId);
                     _finalText = itemText.GetString() ?? "";
+                    _currentText.Clear();
+                    _currentText.Append(_finalText);
+                    TextReplaced?.Invoke(_finalText);
                 }
                 break;
 
@@ -711,6 +737,17 @@ public sealed class CodexChatSession : IAgentChatSession
                 }
                 break;
         }
+    }
+
+    private void BeginAgentMessageItem(string? itemId)
+    {
+        if (string.IsNullOrEmpty(itemId) || itemId == _activeAgentMessageItemId)
+            return;
+
+        _activeAgentMessageItemId = itemId;
+        _currentText.Clear();
+        _finalText = "";
+        TextReplaced?.Invoke("");
     }
 
     private void HandleTurnCompleted(JsonElement p)

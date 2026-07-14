@@ -56,6 +56,10 @@ public sealed class OpenAiChatSession : IAgentChatSession
 
     public event Action<string>? TextDelta;
 
+#pragma warning disable CS0067
+    public event Action<string>? TextReplaced;
+#pragma warning restore CS0067
+
     public event Action<AgentTurnResult>? TurnCompleted;
 
     // Failures surface as exceptions from SendAsync; the event exists only for the interface.

@@ -1217,6 +1217,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
                 _session.SessionInitialized += OnSessionInitialized;
                 _session.TextDelta += OnTextDelta;
+                _session.TextReplaced += OnTextReplaced;
                 _session.TurnCompleted += OnTurnCompleted;
                 _session.Errored += OnErrored;
                 _session.Exited += OnExited;
@@ -1270,6 +1271,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         {
             session.SessionInitialized -= OnSessionInitialized;
             session.TextDelta -= OnTextDelta;
+            session.TextReplaced -= OnTextReplaced;
             session.TurnCompleted -= OnTurnCompleted;
             session.Errored -= OnErrored;
             session.Exited -= OnExited;
@@ -1295,6 +1297,28 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
         if (scheduleFlush)
             _ = FlushPendingTextDeltasAfterDelayAsync();
+    }
+
+    private void OnTextReplaced(string text)
+    {
+        lock (_streamDeltaGate)
+        {
+            _streamDeltaBuffer.Clear();
+            _streamFlushScheduled = false;
+        }
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_pendingAssistant is null)
+                return;
+
+            StopThinking();
+            _pendingAssistant.Text = text;
+            _pendingAssistant.IsStreaming = true;
+            _streamRenderUpdateCount++;
+            OnPropertyChanged(nameof(StreamRenderUpdateCount));
+            OnPropertyChanged(nameof(PendingStreamCharacterCount));
+        });
     }
 
     private async Task FlushPendingTextDeltasAfterDelayAsync()
@@ -1363,8 +1387,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         if (_pendingAssistant is not null)
         {
             StopThinking();
-            if (string.IsNullOrEmpty(_pendingAssistant.Text))
-                _pendingAssistant.Text = result.Text;
+            _pendingAssistant.Text = SelectCompletedText(_pendingAssistant.Text, result.Text);
             _pendingAssistant.IsStreaming = false;
             answer = _pendingAssistant.Text;
             _pendingAssistant = null;
@@ -1418,6 +1441,14 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
         IsBusy = false;
     });
+
+    internal static string SelectCompletedText(string streamedText, string completedText) =>
+        string.IsNullOrEmpty(completedText) ? streamedText : completedText;
+
+    /// <summary>Returns the same authoritative-text selection used when a streamed turn
+    /// completes. Public so Debug MCP can verify stale previews are replaced.</summary>
+    public string DebugReconcileCompletedText(string streamedText, string completedText) =>
+        SelectCompletedText(streamedText, completedText);
 
     /// <summary>Returns the final safety decision for an auto-run command. Public so the
     /// running UI can be verified through the generic Debug MCP object-path tools without
@@ -1912,6 +1943,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         {
             session.SessionInitialized -= OnSessionInitialized;
             session.TextDelta -= OnTextDelta;
+            session.TextReplaced -= OnTextReplaced;
             session.TurnCompleted -= OnTurnCompleted;
             session.Errored -= OnErrored;
             session.Exited -= OnExited;

@@ -50,6 +50,11 @@ public sealed class GrokChatSession : IAgentChatSession
     private int _sessionNewRequestId = -1;
     private int _promptRequestId = -1;
     private volatile bool _acceptPromptUpdates;
+    private long? _activeStreamStartMs;
+    private int _activeStreamTextStart;
+    private long? _lastRetryTimestampMs;
+    private string? _lastRetryError;
+    private readonly HashSet<long> _discardedStreamStarts = [];
     private long _lastOutputTokens;
     private double _lastCostUsd;
     private int _numTurns;
@@ -75,6 +80,7 @@ public sealed class GrokChatSession : IAgentChatSession
 
     public event Action<string>? SessionInitialized;
     public event Action<string>? TextDelta;
+    public event Action<string>? TextReplaced;
     public event Action<AgentTurnResult>? TurnCompleted;
     public event Action<string>? Errored;
     public event Action? Exited;
@@ -425,6 +431,11 @@ public sealed class GrokChatSession : IAgentChatSession
         var sessionId = await _sessionReady.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
 
         _currentText.Clear();
+        _activeStreamStartMs = null;
+        _activeStreamTextStart = 0;
+        _lastRetryTimestampMs = null;
+        _lastRetryError = null;
+        _discardedStreamStarts.Clear();
         _lastOutputTokens = 0;
         _lastCostUsd = 0;
 
@@ -645,7 +656,7 @@ public sealed class GrokChatSession : IAgentChatSession
     private void HandlePromptCompleted(JsonElement result)
     {
         var stopReason = result.TryGetProperty("stopReason", out var sr) ? sr.GetString() : null;
-        var isError = stopReason is "refusal" or "max_tokens" or "max_turn_requests";
+        var isError = stopReason is "refusal" or "max_tokens" or "max_turn_requests" or "rate_limit";
         // cancelled is not treated as a hard error bubble; the panel already tracks cancel.
 
         if (result.TryGetProperty("_meta", out var meta))
@@ -665,6 +676,8 @@ public sealed class GrokChatSession : IAgentChatSession
         }
 
         var text = _currentText.ToString();
+        if (isError && text.Length == 0 && !string.IsNullOrWhiteSpace(_lastRetryError))
+            text = _lastRetryError;
         TurnCompleted?.Invoke(new AgentTurnResult(
             text,
             _lastCostUsd,
@@ -739,6 +752,11 @@ public sealed class GrokChatSession : IAgentChatSession
                 HandleSessionUpdate(p);
                 break;
 
+            case "_x.ai/session/update":
+            case "x.ai/session/update":
+                HandleGrokSessionUpdate(p);
+                break;
+
             // Grok-specific chatter (_x.ai/*): ignore for the chat surface.
             default:
                 if (!method.StartsWith("_x.ai/", StringComparison.Ordinal)
@@ -748,6 +766,49 @@ public sealed class GrokChatSession : IAgentChatSession
                 }
                 break;
         }
+    }
+
+    private void HandleGrokSessionUpdate(JsonElement p)
+    {
+        if (!p.TryGetProperty("update", out var update)
+            || !update.TryGetProperty("sessionUpdate", out var kind)
+            || kind.GetString() != "retry_state"
+            || !update.TryGetProperty("type", out var retryType))
+        {
+            return;
+        }
+
+        var retryKind = retryType.GetString();
+        if (retryKind is not ("retrying" or "exhausted"))
+            return;
+
+        if (retryKind == "exhausted"
+            && update.TryGetProperty("reason", out var reason)
+            && reason.GetString() is { Length: > 0 } retryError)
+        {
+            _lastRetryError = retryError;
+        }
+
+        var retryTimestamp = p.TryGetProperty("_meta", out var meta)
+            && meta.TryGetProperty("agentTimestampMs", out var timestamp)
+            && timestamp.TryGetInt64(out var timestampMs)
+                ? timestampMs
+                : (long?)null;
+        if (retryTimestamp is not null)
+            _lastRetryTimestampMs = Math.Max(_lastRetryTimestampMs ?? long.MinValue, retryTimestamp.Value);
+
+        if (_activeStreamStartMs is not { } activeStream
+            || retryTimestamp is not null && activeStream > retryTimestamp.Value)
+        {
+            return;
+        }
+
+        _discardedStreamStarts.Add(activeStream);
+        if (_currentText.Length > _activeStreamTextStart)
+            _currentText.Length = _activeStreamTextStart;
+        _activeStreamStartMs = null;
+        _activeStreamTextStart = _currentText.Length;
+        TextReplaced?.Invoke(_currentText.ToString());
     }
 
     private void HandleSessionUpdate(JsonElement p)
@@ -765,6 +826,22 @@ public sealed class GrokChatSession : IAgentChatSession
         }
 
         var kind = kindProp.GetString();
+        if (kind == "tool_call")
+        {
+            // A built-in tool call commits any text produced by the model invocation that
+            // requested it. A later retry belongs to the follow-up model invocation and
+            // must not roll this already accepted prefix back.
+            _activeStreamStartMs = null;
+            _activeStreamTextStart = _currentText.Length;
+            return;
+        }
+
+        if (kind is "agent_message_chunk" or "agent_thought_chunk"
+            && ShouldDiscardStreamUpdate(p))
+        {
+            return;
+        }
+
         switch (kind)
         {
             case "agent_message_chunk":
@@ -795,6 +872,43 @@ public sealed class GrokChatSession : IAgentChatSession
 
             // tool_call, tool_call_update, plan, available_commands_update — ignored for now.
         }
+    }
+
+    private bool ShouldDiscardStreamUpdate(JsonElement p)
+    {
+        if (!p.TryGetProperty("_meta", out var meta)
+            || !meta.TryGetProperty("streamStartMs", out var streamStart)
+            || !streamStart.TryGetInt64(out var streamStartMs))
+        {
+            return false;
+        }
+
+        if (_discardedStreamStarts.Contains(streamStartMs)
+            || _lastRetryTimestampMs is { } retryTimestamp && streamStartMs <= retryTimestamp)
+        {
+            _discardedStreamStarts.Add(streamStartMs);
+            return true;
+        }
+
+        if (_activeStreamStartMs != streamStartMs)
+        {
+            // A new model stream without an intervening tool call supersedes the previous
+            // uncommitted candidate. Grok can emit this transition before, after, or even
+            // without the retry_state notification, so candidate selection cannot rely on
+            // retry_state ordering alone.
+            if (_activeStreamStartMs is { } supersededStream)
+            {
+                _discardedStreamStarts.Add(supersededStream);
+                if (_currentText.Length > _activeStreamTextStart)
+                    _currentText.Length = _activeStreamTextStart;
+                TextReplaced?.Invoke(_currentText.ToString());
+            }
+
+            _activeStreamStartMs = streamStartMs;
+            _activeStreamTextStart = _currentText.Length;
+        }
+
+        return false;
     }
 
     public async ValueTask DisposeAsync()

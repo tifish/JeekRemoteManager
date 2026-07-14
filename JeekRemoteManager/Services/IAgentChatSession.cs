@@ -31,6 +31,11 @@ public interface IAgentChatSession : IAsyncDisposable
     /// <summary>Incremental assistant answer text. Thinking/reasoning is not included.</summary>
     event Action<string>? TextDelta;
 
+    /// <summary>Replaces all assistant text streamed so far for the active turn. Providers
+    /// raise this when a retry retracts an abandoned attempt or a protocol supplies an
+    /// authoritative completed-message snapshot.</summary>
+    event Action<string>? TextReplaced;
+
     /// <summary>A turn finished; carries the final text plus cost/usage.</summary>
     event Action<AgentTurnResult>? TurnCompleted;
 

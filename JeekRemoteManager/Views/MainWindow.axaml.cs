@@ -173,6 +173,11 @@ public partial class MainWindow : Window
             .Select(item => item.Header?.ToString() ?? string.Empty)
             .ToArray() ?? [];
 
+    /// <summary>Exercises AI turn-completion text reconciliation without requiring a live
+    /// provider session. Exposed for Debug MCP verification.</summary>
+    public string DebugReconcileCompletedAgentText(string streamedText, string completedText) =>
+        AgentChatViewModel.SelectCompletedText(streamedText, completedText);
+
     private void BuildMoreActionsMenu()
     {
         if (DataContext is not MainWindowViewModel vm)

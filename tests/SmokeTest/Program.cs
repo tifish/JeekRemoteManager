@@ -545,6 +545,156 @@ try
     Check(grokReplayText == "old answer",
           "Grok ignores transcript replay during session/load but streams new prompt updates");
 
+    var grokRetry = new GrokChatSession("grok", root);
+    var grokPreview = "";
+    AgentTurnResult? grokRetryResult = null;
+    grokRetry.TextDelta += text => grokPreview += text;
+    grokRetry.TextReplaced += text => grokPreview = text;
+    grokRetry.TurnCompleted += result => grokRetryResult = result;
+    typeof(GrokChatSession)
+        .GetField("_acceptPromptUpdates", BindingFlags.Instance | BindingFlags.NonPublic)!
+        .SetValue(grokRetry, true);
+    var handleGrokSessionUpdate = typeof(GrokChatSession)
+        .GetMethod("HandleSessionUpdate", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    var handleGrokRetryUpdate = typeof(GrokChatSession)
+        .GetMethod("HandleGrokSessionUpdate", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    var handleGrokPromptCompleted = typeof(GrokChatSession)
+        .GetMethod("HandlePromptCompleted", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    using (var staleThought = JsonDocument.Parse(
+               "{\"update\":{\"sessionUpdate\":\"agent_thought_chunk\",\"content\":{\"type\":\"text\",\"text\":\"thinking\"}},\"_meta\":{\"streamStartMs\":100}}"))
+        handleGrokSessionUpdate.Invoke(grokRetry, [staleThought.RootElement]);
+    using (var staleText = JsonDocument.Parse(
+               "{\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"stale tool block\"}},\"_meta\":{\"streamStartMs\":100}}"))
+        handleGrokSessionUpdate.Invoke(grokRetry, [staleText.RootElement]);
+    using (var retryState = JsonDocument.Parse(
+               "{\"update\":{\"sessionUpdate\":\"retry_state\",\"type\":\"retrying\"},\"_meta\":{\"agentTimestampMs\":150}}"))
+        handleGrokRetryUpdate.Invoke(grokRetry, [retryState.RootElement]);
+    using (var lateStaleText = JsonDocument.Parse(
+               "{\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"late stale block\"}},\"_meta\":{\"streamStartMs\":100}}"))
+        handleGrokSessionUpdate.Invoke(grokRetry, [lateStaleText.RootElement]);
+    using (var finalThought = JsonDocument.Parse(
+               "{\"update\":{\"sessionUpdate\":\"agent_thought_chunk\",\"content\":{\"type\":\"text\",\"text\":\"thinking again\"}},\"_meta\":{\"streamStartMs\":200}}"))
+        handleGrokSessionUpdate.Invoke(grokRetry, [finalThought.RootElement]);
+    using (var finalText = JsonDocument.Parse(
+               "{\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"committed prefix\"}},\"_meta\":{\"streamStartMs\":200}}"))
+        handleGrokSessionUpdate.Invoke(grokRetry, [finalText.RootElement]);
+    using (var builtInTool = JsonDocument.Parse(
+               "{\"update\":{\"sessionUpdate\":\"tool_call\"},\"_meta\":{\"streamStartMs\":200}}"))
+        handleGrokSessionUpdate.Invoke(grokRetry, [builtInTool.RootElement]);
+    using (var followUpRetry = JsonDocument.Parse(
+               "{\"update\":{\"sessionUpdate\":\"retry_state\",\"type\":\"retrying\"},\"_meta\":{\"agentTimestampMs\":250}}"))
+        handleGrokRetryUpdate.Invoke(grokRetry, [followUpRetry.RootElement]);
+    using (var failedFollowUp = JsonDocument.Parse(
+               "{\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"discarded follow-up\"}},\"_meta\":{\"streamStartMs\":220}}"))
+        handleGrokSessionUpdate.Invoke(grokRetry, [failedFollowUp.RootElement]);
+    using (var recoveredFollowUp = JsonDocument.Parse(
+               "{\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\" final tool block\"}},\"_meta\":{\"streamStartMs\":300}}"))
+        handleGrokSessionUpdate.Invoke(grokRetry, [recoveredFollowUp.RootElement]);
+    using (var completed = JsonDocument.Parse("{\"stopReason\":\"end_turn\"}"))
+        handleGrokPromptCompleted.Invoke(grokRetry, [completed.RootElement]);
+    Check(grokPreview == "committed prefix final tool block"
+          && grokRetryResult?.Text == "committed prefix final tool block",
+          "Grok retry updates retract failed-attempt text before tool parsing");
+
+    var grokSuperseded = new GrokChatSession("grok", root);
+    var grokSupersededPreview = "";
+    AgentTurnResult? grokSupersededResult = null;
+    grokSuperseded.TextDelta += text => grokSupersededPreview += text;
+    grokSuperseded.TextReplaced += text => grokSupersededPreview = text;
+    grokSuperseded.TurnCompleted += result => grokSupersededResult = result;
+    typeof(GrokChatSession)
+        .GetField("_acceptPromptUpdates", BindingFlags.Instance | BindingFlags.NonPublic)!
+        .SetValue(grokSuperseded, true);
+    using (var firstCandidate = JsonDocument.Parse(
+               "{\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"first failed tool block\"}},\"_meta\":{\"streamStartMs\":100}}"))
+        handleGrokSessionUpdate.Invoke(grokSuperseded, [firstCandidate.RootElement]);
+    using (var replacementThought = JsonDocument.Parse(
+               "{\"update\":{\"sessionUpdate\":\"agent_thought_chunk\",\"content\":{\"type\":\"text\",\"text\":\"retrying\"}},\"_meta\":{\"streamStartMs\":200}}"))
+        handleGrokSessionUpdate.Invoke(grokSuperseded, [replacementThought.RootElement]);
+    using (var replacementCandidate = JsonDocument.Parse(
+               "{\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"final tool block\"}},\"_meta\":{\"streamStartMs\":200}}"))
+        handleGrokSessionUpdate.Invoke(grokSuperseded, [replacementCandidate.RootElement]);
+    using (var completed = JsonDocument.Parse("{\"stopReason\":\"end_turn\"}"))
+        handleGrokPromptCompleted.Invoke(grokSuperseded, [completed.RootElement]);
+    Check(grokSupersededPreview == "final tool block"
+          && grokSupersededResult?.Text == "final tool block",
+          "Grok replaces an uncommitted candidate when a new model stream starts");
+
+    var grokExhausted = new GrokChatSession("grok", root);
+    var grokExhaustedPreview = "";
+    AgentTurnResult? grokExhaustedResult = null;
+    grokExhausted.TextDelta += text => grokExhaustedPreview += text;
+    grokExhausted.TextReplaced += text => grokExhaustedPreview = text;
+    grokExhausted.TurnCompleted += result => grokExhaustedResult = result;
+    typeof(GrokChatSession)
+        .GetField("_acceptPromptUpdates", BindingFlags.Instance | BindingFlags.NonPublic)!
+        .SetValue(grokExhausted, true);
+    using (var failedCandidate = JsonDocument.Parse(
+               "{\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"stale exhausted block\"}},\"_meta\":{\"streamStartMs\":300}}"))
+        handleGrokSessionUpdate.Invoke(grokExhausted, [failedCandidate.RootElement]);
+    using (var exhausted = JsonDocument.Parse(
+               "{\"update\":{\"sessionUpdate\":\"retry_state\",\"type\":\"exhausted\",\"reason\":\"service temporarily at capacity\"},\"_meta\":{\"agentTimestampMs\":350}}"))
+        handleGrokRetryUpdate.Invoke(grokExhausted, [exhausted.RootElement]);
+    using (var lateFailedCandidate = JsonDocument.Parse(
+               "{\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"late stale exhausted block\"}},\"_meta\":{\"streamStartMs\":300}}"))
+        handleGrokSessionUpdate.Invoke(grokExhausted, [lateFailedCandidate.RootElement]);
+    using (var completed = JsonDocument.Parse("{\"stopReason\":\"rate_limit\"}"))
+        handleGrokPromptCompleted.Invoke(grokExhausted, [completed.RootElement]);
+    Check(grokExhaustedPreview.Length == 0
+          && grokExhaustedResult is { IsError: true, Text: "service temporarily at capacity" },
+          "Grok drops exhausted retry candidates and reports the rate-limit reason");
+
+    var codexItems = new CodexChatSession("codex", root);
+    var codexPreview = "";
+    AgentTurnResult? codexItemResult = null;
+    codexItems.TextDelta += text => codexPreview += text;
+    codexItems.TextReplaced += text => codexPreview = text;
+    codexItems.TurnCompleted += result => codexItemResult = result;
+    var handleCodexNotification = typeof(CodexChatSession)
+        .GetMethod("HandleNotification", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    void SendCodexNotification(string method, string json)
+    {
+        using var notification = JsonDocument.Parse(json);
+        handleCodexNotification.Invoke(codexItems, [method, notification.RootElement]);
+    }
+    SendCodexNotification("item/started",
+        "{\"params\":{\"item\":{\"type\":\"agentMessage\",\"id\":\"item-1\"}}}");
+    SendCodexNotification("item/agentMessage/delta",
+        "{\"params\":{\"itemId\":\"item-1\",\"delta\":\"stale item\"}}");
+    SendCodexNotification("item/completed",
+        "{\"params\":{\"item\":{\"type\":\"agentMessage\",\"id\":\"item-1\",\"text\":\"stale item\"}}}");
+    SendCodexNotification("item/started",
+        "{\"params\":{\"item\":{\"type\":\"agentMessage\",\"id\":\"item-2\"}}}");
+    SendCodexNotification("item/agentMessage/delta",
+        "{\"params\":{\"itemId\":\"item-2\",\"delta\":\"final partial\"}}");
+    SendCodexNotification("item/completed",
+        "{\"params\":{\"item\":{\"type\":\"agentMessage\",\"id\":\"item-2\",\"text\":\"final authoritative\"}}}");
+    SendCodexNotification("turn/completed",
+        "{\"params\":{\"turn\":{\"id\":\"turn-1\",\"status\":\"completed\"}}}");
+    Check(codexPreview == "final authoritative"
+          && codexItemResult?.Text == "final authoritative",
+          "Codex keeps agent-message deltas scoped to one item and trusts item/completed");
+
+    var claudeResultSession = new ClaudeChatSession("claude", root);
+    var claudePreview = "";
+    AgentTurnResult? claudeFinalResult = null;
+    claudeResultSession.TextDelta += text => claudePreview += text;
+    claudeResultSession.TextReplaced += text => claudePreview = text;
+    claudeResultSession.TurnCompleted += result => claudeFinalResult = result;
+    var handleClaudeStreamEvent = typeof(ClaudeChatSession)
+        .GetMethod("HandleStreamEvent", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    var handleClaudeResult = typeof(ClaudeChatSession)
+        .GetMethod("HandleResult", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    using (var partialClaude = JsonDocument.Parse(
+               "{\"event\":{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"stale partial\"}}}"))
+        handleClaudeStreamEvent.Invoke(claudeResultSession, [partialClaude.RootElement]);
+    using (var finalClaude = JsonDocument.Parse(
+               "{\"type\":\"result\",\"result\":\"final authoritative\",\"is_error\":false}"))
+        handleClaudeResult.Invoke(claudeResultSession, [finalClaude.RootElement]);
+    Check(claudePreview == "final authoritative"
+          && claudeFinalResult?.Text == "final authoritative",
+          "Claude replaces partial stream text with the authoritative result event");
+
     // --- AI model catalogs survive a restart and remain usable during refresh ---
     var originalCatalogCachePath = AgentModelCatalogCache.CachePath;
     AgentModelCatalogCache.CachePath = Path.Combine(root, "ai-model-catalogs.json");
@@ -592,6 +742,10 @@ try
     Check(!aiVm.RequiresDangerConfirmation("rm -rf /tmp/example", dangerTagged: false)
           && !aiVm.RequiresDangerConfirmation("echo example", dangerTagged: true),
           "AI auto-approve bypasses local and model-tagged danger confirmation");
+    Check(aiVm.DebugReconcileCompletedText("stale streamed tool", "final authoritative tool")
+              == "final authoritative tool"
+          && aiVm.DebugReconcileCompletedText("stream only", "") == "stream only",
+          "AI completed turns replace stale previews while preserving stream-only fallbacks");
 
     var runTool = AgentChatViewModel.ExtractFirstToolRequest(
         "```jrm-tool\nterminal.run\nprintf ok\n```");
@@ -2240,6 +2394,8 @@ sealed class FakeAgentChatSession(bool supportsSteering = false) : IAgentChatSes
     public event Action<string>? SessionInitialized { add { } remove { } }
 
     public event Action<string>? TextDelta { add { } remove { } }
+
+    public event Action<string>? TextReplaced { add { } remove { } }
 
     public event Action<AgentTurnResult>? TurnCompleted { add { } remove { } }
 
