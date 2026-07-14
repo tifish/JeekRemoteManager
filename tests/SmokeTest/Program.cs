@@ -289,6 +289,13 @@ try
     Check(authError && !ordinaryError,
           "AI authentication errors are separated from retryable agent errors");
 
+    var isCodexTracingLine = typeof(CodexChatSession)
+        .GetMethod("IsTracingLine", BindingFlags.Static | BindingFlags.NonPublic)!;
+    var structuredCodexWarning = "{\"timestamp\":\"2026-07-14T04:50:34.336651Z\",\"level\":\"WARN\",\"fields\":{\"message\":\"ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\"},\"target\":\"codex_core_skills::loader\"}";
+    Check((bool)isCodexTracingLine.Invoke(null, [structuredCodexWarning])!
+          && !(bool)isCodexTracingLine.Invoke(null, ["Codex failed to start"])!,
+          "AI Codex structured tracing warnings stay out of the chat transcript");
+
     var thinkingMessage = new ChatMessageViewModel(ChatRole.Assistant, "")
     {
         IsThinking = true,

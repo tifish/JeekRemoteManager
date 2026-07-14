@@ -36,6 +36,32 @@ public sealed class CodexChatSession : IAgentChatSession
         @"^\d{4}-\d{2}-\d{2}T\S+ +(TRACE|DEBUG|INFO|WARN|ERROR)\b",
         RegexOptions.Compiled);
 
+    private static bool IsTracingLine(string text)
+    {
+        if (TracingLineRegex.IsMatch(text))
+            return true;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            var root = doc.RootElement;
+            return root.ValueKind == JsonValueKind.Object
+                   && root.TryGetProperty("timestamp", out var timestamp)
+                   && timestamp.ValueKind == JsonValueKind.String
+                   && root.TryGetProperty("level", out var level)
+                   && level.ValueKind == JsonValueKind.String
+                   && level.GetString() is "TRACE" or "DEBUG" or "INFO" or "WARN" or "ERROR"
+                   && root.TryGetProperty("fields", out var fields)
+                   && fields.ValueKind == JsonValueKind.Object
+                   && root.TryGetProperty("target", out var target)
+                   && target.ValueKind == JsonValueKind.String;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
     private static readonly JsonSerializerOptions WireOptions = new()
     {
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
@@ -421,7 +447,7 @@ public sealed class CodexChatSession : IAgentChatSession
                     continue;
 
                 var text = AnsiEscapeRegex.Replace(line, "");
-                if (sawTracing || TracingLineRegex.IsMatch(text))
+                if (sawTracing || IsTracingLine(text))
                 {
                     sawTracing = true;
                     Log.ZLogInformation($"codex stderr: {text}");
