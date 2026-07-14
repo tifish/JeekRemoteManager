@@ -95,6 +95,9 @@ public class AppSettings
     /// <summary>AI panel: whether the assistant auto-runs its suggested commands.</summary>
     public bool AiAutoRun { get; set; } = true;
 
+    /// <summary>AI panel: whether potentially destructive commands bypass confirmation.</summary>
+    public bool AiAutoApproveDangerousCommands { get; set; }
+
     /// <summary>AI panel: whether executed commands and their output show in the chat.</summary>
     public bool AiShowCommandOutput { get; set; }
 
@@ -228,6 +231,9 @@ public class RoamingAppSettings
     /// <summary>AI panel: whether the assistant auto-runs its suggested commands.</summary>
     public bool AiAutoRun { get; set; } = true;
 
+    /// <summary>AI panel: whether potentially destructive commands bypass confirmation.</summary>
+    public bool AiAutoApproveDangerousCommands { get; set; }
+
     /// <summary>AI panel: whether executed commands and their output show in the chat.</summary>
     public bool AiShowCommandOutput { get; set; }
 
@@ -243,6 +249,7 @@ public record AiPanelOptions(
     string? Provider,
     IReadOnlyDictionary<string, AiProviderChoice> ProviderChoices,
     bool AutoRun,
+    bool AutoApproveDangerousCommands,
     bool ShowCommandOutput,
     bool AgentMode);
 

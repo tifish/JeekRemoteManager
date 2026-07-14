@@ -167,6 +167,7 @@ public class SettingsService
             AiProvider = roamingSettings.AiProvider,
             AiProviderChoices = roamingSettings.AiProviderChoices,
             AiAutoRun = roamingSettings.AiAutoRun,
+            AiAutoApproveDangerousCommands = roamingSettings.AiAutoApproveDangerousCommands,
             AiShowCommandOutput = roamingSettings.AiShowCommandOutput,
             AiAgentMode = roamingSettings.AiAgentMode,
             CustomAiProviders = roamingSettings.CustomAiProviders,
@@ -206,6 +207,7 @@ public class SettingsService
             AiProvider = settings.AiProvider,
             AiProviderChoices = settings.AiProviderChoices ?? new Dictionary<string, AiProviderChoice>(),
             AiAutoRun = settings.AiAutoRun,
+            AiAutoApproveDangerousCommands = settings.AiAutoApproveDangerousCommands,
             AiShowCommandOutput = settings.AiShowCommandOutput,
             AiAgentMode = settings.AiAgentMode,
             CustomAiProviders = settings.CustomAiProviders ?? new List<CustomAiProvider>(),
@@ -241,6 +243,7 @@ public class SettingsService
         settings.AiProvider = normalized.AiProvider;
         settings.AiProviderChoices = normalized.AiProviderChoices;
         settings.AiAutoRun = normalized.AiAutoRun;
+        settings.AiAutoApproveDangerousCommands = normalized.AiAutoApproveDangerousCommands;
         settings.AiShowCommandOutput = normalized.AiShowCommandOutput;
         settings.AiAgentMode = normalized.AiAgentMode;
         settings.CustomAiProviders = normalized.CustomAiProviders;

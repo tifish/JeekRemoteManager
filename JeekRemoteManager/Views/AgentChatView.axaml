@@ -271,6 +271,11 @@
                                   IsChecked="{Binding AutoRun, Mode=TwoWay}"
                                   ToolTip.Tip="{l:Localize AiAutoRunHint}" />
                         <CheckBox Classes="chat-option"
+                                  Content="{l:Localize AiAutoApprove}"
+                                  IsChecked="{Binding AutoApproveDangerousCommands, Mode=TwoWay}"
+                                  IsEnabled="{Binding AutoRun}"
+                                  ToolTip.Tip="{l:Localize AiAutoApproveHint}" />
+                        <CheckBox Classes="chat-option"
                                   Content="{l:Localize AiShowOutput}"
                                   IsChecked="{Binding ShowCommandOutput, Mode=TwoWay}"
                                   ToolTip.Tip="{l:Localize AiShowOutputHint}" />

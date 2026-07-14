@@ -289,6 +289,15 @@ try
     Check(authError && !ordinaryError,
           "AI authentication errors are separated from retryable agent errors");
 
+    Check(aiVm.RequiresDangerConfirmation("rm -rf /tmp/example", dangerTagged: false)
+          && aiVm.RequiresDangerConfirmation("echo example", dangerTagged: true)
+          && !aiVm.RequiresDangerConfirmation("echo example", dangerTagged: false),
+          "AI dangerous commands require confirmation by default");
+    aiVm.AutoApproveDangerousCommands = true;
+    Check(!aiVm.RequiresDangerConfirmation("rm -rf /tmp/example", dangerTagged: false)
+          && !aiVm.RequiresDangerConfirmation("echo example", dangerTagged: true),
+          "AI auto-approve bypasses local and model-tagged danger confirmation");
+
     var isCodexTracingLine = typeof(CodexChatSession)
         .GetMethod("IsTracingLine", BindingFlags.Static | BindingFlags.NonPublic)!;
     var structuredCodexWarning = "{\"timestamp\":\"2026-07-14T04:50:34.336651Z\",\"level\":\"WARN\",\"fields\":{\"message\":\"ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\"},\"target\":\"codex_core_skills::loader\"}";

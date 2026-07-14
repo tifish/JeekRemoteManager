@@ -152,6 +152,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             foreach (var (label, choice) in initialOptions.ProviderChoices)
                 _providerChoices[label] = new AiProviderChoice { Model = choice.Model, Effort = choice.Effort };
             _autoRun = initialOptions.AutoRun;
+            _autoApproveDangerousCommands = initialOptions.AutoApproveDangerousCommands;
             _showCommandOutput = initialOptions.ShowCommandOutput;
             _agentMode = initialOptions.AgentMode;
         }
@@ -338,6 +339,9 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     private bool _autoRun = true;
 
     [ObservableProperty]
+    private bool _autoApproveDangerousCommands;
+
+    [ObservableProperty]
     private bool _showCommandOutput;
 
     /// <summary>Agent mode: the AI panel takes over the whole tab and the terminal is hidden,
@@ -402,6 +406,8 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
     partial void OnAutoRunChanged(bool value) => PersistOptions();
 
+    partial void OnAutoApproveDangerousCommandsChanged(bool value) => PersistOptions();
+
     partial void OnShowCommandOutputChanged(bool value) => PersistOptions();
 
     partial void OnAgentModeChanged(bool value) => PersistOptions();
@@ -463,6 +469,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         SelectedProvider.Label,
         new Dictionary<string, AiProviderChoice>(_providerChoices),
         AutoRun,
+        AutoApproveDangerousCommands,
         ShowCommandOutput,
         AgentMode));
 
@@ -762,8 +769,9 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         if (command is not null && _runCaptured is not null)
         {
             // Two independent danger signals: the model self-tagged the block, or the local
-            // blacklist matched. Either one pauses the loop until the user decides.
-            if (dangerTagged || DangerousCommandDetector.IsDangerous(command))
+            // blacklist matched. Either one pauses the loop unless the user opted into
+            // automatically approving potentially destructive commands.
+            if (RequiresDangerConfirmation(command, dangerTagged))
             {
                 AskDangerConfirmation(command);
                 return;
@@ -775,6 +783,13 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
         IsBusy = false;
     });
+
+    /// <summary>Returns the final safety decision for an auto-run command. Public so the
+    /// running UI can be verified through the generic Debug MCP object-path tools without
+    /// executing the command.</summary>
+    public bool RequiresDangerConfirmation(string command, bool dangerTagged) =>
+        !AutoApproveDangerousCommands
+        && (dangerTagged || DangerousCommandDetector.IsDangerous(command));
 
     // The dangerous command (and its bubble) waiting for the user's run/skip decision.
     // IsBusy stays true while waiting, so the input box is blocked but Stop still works.

@@ -431,6 +431,7 @@ public partial class MainWindowViewModel : ViewModelBase
             _settings.Settings.AiProvider,
             new Dictionary<string, AiProviderChoice>(_settings.Settings.AiProviderChoices),
             _settings.Settings.AiAutoRun,
+            _settings.Settings.AiAutoApproveDangerousCommands,
             _settings.Settings.AiShowCommandOutput,
             _settings.Settings.AiAgentMode);
         set
@@ -440,6 +441,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 pair => pair.Key,
                 pair => new AiProviderChoice { Model = pair.Value.Model, Effort = pair.Value.Effort });
             _settings.Settings.AiAutoRun = value.AutoRun;
+            _settings.Settings.AiAutoApproveDangerousCommands = value.AutoApproveDangerousCommands;
             _settings.Settings.AiShowCommandOutput = value.ShowCommandOutput;
             _settings.Settings.AiAgentMode = value.AgentMode;
             _settings.SaveIfChanged();
