@@ -38,7 +38,9 @@
                     <SolidColorBrush x:Key="TextMutedBrush" Color="#657385" />
                     <SolidColorBrush x:Key="AccentBrush" Color="#0F766E" />
                     <SolidColorBrush x:Key="AccentHoverBrush" Color="#0B5F59" />
+                    <SolidColorBrush x:Key="AccentPressedBrush" Color="#084C47" />
                     <SolidColorBrush x:Key="AccentSoftBrush" Color="#DFF4EE" />
+                    <SolidColorBrush x:Key="FloatingActionBrush" Color="#E617212B" />
                     <SolidColorBrush x:Key="SshIconBackgroundBrush" Color="#DBEAFE" />
                     <SolidColorBrush x:Key="SshIconBorderBrush" Color="#93C5FD" />
                     <SolidColorBrush x:Key="SshIconBrush" Color="#1D4ED8" />
@@ -70,7 +72,9 @@
                     <SolidColorBrush x:Key="TextMutedBrush" Color="#A4AFBB" />
                     <SolidColorBrush x:Key="AccentBrush" Color="#2DD4BF" />
                     <SolidColorBrush x:Key="AccentHoverBrush" Color="#5EEAD4" />
+                    <SolidColorBrush x:Key="AccentPressedBrush" Color="#14B8A6" />
                     <SolidColorBrush x:Key="AccentSoftBrush" Color="#123B38" />
+                    <SolidColorBrush x:Key="FloatingActionBrush" Color="#E6323B46" />
                     <SolidColorBrush x:Key="SshIconBackgroundBrush" Color="#123A66" />
                     <SolidColorBrush x:Key="SshIconBorderBrush" Color="#60A5FA" />
                     <SolidColorBrush x:Key="SshIconBrush" Color="#BFDBFE" />
@@ -90,6 +94,7 @@
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
             <SolidColorBrush x:Key="AccentForegroundBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="FloatingActionBorderBrush" Color="#66FFFFFF" />
         </ResourceDictionary>
     </Window.Resources>
 
@@ -283,6 +288,52 @@
         <Style Selector="Button.accent:pointerover">
             <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource AccentHoverBrush}" />
+        </Style>
+        <Style Selector="Button.scroll-to-bottom">
+            <Setter Property="Width" Value="36" />
+            <Setter Property="Height" Value="36" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="CornerRadius" Value="18" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentForegroundBrush}" />
+            <Setter Property="Background" Value="{DynamicResource FloatingActionBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource FloatingActionBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="ZIndex" Value="10" />
+        </Style>
+        <Style Selector="Button.scroll-to-bottom:pointerover">
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+        </Style>
+        <Style Selector="Button.scroll-to-bottom:pressed">
+            <Setter Property="Background" Value="{DynamicResource AccentPressedBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentPressedBrush}" />
+        </Style>
+        <Style Selector="Button.scroll-to-bottom:focus-visible">
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="BorderThickness" Value="2" />
+        </Style>
+        <!-- Fluent's Button theme applies pointer states directly to its presenter.
+             Mirror the shared colors there so the rendered surface follows this style. -->
+        <Style Selector="Button.scroll-to-bottom /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource FloatingActionBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource FloatingActionBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style Selector="Button.scroll-to-bottom:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+        </Style>
+        <Style Selector="Button.scroll-to-bottom:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AccentPressedBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentPressedBrush}" />
+        </Style>
+        <Style Selector="Button.scroll-to-bottom:focus-visible /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="BorderThickness" Value="2" />
         </Style>
         <Style Selector="TextBox">
             <Setter Property="MinHeight" Value="34" />
