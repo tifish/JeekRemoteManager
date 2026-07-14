@@ -246,6 +246,8 @@ AiNotAvailableCodex	Codex CLI not found. Install it (developers.openai.com/codex
 AiNotAvailableGrok	Grok Build CLI not found. Install it (irm https://x.ai/cli/install.ps1 | iex) and reopen this panel.	未检测到 Grok Build CLI，请先安装（irm https://x.ai/cli/install.ps1 | iex）后重新打开此面板。
 AiWaiting	Thinking…	思考中…
 AiThinking	Thinking	思考中
+AiWaitingCommand	Running…	运行中…
+AiRunning	Running	运行中
 AiTurnCost	{0} tokens · ${1:F4}	{0} tokens · ${1:F4}
 AiTurnTokens	{0} tokens	{0} tokens
 AiTurnError	The assistant hit an error.	助手执行出错。

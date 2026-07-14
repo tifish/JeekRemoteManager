@@ -425,6 +425,48 @@ try
     Check(!thinkingMessage.ShowsThinking && thinkingMessage.ShowsAssistantMarkdown,
           "AI thinking placeholder hides after response text appears");
 
+    var runningMessage = new ChatMessageViewModel(ChatRole.Assistant, "")
+    {
+        IsThinking = true,
+        ThinkingText = "Running...",
+    };
+    Check(runningMessage.ShowsThinking && runningMessage.ThinkingText.StartsWith("Running", StringComparison.Ordinal),
+          "AI command execution reuses the thinking placeholder for Running status");
+
+    // RunAndContinueAsync shows Running… while the shell command is in flight.
+    var commandStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var releaseCommand = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var commandAiVm = new AgentChatViewModel(
+        [
+            new AgentProvider(
+                "Test",
+                "",
+                [new AgentOption("Default", null)],
+                [new AgentOption("Default", null)],
+                (_, _) => null),
+        ],
+        () => null,
+        async (_, _) =>
+        {
+            commandStarted.TrySetResult();
+            await releaseCommand.Task;
+            return "ok\n";
+        });
+    var runAndContinue = typeof(AgentChatViewModel)
+        .GetMethod("RunAndContinueAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    var runningTurn = (Task)runAndContinue.Invoke(commandAiVm, ["echo ok"])!;
+    await commandStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    var runningPlaceholder = commandAiVm.Messages.LastOrDefault(m => m.IsAssistant);
+    // Localizer may not be loaded in smoke tests, so assert the activity bubble state
+    // rather than a specific English/Chinese label string.
+    Check(runningPlaceholder is { ShowsThinking: true, HasText: false }
+          && !string.IsNullOrWhiteSpace(runningPlaceholder.ThinkingText)
+          && commandAiVm.Messages.Any(m => m.IsTool && m.Text.Contains("echo ok", StringComparison.Ordinal)),
+          "AI auto-run shows Running activity while the command is executing");
+    releaseCommand.TrySetResult();
+    await runningTurn.WaitAsync(TimeSpan.FromSeconds(2));
+    await commandAiVm.DisposeAsync();
+
     // --- Portability: a connection file alone (no vault, no cache) suffices ---
     // Carry just the EncryptedPassword to a fresh "machine" and decrypt with the
     // master password. The salt needed for PBKDF2 is inside the jrm1 blob.

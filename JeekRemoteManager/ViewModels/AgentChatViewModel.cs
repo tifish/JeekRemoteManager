@@ -869,6 +869,13 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         !AutoApproveDangerousCommands
         && (dangerTagged || DangerousCommandDetector.IsDangerous(command));
 
+    /// <summary>Shows the same Running… activity bubble used while a remote command
+    /// executes. Public for Debug MCP verification without needing a live shell wait.</summary>
+    public void DebugShowRunningActivity() => BeginActivityPlaceholder(ActivityKind.Running);
+
+    /// <summary>Removes a temporary activity bubble created for Debug MCP checks.</summary>
+    public void DebugClearActivity() => ClearActivityPlaceholder();
+
     // The dangerous command (and its bubble) waiting for the user's run/skip decision.
     // IsBusy stays true while waiting, so the input box is blocked but Stop still works.
     private string? _pendingDangerCommand;
@@ -934,6 +941,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     private async Task RunAndContinueAsync(string command)
     {
         Messages.Add(new ChatMessageViewModel(ChatRole.Tool, $"$ {command}"));
+        BeginActivityPlaceholder(ActivityKind.Running);
 
         string output;
         var turnToken = _turnCts?.Token ?? _cts.Token;
@@ -954,13 +962,10 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         if (turnToken.IsCancellationRequested || _cts.IsCancellationRequested)
             return;
 
+        ClearActivityPlaceholder();
         Messages.Add(new ChatMessageViewModel(ChatRole.Tool, TruncateForDisplay(output)));
 
-        _pendingAssistant = new ChatMessageViewModel(ChatRole.Assistant, "");
-        Messages.Add(_pendingAssistant);
-        StatusText = L("AiWaiting");
-        StartThinking();
-
+        BeginActivityPlaceholder(ActivityKind.Thinking);
         await SendToSessionAsync($"Output of `{command}`:\n```\n{output}\n```");
     }
 
@@ -970,6 +975,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         var description = $"⇅ {label}: {string.Join(", ", transfer.Sources)}"
             + (transfer.Destination is null ? "" : $" -> {transfer.Destination}");
         Messages.Add(new ChatMessageViewModel(ChatRole.Tool, description));
+        BeginActivityPlaceholder(ActivityKind.Running);
 
         string outcome;
         var turnToken = _turnCts?.Token ?? _cts.Token;
@@ -990,13 +996,10 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         if (turnToken.IsCancellationRequested || _cts.IsCancellationRequested)
             return;
 
+        ClearActivityPlaceholder();
         Messages.Add(new ChatMessageViewModel(ChatRole.Tool, TruncateForDisplay(outcome)));
 
-        _pendingAssistant = new ChatMessageViewModel(ChatRole.Assistant, "");
-        Messages.Add(_pendingAssistant);
-        StatusText = L("AiWaiting");
-        StartThinking();
-
+        BeginActivityPlaceholder(ActivityKind.Thinking);
         await SendToSessionAsync($"Result of the {label}:\n```\n{outcome}\n```");
     }
 
@@ -1046,14 +1049,44 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         return false;
     }
 
-    private int _thinkingStep;
-
-    private void StartThinking()
+    private enum ActivityKind
     {
+        Thinking,
+        Running,
+    }
+
+    private int _thinkingStep;
+    private ActivityKind _activityKind = ActivityKind.Thinking;
+
+    /// <summary>Adds an empty assistant bubble and starts its animated status text
+    /// (Thinking… / Running…).</summary>
+    private void BeginActivityPlaceholder(ActivityKind kind)
+    {
+        _pendingAssistant = new ChatMessageViewModel(ChatRole.Assistant, "");
+        Messages.Add(_pendingAssistant);
+        StatusText = kind == ActivityKind.Running ? L("AiWaitingCommand") : L("AiWaiting");
+        StartActivity(kind);
+    }
+
+    /// <summary>Removes an empty activity placeholder bubble after a command/transfer
+    /// finishes. Leaves bubbles that already received streamed text alone.</summary>
+    private void ClearActivityPlaceholder()
+    {
+        StopThinking();
+        if (_pendingAssistant is not null && string.IsNullOrEmpty(_pendingAssistant.Text))
+            Messages.Remove(_pendingAssistant);
+        _pendingAssistant = null;
+    }
+
+    private void StartThinking() => StartActivity(ActivityKind.Thinking);
+
+    private void StartActivity(ActivityKind kind)
+    {
+        _activityKind = kind;
         _thinkingStep = 2;
         if (_pendingAssistant is not null)
         {
-            _pendingAssistant.ThinkingText = BuildThinkingText(_thinkingStep);
+            _pendingAssistant.ThinkingText = BuildActivityText(_thinkingStep);
             _pendingAssistant.IsThinking = true;
         }
 
@@ -1077,10 +1110,14 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         }
 
         _thinkingStep = (_thinkingStep + 1) % 3;
-        _pendingAssistant.ThinkingText = BuildThinkingText(_thinkingStep);
+        _pendingAssistant.ThinkingText = BuildActivityText(_thinkingStep);
     }
 
-    private static string BuildThinkingText(int step) => L("AiThinking") + new string('.', step + 1);
+    private string BuildActivityText(int step)
+    {
+        var label = _activityKind == ActivityKind.Running ? L("AiRunning") : L("AiThinking");
+        return label + new string('.', step + 1);
+    }
 
     /// <summary>Finds the first actionable fenced block in the answer — a shell command or
     /// a file-transfer request, whichever the assistant emitted first. <c>Dangerous</c> is
