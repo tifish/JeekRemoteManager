@@ -359,6 +359,107 @@ try
     Check(authError && !ordinaryError,
           "AI authentication errors are separated from retryable agent errors");
 
+    // --- AI conversation history persists and restores provider-native sessions ---
+    var aiHistoryStore = new AiConversationStore(Path.Combine(root, "ai-conversations"));
+    var savedConversation = new AiConversation
+    {
+        Id = "saved-codex-conversation",
+        ScopeId = "ssh:user@example:22",
+        ConnectionLabel = "Example server",
+        Provider = "Codex",
+        NativeSessionId = "codex-thread-123",
+        Model = "gpt-test",
+        Effort = "high",
+        Title = "Investigate the server",
+        Messages =
+        {
+            new AiConversationMessage { Role = "User", Text = "Investigate the server" },
+            new AiConversationMessage { Role = "Assistant", Text = "I found the issue." },
+        },
+    };
+    aiHistoryStore.Save(savedConversation);
+    var stableConversationScope = "connection:11111111-2222-3333-4444-555555555555";
+    var resumeFactorySessionId = "";
+    var restoreVm = new AgentChatViewModel(
+        [
+            new AgentProvider(
+                "Codex",
+                "",
+                [new AgentOption("Default", null), new AgentOption("GPT Test", "gpt-test")],
+                [new AgentOption("Default", null), new AgentOption("High", "high")],
+                (_, _) => new FakeAgentChatSession(),
+                ResumeSessionFactory: (_, _, sessionId) =>
+                {
+                    resumeFactorySessionId = sessionId;
+                    return new FakeAgentChatSession();
+                }),
+        ],
+        () => null,
+        null,
+        conversationStore: aiHistoryStore,
+        conversationScopeId: stableConversationScope,
+        connectionLabel: "Example server",
+        legacyConversationScopeIds: ["ssh:user@example:22"]);
+    Check(restoreVm.ConversationHistory.Count == 1
+          && restoreVm.ConversationHistory[0].CanRestore
+          && restoreVm.ConversationStorePath == aiHistoryStore.RootPath
+          && restoreVm.ConversationScopeId == stableConversationScope
+          && restoreVm.MigratedConversationCount == 1
+          && aiHistoryStore.Load(savedConversation.Id)?.ScopeId == stableConversationScope,
+          "AI conversation history migrates from a legacy path scope to the connection GUID");
+    Check(restoreVm.RestoreConversation(savedConversation.Id)
+          && restoreVm.Messages.Count == 2
+          && restoreVm.Messages[0].IsUser
+          && restoreVm.Messages[1].IsAssistant
+          && restoreVm.CurrentConversationId == savedConversation.Id
+          && restoreVm.CurrentNativeSessionId == "codex-thread-123"
+          && restoreVm.PendingResumeSessionId == "codex-thread-123",
+          "AI conversation restore reloads the transcript and queues the native session id");
+    Check(resumeFactorySessionId == "",
+          "AI conversation restore remains lazy until the user sends the next message");
+    restoreVm.InputText = "Continue";
+    await restoreVm.SendCommand.ExecuteAsync(null);
+    Check(resumeFactorySessionId == "codex-thread-123",
+          "AI conversation sends the saved native id through the provider resume factory");
+    restoreVm.StopCommand.Execute(null);
+
+    var otherScopeVm = new AgentChatViewModel(
+        restoreVm.Providers.ToArray(),
+        () => null,
+        null,
+        conversationStore: aiHistoryStore,
+        conversationScopeId: "ssh:user@other:22",
+        connectionLabel: "Other server");
+    Check(otherScopeVm.ConversationHistory.Count == 0
+          && !otherScopeVm.RestoreConversation(savedConversation.Id),
+          "AI conversation history cannot be restored on a different connection");
+
+    var claudeResume = new ClaudeChatSession("claude", root, resumeSessionId: "claude-session");
+    var codexResume = new CodexChatSession("codex", root, resumeThreadId: "codex-thread");
+    var grokResume = new GrokChatSession("grok", root, resumeSessionId: "grok-session");
+    Check((string?)typeof(ClaudeChatSession).GetField("_resumeSessionId", BindingFlags.Instance | BindingFlags.NonPublic)!
+              .GetValue(claudeResume) == "claude-session"
+          && (string?)typeof(CodexChatSession).GetField("_resumeThreadId", BindingFlags.Instance | BindingFlags.NonPublic)!
+              .GetValue(codexResume) == "codex-thread"
+          && (string?)typeof(GrokChatSession).GetField("_resumeSessionId", BindingFlags.Instance | BindingFlags.NonPublic)!
+              .GetValue(grokResume) == "grok-session",
+          "Claude, Codex, and Grok sessions retain their provider-native resume ids");
+    var grokReplayText = "";
+    grokResume.TextDelta += text => grokReplayText += text;
+    using (var replayUpdate = JsonDocument.Parse(
+               "{\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"old answer\"}}}"))
+    {
+        var handleUpdate = typeof(GrokChatSession)
+            .GetMethod("HandleSessionUpdate", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        handleUpdate.Invoke(grokResume, [replayUpdate.RootElement]);
+        typeof(GrokChatSession)
+            .GetField("_acceptPromptUpdates", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(grokResume, true);
+        handleUpdate.Invoke(grokResume, [replayUpdate.RootElement]);
+    }
+    Check(grokReplayText == "old answer",
+          "Grok ignores transcript replay during session/load but streams new prompt updates");
+
     // --- AI model catalogs survive a restart and remain usable during refresh ---
     var originalCatalogCachePath = AgentModelCatalogCache.CachePath;
     AgentModelCatalogCache.CachePath = Path.Combine(root, "ai-model-catalogs.json");
@@ -598,6 +699,10 @@ try
     var rdpPath = store.Save(rdp, folder);
 
     Check(File.Exists(sshPath) && File.Exists(rdpPath), "Each connection saved to its own file");
+    Check(Guid.TryParse(ssh.ConnectionId, out _)
+          && Guid.TryParse(rdp.ConnectionId, out _)
+          && ssh.ConnectionId != rdp.ConnectionId,
+          "New connections receive distinct persistent GUIDs");
     Check(store.GetConnectionFiles(folder).Count == 2, "Folder lists exactly two connection files");
 
     // Plaintext password must never appear on disk.
@@ -608,6 +713,8 @@ try
     var loaded = store.Load(sshPath);
     Check(loaded.Type == ConnectionType.Ssh && loaded.Host == "10.0.0.1"
           && loaded.Name == "web01", "Loaded connection matches what was saved");
+    Check(loaded.ConnectionId == ssh.ConnectionId,
+          "Loading a connection preserves its GUID");
     Check(PasswordProtector.Decrypt(loaded.EncryptedPassword) == secret,
           "Password decrypts after load");
 
@@ -751,8 +858,11 @@ try
 
     // --- Rename via Save (file follows the name) ---
     loaded.Name = "web01-renamed";
+    var renamedConnectionId = loaded.ConnectionId;
     var renamedPath = store.Save(loaded, folder, sshPath);
     Check(!File.Exists(sshPath) && File.Exists(renamedPath), "Renaming moves the file, old one removed");
+    Check(store.Load(renamedPath).ConnectionId == renamedConnectionId,
+          "Renaming a connection preserves its GUID");
 
     // --- Name collision disambiguation ---
     var dup = new Connection { Type = ConnectionType.Ssh, Name = "win-box", Host = "x" };
@@ -765,6 +875,8 @@ try
     var copied = store.CopyFileInto(rdpPath, sub);
     Check(File.Exists(copied) && File.Exists(rdpPath) && Path.GetDirectoryName(copied) == sub,
           "CopyFileInto copies and keeps the original");
+    Check(store.Load(copied).ConnectionId != store.Load(rdpPath).ConnectionId,
+          "CopyFileInto assigns the copied connection a new GUID");
 
     var sshWithScriptParameters = new Connection
     {
@@ -791,6 +903,8 @@ try
 
     var movedFile = store.MoveFileInto(dupPath, sub);
     Check(File.Exists(movedFile) && !File.Exists(dupPath), "MoveFileInto moves the file");
+    Check(store.Load(movedFile).ConnectionId == dup.ConnectionId,
+          "MoveFileInto preserves the connection GUID");
 
     var noop = store.MoveFileInto(movedFile, sub);
     Check(noop == movedFile && File.Exists(movedFile), "MoveFileInto into same folder is a no-op");
@@ -800,6 +914,10 @@ try
     Check(Directory.Exists(copiedFolder) && copiedFolder != folder
           && store.GetConnectionFiles(copiedFolder).Count == store.GetConnectionFiles(folder).Count,
           "CopyFolderInto recursively copies with a unique name");
+    var sourceFolderIds = store.GetConnectionFiles(folder).Select(path => store.Load(path).ConnectionId).ToHashSet();
+    var copiedFolderIds = store.GetConnectionFiles(copiedFolder).Select(path => store.Load(path).ConnectionId).ToHashSet();
+    Check(!sourceFolderIds.Overlaps(copiedFolderIds),
+          "CopyFolderInto assigns new GUIDs to all copied connections");
 
     var copiedFolderWithoutParameters = store.CopyFolderInto(
         folder,
@@ -827,9 +945,18 @@ try
     var migrateDest = Path.Combine(Path.GetTempPath(), "jrm_migrate_" + Guid.NewGuid().ToString("N"));
     try
     {
+        var sourceMigrationIds = store.AllConnectionFiles()
+            .Select(path => store.Load(path).ConnectionId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         store.CopyTreeContents(store.RootPath, migrateDest);
         Check(Directory.Exists(migrateDest) && Directory.GetDirectories(migrateDest).Length >= 1,
               "CopyTreeContents migrates the tree to a separate root");
+        var migratedStore = new ConnectionStore(migrateDest);
+        var migratedConnectionIds = migratedStore.AllConnectionFiles()
+            .Select(path => migratedStore.Load(path).ConnectionId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Check(sourceMigrationIds.SetEquals(migratedConnectionIds),
+              "CopyTreeContents preserves GUIDs during storage-location migration");
 
         // It must refuse to copy into its own subtree (would otherwise recurse forever).
         var insideDest = Path.Combine(store.RootPath, "InsideDest");
@@ -1550,8 +1677,14 @@ try
       "EncryptedPassword": ""
     }
     """);
-    Check(store.Load(oldConnectionPath).ScriptBindings.Count == 0,
+    var migratedLegacyConnection = store.Load(oldConnectionPath);
+    var migratedLegacyConnectionId = migratedLegacyConnection.ConnectionId;
+    Check(migratedLegacyConnection.ScriptBindings.Count == 0,
           "Old connection JSON without ScriptBindings loads with an empty binding list");
+    Check(Guid.TryParse(migratedLegacyConnectionId, out _)
+          && store.Load(oldConnectionPath).ConnectionId == migratedLegacyConnectionId
+          && File.ReadAllText(oldConnectionPath).Contains("ConnectionId", StringComparison.Ordinal),
+          "Legacy connection JSON receives and persists a GUID on first load");
 
     var oldScriptBindingPath = Path.Combine(folder, "legacy-script-binding.json");
     File.WriteAllText(oldScriptBindingPath, $$"""

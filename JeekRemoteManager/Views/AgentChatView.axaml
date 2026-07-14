@@ -209,6 +209,12 @@
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2">
                     <Button Classes="chat-header-button"
+                            Command="{Binding ShowConversationHistoryCommand}"
+                            IsVisible="{Binding HasConversationHistory}"
+                            ToolTip.Tip="{l:Localize AiConversationHistoryHint}">
+                        <TextBlock Classes="chat-header-icon" Text="&#xE81C;" />
+                    </Button>
+                    <Button Classes="chat-header-button"
                             Command="{Binding NewConversationCommand}"
                             ToolTip.Tip="{l:Localize AiNewConversationHint}">
                         <TextBlock Classes="chat-header-icon" Text="&#xE710;" />

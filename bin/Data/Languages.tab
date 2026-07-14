@@ -237,6 +237,12 @@ AiStopHint	Stop the assistant and cancel the running command.	停止助手并取
 AiStopped	Stopped.	已停止。
 AiNewConversation	New conversation	新对话
 AiNewConversationHint	Start a new conversation with empty context (Ctrl+N).	从空上下文开始新对话 (Ctrl+N)。
+AiConversationHistoryTitle	Conversation history	历史对话
+AiConversationHistoryHint	Choose a previous conversation for this connection.	选择这个连接以前的对话。
+AiRestoreConversation	Restore	恢复
+AiConversationRestored	Conversation restored. The next message will continue its original session.	对话已恢复，下一条消息将继续原会话。
+AiConversationNotReady	Session ID unavailable	会话 ID 不可用
+AiConversationMessages	{0} messages	{0} 条消息
 AiInputWatermark	Ask about this server…	询问关于这台服务器…
 AiEmptyTitle	What can I help with?	今天想在这台服务器上做什么？
 AiEmptyHint	Ask a question, investigate an issue, or describe a task to run on the connected server.	可以询问问题、排查故障，或描述一个需要在已连接服务器上完成的任务。

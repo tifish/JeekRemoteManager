@@ -72,6 +72,7 @@ public sealed class CodexChatSession : IAgentChatSession
     private readonly string? _developerInstructions;
     private readonly string? _model;
     private readonly string? _effort;
+    private readonly string? _resumeThreadId;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly StringBuilder _currentText = new();
     private readonly TaskCompletionSource<string> _threadReady =
@@ -94,13 +95,15 @@ public sealed class CodexChatSession : IAgentChatSession
         string workingDirectory,
         string? developerInstructions = null,
         string? model = null,
-        string? effort = null)
+        string? effort = null,
+        string? resumeThreadId = null)
     {
         _executablePath = executablePath;
         _workingDirectory = workingDirectory;
         _developerInstructions = developerInstructions;
         _model = model;
         _effort = effort;
+        _resumeThreadId = resumeThreadId;
     }
 
     /// <summary>The Codex thread id reported by the <c>thread/start</c> response.</summary>
@@ -510,14 +513,24 @@ public sealed class CodexChatSession : IAgentChatSession
         if (id == _initializeRequestId)
         {
             await SendNotificationAsync("initialized").ConfigureAwait(false);
-            _threadStartRequestId = await SendRequestAsync("thread/start", new
-            {
-                cwd = _workingDirectory,
-                sandbox = "danger-full-access",
-                approvalPolicy = "never",
-                model = string.IsNullOrWhiteSpace(_model) ? null : _model,
-                developerInstructions = string.IsNullOrWhiteSpace(_developerInstructions) ? null : _developerInstructions,
-            }).ConfigureAwait(false);
+            _threadStartRequestId = string.IsNullOrWhiteSpace(_resumeThreadId)
+                ? await SendRequestAsync("thread/start", new
+                {
+                    cwd = _workingDirectory,
+                    sandbox = "danger-full-access",
+                    approvalPolicy = "never",
+                    model = string.IsNullOrWhiteSpace(_model) ? null : _model,
+                    developerInstructions = string.IsNullOrWhiteSpace(_developerInstructions) ? null : _developerInstructions,
+                }).ConfigureAwait(false)
+                : await SendRequestAsync("thread/resume", new
+                {
+                    threadId = _resumeThreadId,
+                    cwd = _workingDirectory,
+                    sandbox = "danger-full-access",
+                    approvalPolicy = "never",
+                    model = string.IsNullOrWhiteSpace(_model) ? null : _model,
+                    developerInstructions = string.IsNullOrWhiteSpace(_developerInstructions) ? null : _developerInstructions,
+                }).ConfigureAwait(false);
         }
         else if (id == _threadStartRequestId)
         {

@@ -126,6 +126,9 @@ public partial class TerminalView : UserControl
 
     public Connection? Connection => _connection;
 
+    /// <summary>The lazily-created AI panel view model, exposed for Debug MCP verification.</summary>
+    public AgentChatViewModel? AiViewModel => _aiViewModel;
+
     public string? SourcePath => _sourcePath;
 
     public bool CanReuseSession => !_disposed && (_connectInProgress || IsConnected);
@@ -694,7 +697,11 @@ public partial class TerminalView : UserControl
         {
             AgentChatViewModel.CreateClaudeProvider(claudePath is null
                 ? null
-                : (model, effort) => new ClaudeChatSession(claudePath, workingDir, systemPrompt, model: model, effort: effort)),
+                : (model, effort) => new ClaudeChatSession(claudePath, workingDir, systemPrompt, model: model, effort: effort),
+                claudePath is null
+                    ? null
+                    : (model, effort, sessionId) => new ClaudeChatSession(
+                        claudePath, workingDir, systemPrompt, sessionId, model, effort)),
             AgentChatViewModel.CreateCodexProvider(
                 codexPath is null
                     ? null
@@ -703,7 +710,11 @@ public partial class TerminalView : UserControl
                     ? null
                     : () => CodexChatSession.ListModelsCachedAsync(codexPath),
                 AgentModelCatalogCache.Load("Codex"),
-                models => AgentModelCatalogCache.Save("Codex", models)),
+                models => AgentModelCatalogCache.Save("Codex", models),
+                codexPath is null
+                    ? null
+                    : (model, effort, sessionId) => new CodexChatSession(
+                        codexPath, workingDir, systemPrompt, model, effort, sessionId)),
             AgentChatViewModel.CreateGrokProvider(
                 grokPath is null
                     ? null
@@ -712,7 +723,11 @@ public partial class TerminalView : UserControl
                     ? null
                     : () => GrokChatSession.ListModelsCachedAsync(grokPath),
                 AgentModelCatalogCache.Load("Grok"),
-                models => AgentModelCatalogCache.Save("Grok", models)),
+                models => AgentModelCatalogCache.Save("Grok", models),
+                grokPath is null
+                    ? null
+                    : (model, effort, sessionId) => new GrokChatSession(
+                        grokPath, workingDir, systemPrompt, model, effort, sessionId)),
         };
 
         if (DataContext is MainWindowViewModel mainVm)
@@ -767,7 +782,15 @@ public partial class TerminalView : UserControl
             {
                 if (DataContext is MainWindowViewModel mainVm)
                     mainVm.AiPanelOptions = options;
-            });
+            },
+            conversationScopeId: BuildAiConversationScopeId(),
+            connectionLabel: BuildAiConversationLabel(),
+            legacyConversationScopeIds: [BuildLegacyAiConversationScopeId()]);
+
+        vm.ConversationHistoryInteraction = histories =>
+            TopLevel.GetTopLevel(this) is Window owner
+                ? AiConversationHistoryDialog.ShowAsync(owner, histories)
+                : Task.FromResult<string?>(null);
 
         // The gear button: edit the custom providers, persist them, and let the changed
         // event below rebuild the picker in every open terminal tab (including this one).
@@ -816,6 +839,37 @@ public partial class TerminalView : UserControl
 
         AiPanel.DataContext = vm;
         return vm;
+    }
+
+    private string BuildAiConversationScopeId()
+    {
+        if (_connection is not null && Guid.TryParse(_connection.ConnectionId, out _))
+            return $"connection:{_connection.ConnectionId.Trim()}";
+
+        return BuildLegacyAiConversationScopeId();
+    }
+
+    private string BuildLegacyAiConversationScopeId()
+    {
+        if (!string.IsNullOrWhiteSpace(_sourcePath))
+        {
+            try { return Path.GetFullPath(_sourcePath); }
+            catch { return _sourcePath; }
+        }
+
+        if (_connection is null)
+            return "unknown";
+        return _connection.IsWsl
+            ? $"wsl:{_connection.TargetLabel}"
+            : $"ssh:{_connection.Username}@{_connection.Host}:{_connection.Port}";
+    }
+
+    private string BuildAiConversationLabel()
+    {
+        var name = _connection?.Name?.Trim();
+        return !string.IsNullOrWhiteSpace(name)
+            ? name
+            : _connection?.TargetLabel ?? "Unknown connection";
     }
 
     private string BuildAssistantSystemPrompt()

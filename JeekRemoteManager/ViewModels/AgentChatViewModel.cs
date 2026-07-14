@@ -42,7 +42,8 @@ public sealed record AgentProvider(
     Func<string?, string?, IAgentChatSession?>? SessionFactory,
     Func<Task<IReadOnlyList<AgentModelInfo>?>>? CatalogFetcher = null,
     IReadOnlyList<AgentModelInfo>? PersistedCatalog = null,
-    Action<IReadOnlyList<AgentModelInfo>>? PersistCatalog = null)
+    Action<IReadOnlyList<AgentModelInfo>>? PersistCatalog = null,
+    Func<string?, string?, string, IAgentChatSession?>? ResumeSessionFactory = null)
 {
     public bool IsAvailable => SessionFactory is not null;
 }
@@ -114,11 +115,17 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     private readonly HashSet<string> _persistedCatalogProviderLabels = new(StringComparer.Ordinal);
     private readonly HashSet<string> _liveCatalogProviderLabels = new(StringComparer.Ordinal);
     private readonly Action<AiPanelOptions>? _persistOptions;
+    private readonly AiConversationStore _conversationStore;
+    private readonly string _conversationScopeId;
+    private readonly string _connectionLabel;
 
     private IAgentChatSession? _session;
     private ChatMessageViewModel? _pendingAssistant;
     private bool _sessionStarted;
     private bool _switchingProvider;
+    private AiConversation? _currentConversation;
+    private string? _pendingResumeSessionId;
+    private int _conversationStartIndex;
 
     // One CTS per user-initiated turn (covering the whole auto-run loop); Stop cancels it.
     private CancellationTokenSource? _turnCts;
@@ -139,14 +146,30 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         Func<string, CancellationToken, Task<string>>? runCaptured,
         Func<AgentFileTransfer, CancellationToken, Task<string>>? transferFiles = null,
         AiPanelOptions? initialOptions = null,
-        Action<AiPanelOptions>? persistOptions = null)
+        Action<AiPanelOptions>? persistOptions = null,
+        AiConversationStore? conversationStore = null,
+        string? conversationScopeId = null,
+        string? connectionLabel = null,
+        IReadOnlyList<string>? legacyConversationScopeIds = null)
     {
         _takeSelection = takeSelection;
         _runCaptured = runCaptured;
         _transferFiles = transferFiles;
         _persistOptions = persistOptions;
+        _conversationStore = conversationStore ?? new AiConversationStore();
+        _conversationScopeId = string.IsNullOrWhiteSpace(conversationScopeId) ? "default" : conversationScopeId;
+        _connectionLabel = string.IsNullOrWhiteSpace(connectionLabel) ? _conversationScopeId : connectionLabel;
+        MigratedConversationCount = _conversationStore.MigrateScopes(
+            _conversationScopeId,
+            legacyConversationScopeIds,
+            _connectionLabel);
         _thinkingTimer.Tick += OnThinkingTimerTick;
         Messages.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasMessages));
+        ConversationHistory.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasConversationHistory));
+            ShowConversationHistoryCommand.NotifyCanExecuteChanged();
+        };
         Providers = new ObservableCollection<AgentProvider>(providers);
         InitializePersistedCatalogs(providers);
 
@@ -182,10 +205,13 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         _selectedEffort = _effortOptions.FirstOrDefault(o => o.Value == _desiredEffortValue) ?? _effortOptions[0];
 
         _ = RefreshProviderCatalogAsync(provider);
+        RefreshConversationHistory();
     }
 
     /// <summary>Builds the Claude provider descriptor; pass a null factory when the CLI is missing.</summary>
-    public static AgentProvider CreateClaudeProvider(Func<string?, string?, IAgentChatSession?>? sessionFactory) => new(
+    public static AgentProvider CreateClaudeProvider(
+        Func<string?, string?, IAgentChatSession?>? sessionFactory,
+        Func<string?, string?, string, IAgentChatSession?>? resumeSessionFactory = null) => new(
         "Claude",
         L("AiNotAvailable"),
         [
@@ -203,7 +229,8 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             new AgentOption("xHigh", "xhigh"),
             new AgentOption("Max", "max"),
         ],
-        sessionFactory);
+        sessionFactory,
+        ResumeSessionFactory: resumeSessionFactory);
 
     /// <summary>Builds the Codex provider descriptor; pass null factories when the CLI is missing.
     /// The model list here is a snapshot fallback — <paramref name="catalogFetcher"/> refreshes it
@@ -212,7 +239,8 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         Func<string?, string?, IAgentChatSession?>? sessionFactory,
         Func<Task<IReadOnlyList<AgentModelInfo>?>>? catalogFetcher = null,
         IReadOnlyList<AgentModelInfo>? persistedCatalog = null,
-        Action<IReadOnlyList<AgentModelInfo>>? persistCatalog = null) => new(
+        Action<IReadOnlyList<AgentModelInfo>>? persistCatalog = null,
+        Func<string?, string?, string, IAgentChatSession?>? resumeSessionFactory = null) => new(
         "Codex",
         L("AiNotAvailableCodex"),
         [
@@ -232,7 +260,8 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         sessionFactory,
         catalogFetcher,
         persistedCatalog,
-        persistCatalog);
+        persistCatalog,
+        resumeSessionFactory);
 
     /// <summary>Builds the Grok Build provider descriptor; pass null factories when the CLI is
     /// missing. The model list is a snapshot fallback — <paramref name="catalogFetcher"/>
@@ -241,7 +270,8 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         Func<string?, string?, IAgentChatSession?>? sessionFactory,
         Func<Task<IReadOnlyList<AgentModelInfo>?>>? catalogFetcher = null,
         IReadOnlyList<AgentModelInfo>? persistedCatalog = null,
-        Action<IReadOnlyList<AgentModelInfo>>? persistCatalog = null) => new(
+        Action<IReadOnlyList<AgentModelInfo>>? persistCatalog = null,
+        Func<string?, string?, string, IAgentChatSession?>? resumeSessionFactory = null) => new(
         "Grok",
         L("AiNotAvailableGrok"),
         [
@@ -258,7 +288,8 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         sessionFactory,
         catalogFetcher,
         persistedCatalog,
-        persistCatalog);
+        persistCatalog,
+        resumeSessionFactory);
 
     /// <summary>Builds the descriptor for a user-defined API provider. Its models come from
     /// the user's configuration; efforts only apply to the OpenAI API (reasoning_effort).
@@ -301,6 +332,60 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             lock (_streamDeltaGate)
                 return _streamDeltaBuffer.Length;
         }
+    }
+
+    public ObservableCollection<AiConversationSummary> ConversationHistory { get; } = new();
+
+    public bool HasConversationHistory => ConversationHistory.Count > 0;
+
+    /// <summary>Machine-local history directory, exposed for Debug MCP verification.</summary>
+    public string ConversationStorePath => _conversationStore.RootPath;
+
+    /// <summary>The stable connection scope used for persistence, exposed for Debug MCP.</summary>
+    public string ConversationScopeId => _conversationScopeId;
+
+    /// <summary>Number of legacy path-based records migrated when this panel opened.</summary>
+    public int MigratedConversationCount { get; }
+
+    /// <summary>The persisted JeekRemoteManager conversation id currently shown.</summary>
+    public string? CurrentConversationId => _currentConversation?.Id;
+
+    /// <summary>The Claude session id, Codex thread id, or Grok session id currently mapped
+    /// to the visible transcript.</summary>
+    public string? CurrentNativeSessionId => _currentConversation?.NativeSessionId;
+
+    /// <summary>The native id that will be passed to the provider's resume factory on the
+    /// next send; exposed for Debug MCP and smoke tests.</summary>
+    public string? PendingResumeSessionId => _pendingResumeSessionId;
+
+    /// <summary>Set by the hosting view to show the history picker and return an entry id.</summary>
+    public Func<IReadOnlyList<AiConversationSummary>, Task<string?>>? ConversationHistoryInteraction { get; set; }
+
+    public bool CanShowConversationHistory => !IsBusy && HasConversationHistory;
+
+    /// <summary>Selects an available provider by label. Intended for Debug MCP runtime
+    /// verification without relying on pointer coordinates in the provider ComboBox.</summary>
+    public bool DebugSelectProvider(string label)
+    {
+        if (IsBusy)
+            return false;
+        var provider = Providers.FirstOrDefault(item =>
+            item.IsAvailable && string.Equals(item.Label, label, StringComparison.Ordinal));
+        if (provider is null)
+            return false;
+        SelectedProvider = provider;
+        return true;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanShowConversationHistory))]
+    private async Task ShowConversationHistoryAsync()
+    {
+        if (ConversationHistoryInteraction is null)
+            return;
+
+        var id = await ConversationHistoryInteraction(ConversationHistory.ToArray());
+        if (!string.IsNullOrWhiteSpace(id))
+            RestoreConversation(id);
     }
 
     /// <summary>True while the transcript contains at least one message. The view uses this
@@ -419,8 +504,10 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     {
         SendCommand.NotifyCanExecuteChanged();
         NewConversationCommand.NotifyCanExecuteChanged();
+        ShowConversationHistoryCommand.NotifyCanExecuteChanged();
         StopCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(CanStop));
+        OnPropertyChanged(nameof(CanShowConversationHistory));
     }
 
     partial void OnIsAvailableChanged(bool value) => SendCommand.NotifyCanExecuteChanged();
@@ -654,13 +741,196 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         _ => effort,
     };
 
+    /// <summary>Reloads this terminal connection's conversation list from disk. Public so
+    /// Debug MCP can verify persistence after a restart.</summary>
+    public void RefreshConversationHistory()
+    {
+        var summaries = _conversationStore.LoadSummaries(_conversationScopeId);
+        ConversationHistory.Clear();
+        foreach (var summary in summaries)
+            ConversationHistory.Add(summary);
+    }
+
+    /// <summary>Restores a persisted transcript and prepares the matching provider-native
+    /// session for lazy resume on the next send. Returns false for another connection,
+    /// unavailable providers, missing native ids, or corrupt records.</summary>
+    public bool RestoreConversation(string conversationId)
+    {
+        if (IsBusy)
+            return false;
+
+        var conversation = _conversationStore.Load(conversationId);
+        if (conversation is null
+            || !string.Equals(conversation.ScopeId, _conversationScopeId, StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(conversation.NativeSessionId))
+        {
+            return false;
+        }
+
+        var provider = Providers.FirstOrDefault(item =>
+            string.Equals(item.Label, conversation.Provider, StringComparison.Ordinal)
+            && item.IsAvailable
+            && item.ResumeSessionFactory is not null);
+        if (provider is null)
+            return false;
+
+        PersistCurrentConversation();
+        DetachAndDisposeSession();
+        ApplyRestoredProvider(provider, conversation.Model, conversation.Effort);
+
+        Messages.Clear();
+        foreach (var saved in conversation.Messages)
+        {
+            if (!Enum.TryParse<ChatRole>(saved.Role, ignoreCase: true, out var role))
+                continue;
+            Messages.Add(new ChatMessageViewModel(role, saved.Text)
+            {
+                IsAwaitingDecision = saved.IsAwaitingDecision,
+                DecisionText = saved.DecisionText,
+            });
+        }
+
+        _currentConversation = conversation;
+        _pendingResumeSessionId = conversation.NativeSessionId;
+        _conversationStartIndex = 0;
+        StatusText = L("AiConversationRestored");
+        OnPropertyChanged(nameof(CurrentConversationId));
+        OnPropertyChanged(nameof(CurrentNativeSessionId));
+        PersistOptions();
+        RefreshConversationHistory();
+        return true;
+    }
+
+    private void ApplyRestoredProvider(AgentProvider provider, string? model, string? effort)
+    {
+        var (models, efforts) = _fetchedCatalogs.TryGetValue(provider, out var fetched)
+            ? fetched
+            : (provider.ModelOptions, provider.EffortOptions);
+        models = IncludeHistoricalOption(models, model);
+        efforts = IncludeHistoricalOption(efforts, effort);
+
+        _switchingProvider = true;
+        try
+        {
+            SelectedProvider = provider;
+            ModelOptions = models;
+            EffortOptions = efforts;
+            SelectedModel = models.First(item => item.Value == model);
+            SelectedEffort = efforts.First(item => item.Value == effort);
+            _desiredModelValue = model;
+            _desiredEffortValue = effort;
+            UnavailableText = provider.UnavailableMessage;
+            IsAvailable = true;
+            RememberProviderChoice();
+        }
+        finally
+        {
+            _switchingProvider = false;
+        }
+    }
+
+    private static IReadOnlyList<AgentOption> IncludeHistoricalOption(
+        IReadOnlyList<AgentOption> options,
+        string? value)
+    {
+        if (options.Any(item => item.Value == value))
+            return options;
+        return options.Concat([new AgentOption(value!, value)]).ToArray();
+    }
+
+    private void BeginConversation(string firstUserMessage)
+    {
+        if (SelectedProvider.ResumeSessionFactory is null)
+            return;
+
+        var model = SelectedModel?.Value;
+        var effort = SelectedEffort?.Value;
+        if (_currentConversation is not null
+            && string.Equals(_currentConversation.Provider, SelectedProvider.Label, StringComparison.Ordinal)
+            && _currentConversation.Model == model
+            && _currentConversation.Effort == effort)
+        {
+            return;
+        }
+
+        PersistCurrentConversation();
+        _conversationStartIndex = Messages.Count;
+        _currentConversation = new AiConversation
+        {
+            ScopeId = _conversationScopeId,
+            ConnectionLabel = _connectionLabel,
+            Provider = SelectedProvider.Label,
+            Model = model,
+            Effort = effort,
+            Title = BuildConversationTitle(firstUserMessage),
+        };
+        _pendingResumeSessionId = null;
+        OnPropertyChanged(nameof(CurrentConversationId));
+        OnPropertyChanged(nameof(CurrentNativeSessionId));
+    }
+
+    private static string BuildConversationTitle(string text)
+    {
+        var title = text.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        while (title.Contains("  ", StringComparison.Ordinal))
+            title = title.Replace("  ", " ", StringComparison.Ordinal);
+        const int limit = 80;
+        return title.Length <= limit ? title : title[..limit] + "…";
+    }
+
+    private void PersistCurrentConversation()
+    {
+        var conversation = _currentConversation;
+        if (conversation is null)
+            return;
+
+        conversation.UpdatedAt = DateTimeOffset.Now;
+        conversation.Messages = Messages
+            .Skip(Math.Clamp(_conversationStartIndex, 0, Messages.Count))
+            .Where(message => !message.IsAssistant || message.HasText)
+            .Select(message => new AiConversationMessage
+            {
+                Role = message.Role.ToString(),
+                Text = message.Text,
+                IsAwaitingDecision = message.IsAwaitingDecision,
+                DecisionText = message.DecisionText,
+            })
+            .ToList();
+        try
+        {
+            _conversationStore.Save(conversation);
+            RefreshConversationHistory();
+        }
+        catch
+        {
+            // History persistence is best-effort and must never block the live chat.
+        }
+    }
+
+    private void OnSessionInitialized(string sessionId) => Dispatcher.UIThread.Post(() =>
+    {
+        if (_currentConversation is null)
+            return;
+        _currentConversation.NativeSessionId = sessionId;
+        _pendingResumeSessionId = null;
+        OnPropertyChanged(nameof(CurrentNativeSessionId));
+        PersistCurrentConversation();
+    });
+
     [RelayCommand(CanExecute = nameof(CanStartNewConversation))]
     private void NewConversation()
     {
+        PersistCurrentConversation();
         DetachAndDisposeSession();
         DiscardPendingTextDeltas();
+        _currentConversation = null;
+        _pendingResumeSessionId = null;
+        _conversationStartIndex = 0;
         Messages.Clear();
         StatusText = IsAvailable ? "" : UnavailableText;
+        OnPropertyChanged(nameof(CurrentConversationId));
+        OnPropertyChanged(nameof(CurrentNativeSessionId));
+        RefreshConversationHistory();
     }
 
     [RelayCommand(CanExecute = nameof(CanSend))]
@@ -684,12 +954,14 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             payload = $"{prompt}\n\nHere is the relevant terminal output:\n```\n{selection}\n```";
         }
 
+        BeginConversation(displayText);
         Messages.Add(new ChatMessageViewModel(ChatRole.User, displayText));
         _pendingAssistant = new ChatMessageViewModel(ChatRole.Assistant, "");
         Messages.Add(_pendingAssistant);
         DiscardPendingTextDeltas();
         _streamRenderUpdateCount = 0;
         OnPropertyChanged(nameof(StreamRenderUpdateCount));
+        PersistCurrentConversation();
 
         InputText = "";
         IsBusy = true;
@@ -736,6 +1008,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         _pendingAssistant = null;
         IsBusy = false;
         StatusText = L("AiStopped");
+        PersistCurrentConversation();
     }
 
     private static async Task SafeInterruptAsync(IAgentChatSession session)
@@ -756,7 +1029,12 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         {
             if (_session is null)
             {
-                _session = SelectedProvider.SessionFactory?.Invoke(SelectedModel?.Value, SelectedEffort?.Value);
+                _session = !string.IsNullOrWhiteSpace(_pendingResumeSessionId)
+                    ? SelectedProvider.ResumeSessionFactory?.Invoke(
+                        SelectedModel?.Value,
+                        SelectedEffort?.Value,
+                        _pendingResumeSessionId)
+                    : SelectedProvider.SessionFactory?.Invoke(SelectedModel?.Value, SelectedEffort?.Value);
                 if (_session is null)
                 {
                     IsAvailable = false;
@@ -767,6 +1045,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
                     return;
                 }
 
+                _session.SessionInitialized += OnSessionInitialized;
                 _session.TextDelta += OnTextDelta;
                 _session.TurnCompleted += OnTurnCompleted;
                 _session.Errored += OnErrored;
@@ -814,6 +1093,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         _pendingAssistant = null;
         if (session is not null)
         {
+            session.SessionInitialized -= OnSessionInitialized;
             session.TextDelta -= OnTextDelta;
             session.TurnCompleted -= OnTurnCompleted;
             session.Errored -= OnErrored;
@@ -912,6 +1192,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             answer = _pendingAssistant.Text;
             _pendingAssistant = null;
         }
+        PersistCurrentConversation();
 
         if (result.IsError && IsAuthenticationError(answer))
         {
@@ -1029,6 +1310,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         };
         Messages.Add(_pendingDangerMessage);
         StatusText = L("AiDangerWaiting");
+        PersistCurrentConversation();
     }
 
     [RelayCommand]
@@ -1075,6 +1357,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         {
             message.IsAwaitingDecision = false;
             message.DecisionText = decisionText;
+            PersistCurrentConversation();
         }
 
         return command;
@@ -1083,6 +1366,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     private async Task RunAndContinueAsync(string command)
     {
         Messages.Add(new ChatMessageViewModel(ChatRole.Tool, $"$ {command}"));
+        PersistCurrentConversation();
         BeginActivityPlaceholder(ActivityKind.Running);
 
         string output;
@@ -1106,6 +1390,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
         ClearActivityPlaceholder();
         Messages.Add(new ChatMessageViewModel(ChatRole.Tool, TruncateForDisplay(output)));
+        PersistCurrentConversation();
 
         BeginActivityPlaceholder(ActivityKind.Thinking);
         await SendToSessionAsync($"Output of `{command}`:\n```\n{output}\n```");
@@ -1117,6 +1402,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         var description = $"⇅ {label}: {string.Join(", ", transfer.Sources)}"
             + (transfer.Destination is null ? "" : $" -> {transfer.Destination}");
         Messages.Add(new ChatMessageViewModel(ChatRole.Tool, description));
+        PersistCurrentConversation();
         BeginActivityPlaceholder(ActivityKind.Running);
 
         string outcome;
@@ -1140,6 +1426,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
         ClearActivityPlaceholder();
         Messages.Add(new ChatMessageViewModel(ChatRole.Tool, TruncateForDisplay(outcome)));
+        PersistCurrentConversation();
 
         BeginActivityPlaceholder(ActivityKind.Thinking);
         await SendToSessionAsync($"Result of the {label}:\n```\n{outcome}\n```");
@@ -1161,6 +1448,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
                 InvalidateSessionForAuthenticationError();
             else
                 StatusText = L("AiTurnError");
+            PersistCurrentConversation();
         }
     });
 
@@ -1172,6 +1460,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         DetachAndDisposeSession();
         IsBusy = false;
         StatusText = L("AiSessionEnded");
+        PersistCurrentConversation();
     }
 
     private void InvalidateSessionForAuthenticationError()
@@ -1340,6 +1629,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        PersistCurrentConversation();
         _cts.Cancel();
         DiscardPendingTextDeltas();
         if (_pendingAssistant is not null)
@@ -1353,6 +1643,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         _session = null;
         if (session is not null)
         {
+            session.SessionInitialized -= OnSessionInitialized;
             session.TextDelta -= OnTextDelta;
             session.TurnCompleted -= OnTurnCompleted;
             session.Errored -= OnErrored;

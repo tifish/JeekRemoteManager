@@ -80,6 +80,7 @@ public class ConnectionStore
     /// </summary>
     public void SaveInPlace(Connection connection, string filePath)
     {
+        EnsureConnectionId(connection);
         var json = JsonSerializer.Serialize(connection, JsonOptions);
         Touch();
         File.WriteAllText(filePath, json);
@@ -95,6 +96,8 @@ public class ConnectionStore
 
         // Keep the in-memory name in sync with the file name, which is authoritative.
         connection.Name = Path.GetFileNameWithoutExtension(filePath);
+        if (EnsureConnectionId(connection))
+            SaveInPlace(connection, filePath);
         return connection;
     }
 
@@ -110,6 +113,7 @@ public class ConnectionStore
     {
         Touch();
         Directory.CreateDirectory(folderPath);
+        EnsureConnectionId(connection);
 
         var targetName = SanitizeName(connection.Name);
         var targetPath = Path.Combine(folderPath, targetName + FileExtension);
@@ -186,14 +190,19 @@ public class ConnectionStore
 
     /// <summary>Copies a connection file into a folder, giving it a unique name. Returns the new path.</summary>
     public string CopyFileInto(string filePath, string targetFolder, bool includeSshScriptBindings = true)
+        => CopyFileIntoCore(filePath, targetFolder, includeSshScriptBindings, createNewConnectionId: true);
+
+    private string CopyFileIntoCore(
+        string filePath,
+        string targetFolder,
+        bool includeSshScriptBindings,
+        bool createNewConnectionId)
     {
         Touch();
         Directory.CreateDirectory(targetFolder);
         var baseName = Path.GetFileNameWithoutExtension(filePath);
         var target = UniqueFilePath(targetFolder, baseName);
-        File.Copy(filePath, target);
-        if (!includeSshScriptBindings)
-            RemoveSshScriptBindings(target);
+        CopyConnectionFile(filePath, target, includeSshScriptBindings, createNewConnectionId);
         Touch();
         return target;
     }
@@ -220,12 +229,19 @@ public class ConnectionStore
 
     /// <summary>Recursively copies a folder into a parent folder, with a unique name. Returns the new path.</summary>
     public string CopyFolderInto(string folderPath, string targetParent, bool includeSshScriptBindings = true)
+        => CopyFolderIntoCore(folderPath, targetParent, includeSshScriptBindings, createNewConnectionIds: true);
+
+    private string CopyFolderIntoCore(
+        string folderPath,
+        string targetParent,
+        bool includeSshScriptBindings,
+        bool createNewConnectionIds)
     {
         Touch();
         Directory.CreateDirectory(targetParent);
         var name = Path.GetFileName(folderPath.TrimEnd(Path.DirectorySeparatorChar));
         var target = UniqueFolderPath(targetParent, name);
-        CopyDirectory(folderPath, target, includeSshScriptBindings);
+        CopyDirectory(folderPath, target, includeSshScriptBindings, createNewConnectionIds);
         Touch();
         return target;
     }
@@ -274,10 +290,10 @@ public class ConnectionStore
         Directory.CreateDirectory(destRoot);
 
         foreach (var file in Directory.GetFiles(sourceRoot, "*" + FileExtension))
-            CopyFileInto(file, destRoot);
+            CopyFileIntoCore(file, destRoot, includeSshScriptBindings: true, createNewConnectionId: false);
 
         foreach (var dir in Directory.GetDirectories(sourceRoot))
-            CopyFolderInto(dir, destRoot);
+            CopyFolderIntoCore(dir, destRoot, includeSshScriptBindings: true, createNewConnectionIds: false);
     }
 
     /// <summary>
@@ -300,33 +316,48 @@ public class ConnectionStore
             MoveFolderInto(dir, destRoot);
     }
 
-    private void CopyDirectory(string sourceDir, string destDir, bool includeSshScriptBindings)
+    private void CopyDirectory(
+        string sourceDir,
+        string destDir,
+        bool includeSshScriptBindings,
+        bool createNewConnectionIds)
     {
         Directory.CreateDirectory(destDir);
 
         foreach (var file in Directory.GetFiles(sourceDir))
         {
             var target = Path.Combine(destDir, Path.GetFileName(file));
-            File.Copy(file, target, overwrite: false);
-            if (!includeSshScriptBindings
-                && string.Equals(Path.GetExtension(target), FileExtension, StringComparison.OrdinalIgnoreCase))
-            {
-                RemoveSshScriptBindings(target);
-            }
+            if (string.Equals(Path.GetExtension(target), FileExtension, StringComparison.OrdinalIgnoreCase))
+                CopyConnectionFile(file, target, includeSshScriptBindings, createNewConnectionIds);
+            else
+                File.Copy(file, target, overwrite: false);
         }
 
         foreach (var dir in Directory.GetDirectories(sourceDir))
-            CopyDirectory(dir, Path.Combine(destDir, Path.GetFileName(dir)), includeSshScriptBindings);
+            CopyDirectory(
+                dir,
+                Path.Combine(destDir, Path.GetFileName(dir)),
+                includeSshScriptBindings,
+                createNewConnectionIds);
     }
 
-    private void RemoveSshScriptBindings(string filePath)
+    private void CopyConnectionFile(
+        string sourcePath,
+        string targetPath,
+        bool includeSshScriptBindings,
+        bool createNewConnectionId)
     {
-        var connection = Load(filePath);
-        if (!connection.IsSsh || connection.ScriptBindings.Count == 0)
-            return;
+        // Loading first also persists an id into a legacy source file. Storage-location
+        // migration can then copy that same id, while an ordinary duplicate replaces it.
+        var connection = Load(sourcePath);
+        connection.Name = Path.GetFileNameWithoutExtension(targetPath);
+        if (createNewConnectionId)
+            connection.ConnectionId = NewConnectionId();
 
-        connection.ScriptBindings.Clear();
-        SaveInPlace(connection, filePath);
+        if (!includeSshScriptBindings && connection.IsSsh)
+            connection.ScriptBindings.Clear();
+
+        SaveInPlace(connection, targetPath);
     }
 
     // --- Helpers ---
@@ -336,6 +367,17 @@ public class ConnectionStore
             a is null ? null : Path.GetFullPath(a),
             b is null ? null : Path.GetFullPath(b),
             StringComparison.OrdinalIgnoreCase);
+
+    private static bool EnsureConnectionId(Connection connection)
+    {
+        if (Guid.TryParse(connection.ConnectionId, out _))
+            return false;
+
+        connection.ConnectionId = NewConnectionId();
+        return true;
+    }
+
+    private static string NewConnectionId() => Guid.NewGuid().ToString("D");
 
     private string UniqueFilePath(string folderPath, string baseName)
     {

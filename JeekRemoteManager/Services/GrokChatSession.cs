@@ -36,6 +36,7 @@ public sealed class GrokChatSession : IAgentChatSession
     private readonly string? _rules;
     private readonly string? _model;
     private readonly string? _effort;
+    private readonly string? _resumeSessionId;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly StringBuilder _currentText = new();
     private readonly TaskCompletionSource<string> _sessionReady =
@@ -48,6 +49,7 @@ public sealed class GrokChatSession : IAgentChatSession
     private int _initializeRequestId = -1;
     private int _sessionNewRequestId = -1;
     private int _promptRequestId = -1;
+    private volatile bool _acceptPromptUpdates;
     private long _lastOutputTokens;
     private double _lastCostUsd;
     private int _numTurns;
@@ -57,13 +59,15 @@ public sealed class GrokChatSession : IAgentChatSession
         string workingDirectory,
         string? rules = null,
         string? model = null,
-        string? effort = null)
+        string? effort = null,
+        string? resumeSessionId = null)
     {
         _executablePath = executablePath;
         _workingDirectory = workingDirectory;
         _rules = rules;
         _model = model;
         _effort = effort;
+        _resumeSessionId = resumeSessionId;
     }
 
     /// <summary>ACP session id from <c>session/new</c>.</summary>
@@ -424,11 +428,20 @@ public sealed class GrokChatSession : IAgentChatSession
         _lastOutputTokens = 0;
         _lastCostUsd = 0;
 
-        _promptRequestId = await SendRequestAsync("session/prompt", new
+        _acceptPromptUpdates = true;
+        try
         {
-            sessionId,
-            prompt = new[] { new { type = "text", text } },
-        }, cancellationToken).ConfigureAwait(false);
+            _promptRequestId = await SendRequestAsync("session/prompt", new
+            {
+                sessionId,
+                prompt = new[] { new { type = "text", text } },
+            }, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            _acceptPromptUpdates = false;
+            throw;
+        }
     }
 
     private async Task SendInitializeAsync()
@@ -575,6 +588,7 @@ public sealed class GrokChatSession : IAgentChatSession
             {
                 TurnCompleted?.Invoke(new AgentTurnResult(message, 0, 0, _numTurns, IsError: true));
                 _promptRequestId = -1;
+                _acceptPromptUpdates = false;
             }
             else if (!_disposed)
             {
@@ -589,21 +603,26 @@ public sealed class GrokChatSession : IAgentChatSession
 
         if (id == _initializeRequestId)
         {
-            object sessionParams = string.IsNullOrWhiteSpace(_rules)
-                ? new { cwd = _workingDirectory, mcpServers = Array.Empty<object>() }
-                : new
-                {
-                    cwd = _workingDirectory,
-                    mcpServers = Array.Empty<object>(),
-                    _meta = new { rules = _rules },
-                };
+            var sessionParams = new Dictionary<string, object?>
+            {
+                ["cwd"] = _workingDirectory,
+                ["mcpServers"] = Array.Empty<object>(),
+            };
+            if (!string.IsNullOrWhiteSpace(_rules))
+                sessionParams["_meta"] = new { rules = _rules };
+            if (!string.IsNullOrWhiteSpace(_resumeSessionId))
+                sessionParams["sessionId"] = _resumeSessionId;
 
-            _sessionNewRequestId = await SendRequestAsync("session/new", sessionParams).ConfigureAwait(false);
+            _sessionNewRequestId = string.IsNullOrWhiteSpace(_resumeSessionId)
+                ? await SendRequestAsync("session/new", sessionParams).ConfigureAwait(false)
+                : await SendRequestAsync("session/load", sessionParams).ConfigureAwait(false);
         }
         else if (id == _sessionNewRequestId)
         {
-            if (result.TryGetProperty("sessionId", out var sidProp)
-                && sidProp.GetString() is { Length: > 0 } sid)
+            var sid = result.TryGetProperty("sessionId", out var sidProp)
+                ? sidProp.GetString()
+                : _resumeSessionId;
+            if (!string.IsNullOrWhiteSpace(sid))
             {
                 SessionId = sid;
                 SessionInitialized?.Invoke(sid);
@@ -619,6 +638,7 @@ public sealed class GrokChatSession : IAgentChatSession
         {
             HandlePromptCompleted(result);
             _promptRequestId = -1;
+            _acceptPromptUpdates = false;
         }
     }
 
@@ -732,6 +752,12 @@ public sealed class GrokChatSession : IAgentChatSession
 
     private void HandleSessionUpdate(JsonElement p)
     {
+        // session/load replays the saved transcript as ordinary session/update events.
+        // The UI already restores that transcript from AiConversationStore, so only forward
+        // updates belonging to a newly submitted prompt.
+        if (!_acceptPromptUpdates)
+            return;
+
         if (!p.TryGetProperty("update", out var update)
             || !update.TryGetProperty("sessionUpdate", out var kindProp))
         {

@@ -9,6 +9,13 @@ namespace JeekRemoteManager.Models;
 /// </summary>
 public class Connection
 {
+    /// <summary>
+    /// Stable identity used to associate machine-local state such as AI conversation
+    /// history. Renaming or moving a connection preserves it; copying creates a new one.
+    /// Legacy files receive an id the first time they are loaded.
+    /// </summary>
+    public string ConnectionId { get; set; } = "";
+
     public ConnectionType Type { get; set; } = ConnectionType.Ssh;
 
     /// <summary>Display name. Also used as the file name on disk.</summary>
