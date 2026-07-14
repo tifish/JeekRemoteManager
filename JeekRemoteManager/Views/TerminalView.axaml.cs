@@ -77,6 +77,7 @@ public partial class TerminalView : UserControl
     private bool _shellClosed;
     private bool _suppressUserInput;
     private int _lastFedCursorRow;
+    private int _lastFedAbsoluteCursorRow;
     private DispatcherTimer? _windowSizeSyncTimer;
     private (uint Cols, uint Rows)? _lastSentWindowSize;
     private readonly TerminalResizeOutputBuffer _resizeOutputBuffer = new();
@@ -349,6 +350,31 @@ public partial class TerminalView : UserControl
     public bool IsResizeOutputCoalescing => _resizeOutputBuffer.IsActive;
 
     public int PendingResizeOutputByteCount => _resizeOutputBuffer.PendingByteCount;
+
+    /// <summary>Current terminal cursor (relative Y, YBase, absolute YBase+Y, cols, rows).</summary>
+    public (int Y, int YBase, int AbsoluteY, int Cols, int Rows) DebugTerminalCursorState
+    {
+        get
+        {
+            var buffer = _model.Terminal.Buffer;
+            return (buffer.Y, buffer.YBase, buffer.YBase + buffer.Y, _model.Terminal.Cols, _model.Terminal.Rows);
+        }
+    }
+
+    /// <summary>
+    /// Debug helper: resize the terminal buffer as a window size change would and
+    /// apply the same cursor repair used on real SizeChanged events.
+    /// </summary>
+    public void DebugResizeBuffer(int cols, int rows)
+    {
+        cols = Math.Max(1, cols);
+        rows = Math.Max(1, rows);
+        RecordCursorRow();
+        _model.Terminal.Resize(cols, rows);
+        RepairBufferAfterResize(rows);
+        RecordCursorRow();
+        _model.UpdateDisplay();
+    }
 
     /// <summary>Shows or hides the AI assistant side panel for this terminal, creating its
     /// per-connection chat session on first open.</summary>
@@ -2006,11 +2032,9 @@ public partial class TerminalView : UserControl
     }
 
     /// <summary>
-    /// Works around a resize bug in XTerm.NET's TerminalBuffer.Resize: when the viewport
-    /// loses rows it merely clamps the cursor row instead of scrolling content into the
-    /// scrollback, so the cursor lands on a line that still shows older output and the
-    /// shell's prompt redraw overwrites that text. Scroll the screen up so the cursor
-    /// keeps pointing at the line it was on before the resize.
+    /// Works around XTerm.NET TerminalBuffer.Resize cursor bugs on both shrink and
+    /// grow (maximize): the library moves the viewport without keeping the cursor on
+    /// the same absolute buffer line, so the shell's prompt redraw overwrites history.
     /// </summary>
     private void RepairBufferAfterResize(int newRows)
     {
@@ -2020,19 +2044,24 @@ public partial class TerminalView : UserControl
         if (terminal.IsAlternateBufferActive || terminal.Buffer.ScrollTop != 0)
             return;
 
-        var shift = _lastFedCursorRow - (newRows - 1);
-        if (shift <= 0)
-            return;
-
-        var buffer = terminal.Buffer;
-        buffer.ScrollUp(shift);
-        buffer.SetCursorRaw(buffer.X, newRows - 1);
-        _model.UpdateDisplay();
+        if (TerminalBufferResizeRepair.TryRepair(
+                terminal.Buffer,
+                _lastFedAbsoluteCursorRow,
+                _lastFedCursorRow,
+                newRows))
+        {
+            _model.UpdateDisplay();
+        }
     }
 
     /// <summary>Remembers the cursor row so <see cref="RepairBufferAfterResize"/> knows
-    /// where the cursor was before the library's resize clamped it.</summary>
-    private void RecordCursorRow() => _lastFedCursorRow = _model.Terminal.Buffer.Y;
+    /// where the cursor was before the library's resize moved it.</summary>
+    private void RecordCursorRow()
+    {
+        var buffer = _model.Terminal.Buffer;
+        _lastFedCursorRow = buffer.Y;
+        _lastFedAbsoluteCursorRow = buffer.YBase + buffer.Y;
+    }
 
     /// <summary>
     /// Schedules the remote pty resize after the local size settles. An interactive

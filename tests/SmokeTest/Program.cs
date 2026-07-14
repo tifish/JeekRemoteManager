@@ -64,7 +64,7 @@ try
     MasterKeyService.Current = master;
 
     // --- Password encryption round-trip (self-contained jrm1 envelope) ---
-    const string secret = "S3cr3t!™密�?;
+    const string secret = "S3cr3t!™密码";
     var enc = PasswordProtector.Encrypt(secret);
     Check(MasterKeyService.IsPasswordBlob(enc), "Encrypt produces a jrm1 blob");
     Check(enc != secret && enc.Length > MasterKeyService.BlobPrefix.Length, "Encrypt produces non-plaintext blob");
@@ -235,6 +235,76 @@ try
           && !resizeOutput.IsActive && resizeOutput.PendingByteCount == 0
           && !resizeOutput.TryAppend("later"u8),
           "Terminal resize output drains atomically and then resumes direct display");
+
+    // --- Terminal buffer resize cursor repair (maximize/shrink) ---
+    static string BufferLineText(XTerm.Buffer.BufferLine? line)
+    {
+        if (line is null)
+            return "";
+        var sb = new StringBuilder(line.Length);
+        foreach (var cell in line)
+            sb.Append(string.IsNullOrEmpty(cell.Content) ? " " : cell.Content);
+        return sb.ToString().TrimEnd();
+    }
+
+    static TerminalControlModel FeedScrollbackPrompt(int rows)
+    {
+        var model = new TerminalControlModel(new TerminalOptions { Cols = 40, Rows = rows, Scrollback = 100 });
+        for (var i = 0; i < 25; i++)
+            model.Feed($"line-{i:D2} history\r\n");
+        model.Feed("prompt$ ");
+        return model;
+    }
+
+    var growModel = FeedScrollbackPrompt(10);
+    var growAbsBefore = growModel.Terminal.Buffer.YBase + growModel.Terminal.Buffer.Y;
+    var growRelBefore = growModel.Terminal.Buffer.Y;
+    growModel.Terminal.Resize(40, 20);
+    // XTerm.NET leaves the cursor on older history after growing the viewport.
+    Check(growModel.Terminal.Buffer.YBase + growModel.Terminal.Buffer.Y != growAbsBefore
+          && BufferLineText(growModel.Terminal.Buffer.GetLine(
+                 growModel.Terminal.Buffer.YBase + growModel.Terminal.Buffer.Y))
+             .StartsWith("line-", StringComparison.Ordinal),
+          "XTerm grow-without-repair lands the cursor on older scrollback text");
+    Check(TerminalBufferResizeRepair.TryRepair(
+              growModel.Terminal.Buffer, growAbsBefore, growRelBefore, 20)
+          && growModel.Terminal.Buffer.YBase + growModel.Terminal.Buffer.Y == growAbsBefore
+          && BufferLineText(growModel.Terminal.Buffer.GetLine(
+                 growModel.Terminal.Buffer.YBase + growModel.Terminal.Buffer.Y)) == "prompt$",
+          "Terminal resize repair keeps the cursor on the prompt after maximize/grow");
+
+    var shrinkModel = FeedScrollbackPrompt(20);
+    var shrinkAbsBefore = shrinkModel.Terminal.Buffer.YBase + shrinkModel.Terminal.Buffer.Y;
+    var shrinkRelBefore = shrinkModel.Terminal.Buffer.Y;
+    shrinkModel.Terminal.Resize(40, 10);
+    Check(TerminalBufferResizeRepair.TryRepair(
+              shrinkModel.Terminal.Buffer, shrinkAbsBefore, shrinkRelBefore, 10)
+          && shrinkModel.Terminal.Buffer.YBase + shrinkModel.Terminal.Buffer.Y == shrinkAbsBefore
+          && BufferLineText(shrinkModel.Terminal.Buffer.GetLine(
+                 shrinkModel.Terminal.Buffer.YBase + shrinkModel.Terminal.Buffer.Y)) == "prompt$",
+          "Terminal resize repair keeps the cursor on the prompt after shrink");
+
+    var maximizeModel = FeedScrollbackPrompt(10);
+    var maxAbsBefore = maximizeModel.Terminal.Buffer.YBase + maximizeModel.Terminal.Buffer.Y;
+    var maxRelBefore = maximizeModel.Terminal.Buffer.Y;
+    maximizeModel.Terminal.Resize(120, 40);
+    Check(TerminalBufferResizeRepair.TryRepair(
+              maximizeModel.Terminal.Buffer, maxAbsBefore, maxRelBefore, 40)
+          && maximizeModel.Terminal.Buffer.YBase + maximizeModel.Terminal.Buffer.Y == maxAbsBefore
+          && BufferLineText(maximizeModel.Terminal.Buffer.GetLine(
+                 maximizeModel.Terminal.Buffer.YBase + maximizeModel.Terminal.Buffer.Y)) == "prompt$",
+          "Terminal resize repair keeps the cursor on the prompt after large maximize");
+
+    var noScrollbackModel = new TerminalControlModel(new TerminalOptions { Cols = 40, Rows = 10, Scrollback = 100 });
+    noScrollbackModel.Feed("few lines\r\n");
+    noScrollbackModel.Feed("prompt$ ");
+    var noSbAbs = noScrollbackModel.Terminal.Buffer.YBase + noScrollbackModel.Terminal.Buffer.Y;
+    var noSbRel = noScrollbackModel.Terminal.Buffer.Y;
+    noScrollbackModel.Terminal.Resize(40, 20);
+    Check(!TerminalBufferResizeRepair.TryRepair(
+              noScrollbackModel.Terminal.Buffer, noSbAbs, noSbRel, 20)
+          && noScrollbackModel.Terminal.Buffer.YBase + noScrollbackModel.Terminal.Buffer.Y == noSbAbs,
+          "Terminal resize repair is a no-op when absolute cursor is already correct");
 
     // --- AI panel conversation reset ---
     var aiVm = new AgentChatViewModel(
