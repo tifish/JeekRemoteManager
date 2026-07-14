@@ -289,6 +289,44 @@ try
     Check(authError && !ordinaryError,
           "AI authentication errors are separated from retryable agent errors");
 
+    // --- AI model catalogs survive a restart and remain usable during refresh ---
+    var originalCatalogCachePath = AgentModelCatalogCache.CachePath;
+    AgentModelCatalogCache.CachePath = Path.Combine(root, "ai-model-catalogs.json");
+    var cachedCodexModels = new List<AgentModelInfo>
+    {
+        new("cached-model", "Cached Model", true, ["low", "high"]),
+    };
+    AgentModelCatalogCache.Save("Codex", cachedCodexModels);
+    var reloadedCodexModels = AgentModelCatalogCache.Load("codex");
+    Check(File.Exists(AgentModelCatalogCache.CachePath)
+          && reloadedCodexModels is { Count: 1 }
+          && reloadedCodexModels[0].Id == "cached-model"
+          && reloadedCodexModels[0].ReasoningEfforts.SequenceEqual(["low", "high"]),
+          "AI model catalog round-trips through the machine-local cache");
+
+    var refreshPending = new TaskCompletionSource<IReadOnlyList<AgentModelInfo>?>(
+        TaskCreationOptions.RunContinuationsAsynchronously);
+    var cachedCatalogVm = new AgentChatViewModel(
+        [
+            new AgentProvider(
+                "Codex",
+                "",
+                [new AgentOption("Default", null)],
+                [new AgentOption("Default", null)],
+                (_, _) => null,
+                () => refreshPending.Task,
+                reloadedCodexModels,
+                models => AgentModelCatalogCache.Save("Codex", models)),
+        ],
+        () => null,
+        null);
+    Check(cachedCatalogVm.ModelOptions.Any(option => option.Value == "cached-model")
+          && cachedCatalogVm.EffortOptions.Select(option => option.Value).Contains("high")
+          && cachedCatalogVm.PersistedCatalogProviderLabels.SequenceEqual(["Codex"])
+          && cachedCatalogVm.LiveCatalogProviderLabels.Count == 0,
+          "AI panel uses the persisted model catalog while live refresh is pending");
+    await cachedCatalogVm.DisposeAsync();
+    AgentModelCatalogCache.CachePath = originalCatalogCachePath;
 
     Check(aiVm.RequiresDangerConfirmation("rm -rf /tmp/example", dangerTagged: false)
           && aiVm.RequiresDangerConfirmation("echo example", dangerTagged: true)

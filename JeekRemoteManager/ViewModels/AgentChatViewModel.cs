@@ -39,7 +39,9 @@ public sealed record AgentProvider(
     IReadOnlyList<AgentOption> ModelOptions,
     IReadOnlyList<AgentOption> EffortOptions,
     Func<string?, string?, IAgentChatSession?>? SessionFactory,
-    Func<Task<IReadOnlyList<AgentModelInfo>?>>? CatalogFetcher = null)
+    Func<Task<IReadOnlyList<AgentModelInfo>?>>? CatalogFetcher = null,
+    IReadOnlyList<AgentModelInfo>? PersistedCatalog = null,
+    Action<IReadOnlyList<AgentModelInfo>>? PersistCatalog = null)
 {
     public bool IsAvailable => SessionFactory is not null;
 }
@@ -101,6 +103,9 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     private readonly DispatcherTimer _thinkingTimer = new() { Interval = TimeSpan.FromMilliseconds(450) };
 
     private readonly Dictionary<AgentProvider, (IReadOnlyList<AgentOption> Models, IReadOnlyList<AgentOption> Efforts)> _fetchedCatalogs = new();
+    private readonly HashSet<AgentProvider> _catalogRefreshesStarted = new();
+    private readonly HashSet<string> _persistedCatalogProviderLabels = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _liveCatalogProviderLabels = new(StringComparer.Ordinal);
     private readonly Action<AiPanelOptions>? _persistOptions;
 
     private IAgentChatSession? _session;
@@ -136,6 +141,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         _thinkingTimer.Tick += OnThinkingTimerTick;
         Messages.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasMessages));
         Providers = new ObservableCollection<AgentProvider>(providers);
+        InitializePersistedCatalogs(providers);
 
         var provider = providers.FirstOrDefault(p => p.Label == initialOptions?.Provider && p.IsAvailable)
             ?? providers.FirstOrDefault(p => p.IsAvailable)
@@ -144,8 +150,11 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         _isAvailable = provider.IsAvailable;
         _statusText = provider.IsAvailable ? "" : provider.UnavailableMessage;
         _unavailableText = provider.UnavailableMessage;
-        _modelOptions = provider.ModelOptions;
-        _effortOptions = provider.EffortOptions;
+        var initialCatalog = _fetchedCatalogs.TryGetValue(provider, out var persisted)
+            ? persisted
+            : (provider.ModelOptions, provider.EffortOptions);
+        _modelOptions = initialCatalog.Item1;
+        _effortOptions = initialCatalog.Item2;
 
         if (initialOptions is not null)
         {
@@ -162,8 +171,8 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             _desiredModelValue = savedChoice.Model;
             _desiredEffortValue = savedChoice.Effort;
         }
-        _selectedModel = provider.ModelOptions.FirstOrDefault(o => o.Value == _desiredModelValue) ?? provider.ModelOptions[0];
-        _selectedEffort = provider.EffortOptions.FirstOrDefault(o => o.Value == _desiredEffortValue) ?? provider.EffortOptions[0];
+        _selectedModel = _modelOptions.FirstOrDefault(o => o.Value == _desiredModelValue) ?? _modelOptions[0];
+        _selectedEffort = _effortOptions.FirstOrDefault(o => o.Value == _desiredEffortValue) ?? _effortOptions[0];
 
         _ = RefreshProviderCatalogAsync(provider);
     }
@@ -194,7 +203,9 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     /// from the CLI at runtime.</summary>
     public static AgentProvider CreateCodexProvider(
         Func<string?, string?, IAgentChatSession?>? sessionFactory,
-        Func<Task<IReadOnlyList<AgentModelInfo>?>>? catalogFetcher = null) => new(
+        Func<Task<IReadOnlyList<AgentModelInfo>?>>? catalogFetcher = null,
+        IReadOnlyList<AgentModelInfo>? persistedCatalog = null,
+        Action<IReadOnlyList<AgentModelInfo>>? persistCatalog = null) => new(
         "Codex",
         L("AiNotAvailableCodex"),
         [
@@ -212,14 +223,18 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             new AgentOption("xHigh", "xhigh"),
         ],
         sessionFactory,
-        catalogFetcher);
+        catalogFetcher,
+        persistedCatalog,
+        persistCatalog);
 
     /// <summary>Builds the Grok Build provider descriptor; pass null factories when the CLI is
     /// missing. The model list is a snapshot fallback — <paramref name="catalogFetcher"/>
     /// refreshes it from the CLI / models cache at runtime.</summary>
     public static AgentProvider CreateGrokProvider(
         Func<string?, string?, IAgentChatSession?>? sessionFactory,
-        Func<Task<IReadOnlyList<AgentModelInfo>?>>? catalogFetcher = null) => new(
+        Func<Task<IReadOnlyList<AgentModelInfo>?>>? catalogFetcher = null,
+        IReadOnlyList<AgentModelInfo>? persistedCatalog = null,
+        Action<IReadOnlyList<AgentModelInfo>>? persistCatalog = null) => new(
         "Grok",
         L("AiNotAvailableGrok"),
         [
@@ -234,7 +249,9 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             new AgentOption("High", "high"),
         ],
         sessionFactory,
-        catalogFetcher);
+        catalogFetcher,
+        persistedCatalog,
+        persistCatalog);
 
     /// <summary>Builds the descriptor for a user-defined API provider. Its models come from
     /// the user's configuration; efforts only apply to the OpenAI API (reasoning_effort).
@@ -271,6 +288,15 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
     public ObservableCollection<AgentProvider> Providers { get; }
 
+    /// <summary>Provider labels whose persisted catalog was loaded when this panel was built.
+    /// Exposed so Debug MCP can verify restart behavior independently of a fast live refresh.</summary>
+    public IReadOnlyList<string> PersistedCatalogProviderLabels =>
+        _persistedCatalogProviderLabels.OrderBy(label => label, StringComparer.Ordinal).ToArray();
+
+    /// <summary>Provider labels whose catalog has been refreshed live in this process.</summary>
+    public IReadOnlyList<string> LiveCatalogProviderLabels =>
+        _liveCatalogProviderLabels.OrderBy(label => label, StringComparer.Ordinal).ToArray();
+
     /// <summary>Set by the hosting view: opens the custom-providers dialog and, when it is
     /// saved, rebuilds the provider list (via <see cref="ReplaceProviders"/>).</summary>
     public Func<Task>? ManageProvidersInteraction { get; set; }
@@ -294,9 +320,13 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         try
         {
             _fetchedCatalogs.Clear();
+            _catalogRefreshesStarted.Clear();
+            _persistedCatalogProviderLabels.Clear();
+            _liveCatalogProviderLabels.Clear();
             Providers.Clear();
             foreach (var provider in providers)
                 Providers.Add(provider);
+            InitializePersistedCatalogs(providers);
         }
         finally
         {
@@ -480,7 +510,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     /// </summary>
     private async Task RefreshProviderCatalogAsync(AgentProvider provider)
     {
-        if (provider.CatalogFetcher is null || !provider.IsAvailable || _fetchedCatalogs.ContainsKey(provider))
+        if (provider.CatalogFetcher is null || !provider.IsAvailable || !_catalogRefreshesStarted.Add(provider))
             return;
 
         IReadOnlyList<AgentModelInfo>? models;
@@ -496,24 +526,26 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         if (models is null || models.Count == 0 || _cts.IsCancellationRequested)
             return;
 
-        var modelOptions = new List<AgentOption> { new(L("AiOptionDefault"), null) };
-        foreach (var model in models)
-            modelOptions.Add(new AgentOption(model.DisplayName, model.Id));
-
-        // Efforts are per-model in the catalog but identical across models in practice;
-        // offer the union in first-seen order.
-        var effortOptions = new List<AgentOption> { new(L("AiOptionDefault"), null) };
-        var seenEfforts = new HashSet<string>();
-        foreach (var model in models)
-        foreach (var effort in model.ReasoningEfforts)
+        try
         {
-            if (seenEfforts.Add(effort))
-                effortOptions.Add(new AgentOption(EffortLabel(effort), effort));
+            provider.PersistCatalog?.Invoke(models);
         }
+        catch
+        {
+            // Persistence is best-effort; the freshly fetched catalog is still usable.
+        }
+
+        var catalogOptions = CreateCatalogOptions(models);
+        if (catalogOptions is null)
+            return;
+
+        var (modelOptions, effortOptions) = catalogOptions.Value;
 
         Dispatcher.UIThread.Post(() =>
         {
             _fetchedCatalogs[provider] = (modelOptions, effortOptions);
+            _liveCatalogProviderLabels.Add(provider.Label);
+            OnPropertyChanged(nameof(LiveCatalogProviderLabels));
             if (SelectedProvider != provider)
                 return;
 
@@ -542,6 +574,52 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             if (SelectedModel?.Value != previousModel || SelectedEffort?.Value != previousEffort)
                 ResetSessionForSettingsChange();
         });
+    }
+
+    private void InitializePersistedCatalogs(IEnumerable<AgentProvider> providers)
+    {
+        foreach (var provider in providers)
+        {
+            var options = CreateCatalogOptions(provider.PersistedCatalog);
+            if (options is null)
+                continue;
+
+            _fetchedCatalogs[provider] = options.Value;
+            _persistedCatalogProviderLabels.Add(provider.Label);
+        }
+
+        OnPropertyChanged(nameof(PersistedCatalogProviderLabels));
+    }
+
+    private static (IReadOnlyList<AgentOption> Models, IReadOnlyList<AgentOption> Efforts)?
+        CreateCatalogOptions(IReadOnlyList<AgentModelInfo>? models)
+    {
+        if (models is null || models.Count == 0)
+            return null;
+
+        var modelOptions = new List<AgentOption> { new(L("AiOptionDefault"), null) };
+        var seenModels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var model in models)
+        {
+            if (!string.IsNullOrWhiteSpace(model.Id) && seenModels.Add(model.Id))
+                modelOptions.Add(new AgentOption(model.DisplayName, model.Id));
+        }
+
+        if (modelOptions.Count == 1)
+            return null;
+
+        // Efforts are per-model in the catalog but identical across models in practice;
+        // offer the union in first-seen order.
+        var effortOptions = new List<AgentOption> { new(L("AiOptionDefault"), null) };
+        var seenEfforts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var model in models)
+        foreach (var effort in model.ReasoningEfforts)
+        {
+            if (!string.IsNullOrWhiteSpace(effort) && seenEfforts.Add(effort))
+                effortOptions.Add(new AgentOption(EffortLabel(effort), effort));
+        }
+
+        return (modelOptions, effortOptions);
     }
 
     private static string EffortLabel(string effort) => effort switch

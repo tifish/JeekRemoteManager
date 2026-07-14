@@ -641,14 +641,18 @@ public partial class TerminalView : UserControl
                     : (model, effort) => new CodexChatSession(codexPath, workingDir, systemPrompt, model: model, effort: effort),
                 codexPath is null
                     ? null
-                    : () => CodexChatSession.ListModelsCachedAsync(codexPath)),
+                    : () => CodexChatSession.ListModelsCachedAsync(codexPath),
+                AgentModelCatalogCache.Load("Codex"),
+                models => AgentModelCatalogCache.Save("Codex", models)),
             AgentChatViewModel.CreateGrokProvider(
                 grokPath is null
                     ? null
                     : (model, effort) => new GrokChatSession(grokPath, workingDir, systemPrompt, model: model, effort: effort),
                 grokPath is null
                     ? null
-                    : () => GrokChatSession.ListModelsCachedAsync(grokPath)),
+                    : () => GrokChatSession.ListModelsCachedAsync(grokPath),
+                AgentModelCatalogCache.Load("Grok"),
+                models => AgentModelCatalogCache.Save("Grok", models)),
         };
 
         if (DataContext is MainWindowViewModel mainVm)
