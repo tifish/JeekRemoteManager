@@ -64,7 +64,7 @@ try
     MasterKeyService.Current = master;
 
     // --- Password encryption round-trip (self-contained jrm1 envelope) ---
-    const string secret = "S3cr3t!™密码";
+    const string secret = "S3cr3t!™密�?;
     var enc = PasswordProtector.Encrypt(secret);
     Check(MasterKeyService.IsPasswordBlob(enc), "Encrypt produces a jrm1 blob");
     Check(enc != secret && enc.Length > MasterKeyService.BlobPrefix.Length, "Encrypt produces non-plaintext blob");
@@ -288,6 +288,7 @@ try
         .Invoke(null, ["The model is temporarily overloaded."])!;
     Check(authError && !ordinaryError,
           "AI authentication errors are separated from retryable agent errors");
+
 
     Check(aiVm.RequiresDangerConfirmation("rm -rf /tmp/example", dangerTagged: false)
           && aiVm.RequiresDangerConfirmation("echo example", dangerTagged: true)
@@ -1079,18 +1080,20 @@ try
           && runtimeServerOptimizationSuite.Scripts.Count == 1
           && runtimeServerOptimizationSuite.Scripts[0].Name == "apply.sh",
           "Bundled server optimization script is discoverable");
-    Check(runtimeServerOptimizationSuite.Parameters.Count == 6
+    Check(runtimeServerOptimizationSuite.Parameters.Count == 7
           && runtimeServerOptimizationSuite.Parameters.All(p => p.Type == RemoteScriptParameterType.Bool)
           && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_FAIL2BAN").DefaultValue == "true"
           && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_FIREWALL").DefaultValue == "true"
           && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_AUTO_UPDATES").DefaultValue == "true"
           && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_BBR").DefaultValue == "true"
+          && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_TIME_SYNC").DefaultValue == "true"
           && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_APT_AUTOREMOVE").DefaultValue == "false"
           && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_COMMAND_COLORS").DefaultValue == "true"
           && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_FAIL2BAN")
           && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_FIREWALL")
           && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_AUTO_UPDATES")
           && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_BBR")
+          && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_TIME_SYNC")
           && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_APT_AUTOREMOVE")
           && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_COMMAND_COLORS"),
           "Bundled server optimization script exposes boolean feature toggles");
@@ -1125,9 +1128,26 @@ try
           && runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_FAIL2BAN\"")
           && runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_AUTO_UPDATES\"")
           && runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_BBR\"")
+          && runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_TIME_SYNC\"")
           && runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_APT_AUTOREMOVE\"")
           && runtimeServerOptimizationScript.Contains("is_enabled \"$ENABLE_COMMAND_COLORS\""),
           "Bundled server optimization script gates each feature behind a boolean parameter");
+    Check(runtimeServerOptimizationScript.Contains("ENABLE_TIME_SYNC=${ENABLE_TIME_SYNC:-true}")
+          && runtimeServerOptimizationScript.Contains("enable_time_sync")
+          && runtimeServerOptimizationScript.Contains("enable_chrony_time_sync")
+          && runtimeServerOptimizationScript.Contains("try_enable_timesyncd_time_sync")
+          && runtimeServerOptimizationScript.Contains("install_packages chrony")
+          && runtimeServerOptimizationScript.Contains("apt-get install -y systemd-timesyncd")
+          && runtimeServerOptimizationScript.Contains("systemctl enable --now chronyd.service")
+          && runtimeServerOptimizationScript.Contains("systemctl enable --now chrony.service")
+          && runtimeServerOptimizationScript.Contains("systemctl enable --now systemd-timesyncd.service")
+          && runtimeServerOptimizationScript.Contains("timedatectl set-ntp true")
+          && runtimeServerOptimizationScript.Contains("stop_disable_service systemd-timesyncd.service")
+          && runtimeServerOptimizationScript.Contains("stop_disable_service ntp.service")
+          && runtimeServerOptimizationScript.Contains("stop_disable_service ntpd.service")
+          && runtimeServerOptimizationScript.Contains("feature_done \"Time sync\"")
+          && runtimeServerOptimizationScript.Contains("feature_skipped \"Time sync\""),
+          "Bundled server optimization script enables automatic time sync via chrony or systemd-timesyncd");
     Check(!runtimeServerOptimizationScript.Contains("COLOR_FEATURE_START")
           && !runtimeServerOptimizationScript.Contains("feature_start")
           && runtimeServerOptimizationScript.Contains("COLOR_FEATURE_DONE")
@@ -1140,6 +1160,8 @@ try
           && runtimeServerOptimizationScript.Contains("feature_skipped \"Automatic security updates\"")
           && runtimeServerOptimizationScript.Contains("feature_done \"BBR\"")
           && runtimeServerOptimizationScript.Contains("feature_skipped \"BBR\"")
+          && runtimeServerOptimizationScript.Contains("feature_done \"Time sync\"")
+          && runtimeServerOptimizationScript.Contains("feature_skipped \"Time sync\"")
           && runtimeServerOptimizationScript.Contains("feature_done \"apt autoremove\"")
           && runtimeServerOptimizationScript.Contains("feature_skipped \"apt autoremove\"")
           && runtimeServerOptimizationScript.Contains("feature_done \"Command colors\"")

@@ -58,6 +58,7 @@ ENABLE_FAIL2BAN=${ENABLE_FAIL2BAN:-true}
 ENABLE_FIREWALL=${ENABLE_FIREWALL:-true}
 ENABLE_AUTO_UPDATES=${ENABLE_AUTO_UPDATES:-true}
 ENABLE_BBR=${ENABLE_BBR:-true}
+ENABLE_TIME_SYNC=${ENABLE_TIME_SYNC:-true}
 ENABLE_APT_AUTOREMOVE=${ENABLE_APT_AUTOREMOVE:-false}
 ENABLE_COMMAND_COLORS=${ENABLE_COMMAND_COLORS:-true}
 
@@ -279,6 +280,119 @@ EOF
     info "BBR is enabled."
 }
 
+service_unit_exists() {
+    systemctl cat "$1" >/dev/null 2>&1
+}
+
+stop_disable_service() {
+    service_name=$1
+
+    if service_unit_exists "$service_name"; then
+        systemctl disable --now "$service_name" >/dev/null 2>&1 || true
+    fi
+}
+
+enable_chrony_time_sync() {
+    if ! command -v chronyd >/dev/null 2>&1; then
+        install_packages chrony
+    fi
+
+    if ! command -v chronyd >/dev/null 2>&1; then
+        fail "chrony was installed but chronyd is still unavailable."
+    fi
+
+    # Avoid multiple NTP clients fighting over the clock.
+    stop_disable_service systemd-timesyncd.service
+    stop_disable_service ntp.service
+    stop_disable_service ntpd.service
+    stop_disable_service openntpd.service
+
+    if service_unit_exists chronyd.service; then
+        systemctl enable --now chronyd.service
+        chrony_service=chronyd.service
+    elif service_unit_exists chrony.service; then
+        systemctl enable --now chrony.service
+        chrony_service=chrony.service
+    else
+        fail "chrony package is present but no chrony/chronyd systemd unit was found."
+    fi
+
+    if ! systemctl is-active --quiet "$chrony_service"; then
+        fail "chrony service ${chrony_service} is not active after setup."
+    fi
+
+    info "chrony time sync is enabled via ${chrony_service}."
+}
+
+try_enable_timesyncd_time_sync() {
+    if ! service_unit_exists systemd-timesyncd.service; then
+        if [ "$(detect_package_manager)" != "apt" ]; then
+            return 1
+        fi
+
+        # Soft-install so callers can fall back to chrony if the package is unavailable.
+        export DEBIAN_FRONTEND=noninteractive
+        apt_update_once
+        if ! apt-get install -y systemd-timesyncd; then
+            warn "Could not install systemd-timesyncd; will try chrony."
+            return 1
+        fi
+    fi
+
+    if ! service_unit_exists systemd-timesyncd.service; then
+        return 1
+    fi
+
+    stop_disable_service chronyd.service
+    stop_disable_service chrony.service
+    stop_disable_service ntp.service
+    stop_disable_service ntpd.service
+    stop_disable_service openntpd.service
+
+    systemctl enable --now systemd-timesyncd.service
+
+    if ! systemctl is-active --quiet systemd-timesyncd.service; then
+        warn "systemd-timesyncd is not active after setup; will try chrony."
+        return 1
+    fi
+
+    info "systemd-timesyncd time sync is enabled."
+    return 0
+}
+
+enable_time_sync() {
+    # Prefer chrony when already present; otherwise try timesyncd, then install chrony.
+    if command -v chronyd >/dev/null 2>&1 \
+        || service_unit_exists chronyd.service \
+        || service_unit_exists chrony.service; then
+        enable_chrony_time_sync
+    elif try_enable_timesyncd_time_sync; then
+        :
+    else
+        package_manager=$(detect_package_manager)
+        case "$package_manager" in
+            apt|dnf|yum)
+                enable_chrony_time_sync
+                ;;
+            *)
+                fail "No supported NTP client could be installed for automatic time synchronization."
+                ;;
+        esac
+    fi
+
+    if command -v timedatectl >/dev/null 2>&1; then
+        timedatectl set-ntp true 2>/dev/null || true
+        ntp_state=$(timedatectl show -p NTP --value 2>/dev/null || printf 'unknown')
+        sync_state=$(timedatectl show -p NTPSynchronized --value 2>/dev/null || printf 'unknown')
+        info "timedatectl NTP=${ntp_state}, NTPSynchronized=${sync_state}"
+        info "Current system time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+    else
+        info "Current system time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+    fi
+
+    info "Automatic time synchronization is configured."
+}
+
 enable_apt_auto_updates() {
     install_packages unattended-upgrades
 
@@ -462,6 +576,14 @@ if is_enabled "$ENABLE_BBR"; then
 else
     info "BBR setup skipped by ENABLE_BBR=false."
     feature_skipped "BBR"
+fi
+
+if is_enabled "$ENABLE_TIME_SYNC"; then
+    enable_time_sync
+    feature_done "Time sync"
+else
+    info "Time sync setup skipped by ENABLE_TIME_SYNC=false."
+    feature_skipped "Time sync"
 fi
 
 if is_enabled "$ENABLE_APT_AUTOREMOVE"; then
