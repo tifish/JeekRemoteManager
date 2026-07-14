@@ -247,8 +247,18 @@ TerminalReconnectConfirmPrompt	Reconnect this terminal with a new SSH channel? A
 AiNewConversation	New conversation	新对话
 AiNewConversationHint	Start a new conversation with empty context (Ctrl+N).	从空上下文开始新对话 (Ctrl+N)。
 AiConversationHistoryTitle	Conversation history	历史对话
-AiConversationHistoryHint	Choose a previous conversation for this connection.	选择这个连接以前的对话。
+AiConversationHistoryHint	Restore a previous conversation or manage deleted conversations for this connection.	恢复这个连接以前的对话，或管理已删除的对话。
+AiConversationHistoryTab	History	历史记录
+AiConversationTrashTab	Recycle bin	回收站
+AiConversationHistoryEmpty	No saved conversations.	暂无历史对话。
+AiConversationTrashEmpty	Recycle bin is empty.	回收站为空。
 AiRestoreConversation	Restore	恢复
+AiMoveToTrash	Move to recycle bin	移至回收站
+AiRestoreFromTrash	Restore from recycle bin	从回收站恢复
+AiDeletePermanently	Delete permanently	永久删除
+AiDeletePermanentlyPrompt	Permanently delete "{0}"? This cannot be undone.	永久删除“{0}”吗？此操作无法撤销。
+AiTrashRetentionHint	Conversations in the recycle bin are permanently deleted after 30 days.	回收站中的对话将在 30 天后永久删除。
+AiConversationPermanentDeleteAt	Permanently deletes at {0}	将在 {0} 永久删除
 AiConversationRestored	Conversation restored. The next message will continue its original session.	对话已恢复，下一条消息将继续原会话。
 AiConversationNotReady	Session ID unavailable	会话 ID 不可用
 AiConversationMessages	{0} messages	{0} 条消息

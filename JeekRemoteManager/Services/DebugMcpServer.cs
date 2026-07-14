@@ -412,6 +412,7 @@ internal static class DebugMcpServer
                 "visual_tree" => await VisualTreeAsync(args),
                 "screenshot" => await ScreenshotAsync(),
                 "read_logs" => ReadLogs(args),
+                "ai_conversation_trash_check" => await AiConversationTrashCheckAsync(),
                 "ai_chat_stress" => await AiChatStressAsync(args),
                 _ => throw new InvalidOperationException($"Unknown tool: {name}"),
             };
@@ -871,6 +872,72 @@ internal static class DebugMcpServer
                 return state.vm.DisposeAsync().AsTask();
             });
             await disposeTask;
+        }
+    }
+
+    private static async Task<JsonObject> AiConversationTrashCheckAsync()
+    {
+        var basePath = DebugInstanceContext.Info.RuntimeTempRoot;
+        if (string.IsNullOrWhiteSpace(basePath))
+            basePath = Path.GetTempPath();
+        var root = Path.Combine(basePath, $"ai-conversation-trash-check-{Guid.NewGuid():N}");
+        var now = DateTimeOffset.UtcNow;
+
+        try
+        {
+            var store = new AiConversationStore(root);
+            var conversation = new AiConversation
+            {
+                Id = "debug-trash-lifecycle",
+                ScopeId = "debug-scope",
+                Provider = "Debug",
+                NativeSessionId = "debug-session",
+                Title = "Debug recycle-bin lifecycle",
+                Messages = { new AiConversationMessage { Role = "User", Text = "test" } },
+            };
+            store.Save(conversation);
+
+            var moved = store.MoveToTrash(conversation.Id)
+                        && store.LoadSummaries(conversation.ScopeId).Count == 0
+                        && store.LoadSummaries(conversation.ScopeId, deleted: true).Count == 1;
+            var restored = store.RestoreFromTrash(conversation.Id)
+                           && store.LoadSummaries(conversation.ScopeId).Count == 1
+                           && store.LoadSummaries(conversation.ScopeId, deleted: true).Count == 0;
+
+            store.MoveToTrash(conversation.Id);
+            var expired = store.Load(conversation.Id)!;
+            expired.DeletedAt = now - AiConversationStore.TrashRetention - TimeSpan.FromMinutes(1);
+            store.Save(expired);
+
+            var retained = new AiConversation
+            {
+                Id = "debug-trash-retained",
+                ScopeId = conversation.ScopeId,
+                Provider = "Debug",
+                NativeSessionId = "debug-session-2",
+                Title = "Recent recycle-bin entry",
+                DeletedAt = now - AiConversationStore.TrashRetention + TimeSpan.FromMinutes(1),
+            };
+            store.Save(retained);
+            var purgedCount = store.PurgeExpiredTrash(now);
+            var expiry = purgedCount == 1
+                         && store.Load(conversation.Id) is null
+                         && store.Load(retained.Id) is not null;
+
+            var layout = await OnUiAsync(() =>
+                $"activeSmall=[{AiConversationHistoryDialog.DebugMeasureConversationRow(420, deleted: false)}]; "
+                + $"activeWide=[{AiConversationHistoryDialog.DebugMeasureConversationRow(680, deleted: false)}]; "
+                + $"trashSmall=[{AiConversationHistoryDialog.DebugMeasureConversationRow(420, deleted: true)}]; "
+                + $"dialogSmall=[{AiConversationHistoryDialog.DebugMeasureDialogLayout(480, 360)}]; "
+                + $"dialogWide=[{AiConversationHistoryDialog.DebugMeasureDialogLayout(720, 520)}]; "
+                + $"interaction=[{AiConversationHistoryDialog.DebugCheckConversationRowInteraction()}]");
+
+            return ToolText($"moved={moved}; restored={restored}; expiredPurged={expiry}; "
+                            + $"retentionDays={AiConversationStore.TrashRetention.TotalDays:0}; {layout}");
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* best-effort debug cleanup */ }
         }
     }
 

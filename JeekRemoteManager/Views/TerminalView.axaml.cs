@@ -821,10 +821,10 @@ public partial class TerminalView : UserControl
             connectionLabel: BuildAiConversationLabel(),
             legacyConversationScopeIds: [BuildLegacyAiConversationScopeId()]);
 
-        vm.ConversationHistoryInteraction = histories =>
+        vm.ConversationHistoryInteraction = () =>
             TopLevel.GetTopLevel(this) is Window owner
-                ? AiConversationHistoryDialog.ShowAsync(owner, histories)
-                : Task.FromResult<string?>(null);
+                ? AiConversationHistoryDialog.ShowAsync(owner, vm)
+                : Task.CompletedTask;
 
         // The gear button: edit the custom providers, persist them, and let the changed
         // event below rebuild the picker in every open terminal tab (including this one).

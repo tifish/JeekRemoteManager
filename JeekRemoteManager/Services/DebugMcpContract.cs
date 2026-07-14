@@ -42,6 +42,7 @@ public static class DebugMcpContract
         Tool("screenshot", "Render the main window to PNG.", new()),
         Tool("read_logs", "Read the current app log tail.",
             new() { ["lines"] = Prop("integer", "Lines, 1-2000 (default 200)."), ["filter"] = Prop("string", "Case-insensitive filter.") }),
+        Tool("ai_conversation_trash_check", "Verify AI conversation recycle-bin lifecycle and responsive row layout using isolated temporary data.", new()),
         Tool("ai_chat_stress", "Verify AI streaming coalescing and transcript virtualization.",
             new() { ["message_count"] = Prop("integer", "Temporary messages (default 500)."), ["characters_per_message"] = Prop("integer", "Characters per message (default 200)."), ["stream_chunk_count"] = Prop("integer", "Chunks (default 2000)."), ["characters_per_chunk"] = Prop("integer", "Characters per chunk (default 10).") }));
 

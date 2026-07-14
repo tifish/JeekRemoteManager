@@ -482,6 +482,43 @@ try
           && !otherScopeVm.RestoreConversation(savedConversation.Id),
           "AI conversation history cannot be restored on a different connection");
 
+    Check(restoreVm.MoveConversationToTrash(savedConversation.Id)
+          && restoreVm.CurrentConversationId is null
+          && restoreVm.Messages.Count == 0
+          && restoreVm.ConversationHistory.Count == 0
+          && restoreVm.TrashedConversationHistory.Count == 1
+          && !restoreVm.RestoreConversation(savedConversation.Id),
+          "AI conversation delete moves the current session into the recycle bin");
+    Check(restoreVm.RestoreConversationFromTrash(savedConversation.Id)
+          && restoreVm.ConversationHistory.Count == 1
+          && restoreVm.TrashedConversationHistory.Count == 0,
+          "AI conversation recycle-bin entries can be restored to history");
+    Check(restoreVm.MoveConversationToTrash(savedConversation.Id)
+          && restoreVm.DeleteConversationPermanently(savedConversation.Id)
+          && aiHistoryStore.Load(savedConversation.Id) is null,
+          "AI conversation recycle-bin entries can be permanently deleted");
+
+    var expiryStore = new AiConversationStore(Path.Combine(root, "ai-conversation-expiry"));
+    var expiryNow = DateTimeOffset.UtcNow;
+    expiryStore.Save(new AiConversation
+    {
+        Id = "expired-trash-entry",
+        ScopeId = stableConversationScope,
+        Title = "Expired",
+        DeletedAt = expiryNow - AiConversationStore.TrashRetention - TimeSpan.FromMinutes(1),
+    });
+    expiryStore.Save(new AiConversation
+    {
+        Id = "recent-trash-entry",
+        ScopeId = stableConversationScope,
+        Title = "Recent",
+        DeletedAt = expiryNow - AiConversationStore.TrashRetention + TimeSpan.FromMinutes(1),
+    });
+    Check(expiryStore.PurgeExpiredTrash(expiryNow) == 1
+          && expiryStore.Load("expired-trash-entry") is null
+          && expiryStore.Load("recent-trash-entry") is not null,
+          "AI conversation recycle bin permanently deletes only entries older than 30 days");
+
     var claudeResume = new ClaudeChatSession("claude", root, resumeSessionId: "claude-session");
     var codexResume = new CodexChatSession("codex", root, resumeThreadId: "codex-thread");
     var grokResume = new GrokChatSession("grok", root, resumeSessionId: "grok-session");

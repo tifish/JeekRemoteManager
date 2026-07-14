@@ -57,6 +57,16 @@ public partial class App : Application
             MasterKeyService.Current = master;
             store.SetRoot(settings.ResolveConnectionsRoot());
 
+            // Enforce the recycle-bin retention even when the user does not open an AI panel.
+            try
+            {
+                new AiConversationStore().PurgeExpiredTrash();
+            }
+            catch (Exception ex)
+            {
+                Log.ZLogWarning(ex, $"Could not purge expired AI conversations");
+            }
+
             ApplyStoredLanguage(settings);
             ApplyStoredTheme(settings);
 

@@ -182,6 +182,11 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             OnPropertyChanged(nameof(HasConversationHistory));
             ShowConversationHistoryCommand.NotifyCanExecuteChanged();
         };
+        TrashedConversationHistory.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasConversationHistory));
+            ShowConversationHistoryCommand.NotifyCanExecuteChanged();
+        };
         Providers = new ObservableCollection<AgentProvider>(providers);
         InitializePersistedCatalogs(providers);
 
@@ -348,7 +353,12 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
     public ObservableCollection<AiConversationSummary> ConversationHistory { get; } = new();
 
-    public bool HasConversationHistory => ConversationHistory.Count > 0;
+    public ObservableCollection<AiConversationSummary> TrashedConversationHistory { get; } = new();
+
+    public bool HasConversationHistory => ConversationHistory.Count > 0 || TrashedConversationHistory.Count > 0;
+
+    /// <summary>Recycle-bin entry count exposed for Debug MCP verification.</summary>
+    public int TrashedConversationCount => TrashedConversationHistory.Count;
 
     /// <summary>Machine-local history directory, exposed for Debug MCP verification.</summary>
     public string ConversationStorePath => _conversationStore.RootPath;
@@ -370,8 +380,8 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     /// next send; exposed for Debug MCP and smoke tests.</summary>
     public string? PendingResumeSessionId => _pendingResumeSessionId;
 
-    /// <summary>Set by the hosting view to show the history picker and return an entry id.</summary>
-    public Func<IReadOnlyList<AiConversationSummary>, Task<string?>>? ConversationHistoryInteraction { get; set; }
+    /// <summary>Set by the hosting view to show and manage the history/recycle-bin dialog.</summary>
+    public Func<Task>? ConversationHistoryInteraction { get; set; }
 
     public bool CanShowConversationHistory => !IsBusy && HasConversationHistory;
 
@@ -395,9 +405,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         if (ConversationHistoryInteraction is null)
             return;
 
-        var id = await ConversationHistoryInteraction(ConversationHistory.ToArray());
-        if (!string.IsNullOrWhiteSpace(id))
-            RestoreConversation(id);
+        await ConversationHistoryInteraction();
     }
 
     /// <summary>True while the transcript contains at least one message. The view uses this
@@ -771,6 +779,74 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         ConversationHistory.Clear();
         foreach (var summary in summaries)
             ConversationHistory.Add(summary);
+
+        var trashed = _conversationStore.LoadSummaries(_conversationScopeId, deleted: true);
+        TrashedConversationHistory.Clear();
+        foreach (var summary in trashed)
+            TrashedConversationHistory.Add(summary);
+        OnPropertyChanged(nameof(TrashedConversationCount));
+    }
+
+    /// <summary>Moves an active history entry into the 30-day recycle bin.</summary>
+    public bool MoveConversationToTrash(string conversationId)
+    {
+        if (IsBusy)
+            return false;
+
+        var conversation = _conversationStore.Load(conversationId);
+        if (conversation is null
+            || conversation.DeletedAt is not null
+            || !string.Equals(conversation.ScopeId, _conversationScopeId, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var isCurrent = string.Equals(CurrentConversationId, conversationId, StringComparison.Ordinal);
+        if (isCurrent)
+            PersistCurrentConversation();
+        if (!_conversationStore.MoveToTrash(conversationId))
+            return false;
+
+        if (isCurrent)
+            ClearConversationState();
+        RefreshConversationHistory();
+        return true;
+    }
+
+    /// <summary>Returns a recycle-bin entry to normal conversation history.</summary>
+    public bool RestoreConversationFromTrash(string conversationId)
+    {
+        if (IsBusy)
+            return false;
+
+        var conversation = _conversationStore.Load(conversationId);
+        if (conversation?.DeletedAt is null
+            || !string.Equals(conversation.ScopeId, _conversationScopeId, StringComparison.OrdinalIgnoreCase)
+            || !_conversationStore.RestoreFromTrash(conversationId))
+        {
+            return false;
+        }
+
+        RefreshConversationHistory();
+        return true;
+    }
+
+    /// <summary>Permanently removes an entry that is already in the recycle bin.</summary>
+    public bool DeleteConversationPermanently(string conversationId)
+    {
+        if (IsBusy)
+            return false;
+
+        var conversation = _conversationStore.Load(conversationId);
+        if (conversation?.DeletedAt is null
+            || !string.Equals(conversation.ScopeId, _conversationScopeId, StringComparison.OrdinalIgnoreCase)
+            || !_conversationStore.DeletePermanently(conversationId))
+        {
+            return false;
+        }
+
+        RefreshConversationHistory();
+        return true;
     }
 
     /// <summary>Restores a persisted transcript and prepares the matching provider-native
@@ -783,6 +859,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
         var conversation = _conversationStore.Load(conversationId);
         if (conversation is null
+            || conversation.DeletedAt is not null
             || !string.Equals(conversation.ScopeId, _conversationScopeId, StringComparison.OrdinalIgnoreCase)
             || string.IsNullOrWhiteSpace(conversation.NativeSessionId))
         {
@@ -943,6 +1020,12 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     private void NewConversation()
     {
         PersistCurrentConversation();
+        ClearConversationState();
+        RefreshConversationHistory();
+    }
+
+    private void ClearConversationState()
+    {
         DetachAndDisposeSession();
         DiscardPendingTextDeltas();
         _currentConversation = null;
@@ -952,7 +1035,6 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         StatusText = IsAvailable ? "" : UnavailableText;
         OnPropertyChanged(nameof(CurrentConversationId));
         OnPropertyChanged(nameof(CurrentNativeSessionId));
-        RefreshConversationHistory();
     }
 
     [RelayCommand(CanExecute = nameof(CanSend))]

@@ -22,6 +22,7 @@ public sealed class AiConversation
     public string Title { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
+    public DateTimeOffset? DeletedAt { get; set; }
     public List<AiConversationMessage> Messages { get; set; } = new();
 }
 
@@ -42,13 +43,16 @@ public sealed record AiConversationSummary(
     string ConnectionLabel,
     DateTimeOffset UpdatedAt,
     int MessageCount,
-    bool CanRestore);
+    bool CanRestore,
+    DateTimeOffset? DeletedAt);
 
 /// <summary>Machine-local JSON store for AI conversation metadata and transcripts. Native
 /// CLI session files are machine-local too, so keeping the mapping under LocalAppData avoids
 /// roaming unusable session ids to another computer.</summary>
 public sealed class AiConversationStore
 {
+    public static readonly TimeSpan TrashRetention = TimeSpan.FromDays(30);
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -67,7 +71,7 @@ public sealed class AiConversationStore
 
     public string RootPath { get; }
 
-    public IReadOnlyList<AiConversationSummary> LoadSummaries(string scopeId)
+    public IReadOnlyList<AiConversationSummary> LoadSummaries(string scopeId, bool deleted = false)
     {
         lock (Gate)
         {
@@ -75,12 +79,14 @@ public sealed class AiConversationStore
             if (!Directory.Exists(RootPath))
                 return Array.Empty<AiConversationSummary>();
 
+            PurgeExpiredTrashLocked(DateTimeOffset.UtcNow);
             var result = new List<AiConversationSummary>();
             foreach (var path in Directory.EnumerateFiles(RootPath, "*.json", SearchOption.TopDirectoryOnly))
             {
                 var conversation = TryLoadPath(path);
                 if (conversation is null
-                    || !string.Equals(conversation.ScopeId, scopeId, StringComparison.OrdinalIgnoreCase))
+                    || !string.Equals(conversation.ScopeId, scopeId, StringComparison.OrdinalIgnoreCase)
+                    || (conversation.DeletedAt is not null) != deleted)
                 {
                     continue;
                 }
@@ -93,10 +99,13 @@ public sealed class AiConversationStore
                     conversation.ConnectionLabel,
                     conversation.UpdatedAt,
                     conversation.Messages.Count,
-                    !string.IsNullOrWhiteSpace(conversation.NativeSessionId)));
+                    !string.IsNullOrWhiteSpace(conversation.NativeSessionId),
+                    conversation.DeletedAt));
             }
 
-            return result.OrderByDescending(item => item.UpdatedAt).ToArray();
+            return deleted
+                ? result.OrderByDescending(item => item.DeletedAt).ToArray()
+                : result.OrderByDescending(item => item.UpdatedAt).ToArray();
         }
     }
 
@@ -129,7 +138,7 @@ public sealed class AiConversationStore
                 conversation.ScopeId = scopeId;
                 if (!string.IsNullOrWhiteSpace(connectionLabel))
                     conversation.ConnectionLabel = connectionLabel;
-                Save(conversation);
+                SaveLocked(conversation);
                 migrated++;
             }
 
@@ -157,13 +166,21 @@ public sealed class AiConversationStore
         lock (Gate)
         {
             using var lease = SharedDataFile.Acquire(RootPath);
-            Directory.CreateDirectory(RootPath);
-            var path = PathFor(conversation.Id);
-            SharedDataFile.WriteAllTextAtomic(path, JsonSerializer.Serialize(conversation, JsonOptions));
+            SaveLocked(conversation);
         }
     }
 
+    /// <summary>Soft-deletes a conversation. The record remains restorable for 30 days.</summary>
     public bool Delete(string id)
+        => MoveToTrash(id);
+
+    public bool MoveToTrash(string id)
+        => UpdateDeletedAt(id, DateTimeOffset.UtcNow, requireDeleted: false);
+
+    public bool RestoreFromTrash(string id)
+        => UpdateDeletedAt(id, deletedAt: null, requireDeleted: true);
+
+    public bool DeletePermanently(string id)
     {
         if (!IsValidId(id))
             return false;
@@ -177,6 +194,62 @@ public sealed class AiConversationStore
             File.Delete(path);
             return true;
         }
+    }
+
+    /// <summary>Removes recycle-bin records whose 30-day retention window has elapsed.</summary>
+    public int PurgeExpiredTrash(DateTimeOffset? now = null)
+    {
+        lock (Gate)
+        {
+            using var lease = SharedDataFile.Acquire(RootPath);
+            return PurgeExpiredTrashLocked(now ?? DateTimeOffset.UtcNow);
+        }
+    }
+
+    private bool UpdateDeletedAt(string id, DateTimeOffset? deletedAt, bool requireDeleted)
+    {
+        if (!IsValidId(id))
+            return false;
+
+        lock (Gate)
+        {
+            using var lease = SharedDataFile.Acquire(RootPath);
+            var conversation = TryLoadPath(PathFor(id));
+            if (conversation is null || (conversation.DeletedAt is not null) != requireDeleted)
+                return false;
+
+            conversation.DeletedAt = deletedAt;
+            SaveLocked(conversation);
+            return true;
+        }
+    }
+
+    private int PurgeExpiredTrashLocked(DateTimeOffset now)
+    {
+        if (!Directory.Exists(RootPath))
+            return 0;
+
+        var cutoff = now - TrashRetention;
+        var deleted = 0;
+        foreach (var path in Directory.EnumerateFiles(RootPath, "*.json", SearchOption.TopDirectoryOnly))
+        {
+            var conversation = TryLoadPath(path);
+            if (conversation?.DeletedAt is not { } deletedAt || deletedAt > cutoff)
+                continue;
+
+            File.Delete(path);
+            deleted++;
+        }
+
+        return deleted;
+    }
+
+    private void SaveLocked(AiConversation conversation)
+    {
+        Directory.CreateDirectory(RootPath);
+        SharedDataFile.WriteAllTextAtomic(
+            PathFor(conversation.Id),
+            JsonSerializer.Serialize(conversation, JsonOptions));
     }
 
     private AiConversation? TryLoadPath(string path)
