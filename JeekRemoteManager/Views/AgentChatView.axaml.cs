@@ -57,6 +57,18 @@ public partial class AgentChatView : UserControl
     /// Public so Debug MCP can verify the rendered control type.</summary>
     public int EnsureSelectableCodeBlocks() => EnsureSelectableCodeBlocks(MessagesList);
 
+    /// <summary>Adds an assistant message to the live transcript for Debug MCP
+    /// rendering checks without starting an external agent session.</summary>
+    public ChatMessageViewModel AddDebugAssistantMessage(string markdown)
+    {
+        if (DataContext is not AgentChatViewModel vm)
+            throw new InvalidOperationException("The AI panel is not initialized.");
+
+        var message = new ChatMessageViewModel(ChatRole.Assistant, markdown);
+        vm.Messages.Add(message);
+        return message;
+    }
+
     private static int EnsureSelectableCodeBlocks(Visual root)
     {
         var replaced = 0;

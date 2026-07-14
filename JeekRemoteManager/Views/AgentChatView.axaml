@@ -404,7 +404,7 @@
                                                        Foreground="{DynamicResource TextMutedBrush}" />
                                         </StackPanel>
 
-                                        <md:MarkdownScrollViewer Markdown="{Binding Text}"
+                                        <md:MarkdownScrollViewer Markdown="{Binding RenderedMarkdown}"
                                                                  IsVisible="{Binding ShowsAssistantMarkdown}"
                                                                  LayoutUpdated="OnMarkdownLayoutUpdated"
                                                                  SelectionEnabled="True">
