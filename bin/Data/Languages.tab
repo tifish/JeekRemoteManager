@@ -238,6 +238,12 @@ AiSteerFailed	Could not steer the current work: {0}	无法插入当前工作：{
 AiStop	Stop	停止
 AiStopHint	Stop the assistant and cancel the running command.	停止助手并取消正在执行的命令。
 AiStopped	Stopped.	已停止。
+TerminalForceInterruptHint	Force interrupt the running terminal command and restore shell input.	强制中断正在运行的终端命令并恢复 Shell 输入。
+TerminalReconnectHint	Reconnect this terminal with a fresh channel.	使用新通道重新连接此终端。
+TerminalForceInterruptConfirmTitle	Force interrupt terminal	强制中断终端
+TerminalForceInterruptConfirmPrompt	Force interrupt the running terminal command and restore shell input?	强制中断正在运行的终端命令并恢复 Shell 输入吗？
+TerminalReconnectConfirmTitle	Reconnect terminal	重新连接终端
+TerminalReconnectConfirmPrompt	Reconnect this terminal with a new SSH channel? Any running command will be interrupted.	使用新的 SSH 通道重新连接此终端吗？正在运行的命令将被中断。
 AiNewConversation	New conversation	新对话
 AiNewConversationHint	Start a new conversation with empty context (Ctrl+N).	从空上下文开始新对话 (Ctrl+N)。
 AiConversationHistoryTitle	Conversation history	历史对话

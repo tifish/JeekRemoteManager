@@ -19,12 +19,27 @@ namespace JeekRemoteManager.ViewModels;
 public sealed record AgentOption(string Label, string? Value);
 
 /// <summary>
-/// One file transfer requested by the assistant via a ```upload / ```download fenced block.
+/// One file transfer requested through the canonical file.upload or file.download tool.
 /// Upload: <paramref name="Sources"/> are local Windows files, <paramref name="Destination"/>
 /// is a remote directory (null = the shell's current directory). Download: sources are remote
 /// files, destination is a local directory (null = the user's Downloads folder).
 /// </summary>
 public sealed record AgentFileTransfer(bool IsUpload, IReadOnlyList<string> Sources, string? Destination);
+
+/// <summary>Terminal recovery operations the assistant can request explicitly.</summary>
+public enum AgentTerminalAction
+{
+    ForceInterrupt,
+    Reconnect,
+}
+
+/// <summary>One normalized JeekRemoteManager tool request parsed from an assistant response.</summary>
+public sealed record AgentToolRequest(
+    string Name,
+    string? Command = null,
+    bool Dangerous = false,
+    AgentFileTransfer? Transfer = null,
+    AgentTerminalAction? TerminalAction = null);
 
 /// <summary>
 /// One selectable AI backend (Claude / Codex / Grok): its display label, the model/effort
@@ -51,8 +66,8 @@ public sealed record AgentProvider(
 /// <summary>
 /// Drives one AI chat conversation scoped to a single terminal tab. Two channels:
 /// local agent tools (Claude/Codex/Grok CLI) run on the host; remote work uses an autonomous
-/// command loop — each time the assistant emits a fenced shell block, the harness executes
-/// it on the connected server (via <c>runCaptured</c>), feeds the output back, and continues.
+/// command loop: each time the assistant emits a canonical jrm-tool request, the harness
+/// executes it, feeds the result back, and continues.
 /// Model and reasoning effort are chosen up front and become CLI flags when the session
 /// process starts; changing them starts a fresh session.
 /// </summary>
@@ -60,17 +75,10 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 {
     private const int StreamRenderIntervalMilliseconds = 50;
 
-    // Only blocks explicitly tagged as shell are executable; plain ``` blocks (quotes,
-    // translations, sample output) must never reach the server. A "-danger" suffix is the
-    // model self-reporting a destructive command; it forces the confirmation flow.
-    private static readonly Regex FencedBlock = new(
-        "```(?:bash|sh|shell)(?<danger>-danger)?[ \\t]*\\n(?<body>.*?)```",
-        RegexOptions.Singleline | RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
-    // ```upload / ```download blocks request a ZMODEM file transfer through the terminal;
-    // each body line is "SOURCE -> DESTINATION" (destination optional).
-    private static readonly Regex TransferBlock = new(
-        "```(upload|download)[ \\t]*\\n(.*?)```",
+    // Canonical tool protocol: one ```jrm-tool block whose first line is a namespaced
+    // tool name and whose remaining lines are that tool's payload.
+    private static readonly Regex UnifiedToolBlock = new(
+        "```jrm-tool[ \\t]*\\n(?<body>.*?)```",
         RegexOptions.Singleline | RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     // Agent CLIs do not expose one shared structured authentication error. Keep this list
@@ -103,6 +111,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     private readonly Func<string?> _takeSelection;
     private readonly Func<string, CancellationToken, Task<string>>? _runCaptured;
     private readonly Func<AgentFileTransfer, CancellationToken, Task<string>>? _transferFiles;
+    private readonly Func<AgentTerminalAction, CancellationToken, Task<string>>? _runTerminalAction;
     private readonly CancellationTokenSource _cts = new();
     private readonly DispatcherTimer _thinkingTimer = new() { Interval = TimeSpan.FromMilliseconds(450) };
     private readonly object _streamDeltaGate = new();
@@ -148,6 +157,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         Func<AgentFileTransfer, CancellationToken, Task<string>>? transferFiles = null,
         AiPanelOptions? initialOptions = null,
         Action<AiPanelOptions>? persistOptions = null,
+        Func<AgentTerminalAction, CancellationToken, Task<string>>? runTerminalAction = null,
         AiConversationStore? conversationStore = null,
         string? conversationScopeId = null,
         string? connectionLabel = null,
@@ -156,6 +166,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         _takeSelection = takeSelection;
         _runCaptured = runCaptured;
         _transferFiles = transferFiles;
+        _runTerminalAction = runTerminalAction;
         _persistOptions = persistOptions;
         _conversationStore = conversationStore ?? new AiConversationStore();
         _conversationScopeId = string.IsNullOrWhiteSpace(conversationScopeId) ? "default" : conversationScopeId;
@@ -1291,22 +1302,29 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
                 ? L("AiTurnCost", result.OutputTokens, result.CostUsd)
                 : L("AiTurnTokens", result.OutputTokens);
 
-        var (command, dangerTagged, transfer) = AutoRun && !result.IsError
-            ? ExtractFirstAction(answer)
-            : (null, false, (AgentFileTransfer?)null);
-        if (transfer is not null && _transferFiles is not null)
+        var toolRequest = AutoRun && !result.IsError
+            ? ExtractFirstToolRequest(answer)
+            : null;
+        if (toolRequest?.TerminalAction is { } terminalAction && _runTerminalAction is not null)
+        {
+            // Keep IsBusy true across the recovery and the model's follow-up turn.
+            _ = RunTerminalActionAndContinueAsync(terminalAction);
+            return;
+        }
+
+        if (toolRequest?.Transfer is { } transfer && _transferFiles is not null)
         {
             // Keep IsBusy true across the whole auto loop.
             _ = TransferAndContinueAsync(transfer);
             return;
         }
 
-        if (command is not null && _runCaptured is not null)
+        if (toolRequest?.Command is { } command && _runCaptured is not null)
         {
             // Two independent danger signals: the model self-tagged the block, or the local
             // blacklist matched. Either one pauses the loop unless the user opted into
             // automatically approving potentially destructive commands.
-            if (RequiresDangerConfirmation(command, dangerTagged))
+            if (RequiresDangerConfirmation(command, toolRequest.Dangerous))
             {
                 AskDangerConfirmation(command);
                 return;
@@ -1516,6 +1534,48 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         await SendToSessionAsync($"Result of the {label}:\n```\n{outcome}\n```");
     }
 
+    private async Task RunTerminalActionAndContinueAsync(AgentTerminalAction action)
+    {
+        var actionName = action == AgentTerminalAction.ForceInterrupt ? "interrupt" : "reconnect";
+        Messages.Add(new ChatMessageViewModel(ChatRole.Tool, $"[terminal action] {actionName}"));
+        BeginActivityPlaceholder(ActivityKind.Running);
+
+        string outcome;
+        var turnToken = _turnCts?.Token ?? _cts.Token;
+        try
+        {
+            outcome = await _runTerminalAction!(action, turnToken);
+        }
+        catch (OperationCanceledException)
+        {
+            outcome = "[terminal action cancelled]";
+        }
+        catch (Exception ex)
+        {
+            outcome = $"[terminal action failed: {ex.Message}]";
+        }
+
+        if (turnToken.IsCancellationRequested || _cts.IsCancellationRequested)
+            return;
+
+        ClearActivityPlaceholder();
+        Messages.Add(new ChatMessageViewModel(ChatRole.Tool, outcome));
+        BeginActivityPlaceholder(ActivityKind.Thinking);
+        await SendToSessionAsync(
+            $"Result of terminal action `{actionName}`:\n```\n{outcome}\n```");
+    }
+
+    /// <summary>Runs the same terminal recovery delegate used by jrm-tool requests. Public
+    /// so Debug MCP can verify the live AI-to-terminal route without a model call.</summary>
+    public Task<string> RunTerminalActionForDebugAsync(string action)
+    {
+        var parsed = ParseTerminalAction(action)
+            ?? throw new ArgumentException("Expected terminal action 'interrupt' or 'reconnect'.", nameof(action));
+        if (_runTerminalAction is null)
+            throw new InvalidOperationException("Terminal recovery actions are unavailable.");
+        return _runTerminalAction(parsed, CancellationToken.None);
+    }
+
     private void OnErrored(string message) => Dispatcher.UIThread.Post(() =>
     {
         // stderr can be chatty; only surface it as a system bubble when a turn is in flight.
@@ -1667,30 +1727,50 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         return label + new string('.', step + 1);
     }
 
-    /// <summary>Finds the first actionable fenced block in the answer — a shell command or
-    /// a file-transfer request, whichever the assistant emitted first. <c>Dangerous</c> is
-    /// true when the model tagged the block <c>```bash-danger</c>.</summary>
-    internal static (string? Command, bool Dangerous, AgentFileTransfer? Transfer) ExtractFirstAction(string text)
+    /// <summary>Finds the first valid canonical jrm-tool request in an assistant response.</summary>
+    public static AgentToolRequest? ExtractFirstToolRequest(string text)
     {
-        var commandMatch = FencedBlock.Match(text);
-        var transferMatch = TransferBlock.Match(text);
-
-        if (transferMatch.Success && (!commandMatch.Success || transferMatch.Index < commandMatch.Index))
+        foreach (Match match in UnifiedToolBlock.Matches(text))
         {
-            var transfer = ParseTransfer(transferMatch.Groups[1].Value, transferMatch.Groups[2].Value);
-            if (transfer is not null)
-                return (null, false, transfer);
+            if (ParseUnifiedToolRequest(match.Groups["body"].Value) is { } request)
+                return request;
         }
 
-        if (commandMatch.Success)
-        {
-            var body = commandMatch.Groups["body"].Value.Trim();
-            if (body.Length > 0)
-                return (body, commandMatch.Groups["danger"].Success, null);
-        }
-
-        return (null, false, null);
+        return null;
     }
+
+    private static AgentToolRequest? ParseUnifiedToolRequest(string body)
+    {
+        var normalized = body.Replace("\r\n", "\n").Replace('\r', '\n').Trim();
+        var newline = normalized.IndexOf('\n');
+        var name = (newline < 0 ? normalized : normalized[..newline]).Trim().ToLowerInvariant();
+        var payload = newline < 0 ? "" : normalized[(newline + 1)..].Trim();
+
+        return name switch
+        {
+            "terminal.run" when payload.Length > 0 =>
+                new AgentToolRequest(name, Command: payload),
+            "terminal.run-danger" when payload.Length > 0 =>
+                new AgentToolRequest(name, Command: payload, Dangerous: true),
+            "terminal.interrupt" when payload.Length == 0 =>
+                new AgentToolRequest(name, TerminalAction: AgentTerminalAction.ForceInterrupt),
+            "terminal.reconnect" when payload.Length == 0 =>
+                new AgentToolRequest(name, TerminalAction: AgentTerminalAction.Reconnect),
+            "file.upload" when ParseTransfer("upload", payload) is { } transfer =>
+                new AgentToolRequest(name, Transfer: transfer),
+            "file.download" when ParseTransfer("download", payload) is { } transfer =>
+                new AgentToolRequest(name, Transfer: transfer),
+            _ => null,
+        };
+    }
+
+    private static AgentTerminalAction? ParseTerminalAction(string body) =>
+        body.Trim().ToLowerInvariant() switch
+        {
+            "interrupt" or "force-interrupt" => AgentTerminalAction.ForceInterrupt,
+            "reconnect" => AgentTerminalAction.Reconnect,
+            _ => null,
+        };
 
     private static AgentFileTransfer? ParseTransfer(string kind, string body)
     {

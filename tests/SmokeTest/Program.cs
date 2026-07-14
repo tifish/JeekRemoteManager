@@ -535,6 +535,30 @@ try
           && !aiVm.RequiresDangerConfirmation("echo example", dangerTagged: true),
           "AI auto-approve bypasses local and model-tagged danger confirmation");
 
+    var runTool = AgentChatViewModel.ExtractFirstToolRequest(
+        "```jrm-tool\nterminal.run\nprintf ok\n```");
+    var dangerousRunTool = AgentChatViewModel.ExtractFirstToolRequest(
+        "```jrm-tool\nterminal.run-danger\nrm -rf /tmp/example\n```");
+    var uploadTool = AgentChatViewModel.ExtractFirstToolRequest(
+        "```jrm-tool\nfile.upload\nC:\\\\Temp\\\\a.txt -> /tmp\n```");
+    var interruptTool = AgentChatViewModel.ExtractFirstToolRequest(
+        "Recover the shell.\n```jrm-tool\nterminal.interrupt\n```");
+    var reconnectTool = AgentChatViewModel.ExtractFirstToolRequest(
+        "```jrm-tool\nterminal.reconnect\n```");
+    var invalidThenValidTool = AgentChatViewModel.ExtractFirstToolRequest(
+        "```jrm-tool\nterminal.reset\n```\n```jrm-tool\nterminal.run\necho fallback\n```");
+    var legacyTool = AgentChatViewModel.ExtractFirstToolRequest(
+        "```bash\necho legacy\n```\n```terminal-action\nreconnect\n```");
+    Check(runTool is { Name: "terminal.run", Command: "printf ok", Dangerous: false }
+          && dangerousRunTool is { Name: "terminal.run-danger", Dangerous: true }
+          && uploadTool is { Name: "file.upload", Transfer.IsUpload: true }
+          && interruptTool?.TerminalAction == AgentTerminalAction.ForceInterrupt
+          && reconnectTool?.TerminalAction == AgentTerminalAction.Reconnect,
+          "AI jrm-tool protocol normalizes command, file, interrupt, and reconnect tools");
+    Check(invalidThenValidTool is { Name: "terminal.run", Command: "echo fallback" }
+          && legacyTool is null,
+          "AI skips invalid jrm-tool blocks and rejects every legacy tool format");
+
     var isCodexTracingLine = typeof(CodexChatSession)
         .GetMethod("IsTracingLine", BindingFlags.Static | BindingFlags.NonPublic)!;
     var structuredCodexWarning = "{\"timestamp\":\"2026-07-14T04:50:34.336651Z\",\"level\":\"WARN\",\"fields\":{\"message\":\"ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\"},\"target\":\"codex_core_skills::loader\"}";
@@ -1884,6 +1908,55 @@ try
           && !Encoding.UTF8.GetString(partialExitVisible).Contains(interactivePayload.ExitMarkerPrefix, StringComparison.Ordinal)
           && Encoding.UTF8.GetString(finalExitVisible).Length == 0,
           "Interactive shell monitor waits for a full exit marker line before completing and hides the following stale prompt");
+
+    var interruptedPayload = InteractiveShellPayloadRunner.Build("sleep 30", "INTERRUPTTOKEN");
+    var interruptedMonitor = new InteractiveShellPayloadMonitor(interruptedPayload);
+    interruptedMonitor.Append(Encoding.UTF8.GetBytes(
+        interruptedPayload.ReadyMarker + "\n" + interruptedPayload.BeginMarker + "\n"));
+    var interruptedWait = interruptedMonitor.WaitForExitAsync(CancellationToken.None);
+    interruptedMonitor.Fail(new OperationCanceledException("manual recovery"));
+    var manualInterruptReleasedWait = false;
+    try
+    {
+        await interruptedWait;
+    }
+    catch (OperationCanceledException)
+    {
+        manualInterruptReleasedWait = true;
+    }
+    Check(manualInterruptReleasedWait,
+          "Manual terminal recovery releases the active payload wait without a shell response");
+
+    var repeatedCommandsCompleted = true;
+    for (var iteration = 0; iteration < 100; iteration++)
+    {
+        var token = $"REPEAT{iteration}";
+        var repeatedPayload = InteractiveShellPayloadRunner.Build("printf ok", token);
+        var repeatedMonitor = new InteractiveShellPayloadMonitor(repeatedPayload);
+        try
+        {
+            var repeatedResult = await InteractiveShellPayloadRunner.RunAsync(
+                repeatedPayload,
+                repeatedMonitor,
+                text =>
+                {
+                    var response = text == repeatedPayload.PrepareCommand
+                        ? repeatedPayload.ReadyMarker + "\n"
+                        : repeatedPayload.BeginMarker + "\nok\n" + repeatedPayload.ExitMarkerPrefix + "0\n";
+                    repeatedMonitor.Append(Encoding.UTF8.GetBytes(response));
+                },
+                CancellationToken.None);
+            repeatedCommandsCompleted &= repeatedResult.ExitCode == 0;
+        }
+        catch
+        {
+            repeatedCommandsCompleted = false;
+            break;
+        }
+    }
+
+    Check(repeatedCommandsCompleted,
+          "Interactive shell runner remains usable across frequent commands without an automatic command-completion timeout");
     var terminalPublicKeyPayload = PublicKeyInstaller.BuildTerminalPayload("ssh-ed25519 AAAATEST test");
     Check(terminalPublicKeyPayload.Contains(PublicKeyInstaller.TerminalAlreadyPresentLine)
           && terminalPublicKeyPayload.Contains(PublicKeyInstaller.TerminalAddedLine)

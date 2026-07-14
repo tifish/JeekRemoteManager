@@ -55,6 +55,7 @@ public partial class TerminalView : UserControl
     private readonly object _zmodemDetectionGate = new();
     private readonly ZmodemTriggerDetector _zmodemDetector = new();
     private InteractiveShellPayloadMonitor? _activePayloadMonitor;
+    private InteractiveShellPayloadMonitor? _manualRecoveryMonitor;
     private Timer? _zmodemDetectionFlushTimer;
     private ZmodemByteQueue? _activeZmodemQueue;
     private ZmodemTraceLog? _activeZmodemTrace;
@@ -92,6 +93,10 @@ public partial class TerminalView : UserControl
     private double _monitorPanelWidth = 260;
     private MainWindowViewModel? _customProvidersOwner;
     private Action? _customProvidersChangedHandler;
+    private int _isAiCommandRunning;
+    private long _aiCommandExecutionCount;
+    private long _aiCommandCompletionCount;
+    private long _terminalRecoveryCount;
     private volatile bool _disposed;
 
     // The monitor panel, terminal, and AI panel live in grid columns 0, 2, and 4; named
@@ -104,6 +109,9 @@ public partial class TerminalView : UserControl
     private RowDefinition FileBrowserRow => RootGrid.RowDefinitions[2];
 
     private sealed record RemotePayloadResult(int ExitCode, string Output);
+
+    private sealed class ShellRecoveryRequestedException(string message)
+        : OperationCanceledException(message);
 
     // Strips ANSI escape sequences (CSI colors/cursor, OSC titles, other Fe escapes) and
     // stray control characters so captured shell output reads as plain text in the AI panel
@@ -132,6 +140,26 @@ public partial class TerminalView : UserControl
     public string? SourcePath => _sourcePath;
 
     public bool CanReuseSession => !_disposed && (_connectInProgress || IsConnected);
+
+    /// <summary>Live AI shell-runner state exposed for Debug MCP verification.</summary>
+    public bool IsAiCommandRunning => Volatile.Read(ref _isAiCommandRunning) != 0;
+
+    /// <summary>True while any captured terminal payload owns the interactive shell.</summary>
+    public bool IsTerminalCommandRunning => Volatile.Read(ref _activePayloadMonitor) is not null;
+
+    public bool IsCommandLockAvailable => _scriptLock.CurrentCount > 0;
+
+    public bool IsUserInputSuppressed => _suppressUserInput;
+
+    public bool IsTerminalConnected => IsConnected;
+
+    public int ConnectionGeneration => Volatile.Read(ref _connectionGeneration);
+
+    public long AiCommandExecutionCount => Interlocked.Read(ref _aiCommandExecutionCount);
+
+    public long AiCommandCompletionCount => Interlocked.Read(ref _aiCommandCompletionCount);
+
+    public long TerminalRecoveryCount => Interlocked.Read(ref _terminalRecoveryCount);
 
     private bool IsConnected =>
         _channel is not null
@@ -783,6 +811,7 @@ public partial class TerminalView : UserControl
                 if (DataContext is MainWindowViewModel mainVm)
                     mainVm.AiPanelOptions = options;
             },
+            runTerminalAction: RunAiTerminalActionAsync,
             conversationScopeId: BuildAiConversationScopeId(),
             connectionLabel: BuildAiConversationLabel(),
             legacyConversationScopeIds: [BuildLegacyAiConversationScopeId()]);
@@ -885,17 +914,15 @@ public partial class TerminalView : UserControl
         var terminalKind = _connection?.IsWsl == true ? "WSL" : "SSH";
 
         // WSL shares the Windows filesystem, so plain cp beats any transfer protocol there;
-        // SSH connections get the ZMODEM upload/download blocks (they work through jump
-        // hosts because they ride the established terminal session).
+        // SSH connections get the canonical file.upload/file.download tools.
         var transferInstructions = _connection?.IsWsl == true
             ? "To move files between Windows and the distro, just cp them: Windows drives are " +
               "mounted inside the distro under /mnt (C:\\Users is /mnt/c/Users). "
-            : "To transfer files between the user's local Windows machine and the server, output " +
-              "exactly ONE fenced block tagged upload or download (instead of a bash block), with " +
-              "one `SOURCE -> DESTINATION` line per file. upload: SOURCE is a local Windows file " +
-              "path, DESTINATION is a remote directory (optional; defaults to the shell's current " +
-              "directory, created if missing). download: SOURCE is a remote file path, DESTINATION " +
-              "is a local Windows directory (optional; defaults to the user's Downloads folder). " +
+            : "The `file.upload` and `file.download` tools accept one `SOURCE -> DESTINATION` " +
+              "line per file. For file.upload, SOURCE is a local Windows file path and DESTINATION " +
+              "is a remote directory (optional; defaults to the shell's current directory, created " +
+              "if missing). For file.download, SOURCE is a remote file path and DESTINATION is a " +
+              "local Windows directory (optional; defaults to the user's Downloads folder). " +
               "All lines in one block share the first destination. The transfer runs through the " +
               "terminal via ZMODEM (requires lrzsz on the server) and its result is returned to " +
               "you like command output. ";
@@ -903,27 +930,30 @@ public partial class TerminalView : UserControl
         return
             $"You are an assistant embedded inside JeekRemoteManager, operating an interactive {terminalKind} " +
             $"terminal connected to {target}. " +
-            "To run a shell command on the server, output exactly ONE ```bash fenced code block " +
-            "containing a single non-interactive command (or short script). It will be executed on the " +
-            "server automatically, WITHOUT asking the user, and its output returned to you as the next " +
-            "message. Run one command at a time and wait for its output before deciding the next step. " +
-            "When the task is done, reply with a short summary and NO command block. " +
-            "Only ```bash blocks are executed; for any text that is not a command to run " +
-            "(translations, quotes, examples, file contents), use plain prose or a plain ``` block " +
-            "without a language tag. " +
+            "JeekRemoteManager exposes one canonical app-tool protocol. To call a tool, output exactly " +
+            "ONE fenced block tagged `jrm-tool`. The first line inside the block is the tool name; all " +
+            "remaining lines are its payload. Available tools: `terminal.run` runs a non-interactive " +
+            "remote command or short script; `terminal.run-danger` does the same but asks the user to " +
+            "confirm destructive or hard-to-reverse work; `terminal.interrupt` stops the current terminal " +
+            "command and restores shell input; `terminal.reconnect` rebuilds the SSH channel. " +
+            "Use exactly one tool per response and wait for its returned result before deciding the next " +
+            "step. When the task is done, reply with a short summary and no tool block. Text that is not " +
+            "a tool call must be plain prose or a plain fenced block without a language tag. " +
             "Your own built-in tools (shell, file access, etc.), if you have any, run on the user's " +
             "LOCAL Windows machine where JeekRemoteManager runs — NOT on the server. Use them for " +
             "local-side work (e.g. reading or writing local files, or transferring files between the " +
-            "local machine and the server); use the ```bash block for everything that must run on the " +
+            "local machine and the server); use `terminal.run` for everything that must run on the " +
             "server. Never mix the two up. " +
             transferInstructions +
-            "Commands run without confirmation, so avoid destructive actions unless explicitly asked, and " +
+            "For recovery, use `terminal.interrupt` first. Use `terminal.reconnect` only when interrupt " +
+            "did not restore a usable shell or the SSH channel is unhealthy. Recovery tools run without " +
+            "user confirmation and their result is returned to you. " +
+            "`terminal.run` executes without confirmation, so avoid destructive actions unless explicitly asked, and " +
             "prefer non-interactive flags (e.g. `-y`). " +
-            "SAFETY: if a command is destructive or hard to reverse (deleting or overwriting files or " +
-            "directories, dropping databases or tables, formatting or repartitioning disks, force-pushing, " +
-            "removing volumes or containers with data), tag its block ```bash-danger instead of ```bash — " +
-            "the user is then asked to confirm before it runs. Never present a destructive command as a " +
-            "plain ```bash block. Assume a Linux server unless told otherwise.";
+            "SAFETY: use `terminal.run-danger` instead of `terminal.run` for deleting or overwriting files " +
+            "or directories, dropping databases or tables, formatting or repartitioning disks, " +
+            "force-pushing, or removing volumes or containers with data. The user is then asked to " +
+            "confirm before it runs. Assume a Linux server unless told otherwise.";
     }
 
     /// <summary>
@@ -947,10 +977,15 @@ public partial class TerminalView : UserControl
         }
 
         await _scriptLock.WaitAsync(cancellationToken);
+        var commandStarted = false;
         try
         {
             if (_disposed || _shellClosed || _channel is null)
                 return "[not connected]";
+
+            Interlocked.Exchange(ref _isAiCommandRunning, 1);
+            Interlocked.Increment(ref _aiCommandExecutionCount);
+            commandStarted = true;
 
             Dispatcher.UIThread.Post(() =>
                 FeedLine($"\r\n\u001b[35m[AI]\u001b[0m $ {AiCommandTerminalText.NormalizeForTerminalEcho(command)}"));
@@ -960,6 +995,7 @@ public partial class TerminalView : UserControl
                 $"\u001b[35m[AI exit {result.ExitCode}]\u001b[0m");
 
             var output = CleanShellOutput(result.Output ?? string.Empty).Trim();
+            Interlocked.Increment(ref _aiCommandCompletionCount);
             return $"[exit {result.ExitCode}]\n{output}";
         }
         catch (OperationCanceledException)
@@ -972,7 +1008,44 @@ public partial class TerminalView : UserControl
         }
         finally
         {
+            if (commandStarted)
+                Interlocked.Exchange(ref _isAiCommandRunning, 0);
             _scriptLock.Release();
+        }
+    }
+
+    /// <summary>Runs a captured terminal command for live Debug MCP verification.</summary>
+    public Task<string> RunTerminalCommandForDebugAsync(string command) =>
+        RunCapturedAsync(command, CancellationToken.None);
+
+    private async Task<string> RunAiTerminalActionAsync(
+        AgentTerminalAction action,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (action == AgentTerminalAction.ForceInterrupt)
+        {
+            var hadActiveCommand = IsTerminalCommandRunning;
+            ForceInterruptTerminalCommand();
+            return hadActiveCommand
+                ? "[terminal command interrupted; shell input recovery requested]"
+                : "[interrupt sent; no captured terminal command was active]";
+        }
+
+        var generation = ConnectionGeneration;
+        ReconnectTerminal();
+        if (ConnectionGeneration == generation)
+            return "[terminal reconnect was not started]";
+
+        try
+        {
+            await WaitUntilConnectedAsync(cancellationToken);
+            return "[terminal reconnected]";
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return $"[terminal reconnect failed: {ex.Message}]";
         }
     }
 
@@ -1165,6 +1238,52 @@ public partial class TerminalView : UserControl
         // transport is still up, reopen a channel on it instead of redialing;
         // ConnectAsync falls back to a fresh connection if that fails.
         _pendingSharedClient = _client is { IsConnected: true } live && live.TryAddRef() ? live : null;
+        DisposeTransport();
+
+        FeedLine("\r\n\u001b[36m[reconnect]\u001b[0m");
+        BeginConnectionAttempt();
+    }
+
+    /// <summary>Manually aborts the active terminal payload and restores an interactive
+    /// prompt. Public so the terminal-level recovery can be verified through Debug MCP.</summary>
+    public void ForceInterruptTerminalCommand()
+    {
+        Interlocked.Increment(ref _terminalRecoveryCount);
+        var monitor = Volatile.Read(ref _activePayloadMonitor);
+        if (monitor is not null)
+        {
+            Volatile.Write(ref _manualRecoveryMonitor, monitor);
+            monitor.Fail(new ShellRecoveryRequestedException(
+                "Terminal command was forcefully interrupted by the user."));
+        }
+
+        // Restore local keyboard routing immediately; do not wait for the background
+        // command task to unwind before the user can type in the terminal again.
+        _suppressUserInput = false;
+
+        // Never make releasing the command lock depend on a possibly wedged shell write.
+        // The monitor failure above unwinds RunCapturedAsync first; recovery bytes are
+        // best-effort on a worker and target only the channel that was current at the click.
+        RecoverShellInputInBackground(_channel);
+        FocusTerminal();
+    }
+
+    /// <summary>Manually replaces the current terminal channel with a fresh connection.
+    /// Unlike Enter-to-reconnect, this is available even while the old channel appears live.</summary>
+    public void ReconnectTerminal()
+    {
+        if (_connection is null || _disposed || _connectInProgress)
+            return;
+
+        var monitor = Volatile.Read(ref _activePayloadMonitor);
+        if (monitor is not null)
+        {
+            Volatile.Write(ref _manualRecoveryMonitor, monitor);
+            monitor.Fail(new ShellRecoveryRequestedException("Terminal is reconnecting."));
+        }
+        _activePayloadMonitor = null;
+        _suppressUserInput = false;
+        Interlocked.Increment(ref _connectionGeneration);
         DisposeTransport();
 
         FeedLine("\r\n\u001b[36m[reconnect]\u001b[0m");
@@ -1772,19 +1891,20 @@ public partial class TerminalView : UserControl
                 cancellationToken).ConfigureAwait(false);
             return new RemotePayloadResult(result.ExitCode, result.Output);
         }
+        catch (ShellRecoveryRequestedException)
+        {
+            // Manual recovery already interrupted/restored or replaced the shell.
+            throw;
+        }
         catch (OperationCanceledException)
         {
             // Cancelled (e.g. the AI panel's Stop button): the remote command is still
             // running in the shell — Ctrl+C it before restoring echo.
-            try
+            if (!ReferenceEquals(Volatile.Read(ref _manualRecoveryMonitor), monitor))
             {
-                WriteToShell("");
+                TryInterruptRemoteCommand();
+                TryRestoreShellEcho();
             }
-            catch
-            {
-                // Best-effort; the shell may already be closed.
-            }
-            TryRestoreShellEcho();
             throw;
         }
         catch
@@ -1796,6 +1916,7 @@ public partial class TerminalView : UserControl
         {
             if (ReferenceEquals(_activePayloadMonitor, monitor))
                 _activePayloadMonitor = null;
+            Interlocked.CompareExchange(ref _manualRecoveryMonitor, null, monitor);
             _suppressUserInput = false;
         }
     }
@@ -2099,6 +2220,50 @@ public partial class TerminalView : UserControl
         {
             // Best-effort only; the shell may already be closed.
         }
+    }
+
+    private void TryInterruptRemoteCommand()
+    {
+        try
+        {
+            WriteToShell("\u0003");
+        }
+        catch
+        {
+            // Best-effort only; the shell may already be closed.
+        }
+    }
+
+    private void RecoverShellInputInBackground(ITerminalChannel? channel)
+    {
+        if (channel is null || _disposed)
+            return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                lock (_shellWriteGate)
+                {
+                    channel.Write([0x03]);
+                }
+
+                // ISIG normally flushes input queued after Ctrl+C. Sending the restore
+                // command in the same SSH/ConPTY packet can therefore discard it too.
+                await Task.Delay(200).ConfigureAwait(false);
+
+                var restoreCommand = InteractiveShellPayloadRunner.RestoreEchoCommand.TrimEnd('\n')
+                    + "; printf '\\033[?25h'\r";
+                lock (_shellWriteGate)
+                {
+                    channel.Write(Encoding.UTF8.GetBytes(restoreCommand));
+                }
+            }
+            catch
+            {
+                // Best-effort only; reconnect may already have disposed this channel.
+            }
+        });
     }
 
     private async Task FeedCompletionLineAndRefreshPromptAsync(string text)

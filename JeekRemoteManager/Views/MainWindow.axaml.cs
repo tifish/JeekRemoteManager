@@ -1092,6 +1092,54 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    private async void OnForceInterruptTerminalToolbarClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        await RequestForceInterruptTerminalAsync();
+    }
+
+    private async void OnReconnectTerminalToolbarClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        await RequestReconnectTerminalAsync();
+    }
+
+    /// <summary>Confirms and force-interrupts the active terminal. Public for Debug MCP.</summary>
+    public async Task<bool> RequestForceInterruptTerminalAsync()
+    {
+        if (RightTabs.SelectedItem is not TabItem { Content: TerminalView view })
+            return false;
+
+        if (!await ConfirmAsync(
+                Localizer.Get("TerminalForceInterruptConfirmTitle"),
+                Localizer.Get("TerminalForceInterruptConfirmPrompt")))
+        {
+            view.FocusTerminal();
+            return false;
+        }
+
+        view.ForceInterruptTerminalCommand();
+        return true;
+    }
+
+    /// <summary>Confirms and reconnects the active terminal. Public for Debug MCP.</summary>
+    public async Task<bool> RequestReconnectTerminalAsync()
+    {
+        if (RightTabs.SelectedItem is not TabItem { Content: TerminalView view })
+            return false;
+
+        if (!await ConfirmAsync(
+                Localizer.Get("TerminalReconnectConfirmTitle"),
+                Localizer.Get("TerminalReconnectConfirmPrompt")))
+        {
+            view.FocusTerminal();
+            return false;
+        }
+
+        view.ReconnectTerminal();
+        return true;
+    }
+
     private void OnMonitorToolbarClick(object? sender, RoutedEventArgs e)
     {
         if (RightTabs.SelectedItem is TabItem { Content: TerminalView view })
@@ -2087,8 +2135,20 @@ public partial class MainWindow : Window
     {
         var tcs = new TaskCompletionSource<bool>();
 
-        var yes = new Button { Content = Localizer.Get("DialogYes"), MinWidth = 80, IsDefault = true };
-        var no = new Button { Content = Localizer.Get("DialogNo"), MinWidth = 80, IsCancel = true };
+        var yes = new Button
+        {
+            Name = "ConfirmYesButton",
+            Content = Localizer.Get("DialogYes"),
+            MinWidth = 80,
+            IsDefault = true,
+        };
+        var no = new Button
+        {
+            Name = "ConfirmNoButton",
+            Content = Localizer.Get("DialogNo"),
+            MinWidth = 80,
+            IsCancel = true,
+        };
 
         var dialog = new Window
         {

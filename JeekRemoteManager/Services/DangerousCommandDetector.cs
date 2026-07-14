@@ -6,7 +6,7 @@ namespace JeekRemoteManager.Services;
 /// Local safety net for the AI panel's auto-run loop: flags commands whose typical shapes
 /// can mass-delete or irreversibly overwrite data, so the UI asks the user to confirm first.
 /// This is a heuristic blacklist, not a sandbox — the model is additionally instructed to
-/// self-tag destructive commands (```bash-danger), and either signal triggers confirmation.
+/// use the terminal.run-danger tool, and either signal triggers confirmation.
 /// </summary>
 public static class DangerousCommandDetector
 {

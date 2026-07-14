@@ -630,6 +630,26 @@
                             <TextBlock Classes="toolbar-label" Text="{l:Localize FileBrowserShort}" />
                         </StackPanel>
                     </Button>
+                    <Button x:Name="ForceInterruptToolbarButton"
+                            Click="OnForceInterruptTerminalToolbarClick"
+                            ToolTip.Tip="{l:Localize TerminalForceInterruptHint}"
+                            IsVisible="{Binding IsTerminalActive}"
+                            Classes="toolbar icon-button">
+                        <TextBlock Classes="toolbar-action-icon"
+                                   Text="&#xE71A;"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center" />
+                    </Button>
+                    <Button x:Name="ReconnectToolbarButton"
+                            Click="OnReconnectTerminalToolbarClick"
+                            ToolTip.Tip="{l:Localize TerminalReconnectHint}"
+                            IsVisible="{Binding IsTerminalActive}"
+                            Classes="toolbar icon-button">
+                        <TextBlock Classes="toolbar-action-icon connect"
+                                   Text="&#xE72C;"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center" />
+                    </Button>
                     <Button Click="OnCopyPublicKeyTerminalToolbarClick"
                             ToolTip.Tip="{l:Localize CopyPublicKeyToServerTooltip}"
                             IsVisible="{Binding IsTerminalActive}"
