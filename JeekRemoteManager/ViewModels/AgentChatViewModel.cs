@@ -134,6 +134,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         _transferFiles = transferFiles;
         _persistOptions = persistOptions;
         _thinkingTimer.Tick += OnThinkingTimerTick;
+        Messages.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasMessages));
         Providers = new ObservableCollection<AgentProvider>(providers);
 
         var provider = providers.FirstOrDefault(p => p.Label == initialOptions?.Provider && p.IsAvailable)
@@ -262,6 +263,10 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     }
 
     public ObservableCollection<ChatMessageViewModel> Messages { get; } = new();
+
+    /// <summary>True while the transcript contains at least one message. The view uses this
+    /// to swap the empty-conversation welcome state for the live transcript.</summary>
+    public bool HasMessages => Messages.Count > 0;
 
     public ObservableCollection<AgentProvider> Providers { get; }
 

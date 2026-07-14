@@ -100,7 +100,7 @@ public partial class TerminalView : UserControl
     private ColumnDefinition AiColumn => RootGrid.ColumnDefinitions[4];
 
     // The file browser lives in row 2 of the terminal-area grid.
-    private RowDefinition FileBrowserRow => TerminalArea.RowDefinitions[2];
+    private RowDefinition FileBrowserRow => RootGrid.RowDefinitions[2];
 
     private sealed record RemotePayloadResult(int ExitCode, string Output);
 
@@ -386,6 +386,7 @@ public partial class TerminalView : UserControl
 
         FileBrowserHost.IsVisible = show;
         FileSplitter.IsVisible = show;
+        ApplyFileBrowserPlacement();
         PanelStateChanged?.Invoke(this, EventArgs.Empty);
 
         if (show)
@@ -404,7 +405,10 @@ public partial class TerminalView : UserControl
             // Collapse the row so it leaves no gap.
             FileBrowserRow.MinHeight = 0;
             FileBrowserRow.Height = new GridLength(0, GridUnitType.Pixel);
-            FocusTerminal();
+            if (AiPanelHost.IsVisible && _aiViewModel?.AgentMode == true)
+                Dispatcher.UIThread.Post(() => AiPanel.FocusInput(), DispatcherPriority.Background);
+            else
+                FocusTerminal();
         }
     }
 
@@ -554,7 +558,8 @@ public partial class TerminalView : UserControl
     /// <summary>
     /// Lays out the terminal/AI columns for the current panel state. Three states: panel
     /// hidden (terminal full width), side panel (terminal + splitter + fixed-width panel),
-    /// and agent mode (terminal fully hidden, panel takes the whole tab).
+    /// and agent mode (terminal fully hidden, panel takes the whole tab above an optional
+    /// file browser).
     /// </summary>
     private void ApplyAiPanelLayout()
     {
@@ -590,6 +595,22 @@ public partial class TerminalView : UserControl
             AiColumn.MinWidth = 240;
             AiColumn.Width = new GridLength(_aiPanelWidth, GridUnitType.Pixel);
         }
+
+        ApplyFileBrowserPlacement();
+    }
+
+    /// <summary>Places the shared file-browser row below the terminal normally, or below
+    /// the AI conversation while agent mode owns the tab.</summary>
+    private void ApplyFileBrowserPlacement()
+    {
+        var agentMode = AiPanelHost.IsVisible && _aiViewModel?.AgentMode == true;
+        var column = agentMode ? 4 : 2;
+        Grid.SetColumn(FileSplitter, column);
+        Grid.SetColumn(FileBrowserHost, column);
+
+        // Outside agent mode the AI panel continues alongside both terminal rows. In
+        // agent mode it yields the remembered bottom row only while the browser is open.
+        Grid.SetRowSpan(AiPanelHost, agentMode && FileBrowserHost.IsVisible ? 1 : 3);
     }
 
     private void PersistAiPanelWidth()

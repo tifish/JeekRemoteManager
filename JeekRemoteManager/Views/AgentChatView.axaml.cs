@@ -64,7 +64,13 @@ public partial class AgentChatView : UserControl
                      .OfType<ScrollViewer>()
                      .Where(control => control.Classes.Contains("CodeBlock")))
         {
-            if (scroller.Content is not TextBlock code || code is SelectableTextBlock)
+            if (scroller.Content is SelectableTextBlock existingSelectable)
+            {
+                EnsureCodeBlockHeight(scroller, existingSelectable.Text);
+                continue;
+            }
+
+            if (scroller.Content is not TextBlock code)
                 continue;
 
             var selectable = new SelectableTextBlock
@@ -77,10 +83,20 @@ public partial class AgentChatView : UserControl
                 selectable.Classes.Add(@class);
 
             scroller.Content = selectable;
+            EnsureCodeBlockHeight(scroller, selectable.Text);
             replaced++;
         }
 
         return replaced;
+    }
+
+    private static void EnsureCodeBlockHeight(ScrollViewer scroller, string? text)
+    {
+        // Markdown.Avalonia overlays its horizontal scrollbar. The stylesheet reserves
+        // one line for it; grow the viewport for every actual code line so multiline
+        // blocks are not clipped down to their first row after becoming selectable.
+        var lineCount = string.IsNullOrEmpty(text) ? 1 : text.Count(ch => ch == '\n') + 1;
+        scroller.MinHeight = Math.Max(32, lineCount * 16 + 16);
     }
 
     private void OnMessageContextRequested(object? sender, ContextRequestedEventArgs e)

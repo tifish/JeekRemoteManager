@@ -16,9 +16,15 @@
             <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="0" MinWidth="0" />
         </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" MinHeight="120" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="0" MinHeight="0" />
+        </Grid.RowDefinitions>
 
         <Border x:Name="MonitorPanelHost"
                 Grid.Column="0"
+                Grid.RowSpan="3"
                 IsVisible="False"
                 BorderBrush="{DynamicResource BorderBrushSoft}"
                 BorderThickness="0,0,1,0">
@@ -27,42 +33,39 @@
 
         <GridSplitter x:Name="MonitorSplitter"
                       Grid.Column="1"
+                      Grid.RowSpan="3"
                       Width="5"
                       ResizeDirection="Columns"
                       ResizeBehavior="PreviousAndNext"
                       Background="Transparent"
                       IsVisible="False" />
 
-        <Grid x:Name="TerminalArea" Grid.Column="2">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="*" MinHeight="120" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="0" MinHeight="0" />
-            </Grid.RowDefinitions>
-
+        <Grid x:Name="TerminalArea" Grid.Column="2" Grid.Row="0">
             <terminal:TerminalControl x:Name="Term"
-                                      Grid.Row="0"
                                       RightClickAction="ContextMenu" />
-
-            <GridSplitter x:Name="FileSplitter"
-                          Grid.Row="1"
-                          Height="5"
-                          ResizeDirection="Rows"
-                          ResizeBehavior="PreviousAndNext"
-                          Background="Transparent"
-                          IsVisible="False" />
-
-            <Border x:Name="FileBrowserHost"
-                    Grid.Row="2"
-                    IsVisible="False"
-                    BorderBrush="{DynamicResource BorderBrushSoft}"
-                    BorderThickness="0,1,0,0">
-                <views:FileBrowserView x:Name="FileBrowser" />
-            </Border>
         </Grid>
+
+        <GridSplitter x:Name="FileSplitter"
+                      Grid.Column="2"
+                      Grid.Row="1"
+                      Height="5"
+                      ResizeDirection="Rows"
+                      ResizeBehavior="PreviousAndNext"
+                      Background="Transparent"
+                      IsVisible="False" />
+
+        <Border x:Name="FileBrowserHost"
+                Grid.Column="2"
+                Grid.Row="2"
+                IsVisible="False"
+                BorderBrush="{DynamicResource BorderBrushSoft}"
+                BorderThickness="0,1,0,0">
+            <views:FileBrowserView x:Name="FileBrowser" />
+        </Border>
 
         <GridSplitter x:Name="AiSplitter"
                       Grid.Column="3"
+                      Grid.RowSpan="3"
                       Width="5"
                       ResizeDirection="Columns"
                       ResizeBehavior="PreviousAndNext"
@@ -71,6 +74,7 @@
 
         <Border x:Name="AiPanelHost"
                 Grid.Column="4"
+                Grid.RowSpan="3"
                 IsVisible="False"
                 BorderBrush="{DynamicResource BorderBrushSoft}"
                 BorderThickness="1,0,0,0">
@@ -80,6 +84,7 @@
         <Border x:Name="ScriptPanelOverlay"
                 Grid.Column="0"
                 Grid.ColumnSpan="5"
+                Grid.RowSpan="3"
                 IsVisible="False"
                 Background="#88000000"
                 Padding="14">

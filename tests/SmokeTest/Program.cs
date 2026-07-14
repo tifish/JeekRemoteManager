@@ -253,11 +253,13 @@ try
         .GetField("_session", BindingFlags.Instance | BindingFlags.NonPublic)!
         .SetValue(aiVm, activeAiSession);
     aiVm.Messages.Add(new ChatMessageViewModel(ChatRole.User, "old context"));
+    Check(aiVm.HasMessages,
+          "AI chat reports a non-empty transcript after a message is added");
     aiVm.InputText = "draft";
     Check(aiVm.NewConversationCommand.CanExecute(null),
           "AI new conversation command is available while idle");
     aiVm.NewConversationCommand.Execute(null);
-    Check(aiVm.Messages.Count == 0 && aiVm.InputText == "draft" && aiVm.StatusText == "",
+    Check(aiVm.Messages.Count == 0 && !aiVm.HasMessages && aiVm.InputText == "draft" && aiVm.StatusText == "",
           "AI new conversation clears the transcript and keeps the draft");
     Check(activeAiSession.DisposeCount == 1,
           "AI new conversation disposes the active session");

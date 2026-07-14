@@ -236,6 +236,8 @@ AiStopped	Stopped.	已停止。
 AiNewConversation	New conversation	新对话
 AiNewConversationHint	Start a new conversation with empty context (Ctrl+N).	从空上下文开始新对话 (Ctrl+N)。
 AiInputWatermark	Ask about this server…	询问关于这台服务器…
+AiEmptyTitle	What can I help with?	今天想在这台服务器上做什么？
+AiEmptyHint	Ask a question, investigate an issue, or describe a task to run on the connected server.	可以询问问题、排查故障，或描述一个需要在已连接服务器上完成的任务。
 AiSelectionHint	The terminal selection will be sent with your message.	发送时将附带终端中选中的内容。
 AiSelectionAttached	[+ terminal selection]	[+ 终端选中内容]
 AiRunInTerminal	Run	执行
