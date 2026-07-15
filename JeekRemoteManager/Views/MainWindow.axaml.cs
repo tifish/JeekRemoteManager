@@ -183,6 +183,11 @@ public partial class MainWindow : Window
     public string DebugCodexTurnErrorLifecycle(string terminalError) =>
         CodexChatSession.DebugTurnErrorLifecycle(terminalError);
 
+    /// <summary>Verifies that Codex commentary and tool items accumulate in order and
+    /// that a following empty final-answer item does not erase them. Exposed for Debug MCP.</summary>
+    public string DebugCodexAgentMessageAccumulationLifecycle() =>
+        CodexChatSession.DebugAgentMessageAccumulationLifecycle();
+
     private void BuildMoreActionsMenu()
     {
         if (DataContext is not MainWindowViewModel vm)

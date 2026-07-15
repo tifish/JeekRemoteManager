@@ -660,20 +660,26 @@ try
     SendCodexNotification("item/started",
         "{\"params\":{\"item\":{\"type\":\"agentMessage\",\"id\":\"item-1\"}}}");
     SendCodexNotification("item/agentMessage/delta",
-        "{\"params\":{\"itemId\":\"item-1\",\"delta\":\"stale item\"}}");
+        "{\"params\":{\"itemId\":\"item-1\",\"delta\":\"first commentary\"}}");
     SendCodexNotification("item/completed",
-        "{\"params\":{\"item\":{\"type\":\"agentMessage\",\"id\":\"item-1\",\"text\":\"stale item\"}}}");
+        "{\"params\":{\"item\":{\"type\":\"agentMessage\",\"id\":\"item-1\",\"text\":\"first commentary\"}}}");
     SendCodexNotification("item/started",
         "{\"params\":{\"item\":{\"type\":\"agentMessage\",\"id\":\"item-2\"}}}");
     SendCodexNotification("item/agentMessage/delta",
         "{\"params\":{\"itemId\":\"item-2\",\"delta\":\"final partial\"}}");
     SendCodexNotification("item/completed",
         "{\"params\":{\"item\":{\"type\":\"agentMessage\",\"id\":\"item-2\",\"text\":\"final authoritative\"}}}");
+    SendCodexNotification("item/started",
+        "{\"params\":{\"item\":{\"type\":\"agentMessage\",\"id\":\"item-3\"}}}");
+    SendCodexNotification("item/completed",
+        "{\"params\":{\"item\":{\"type\":\"agentMessage\",\"id\":\"item-3\",\"text\":\"\"}}}");
     SendCodexNotification("turn/completed",
         "{\"params\":{\"turn\":{\"id\":\"turn-1\",\"status\":\"completed\"}}}");
-    Check(codexPreview == "final authoritative"
-          && codexItemResult?.Text == "final authoritative",
-          "Codex keeps agent-message deltas scoped to one item and trusts item/completed");
+    Check(codexPreview == "first commentary\n\nfinal authoritative"
+          && codexItemResult?.Text == "first commentary\n\nfinal authoritative",
+          "Codex accumulates agent-message items and corrects only the completed item");
+    Check(CodexChatSession.DebugAgentMessageAccumulationLifecycle().EndsWith("accumulated=True"),
+          "Codex preserves commentary and tool items before an empty final answer");
 
     var codexFailedTurn = new CodexChatSession("codex", root);
     var codexImmediateErrors = new List<string>();

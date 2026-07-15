@@ -89,8 +89,8 @@ public sealed class CodexChatSession : IAgentChatSession
     private volatile string? _currentTurnId;
     private TaskCompletionSource<string>? _activeTurnReady;
     private TaskCompletionSource<bool>? _steerResponse;
-    private string _finalText = "";
     private string? _activeAgentMessageItemId;
+    private int _activeAgentMessageStart = -1;
     private readonly Dictionary<string, string> _terminalTurnErrors = new(StringComparer.Ordinal);
     private long _lastOutputTokens;
     private int _numTurns;
@@ -338,8 +338,8 @@ public sealed class CodexChatSession : IAgentChatSession
         var threadId = await _threadReady.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
 
         _currentText.Clear();
-        _finalText = "";
         _activeAgentMessageItemId = null;
+        _activeAgentMessageStart = -1;
         _lastOutputTokens = 0;
 
         _turnStartRequestId = await SendRequestAsync("turn/start", new
@@ -668,8 +668,7 @@ public sealed class CodexChatSession : IAgentChatSession
                     var itemId = p.TryGetProperty("itemId", out var deltaItemId)
                         ? deltaItemId.GetString()
                         : null;
-                    if (!string.IsNullOrEmpty(itemId) && itemId != _activeAgentMessageItemId)
-                        BeginAgentMessageItem(itemId);
+                    EnsureAgentMessageContentStarted(itemId);
                     _currentText.Append(text);
                     TextDelta?.Invoke(text);
                 }
@@ -681,15 +680,23 @@ public sealed class CodexChatSession : IAgentChatSession
                     && itemType.GetString() == "agentMessage"
                     && item.TryGetProperty("text", out var itemText))
                 {
+                    var completedText = itemText.GetString() ?? "";
+                    // Empty items carry no content to add. In particular, an empty final
+                    // item must not erase the commentary and tool items already emitted.
+                    if (completedText.Length == 0)
+                        break;
+
                     var itemId = item.TryGetProperty("id", out var completedItemId)
                         ? completedItemId.GetString()
                         : null;
-                    if (!string.IsNullOrEmpty(itemId) && itemId != _activeAgentMessageItemId)
-                        BeginAgentMessageItem(itemId);
-                    _finalText = itemText.GetString() ?? "";
-                    _currentText.Clear();
-                    _currentText.Append(_finalText);
-                    TextReplaced?.Invoke(_finalText);
+                    EnsureAgentMessageContentStarted(itemId);
+
+                    // item/completed is authoritative for this item only. Correct its
+                    // streamed slice while retaining every earlier non-empty item in the
+                    // turn (commentary, tool requests, and final answer alike).
+                    _currentText.Length = _activeAgentMessageStart;
+                    _currentText.Append(completedText);
+                    TextReplaced?.Invoke(_currentText.ToString());
                 }
                 break;
 
@@ -760,9 +767,23 @@ public sealed class CodexChatSession : IAgentChatSession
             return;
 
         _activeAgentMessageItemId = itemId;
-        _currentText.Clear();
-        _finalText = "";
-        TextReplaced?.Invoke("");
+        _activeAgentMessageStart = -1;
+    }
+
+    private void EnsureAgentMessageContentStarted(string? itemId)
+    {
+        BeginAgentMessageItem(itemId);
+        if (_activeAgentMessageStart >= 0)
+            return;
+
+        if (_currentText.Length > 0)
+        {
+            const string separator = "\n\n";
+            _currentText.Append(separator);
+            TextDelta?.Invoke(separator);
+        }
+
+        _activeAgentMessageStart = _currentText.Length;
     }
 
     private void HandleTurnCompleted(JsonElement p, string? completedTurnId)
@@ -789,7 +810,7 @@ public sealed class CodexChatSession : IAgentChatSession
             errorMessage = terminalError;
         }
 
-        var text = _finalText.Length > 0 ? _finalText : _currentText.ToString();
+        var text = _currentText.ToString();
         if (isError && text.Length == 0)
             text = errorMessage;
 
@@ -829,6 +850,47 @@ public sealed class CodexChatSession : IAgentChatSession
         }
 
         return $"{stateAfterError}|{(completed?.IsError == true ? "failed" : "not-failed")}|{completed?.Text}";
+    }
+
+    /// <summary>Exercises the real multi-item notification path where Codex emits
+    /// commentary, a tool request, and then an empty final-answer item.</summary>
+    public static string DebugAgentMessageAccumulationLifecycle()
+    {
+        var session = new CodexChatSession("codex", ".");
+        var preview = "";
+        AgentTurnResult? completed = null;
+        session.TextDelta += text => preview += text;
+        session.TextReplaced += text => preview = text;
+        session.TurnCompleted += result => completed = result;
+
+        void Notify(string method, string json)
+        {
+            using var document = JsonDocument.Parse(json);
+            session.HandleNotification(method, document.RootElement);
+        }
+
+        Notify("item/started",
+            "{\"params\":{\"item\":{\"type\":\"agentMessage\",\"id\":\"commentary\"}}}");
+        Notify("item/agentMessage/delta",
+            "{\"params\":{\"itemId\":\"commentary\",\"delta\":\"I will inspect the server.\"}}");
+        Notify("item/completed",
+            "{\"params\":{\"item\":{\"type\":\"agentMessage\",\"id\":\"commentary\",\"text\":\"I will inspect the server.\"}}}");
+        Notify("item/started",
+            "{\"params\":{\"item\":{\"type\":\"agentMessage\",\"id\":\"tool\"}}}");
+        Notify("item/agentMessage/delta",
+            "{\"params\":{\"itemId\":\"tool\",\"delta\":\"```jrm-tool\\nterminal.run\\nprintf ok\\n```\"}}");
+        Notify("item/completed",
+            "{\"params\":{\"item\":{\"type\":\"agentMessage\",\"id\":\"tool\",\"text\":\"```jrm-tool\\nterminal.run\\nprintf ok\\n```\"}}}");
+        Notify("item/started",
+            "{\"params\":{\"item\":{\"type\":\"agentMessage\",\"id\":\"empty-final\"}}}");
+        Notify("item/completed",
+            "{\"params\":{\"item\":{\"type\":\"agentMessage\",\"id\":\"empty-final\",\"text\":\"\"}}}");
+        Notify("turn/completed",
+            "{\"params\":{\"turn\":{\"id\":\"turn-1\",\"status\":\"completed\"}}}");
+
+        const string expected = "I will inspect the server.\n\n```jrm-tool\nterminal.run\nprintf ok\n```";
+        var preserved = preview == expected && completed?.Text == expected;
+        return $"preview={preview}; completed={completed?.Text}; accumulated={preserved}";
     }
 
     public async ValueTask DisposeAsync()

@@ -287,6 +287,77 @@ public partial class AgentChatView : UserControl
         }
     }
 
+    /// <summary>Exercises jump-to-latest and selection stability with completed Markdown
+    /// messages whose variable-height code blocks reproduce the real Codex transcript.</summary>
+    public async Task<string> RunDebugMarkdownScrollSelectionCheckAsync(int messageCount)
+    {
+        if (messageCount is < 2 or > 200)
+            throw new ArgumentOutOfRangeException(nameof(messageCount));
+        if (DataContext is not AgentChatViewModel vm)
+            throw new InvalidOperationException("The AI panel is not initialized.");
+
+        var added = new List<ChatMessageViewModel>(messageCount);
+        try
+        {
+            for (var i = 0; i < messageCount; i++)
+            {
+                var markdown = $"Commentary {i} before the command.\n\n"
+                               + "```jrm-tool\nterminal.run\n"
+                               + $"printf 'message-{i}\\n'\nprintf 'line-2\\n'\n```";
+                var message = new ChatMessageViewModel(ChatRole.Assistant, markdown);
+                added.Add(message);
+                vm.Messages.Add(message);
+            }
+
+            await Task.Delay(250);
+            EnsureSelectableCodeBlocks();
+            await Task.Delay(50);
+
+            MaxScrollToEndDepth = 0;
+            ScrollToEndCallCount = 0;
+            ScrollToLatest();
+            await Task.Delay(250);
+
+            var scroll = MessagesScroll
+                         ?? throw new InvalidOperationException("The transcript scroll viewer is unavailable.");
+            var bottomGap = Math.Max(0, scroll.Extent.Height - scroll.Viewport.Height - scroll.Offset.Y);
+            var reachedLast = LastRealizedMessageIndex == vm.Messages.Count - 1;
+
+            var selectedBlock = MessagesList.GetVisualDescendants()
+                .OfType<SelectableTextBlock>()
+                .LastOrDefault(text => text.Name == "SelectableCodeBlock");
+            var selectionAvailable = selectedBlock is not null;
+            var selectedText = "";
+            if (selectedBlock is not null)
+            {
+                selectedBlock.SelectAll();
+                selectedText = selectedBlock.SelectedText ?? "";
+            }
+
+            for (var i = 0; i < 12; i++)
+            {
+                ScrollToLatest();
+                await Task.Delay(5);
+            }
+            await Task.Delay(150);
+
+            var selectionStable = selectedBlock is not null
+                                  && selectedBlock.IsAttachedToVisualTree()
+                                  && selectedText.Length > 0
+                                  && selectedBlock.SelectedText == selectedText;
+            var finalGap = Math.Max(0, scroll.Extent.Height - scroll.Viewport.Height - scroll.Offset.Y);
+            return $"messages={messageCount}; atBottom={IsNearBottom()}; reachedLast={reachedLast}; "
+                   + $"bottomGap={bottomGap:F1}; finalGap={finalGap:F1}; "
+                   + $"selectionAvailable={selectionAvailable}; selectionStable={selectionStable}; "
+                   + $"scrollCalls={ScrollToEndCallCount}; maxScrollDepth={MaxScrollToEndDepth}";
+        }
+        finally
+        {
+            foreach (var message in added)
+                vm.Messages.Remove(message);
+        }
+    }
+
     /// <summary>Grows the composer while the transcript is following the latest message.
     /// The returned viewport and bottom-gap values let Debug MCP verify that the last
     /// message remains fully visible as the composer takes more vertical space.</summary>
@@ -461,13 +532,14 @@ public partial class AgentChatView : UserControl
 
     private void OnMessagesPointerWheelChanged(object? sender, PointerWheelEventArgs e)
     {
-        if (e.Delta.Y > 0)
-            _stickToBottom = false;
+        // Any wheel gesture is manual navigation. Suspend automatic following until the
+        // gesture actually reaches the bottom; otherwise a growing Markdown transcript
+        // can fight a downward scroll and recycle the selected text controls underneath it.
+        _stickToBottom = false;
 
         Dispatcher.UIThread.Post(() =>
         {
-            if (IsNearBottom())
-                _stickToBottom = true;
+            _stickToBottom = IsNearBottom();
             UpdateScrollToBottomButton();
         }, DispatcherPriority.Background);
     }
@@ -576,12 +648,12 @@ public partial class AgentChatView : UserControl
         MaxScrollToEndDepth = Math.Max(MaxScrollToEndDepth, _scrollToEndDepth);
         try
         {
-            // Mark the complete operation, including ScrollIntoView, as programmatic.
-            // Virtualization may realize the last row and synchronously change the extent.
+            // ScrollViewer.ScrollToEnd realizes the virtualized tail itself. Calling
+            // ListBox.ScrollIntoView first makes a variable-height Markdown list choose a
+            // competing anchor: the later extent correction can then jump back toward the
+            // first items, preventing both manual scrolling and the latest-message button
+            // from reaching the end while recycling selected Markdown controls.
             _isProgrammaticScroll = true;
-            if (DataContext is AgentChatViewModel vm && vm.Messages.Count > 0)
-                MessagesList.ScrollIntoView(vm.Messages.Count - 1);
-
             if (MessagesScroll is null)
                 return;
 
