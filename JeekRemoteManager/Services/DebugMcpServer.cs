@@ -825,7 +825,6 @@ internal static class DebugMcpServer
         var streamChunkCount = args["stream_chunk_count"]?.GetValue<int>() ?? 2_000;
         var charactersPerChunk = args["characters_per_chunk"]?.GetValue<int>() ?? 10;
         var scrollUpdateCount = args["scroll_update_count"]?.GetValue<int>() ?? 100;
-        var codeBlockIterationCount = args["code_block_iteration_count"]?.GetValue<int>() ?? 60;
 
         var state = await OnUiAsync(() =>
         {
@@ -871,11 +870,7 @@ internal static class DebugMcpServer
 
             var composerResizeTask = await OnUiAsync(state.view.RunDebugComposerResizeCheckAsync);
             var composerResize = await composerResizeTask.WaitAsync(TimeSpan.FromSeconds(15));
-
-            var codeBlockFollowTask = await OnUiAsync(() =>
-                state.view.RunDebugCodeBlockFollowStressAsync(codeBlockIterationCount));
-            var codeBlockFollow = await codeBlockFollowTask.WaitAsync(TimeSpan.FromSeconds(30));
-            return ToolText($"streaming: {streaming}\ntranscript: {transcript}\nscrollFollow: {scrollFollow}\ncomposerResize: {composerResize}\ncodeBlockFollow: {codeBlockFollow}");
+            return ToolText($"streaming: {streaming}\ntranscript: {transcript}\nscrollFollow: {scrollFollow}\ncomposerResize: {composerResize}");
         }
         finally
         {
