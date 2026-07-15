@@ -770,7 +770,7 @@ internal static class DebugMcpServer
             using var bitmap = new RenderTargetBitmap(size, new Vector(96 * scaling, 96 * scaling));
             bitmap.Render(window);
             using var stream = new MemoryStream();
-            bitmap.Save(stream);
+            bitmap.Save(stream, PngBitmapEncoderOptions.Default);
             return (stream.ToArray(), size);
         });
 

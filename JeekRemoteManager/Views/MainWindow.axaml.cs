@@ -2420,7 +2420,7 @@ public partial class MainWindow : Window
         var editorBox = new TextBox
         {
             Text = currentEditorPath ?? "",
-            Watermark = Localizer.Get("SettingsEditorWatermark"),
+            PlaceholderText = Localizer.Get("SettingsEditorWatermark"),
         };
         var editorBrowse = new Button { Content = Localizer.Get("Browse") };
         editorBrowse.Click += async (_, _) =>
