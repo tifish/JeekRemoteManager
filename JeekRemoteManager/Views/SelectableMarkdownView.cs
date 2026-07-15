@@ -97,13 +97,15 @@ public sealed class SelectableMarkdownView : MarkdownScrollViewer
         };
         selectable.Classes.Add("CodeBlock");
 
-        var lineCount = string.IsNullOrEmpty(code) ? 1 : code.Count(character => character == '\n') + 1;
+        // AllowAutoHide=false makes Fluent put the bar in its own grid row instead of
+        // overlaying content. With Auto visibility, short blocks still take no extra
+        // height; long lines grow by the scrollbar without covering the last text row.
         var scroll = new ScrollViewer
         {
             Content = selectable,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            MinHeight = Math.Max(32, lineCount * 16 + 16),
+            AllowAutoHide = false,
         };
         scroll.Classes.Add("CodeBlock");
 

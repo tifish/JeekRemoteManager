@@ -58,11 +58,6 @@
         <Setter Property="FontSize" Value="12.5" />
         <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
     </Style>
-    <!-- Reserve room for Markdown.Avalonia's overlaid horizontal scrollbar. -->
-    <Style Selector=".Markdown_Avalonia_MarkdownViewer ScrollViewer.CodeBlock">
-        <Setter Property="MinHeight" Value="32" />
-        <Setter Property="Padding" Value="0,0,0,16" />
-    </Style>
 
     <Style Selector=".Markdown_Avalonia_MarkdownViewer Border.Blockquote">
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushStrong}" />

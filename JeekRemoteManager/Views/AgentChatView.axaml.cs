@@ -278,6 +278,7 @@ public partial class AgentChatView : UserControl
                 .LastOrDefault(text => text.Name == "SelectableCodeBlock");
             var selectionAvailable = selectedBlock is not null;
             var selectedText = "";
+            var shortMetrics = MeasureCodeBlock(selectedBlock);
             if (selectedBlock is not null)
             {
                 selectedBlock.SelectAll();
@@ -296,9 +297,35 @@ public partial class AgentChatView : UserControl
                                   && selectedText.Length > 0
                                   && selectedBlock.SelectedText == selectedText;
             var finalGap = Math.Max(0, scroll.Extent.Height - scroll.Viewport.Height - scroll.Offset.Y);
+            // Short lines stay tight (no always-on padding). Long lines use a non-overlay
+            // horizontal scrollbar that occupies its own row under the text.
+            var codeTight = selectionAvailable && shortMetrics.EmptyBottom < 8;
+
+            var longCommand = "printf '" + new string('x', 240) + "'\n";
+            var longMessage = new ChatMessageViewModel(
+                ChatRole.Assistant,
+                "Long command sample.\n\n```jrm-tool\nterminal.run\n" + longCommand + "```");
+            added.Add(longMessage);
+            vm.Messages.Add(longMessage);
+            ScrollToLatest();
+            await Task.Delay(250);
+            var longBlock = MessagesList.GetVisualDescendants()
+                .OfType<SelectableTextBlock>()
+                .LastOrDefault(text => text.Name == "SelectableCodeBlock");
+            var longMetrics = MeasureCodeBlock(longBlock);
+            var overflowRoomOk = longMetrics.OverflowsHorizontally
+                                 && longMetrics.EmptyBottom is >= 8 and <= 24
+                                 && longMetrics.AllowAutoHide == false;
+
             return $"messages={messageCount}; atBottom={IsNearBottom()}; reachedLast={reachedLast}; "
                    + $"bottomGap={bottomGap:F1}; finalGap={finalGap:F1}; "
                    + $"selectionAvailable={selectionAvailable}; selectionStable={selectionStable}; "
+                   + $"codeLines={shortMetrics.Lines}; codeTextH={shortMetrics.TextHeight:F1}; "
+                   + $"codeScrollH={shortMetrics.ScrollHeight:F1}; "
+                   + $"codeEmptyBottom={shortMetrics.EmptyBottom:F1}; codeTight={codeTight}; "
+                   + $"longOverflow={longMetrics.OverflowsHorizontally}; "
+                   + $"longEmptyBottom={longMetrics.EmptyBottom:F1}; "
+                   + $"longAllowAutoHide={longMetrics.AllowAutoHide}; overflowRoomOk={overflowRoomOk}; "
                    + $"scrollCalls={ScrollToEndCallCount}; maxScrollDepth={MaxScrollToEndDepth}";
         }
         finally
@@ -306,6 +333,26 @@ public partial class AgentChatView : UserControl
             foreach (var message in added)
                 vm.Messages.Remove(message);
         }
+    }
+
+    private static (int Lines, double TextHeight, double ScrollHeight, double EmptyBottom,
+        bool OverflowsHorizontally, bool AllowAutoHide) MeasureCodeBlock(SelectableTextBlock? block)
+    {
+        if (block is null)
+            return (0, 0, 0, 0, false, true);
+
+        var lines = string.IsNullOrEmpty(block.Text)
+            ? 0
+            : block.Text.Count(character => character == '\n') + 1;
+        var textHeight = block.Bounds.Height;
+        var codeScroll = block.FindAncestorOfType<ScrollViewer>();
+        if (codeScroll is null)
+            return (lines, textHeight, 0, 0, false, true);
+
+        var scrollHeight = codeScroll.Bounds.Height;
+        var emptyBottom = Math.Max(0, scrollHeight - textHeight);
+        var overflows = codeScroll.Extent.Width > codeScroll.Viewport.Width + 0.5;
+        return (lines, textHeight, scrollHeight, emptyBottom, overflows, codeScroll.AllowAutoHide);
     }
 
     /// <summary>Grows the composer while the transcript is following the latest message.
