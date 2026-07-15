@@ -824,6 +824,7 @@ internal static class DebugMcpServer
         var charactersPerMessage = args["characters_per_message"]?.GetValue<int>() ?? 200;
         var streamChunkCount = args["stream_chunk_count"]?.GetValue<int>() ?? 2_000;
         var charactersPerChunk = args["characters_per_chunk"]?.GetValue<int>() ?? 10;
+        var scrollUpdateCount = args["scroll_update_count"]?.GetValue<int>() ?? 100;
 
         var state = await OnUiAsync(() =>
         {
@@ -862,7 +863,11 @@ internal static class DebugMcpServer
             var transcriptTask = await OnUiAsync(() =>
                 state.view.RunDebugTranscriptStressAsync(messageCount, charactersPerMessage));
             var transcript = await transcriptTask.WaitAsync(TimeSpan.FromSeconds(15));
-            return ToolText($"streaming: {streaming}\ntranscript: {transcript}");
+
+            var scrollFollowTask = await OnUiAsync(() =>
+                state.view.RunDebugScrollFollowStressAsync(scrollUpdateCount));
+            var scrollFollow = await scrollFollowTask.WaitAsync(TimeSpan.FromSeconds(15));
+            return ToolText($"streaming: {streaming}\ntranscript: {transcript}\nscrollFollow: {scrollFollow}");
         }
         finally
         {
