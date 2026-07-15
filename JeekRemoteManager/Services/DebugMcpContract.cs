@@ -44,7 +44,7 @@ public static class DebugMcpContract
             new() { ["lines"] = Prop("integer", "Lines, 1-2000 (default 200)."), ["filter"] = Prop("string", "Case-insensitive filter.") }),
         Tool("ai_conversation_trash_check", "Verify AI conversation recycle-bin lifecycle and responsive row layout using isolated temporary data.", new()),
         Tool("ai_chat_stress", "Verify AI streaming coalescing, transcript virtualization, jump-to-latest behavior, and composer-resize bottom following.",
-            new() { ["message_count"] = Prop("integer", "Temporary messages (default 500)."), ["characters_per_message"] = Prop("integer", "Characters per message (default 200)."), ["stream_chunk_count"] = Prop("integer", "Chunks (default 2000)."), ["characters_per_chunk"] = Prop("integer", "Characters per chunk (default 10)."), ["scroll_update_count"] = Prop("integer", "Streaming layout updates after jumping to latest (default 100).") }));
+            new() { ["message_count"] = Prop("integer", "Temporary messages (default 500)."), ["characters_per_message"] = Prop("integer", "Characters per message (default 200)."), ["stream_chunk_count"] = Prop("integer", "Chunks (default 2000)."), ["characters_per_chunk"] = Prop("integer", "Characters per chunk (default 10)."), ["scroll_update_count"] = Prop("integer", "Streaming layout updates after jumping to latest (default 100)."), ["window_width"] = Prop("integer", "Stress window width (default 600)."), ["window_height"] = Prop("integer", "Stress window height (default 800).") }));
 
     public static JsonObject InitializeResult(string name, string title, string version, string? requestedVersion)
     {

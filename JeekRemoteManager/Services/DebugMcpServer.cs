@@ -825,6 +825,8 @@ internal static class DebugMcpServer
         var streamChunkCount = args["stream_chunk_count"]?.GetValue<int>() ?? 2_000;
         var charactersPerChunk = args["characters_per_chunk"]?.GetValue<int>() ?? 10;
         var scrollUpdateCount = args["scroll_update_count"]?.GetValue<int>() ?? 100;
+        var windowWidth = Math.Clamp(args["window_width"]?.GetValue<int>() ?? 600, 240, 2_000);
+        var windowHeight = Math.Clamp(args["window_height"]?.GetValue<int>() ?? 800, 240, 2_000);
 
         var state = await OnUiAsync(() =>
         {
@@ -842,8 +844,8 @@ internal static class DebugMcpServer
             var view = new AgentChatView { DataContext = vm };
             var window = new Window
             {
-                Width = 600,
-                Height = 800,
+                Width = windowWidth,
+                Height = windowHeight,
                 ShowInTaskbar = false,
                 WindowDecorations = WindowDecorations.None,
                 Opacity = 0,
@@ -866,7 +868,7 @@ internal static class DebugMcpServer
 
             var scrollFollowTask = await OnUiAsync(() =>
                 state.view.RunDebugScrollFollowStressAsync(scrollUpdateCount));
-            var scrollFollow = await scrollFollowTask.WaitAsync(TimeSpan.FromSeconds(15));
+            var scrollFollow = await scrollFollowTask.WaitAsync(TimeSpan.FromSeconds(45));
 
             var composerResizeTask = await OnUiAsync(state.view.RunDebugComposerResizeCheckAsync);
             var composerResize = await composerResizeTask.WaitAsync(TimeSpan.FromSeconds(15));

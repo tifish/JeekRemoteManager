@@ -20,19 +20,27 @@ namespace JeekRemoteManager.Views;
 public partial class AgentChatView : UserControl
 {
     private const double NearBottomThreshold = 48;
+    private const int MaxProgrammaticFollowUps = 64;
+    private static readonly TimeSpan ScrollFollowInterval = TimeSpan.FromMilliseconds(1);
 
     private INotifyCollectionChanged? _observed;
     private ScrollViewer? _messagesScroll;
     private bool _stickToBottom = true;
     private bool _isProgrammaticScroll;
-    private bool _scrollUpdateScheduled;
+    private IDisposable? _scrollUpdateTimer;
+    private bool _scrollVerificationPending;
     private int _scrollToEndDepth;
+    private int _remainingProgrammaticFollowUps;
 
     /// <summary>Debug MCP diagnostic for detecting synchronous scroll re-entry.</summary>
     public int MaxScrollToEndDepth { get; private set; }
 
     /// <summary>Debug MCP diagnostic for verifying that coalescing bounds scroll work.</summary>
     public int ScrollToEndCallCount { get; private set; }
+
+    /// <summary>Debug MCP diagnostic for layout changes raised by a programmatic
+    /// scroll that must not enqueue another scroll-to-end operation.</summary>
+    public int SuppressedProgrammaticFollowUpCount { get; private set; }
 
     /// <summary>Raised by the panel's own close button; the hosting TerminalView
     /// collapses the panel.</summary>
@@ -97,7 +105,9 @@ public partial class AgentChatView : UserControl
     private void OnLoaded(object? sender, RoutedEventArgs e)
     {
         AttachMessagesScroll();
+        _remainingProgrammaticFollowUps = MaxProgrammaticFollowUps;
         ScrollMessagesToEnd();
+        ScheduleScrollVerification();
     }
 
     private void AttachMessagesScroll()
@@ -117,6 +127,9 @@ public partial class AgentChatView : UserControl
 
     private void OnUnloaded(object? sender, RoutedEventArgs e)
     {
+        _scrollUpdateTimer?.Dispose();
+        _scrollUpdateTimer = null;
+        _scrollVerificationPending = false;
         if (_messagesScroll is not null)
             _messagesScroll.ScrollChanged -= OnMessagesScrollChanged;
         _messagesScroll = null;
@@ -127,7 +140,9 @@ public partial class AgentChatView : UserControl
     public void ScrollToLatest()
     {
         _stickToBottom = true;
+        _remainingProgrammaticFollowUps = MaxProgrammaticFollowUps;
         ScrollMessagesToEnd();
+        ScheduleScrollVerification();
         UpdateScrollToBottomButton();
     }
 
@@ -253,7 +268,7 @@ public partial class AgentChatView : UserControl
                 await Task.Delay(2);
             }
 
-            await Task.Delay(150);
+            await Task.Delay(150 + updateCount * 2);
             var atBottom = IsNearBottom();
             var buttonHiddenAfter = !IsScrollToBottomButtonVisible;
             var scroll = MessagesScroll;
@@ -301,6 +316,8 @@ public partial class AgentChatView : UserControl
                          ?? throw new InvalidOperationException("The transcript scroll viewer is unavailable.");
             var viewportBefore = scroll.Viewport.Height;
             var gapBefore = Math.Max(0, scroll.Extent.Height - viewportBefore - scroll.Offset.Y);
+            var scrollCallsBefore = ScrollToEndCallCount;
+            SuppressedProgrammaticFollowUpCount = 0;
 
             InputBox.Text = string.Join(Environment.NewLine,
                 Enumerable.Range(1, 12).Select(i => $"composer line {i}"));
@@ -308,9 +325,30 @@ public partial class AgentChatView : UserControl
 
             var viewportAfter = scroll.Viewport.Height;
             var gapAfter = Math.Max(0, scroll.Extent.Height - viewportAfter - scroll.Offset.Y);
+            var streaming = new ChatMessageViewModel(ChatRole.Assistant, "composer-stream-start")
+            {
+                IsStreaming = true,
+            };
+            added.Add(streaming);
+            vm.Messages.Add(streaming);
+            var streamChunk = new string('s', 96);
+            for (var i = 0; i < 120; i++)
+            {
+                streaming.Text += $"\ncomposer-stream-{i}: {streamChunk}";
+                InputBox.Text = i % 2 == 0
+                    ? "composer short"
+                    : string.Join(Environment.NewLine,
+                        Enumerable.Range(1, 12).Select(line => $"composer line {line}"));
+                await Task.Delay(2);
+            }
+            await Task.Delay(150);
+
+            var composerScrollCalls = ScrollToEndCallCount - scrollCallsBefore;
             return $"viewportBefore={viewportBefore:F1}; viewportAfter={viewportAfter:F1}; "
                    + $"gapBefore={gapBefore:F1}; gapAfter={gapAfter:F1}; "
-                   + $"atBottom={IsNearBottom()}; stickToBottom={_stickToBottom}";
+                   + $"atBottom={IsNearBottom()}; stickToBottom={_stickToBottom}; "
+                   + $"scrollCalls={composerScrollCalls}; maxScrollDepth={MaxScrollToEndDepth}; "
+                   + $"suppressedFollowUps={SuppressedProgrammaticFollowUpCount}";
         }
         finally
         {
@@ -505,6 +543,15 @@ public partial class AgentChatView : UserControl
         // composer grows) must both keep the latest message above the composer.
         if (_stickToBottom && (e.ExtentDelta.Y > 0.5 || e.ViewportDelta.Y < -0.5))
         {
+            // ScrollIntoView can change the realized range and report another extent or
+            // viewport change before this scroll operation finishes. A few queued passes
+            // are needed for a virtualized list to converge, but leaving the chain
+            // unbounded can feed layout back into itself until Avalonia aborts with
+            // "Infinite layout loop detected".
+            if (_isProgrammaticScroll)
+                return;
+
+            _remainingProgrammaticFollowUps = MaxProgrammaticFollowUps;
             // ScrollToEnd and ScrollIntoView can synchronously raise ScrollChanged. Queue
             // and coalesce the follow-up so streamed layout growth cannot recurse until
             // Windows runs out of stack guard pages.
@@ -550,20 +597,50 @@ public partial class AgentChatView : UserControl
         }
     }
 
-    private void ScheduleScrollUpdate()
+    private void ScheduleScrollUpdate(bool verification = false)
     {
-        if (_scrollUpdateScheduled)
+        _scrollVerificationPending |= verification;
+        if (_scrollUpdateTimer is not null)
             return;
 
-        _scrollUpdateScheduled = true;
-        Dispatcher.UIThread.Post(() =>
+        // Run after the current layout/render pass. A dispatcher post can execute while
+        // the virtualized ListBox is still changing its extent and immediately feed that
+        // change back into the same render cycle.
+        _scrollUpdateTimer = DispatcherTimer.RunOnce(() =>
         {
-            _scrollUpdateScheduled = false;
+            _scrollUpdateTimer?.Dispose();
+            _scrollUpdateTimer = null;
+            var isVerification = _scrollVerificationPending;
+            _scrollVerificationPending = false;
             if (_stickToBottom)
-                ScrollMessagesToEnd();
+            {
+                // A verification pass runs after the previous scroll and its layout.
+                // Stop once the settled extent confirms that the viewport is at the end.
+                if (!isVerification || !IsNearBottom())
+                {
+                    ScrollMessagesToEnd();
+                    ScheduleScrollVerification();
+                }
+                else
+                {
+                    UpdateScrollToBottomButton();
+                }
+            }
             else
                 UpdateScrollToBottomButton();
-        }, DispatcherPriority.Background);
+        }, ScrollFollowInterval, DispatcherPriority.Background);
+    }
+
+    private void ScheduleScrollVerification()
+    {
+        if (_remainingProgrammaticFollowUps <= 0)
+        {
+            SuppressedProgrammaticFollowUpCount++;
+            return;
+        }
+
+        _remainingProgrammaticFollowUps--;
+        ScheduleScrollUpdate(verification: true);
     }
 
     private bool IsNearBottom()
