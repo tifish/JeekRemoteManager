@@ -436,6 +436,7 @@ try
         Model = "gpt-test",
         Effort = "high",
         Title = "Investigate the server",
+        DraftText = "Continue later",
         Messages =
         {
             new AiConversationMessage { Role = "User", Text = "Investigate the server" },
@@ -478,8 +479,9 @@ try
           && restoreVm.Messages[1].IsAssistant
           && restoreVm.CurrentConversationId == savedConversation.Id
           && restoreVm.CurrentNativeSessionId == "codex-thread-123"
-          && restoreVm.PendingResumeSessionId == "codex-thread-123",
-          "AI conversation restore reloads the transcript and queues the native session id");
+          && restoreVm.PendingResumeSessionId == "codex-thread-123"
+          && restoreVm.InputText == "Continue later",
+          "AI conversation restore reloads the transcript, draft, and native session id");
     Check(resumeFactorySessionId == "",
           "AI conversation restore remains lazy until the user sends the next message");
     restoreVm.InputText = "Continue";
@@ -487,6 +489,14 @@ try
     Check(resumeFactorySessionId == "codex-thread-123",
           "AI conversation sends the saved native id through the provider resume factory");
     restoreVm.StopCommand.Execute(null);
+    restoreVm.InputText = "updated saved draft";
+    restoreVm.NewConversationCommand.Execute(null);
+    Check(restoreVm.InputText == "updated saved draft"
+          && aiHistoryStore.Load(savedConversation.Id)?.DraftText == "updated saved draft",
+          "AI new conversation persists the current session draft and keeps it in the composer");
+    Check(restoreVm.RestoreConversation(savedConversation.Id)
+          && restoreVm.InputText == "updated saved draft",
+          "AI conversation restores the latest persisted composer draft");
 
     var otherScopeVm = new AgentChatViewModel(
         restoreVm.Providers.ToArray(),

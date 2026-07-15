@@ -412,6 +412,7 @@ internal static class DebugMcpServer
                 "visual_tree" => await VisualTreeAsync(args),
                 "screenshot" => await ScreenshotAsync(),
                 "read_logs" => ReadLogs(args),
+                "ai_conversation_draft_check" => await AiConversationDraftCheckAsync(),
                 "ai_conversation_trash_check" => await AiConversationTrashCheckAsync(),
                 "ai_chat_stress" => await AiChatStressAsync(args),
                 _ => throw new InvalidOperationException($"Unknown tool: {name}"),
@@ -950,6 +951,73 @@ internal static class DebugMcpServer
 
             return ToolText($"moved={moved}; restored={restored}; expiredPurged={expiry}; "
                             + $"retentionDays={AiConversationStore.TrashRetention.TotalDays:0}; {layout}");
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* best-effort debug cleanup */ }
+        }
+    }
+
+    private static async Task<JsonObject> AiConversationDraftCheckAsync()
+    {
+        var basePath = DebugInstanceContext.Info.RuntimeTempRoot;
+        if (string.IsNullOrWhiteSpace(basePath))
+            basePath = Path.GetTempPath();
+        var root = Path.Combine(basePath, $"ai-conversation-draft-check-{Guid.NewGuid():N}");
+        const string conversationId = "debug-draft-roundtrip";
+        const string scopeId = "debug-draft-scope";
+        const string initialDraft = "draft before panel recreation";
+        const string updatedDraft = "updated draft saved with session";
+
+        AgentChatViewModel CreateViewModel(AiConversationStore store) => new(
+            [
+                new AgentProvider(
+                    "Debug",
+                    "",
+                    [new AgentOption("Default", null)],
+                    [new AgentOption("Default", null)],
+                    (_, _) => null,
+                    ResumeSessionFactory: (_, _, _) => null),
+            ],
+            () => null,
+            null,
+            conversationStore: store,
+            conversationScopeId: scopeId,
+            connectionLabel: "Debug draft");
+
+        try
+        {
+            var store = new AiConversationStore(root);
+            store.Save(new AiConversation
+            {
+                Id = conversationId,
+                ScopeId = scopeId,
+                ConnectionLabel = "Debug draft",
+                Provider = "Debug",
+                NativeSessionId = "debug-session",
+                Title = "Debug draft roundtrip",
+                DraftText = initialDraft,
+                Messages = { new AiConversationMessage { Role = "User", Text = "test" } },
+            });
+
+            var first = await OnUiAsync(() => CreateViewModel(store));
+            var initialRestored = await OnUiAsync(() =>
+                first.RestoreConversation(conversationId) && first.InputText == initialDraft);
+            var firstDispose = await OnUiAsync(() =>
+            {
+                first.InputText = updatedDraft;
+                return first.DisposeAsync().AsTask();
+            });
+            await firstDispose;
+
+            var saved = store.Load(conversationId)?.DraftText == updatedDraft;
+            var second = await OnUiAsync(() => CreateViewModel(store));
+            var recreatedRestored = await OnUiAsync(() =>
+                second.RestoreConversation(conversationId) && second.InputText == updatedDraft);
+            var secondDispose = await OnUiAsync(() => second.DisposeAsync().AsTask());
+            await secondDispose;
+
+            return ToolText($"initialRestored={initialRestored}; saved={saved}; recreatedRestored={recreatedRestored}");
         }
         finally
         {

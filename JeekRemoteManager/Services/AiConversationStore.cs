@@ -20,6 +20,7 @@ public sealed class AiConversation
     public string? Model { get; set; }
     public string? Effort { get; set; }
     public string Title { get; set; } = "";
+    public string DraftText { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset? DeletedAt { get; set; }

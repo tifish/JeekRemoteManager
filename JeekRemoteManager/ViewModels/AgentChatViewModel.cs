@@ -966,6 +966,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         _currentConversation = conversation;
         _pendingResumeSessionId = conversation.NativeSessionId;
         _conversationStartIndex = 0;
+        InputText = conversation.DraftText;
         StatusText = L("AiConversationRestored");
         OnPropertyChanged(nameof(CurrentConversationId));
         OnPropertyChanged(nameof(CurrentNativeSessionId));
@@ -1058,6 +1059,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             return;
 
         conversation.UpdatedAt = DateTimeOffset.Now;
+        conversation.DraftText = InputText;
         conversation.Messages = Messages
             .Skip(Math.Clamp(_conversationStartIndex, 0, Messages.Count))
             .Where(message => !message.IsAssistant || message.HasText)
@@ -1128,9 +1130,9 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         DiscardPendingTextDeltas();
         _streamRenderUpdateCount = 0;
         OnPropertyChanged(nameof(StreamRenderUpdateCount));
+        InputText = "";
         PersistCurrentConversation();
 
-        InputText = "";
         IsBusy = true;
         StatusText = L("AiWaiting");
         StartThinking();
