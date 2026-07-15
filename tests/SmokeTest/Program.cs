@@ -675,6 +675,30 @@ try
           && codexItemResult?.Text == "final authoritative",
           "Codex keeps agent-message deltas scoped to one item and trusts item/completed");
 
+    var codexFailedTurn = new CodexChatSession("codex", root);
+    var codexImmediateErrors = new List<string>();
+    AgentTurnResult? codexFailedResult = null;
+    codexFailedTurn.Errored += message => codexImmediateErrors.Add(message);
+    codexFailedTurn.TurnCompleted += result => codexFailedResult = result;
+    var handleCodexFailedNotification = typeof(CodexChatSession)
+        .GetMethod("HandleNotification", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    void SendCodexFailedNotification(string method, string json)
+    {
+        using var notification = JsonDocument.Parse(json);
+        handleCodexFailedNotification.Invoke(codexFailedTurn, [method, notification.RootElement]);
+    }
+    SendCodexFailedNotification("error",
+        "{\"params\":{\"threadId\":\"thread-1\",\"turnId\":\"turn-failed\",\"willRetry\":true,\"error\":{\"message\":\"temporary network failure\"}}}");
+    SendCodexFailedNotification("error",
+        "{\"params\":{\"threadId\":\"thread-1\",\"turnId\":\"turn-failed\",\"willRetry\":false,\"error\":{\"message\":\"TLS handshake EOF\"}}}");
+    Check(codexImmediateErrors.Count == 0 && codexFailedResult is null,
+          "Codex turn errors wait for turn/completed instead of stopping the AI panel early");
+    SendCodexFailedNotification("turn/completed",
+        "{\"params\":{\"threadId\":\"thread-1\",\"turn\":{\"id\":\"turn-failed\",\"status\":\"failed\"}}}");
+    Check(codexImmediateErrors.Count == 0
+          && codexFailedResult is { IsError: true, Text: "TLS handshake EOF" },
+          "Codex failed turns surface the cached terminal error at authoritative completion");
+
     var claudeResultSession = new ClaudeChatSession("claude", root);
     var claudePreview = "";
     AgentTurnResult? claudeFinalResult = null;

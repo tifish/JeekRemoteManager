@@ -91,6 +91,7 @@ public sealed class CodexChatSession : IAgentChatSession
     private TaskCompletionSource<bool>? _steerResponse;
     private string _finalText = "";
     private string? _activeAgentMessageItemId;
+    private readonly Dictionary<string, string> _terminalTurnErrors = new(StringComparer.Ordinal);
     private long _lastOutputTokens;
     private int _numTurns;
 
@@ -723,17 +724,31 @@ public sealed class CodexChatSession : IAgentChatSession
                     _currentTurnId = null;
                     _activeTurnReady = null;
                 }
-                HandleTurnCompleted(p);
+                HandleTurnCompleted(p, completedTurnId);
                 break;
 
             case "error":
-                // Fatal turn errors also produce turn/completed with status=failed, but a
-                // retried error is just noise — only surface the terminal ones.
-                if (p.TryGetProperty("willRetry", out var retry) && retry.ValueKind != JsonValueKind.True
+                // Error notifications are scoped to a turn and are followed by
+                // turn/completed. Ending the UI turn here races that authoritative event
+                // and makes the panel appear to stop while Codex is still winding down.
+                // Retain the terminal message as a fallback for the matching completion.
+                if (p.TryGetProperty("willRetry", out var retry)
+                    && retry.ValueKind != JsonValueKind.True
                     && p.TryGetProperty("error", out var err)
-                    && err.TryGetProperty("message", out var errMsg))
+                    && err.TryGetProperty("message", out var errMsg)
+                    && errMsg.GetString() is { Length: > 0 } terminalError)
                 {
-                    Errored?.Invoke(errMsg.GetString() ?? "unknown Codex error");
+                    if (p.TryGetProperty("turnId", out var errorTurnId)
+                        && errorTurnId.GetString() is { Length: > 0 } turnId)
+                    {
+                        _terminalTurnErrors[turnId] = terminalError;
+                    }
+                    else
+                    {
+                        // Older or malformed protocol output cannot be reconciled with a
+                        // later completion, so keep the existing immediate-failure path.
+                        Errored?.Invoke(terminalError);
+                    }
                 }
                 break;
         }
@@ -750,7 +765,7 @@ public sealed class CodexChatSession : IAgentChatSession
         TextReplaced?.Invoke("");
     }
 
-    private void HandleTurnCompleted(JsonElement p)
+    private void HandleTurnCompleted(JsonElement p, string? completedTurnId)
     {
         var isError = false;
         var errorMessage = "";
@@ -766,12 +781,54 @@ public sealed class CodexChatSession : IAgentChatSession
             }
         }
 
+        if (completedTurnId is not null
+            && _terminalTurnErrors.Remove(completedTurnId, out var terminalError)
+            && isError
+            && errorMessage.Length == 0)
+        {
+            errorMessage = terminalError;
+        }
+
         var text = _finalText.Length > 0 ? _finalText : _currentText.ToString();
         if (isError && text.Length == 0)
             text = errorMessage;
 
         // Codex reports token usage but no dollar cost.
         TurnCompleted?.Invoke(new AgentTurnResult(text, 0, _lastOutputTokens, ++_numTurns, isError));
+    }
+
+    /// <summary>Exercises the real Codex notification path without starting a subprocess.
+    /// Used by the running app's Debug MCP surface to verify turn-error ordering.</summary>
+    internal static string DebugTurnErrorLifecycle(string terminalError)
+    {
+        var session = new CodexChatSession("codex", ".");
+        var stoppedBeforeCompletion = false;
+        AgentTurnResult? completed = null;
+        session.Errored += _ => stoppedBeforeCompletion = true;
+        session.TurnCompleted += result => completed = result;
+
+        using (var error = JsonDocument.Parse(JsonSerializer.Serialize(new
+               {
+                   @params = new
+                   {
+                       threadId = "debug-thread",
+                       turnId = "debug-turn",
+                       willRetry = false,
+                       error = new { message = terminalError },
+                   },
+               })))
+        {
+            session.HandleNotification("error", error.RootElement);
+        }
+
+        var stateAfterError = !stoppedBeforeCompletion && completed is null ? "waiting" : "stopped";
+        using (var completion = JsonDocument.Parse(
+                   "{\"params\":{\"threadId\":\"debug-thread\",\"turn\":{\"id\":\"debug-turn\",\"status\":\"failed\"}}}"))
+        {
+            session.HandleNotification("turn/completed", completion.RootElement);
+        }
+
+        return $"{stateAfterError}|{(completed?.IsError == true ? "failed" : "not-failed")}|{completed?.Text}";
     }
 
     public async ValueTask DisposeAsync()

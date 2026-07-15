@@ -178,6 +178,11 @@ public partial class MainWindow : Window
     public string DebugReconcileCompletedAgentText(string streamedText, string completedText) =>
         AgentChatViewModel.SelectCompletedText(streamedText, completedText);
 
+    /// <summary>Verifies that a terminal Codex error notification does not end the AI turn
+    /// before the matching turn/completed notification. Exposed for Debug MCP.</summary>
+    public string DebugCodexTurnErrorLifecycle(string terminalError) =>
+        CodexChatSession.DebugTurnErrorLifecycle(terminalError);
+
     private void BuildMoreActionsMenu()
     {
         if (DataContext is not MainWindowViewModel vm)
