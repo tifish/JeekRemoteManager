@@ -325,7 +325,8 @@ public partial class MainWindowViewModel : ViewModelBase
     public Func<string, string, string, Task<string?>>? PromptAsync { get; set; }
     public Func<Task<string?>>? PickKeyFileAsync { get; set; }
     public Func<StorageLocation, string?, string?, string?, bool, int, string?, Task<SettingsDialogResult?>>? PickSettingsAsync { get; set; }
-    public Func<string, Task<string?>>? PickFolderAsync { get; set; }
+    /// <summary>Opens a folder picker. Args: suggested start path, optional dialog title.</summary>
+    public Func<string, string?, Task<string?>>? PickFolderAsync { get; set; }
 
     /// <summary>Opens an in-app SSH terminal for the connection (set by the view).
     /// The second argument is the connection's on-disk file path, carried so the
@@ -2985,7 +2986,7 @@ public partial class MainWindowViewModel : ViewModelBase
         FlushPendingAutoSave();
 
         var defaultHint = @"C:\Library\Software\Net\RemoteControl\FinalShell\conn";
-        var picked = await PickFolderAsync(defaultHint);
+        var picked = await PickFolderAsync(defaultHint, L("DialogPickFinalShellTitle"));
         if (string.IsNullOrEmpty(picked))
             return;
 
@@ -3000,6 +3001,133 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             StatusMessage = L("StatusImportFailed", ex.Message);
         }
+    }
+
+    [RelayCommand]
+    private async Task ImportSecureCrt()
+    {
+        if (PickFolderAsync is null)
+            return;
+
+        FlushPendingAutoSave();
+
+        var defaultHint = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "VanDyke", "Config", "Sessions");
+        if (!Directory.Exists(defaultHint))
+            defaultHint = @"C:\Library\Software\Net\RemoteControl\SecureCRT\Data\settings\config\Sessions";
+
+        var picked = await PickFolderAsync(defaultHint, L("DialogPickSecureCrtTitle"));
+        if (string.IsNullOrEmpty(picked))
+            return;
+
+        try
+        {
+            var result = ImportSecureCrtFromDirectory(picked);
+            StatusMessage = FormatSessionImportResult(
+                result.Imported, result.Folders, result.Skipped, result.PasswordsImported);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = L("StatusImportFailed", ex.Message);
+        }
+    }
+
+    [RelayCommand]
+    private async Task ImportXshell()
+    {
+        if (PickFolderAsync is null)
+            return;
+
+        FlushPendingAutoSave();
+
+        var defaultHint = FindDefaultXshellSessionsPath()
+                          ?? Path.Combine(
+                              Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                              "NetSarang Computer");
+
+        var picked = await PickFolderAsync(defaultHint, L("DialogPickXshellTitle"));
+        if (string.IsNullOrEmpty(picked))
+            return;
+
+        try
+        {
+            var result = ImportXshellFromDirectory(picked);
+            StatusMessage = FormatSessionImportResult(
+                result.Imported, result.Folders, result.Skipped, result.PasswordsImported);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = L("StatusImportFailed", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Imports SecureCRT sessions from a Sessions directory. Used by the UI
+    /// command and by the Debug MCP for automated testing.
+    /// </summary>
+    public SecureCrtImporter.ImportResult ImportSecureCrtFromDirectory(string sessionsRoot)
+    {
+        FlushPendingAutoSave();
+        var result = new SecureCrtImporter(_store).Import(sessionsRoot);
+        ReloadTree();
+        return result;
+    }
+
+    /// <summary>
+    /// Imports Xshell sessions from a Sessions directory. Used by the UI
+    /// command and by the Debug MCP for automated testing.
+    /// </summary>
+    public XshellImporter.ImportResult ImportXshellFromDirectory(string sessionsRoot)
+    {
+        FlushPendingAutoSave();
+        var result = new XshellImporter(_store).Import(sessionsRoot);
+        ReloadTree();
+        return result;
+    }
+
+    private string FormatSessionImportResult(
+        int imported, int folders, int skipped, int passwordsImported)
+    {
+        var message = L("StatusImportedConnections", imported, folders, skipped);
+        if (imported <= 0)
+            return message;
+
+        message += " " + (passwordsImported > 0
+            ? L("StatusImportedPasswords", passwordsImported)
+            : L("StatusImportedNoPasswords"));
+        return message;
+    }
+
+    private static string? FindDefaultXshellSessionsPath()
+    {
+        var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        var root = Path.Combine(documents, "NetSarang Computer");
+        if (!Directory.Exists(root))
+            return null;
+
+        // Prefer the highest versioned Xshell\Sessions folder.
+        string? best = null;
+        var bestVersion = -1.0;
+        foreach (var versionDir in Directory.GetDirectories(root))
+        {
+            var sessions = Path.Combine(versionDir, "Xshell", "Sessions");
+            if (!Directory.Exists(sessions))
+                continue;
+
+            var name = Path.GetFileName(versionDir);
+            if (!double.TryParse(name, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var version))
+                version = 0;
+
+            if (best is null || version >= bestVersion)
+            {
+                best = sessions;
+                bestVersion = version;
+            }
+        }
+
+        return best;
     }
 
     [RelayCommand]

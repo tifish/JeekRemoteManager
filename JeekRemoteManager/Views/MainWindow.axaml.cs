@@ -220,6 +220,12 @@ public partial class MainWindow : Window
                 case ApplicationMenuAction.ImportFromFinalShell:
                     item.Command = vm.ImportFinalShellCommand;
                     break;
+                case ApplicationMenuAction.ImportFromSecureCrt:
+                    item.Command = vm.ImportSecureCrtCommand;
+                    break;
+                case ApplicationMenuAction.ImportFromXshell:
+                    item.Command = vm.ImportXshellCommand;
+                    break;
                 case ApplicationMenuAction.CheckForUpdates:
                     item.Command = vm.CheckForUpdatesCommand;
                     break;
@@ -254,7 +260,7 @@ public partial class MainWindow : Window
         vm.PromptAsync = PromptAsync;
         vm.PickKeyFileAsync = PickKeyFileAsync;
         vm.PickSettingsAsync = PickSettingsAsync;
-        vm.PickFolderAsync = path => PickFolderAsync(path);
+        vm.PickFolderAsync = (path, title) => PickFolderAsync(path, title);
         vm.OpenSshTerminalAsync = async (connection, sourcePath) =>
         {
             _ = await EnsureSshTerminalAsync(connection, sourcePath);

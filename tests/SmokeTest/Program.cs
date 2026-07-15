@@ -42,6 +42,8 @@ try
           [
               ApplicationMenuAction.Settings,
               ApplicationMenuAction.ImportFromFinalShell,
+              ApplicationMenuAction.ImportFromSecureCrt,
+              ApplicationMenuAction.ImportFromXshell,
               ApplicationMenuAction.CheckForUpdates,
               ApplicationMenuAction.Exit,
           ]),
@@ -96,6 +98,121 @@ try
     Check(PasswordProtector.Decrypt(enc) == secret, "Decrypt round-trips the password");
     Check(PasswordProtector.Encrypt("") == "", "Empty password encrypts to empty");
 
+    // --- SecureCRT / Xshell session import ---
+    {
+        static string EncryptSecureCrtPasswordV2(string plaintext)
+        {
+            var plainBytes = Encoding.UTF8.GetBytes(plaintext);
+            var key = SHA256.HashData(Encoding.UTF8.GetBytes(""));
+            var lvc = new byte[4 + plainBytes.Length + 32];
+            BitConverter.GetBytes(plainBytes.Length).CopyTo(lvc, 0);
+            plainBytes.CopyTo(lvc, 4);
+            SHA256.HashData(plainBytes).CopyTo(lvc, 4 + plainBytes.Length);
+            var padLen = 16 - (lvc.Length % 16);
+            if (padLen < 8) padLen += 16;
+            var padded = new byte[lvc.Length + padLen];
+            lvc.CopyTo(padded, 0);
+            RandomNumberGenerator.Fill(padded.AsSpan(lvc.Length));
+            using var aes = Aes.Create();
+            aes.Key = key;
+            aes.IV = new byte[16];
+            aes.Mode = CipherMode.CBC;
+            aes.Padding = PaddingMode.None;
+            var cipher = aes.CreateEncryptor().TransformFinalBlock(padded, 0, padded.Length);
+            return "02:" + Convert.ToHexString(cipher).ToLowerInvariant();
+        }
+
+        static byte[] Rc4(byte[] key, byte[] data)
+        {
+            var s = new byte[256];
+            for (var i = 0; i < 256; i++) s[i] = (byte)i;
+            var j = 0;
+            for (var i = 0; i < 256; i++)
+            {
+                j = (j + s[i] + key[i % key.Length]) & 0xFF;
+                (s[i], s[j]) = (s[j], s[i]);
+            }
+            var output = new byte[data.Length];
+            var x = 0; var y = 0;
+            for (var k = 0; k < data.Length; k++)
+            {
+                x = (x + 1) & 0xFF;
+                y = (y + s[x]) & 0xFF;
+                (s[x], s[y]) = (s[y], s[x]);
+                output[k] = (byte)(data[k] ^ s[(s[x] + s[y]) & 0xFF]);
+            }
+            return output;
+        }
+
+        static string EncryptXshellPasswordLegacy(string plaintext)
+        {
+            var key = MD5.HashData(Encoding.ASCII.GetBytes("!X@s#h$e%l^l&"));
+            return Convert.ToBase64String(Rc4(key, Encoding.UTF8.GetBytes(plaintext)));
+        }
+
+        var scrtRoot = Path.Combine(root, "securecrt_sessions");
+        var scrtGroup = Path.Combine(scrtRoot, "Prod");
+        Directory.CreateDirectory(scrtGroup);
+        File.WriteAllText(Path.Combine(scrtRoot, "Default.ini"), "S:\"Protocol Name\"=SSH2\r\n");
+        File.WriteAllText(Path.Combine(scrtRoot, "__FolderData__.ini"), "D:\"Is Session\"=00000000\r\n");
+        File.WriteAllText(Path.Combine(scrtRoot, "skip-telnet.ini"),
+            "S:\"Protocol Name\"=Telnet\r\nS:\"Hostname\"=old.example\r\n");
+        File.WriteAllText(Path.Combine(scrtGroup, "web-1.ini"),
+            "S:\"Protocol Name\"=SSH2\r\n" +
+            "S:\"Hostname\"=web1.example.com\r\n" +
+            "S:\"Username\"=deploy\r\n" +
+            "D:\"[SSH2] Port\"=00001f90\r\n" + // 8080
+            "S:\"Emulation\"=Xterm\r\n" +
+            "S:\"Password V2\"=" + EncryptSecureCrtPasswordV2("scrt-secret") + "\r\n");
+        File.WriteAllText(Path.Combine(scrtRoot, "no-host.ini"),
+            "S:\"Protocol Name\"=SSH2\r\nS:\"Username\"=root\r\n");
+
+        var scrtImportStore = new ConnectionStore(Path.Combine(root, "import_scrt"));
+        var scrtResult = new SecureCrtImporter(scrtImportStore).Import(scrtRoot);
+        Check(scrtResult.Imported == 1 && scrtResult.Folders == 1 && scrtResult.Skipped >= 3,
+              "SecureCRT import keeps SSH sessions, folders, and skips noise");
+        Check(scrtResult.PasswordsImported == 1,
+              "SecureCRT import recovers Password V2 with empty config passphrase");
+        var scrtConn = scrtImportStore.Load(scrtImportStore.GetConnectionFiles(
+            scrtImportStore.GetSubFolders(scrtImportStore.RootPath)[0])[0]);
+        Check(scrtConn.Name == "web-1"
+              && scrtConn.Host == "web1.example.com"
+              && scrtConn.Username == "deploy"
+              && scrtConn.Port == 8080
+              && scrtConn.TerminalType == "xterm-256color"
+              && PasswordProtector.Decrypt(scrtConn.EncryptedPassword) == "scrt-secret",
+              "SecureCRT import maps host, user, hex port, emulation, and password");
+
+        var xshRoot = Path.Combine(root, "xshell_sessions");
+        var xshGroup = Path.Combine(xshRoot, "Labs");
+        Directory.CreateDirectory(xshGroup);
+        File.WriteAllText(Path.Combine(xshGroup, "lab-box.xsh"),
+            "[SessionInfo]\r\nVersion=4.0\r\n" +
+            "[CONNECTION]\r\nHost=10.0.0.9\r\nPort=2222\r\nProtocol=SSH\r\nDescription=lab note\r\n" +
+            "[CONNECTION:AUTHENTICATION]\r\nUserName=admin\r\nPassword=" +
+            EncryptXshellPasswordLegacy("xsh-secret") + "\r\n");
+        File.WriteAllText(Path.Combine(xshRoot, "serial.xsh"),
+            "[SessionInfo]\r\nVersion=8.1\r\n[CONNECTION]\r\nHost=\r\nPort=0\r\nProtocol=SERIAL\r\n" +
+            "[CONNECTION:AUTHENTICATION]\r\nUserName=\r\n");
+        File.WriteAllText(Path.Combine(xshRoot, "folder.cnf"), "not a session\r\n");
+
+        var xshImportStore = new ConnectionStore(Path.Combine(root, "import_xsh"));
+        var xshResult = new XshellImporter(xshImportStore).Import(xshRoot);
+        Check(xshResult.Imported == 1 && xshResult.Folders == 1 && xshResult.Skipped >= 1,
+              "Xshell import keeps SSH sessions and skips non-SSH files");
+        Check(xshResult.PasswordsImported == 1,
+              "Xshell import recovers legacy fixed-key passwords");
+        var xshConn = xshImportStore.Load(xshImportStore.GetConnectionFiles(
+            xshImportStore.GetSubFolders(xshImportStore.RootPath)[0])[0]);
+        Check(xshConn.Name == "lab-box"
+              && xshConn.Host == "10.0.0.9"
+              && xshConn.Port == 2222
+              && xshConn.Username == "admin"
+              && xshConn.Notes == "lab note"
+              && PasswordProtector.Decrypt(xshConn.EncryptedPassword) == "xsh-secret",
+              "Xshell import maps host, port, user, notes, and password");
+    }
+
     // --- SSH never goes through the OS-client launcher (in-app terminal only) ---
     var sshLaunchRejected = false;
     try
@@ -148,6 +265,21 @@ try
           "Duplicated sessions without a marker preserve existing login-command behavior");
     Check(LoginCommandSequence.IsManualInputDirective("  #INPUT  "),
           "Manual-input login directive remains case-insensitive");
+    Check(TerminalView.ShouldUseAgentModeLayout(
+              aiPanelVisible: true,
+              agentModeRequested: true,
+              loginManualInputPending: false),
+          "Agent mode owns the tab when no login input is pending");
+    Check(!TerminalView.ShouldUseAgentModeLayout(
+              aiPanelVisible: true,
+              agentModeRequested: true,
+              loginManualInputPending: true),
+          "Pending login input temporarily overrides the Agent layout");
+    Check(!TerminalView.ShouldUseAgentModeLayout(
+              aiPanelVisible: true,
+              agentModeRequested: false,
+              loginManualInputPending: false),
+          "Completing login input does not force a disabled Agent mode");
     var autoPanelConnection = new Connection
     {
         Type = ConnectionType.Ssh,

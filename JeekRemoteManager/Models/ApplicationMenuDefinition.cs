@@ -6,6 +6,8 @@ public enum ApplicationMenuAction
 {
     Settings,
     ImportFromFinalShell,
+    ImportFromSecureCrt,
+    ImportFromXshell,
     CheckForUpdates,
     Exit,
 }
@@ -32,6 +34,8 @@ public static class ApplicationMenuDefinition
             "\uE713",
             ToolTipLocalizationKey: "SettingsTooltip"),
         new(ApplicationMenuAction.ImportFromFinalShell, "ImportFromFinalShell", "\uE8B5"),
+        new(ApplicationMenuAction.ImportFromSecureCrt, "ImportFromSecureCrt", "\uE8B5"),
+        new(ApplicationMenuAction.ImportFromXshell, "ImportFromXshell", "\uE8B5"),
         new(ApplicationMenuAction.CheckForUpdates, "CheckForUpdates", "\uE895", IsAccent: true),
         new(ApplicationMenuAction.Exit, "TrayExit", "\uE7E8"),
     ];

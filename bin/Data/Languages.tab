@@ -24,6 +24,8 @@ SettingsTooltip	Choose where Config is stored	选择 Config 保存位置
 MoreActions	More actions	更多操作
 ToggleConnectionPanel	Collapse or expand the connection panel	收起/展开连接面板
 ImportFromFinalShell	Import from FinalShell…	从 FinalShell 导入…
+ImportFromSecureCrt	Import from SecureCRT…	从 SecureCRT 导入…
+ImportFromXshell	Import from Xshell…	从 Xshell 导入…
 CheckForUpdates	Check for updates…	检查更新…
 Copy	Copy	复制
 Cut	Cut	剪切
@@ -113,6 +115,9 @@ StatusUpdateFailed	Update check failed: {0}	检查更新失败：{0}
 StatusUpdatePostponed	Update postponed.	更新已推迟。
 StatusUpdateLauncherFail	Could not launch updater.	无法启动更新程序。
 StatusImported	Imported {0} connection(s) into {1} new folder(s). Skipped {2}. Passwords cannot be decrypted from FinalShell — fill them in via the editor.	已导入 {0} 个连接到 {1} 个新文件夹中。已跳过 {2} 个。FinalShell 的密码无法解密 —— 请在编辑器中手动填写。
+StatusImportedConnections	Imported {0} connection(s) into {1} new folder(s). Skipped {2}.	已导入 {0} 个连接到 {1} 个新文件夹中。已跳过 {2} 个。
+StatusImportedPasswords	Recovered {0} password(s); enter any remaining passwords in the editor.	已恢复 {0} 个密码；其余请在编辑器中手动填写。
+StatusImportedNoPasswords	Passwords could not be decrypted from the source — fill them in via the editor.	源中的密码无法解密 —— 请在编辑器中手动填写。
 StatusImportFailed	Import failed: {0}	导入失败：{0}
 StatusOpenFolderFailed	Cannot open folder: {0}	无法打开文件夹：{0}
 StatusNotWritable	That location is not writable: {0}	该位置不可写：{0}
@@ -148,6 +153,8 @@ StorageCustomNotSet	Not set — click Browse to choose a folder	未设置 ——
 StorageCustomRequired	Please choose a custom directory.	请选择一个自定义目录。
 DialogPickKeyTitle	Select private key	选择私钥
 DialogPickFinalShellTitle	Select FinalShell conn directory	选择 FinalShell 连接目录
+DialogPickSecureCrtTitle	Select SecureCRT Sessions directory	选择 SecureCRT Sessions 目录
+DialogPickXshellTitle	Select Xshell Sessions directory	选择 Xshell Sessions 目录
 DialogPickStorageTitle	Select Config location	选择 Config 保存位置
 RunScript	Run script	运行脚本
 RunScriptShort	Script	脚本

@@ -344,6 +344,10 @@ public partial class App : Application
                     CommandItem(Localizer.Get(entry.LocalizationKey), vm.OpenSettingsCommand),
                 ApplicationMenuAction.ImportFromFinalShell =>
                     CommandItem(Localizer.Get(entry.LocalizationKey), vm.ImportFinalShellCommand),
+                ApplicationMenuAction.ImportFromSecureCrt =>
+                    CommandItem(Localizer.Get(entry.LocalizationKey), vm.ImportSecureCrtCommand),
+                ApplicationMenuAction.ImportFromXshell =>
+                    CommandItem(Localizer.Get(entry.LocalizationKey), vm.ImportXshellCommand),
                 ApplicationMenuAction.CheckForUpdates =>
                     CommandItem(Localizer.Get(entry.LocalizationKey), vm.CheckForUpdatesCommand),
                 ApplicationMenuAction.Exit => ActionItem(Localizer.Get(entry.LocalizationKey), RequestExit),
