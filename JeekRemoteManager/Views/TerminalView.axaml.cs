@@ -82,6 +82,9 @@ public partial class TerminalView : UserControl
     private DispatcherTimer? _windowSizeSyncTimer;
     private (uint Cols, uint Rows)? _lastSentWindowSize;
     private readonly TerminalResizeOutputBuffer _resizeOutputBuffer = new();
+    // SSH packets often split multi-byte UTF-8 (Chinese) mid-character; decode statefully
+    // before TerminalControlModel.Feed, which would otherwise insert U+FFFD tofu boxes.
+    private readonly Utf8StreamDecoder _utf8Decoder = new();
     private Timer? _resizeOutputFlushTimer;
     private long _resizeOutputDeadlineTicks;
     private string? _pendingKeyboardCopyText;
@@ -530,6 +533,29 @@ public partial class TerminalView : UserControl
             return text.ToString().TrimEnd();
         }
     }
+
+    /// <summary>
+    /// Debug helper: feed raw UTF-8 terminal bytes through the same stateful decoder used for
+    /// live SSH/ConPTY output (reproduces multi-packet Chinese rendering).
+    /// Prefer <see cref="DebugFeedUtf8Base64"/> from Debug MCP (byte[] needs base64 there).
+    /// </summary>
+    public void DebugFeedUtf8Bytes(byte[] data)
+    {
+        if (data is null || data.Length == 0)
+            return;
+        FeedBytesDirect(data);
+    }
+
+    /// <summary>Debug helper: feed base64-encoded UTF-8 bytes (MCP-friendly).</summary>
+    public void DebugFeedUtf8Base64(string base64)
+    {
+        if (string.IsNullOrEmpty(base64))
+            return;
+        FeedBytesDirect(Convert.FromBase64String(base64));
+    }
+
+    /// <summary>Debug helper: reset the streaming UTF-8 decoder (as on a new connection).</summary>
+    public void DebugResetUtf8Decoder() => _utf8Decoder.Reset();
 
     /// <summary>
     /// Debug helper: resize the terminal buffer as a window size change would and
@@ -1359,6 +1385,7 @@ public partial class TerminalView : UserControl
             RefreshLoginManualInputLayout(generation);
         _connected = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         _shellClosed = false;
+        _utf8Decoder.Reset();
         _ = ConnectAsync(generation);
     }
 
@@ -2137,11 +2164,20 @@ public partial class TerminalView : UserControl
         if (data.Length == 0)
             return;
 
+        // Copy: some channel buffers may be reused after the event returns, and the
+        // UI-thread post is asynchronous.
+        var payload = new byte[data.Length];
+        Buffer.BlockCopy(data, 0, payload, 0, data.Length);
+
         Dispatcher.UIThread.Post(() =>
         {
             if (_disposed)
                 return;
-            _model.Feed(data, data.Length);
+            // Decode on the UI thread so partial multi-byte sequences stay ordered with
+            // the decoder state (dispatcher queue preserves post order).
+            var text = _utf8Decoder.Decode(payload);
+            if (text.Length > 0)
+                _model.Feed(text);
             RecordCursorRow();
         });
     }

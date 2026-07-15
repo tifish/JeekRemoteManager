@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Media;
 using JeekRemoteManager.Services;
 using JeekTools;
 using Microsoft.Extensions.Logging;
@@ -139,6 +140,24 @@ internal static class Program
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
             .WithInterFont()
+            // Cascadia Mono (terminal default) has no CJK glyphs; prefer system CJK faces
+            // before the platform's generic fallback when matching missing codepoints.
+            .With(new FontManagerOptions
+            {
+                FontFallbacks =
+                [
+                    new FontFallback { FontFamily = new FontFamily("Microsoft YaHei UI") },
+                    new FontFallback { FontFamily = new FontFamily("Microsoft YaHei") },
+                    new FontFallback { FontFamily = new FontFamily("NSimSun") },
+                    new FontFallback { FontFamily = new FontFamily("Noto Sans SC") },
+                    new FontFallback { FontFamily = new FontFamily("Noto Sans CJK SC") },
+                    new FontFallback { FontFamily = new FontFamily("Source Han Sans SC") },
+                    new FontFallback { FontFamily = new FontFamily("PingFang SC") },
+                    new FontFallback { FontFamily = new FontFamily("WenQuanYi Micro Hei") },
+                    new FontFallback { FontFamily = new FontFamily("Yu Gothic UI") },
+                    new FontFallback { FontFamily = new FontFamily("Malgun Gothic") },
+                ],
+            })
             .LogToTrace();
 
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]

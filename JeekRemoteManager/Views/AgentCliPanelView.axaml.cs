@@ -38,6 +38,8 @@ public partial class AgentCliPanelView : UserControl
 
     // Codex/Claude use SGR dim which this terminal does not paint; rewrite to soft gray.
     private readonly TerminalDimColorFilter _dimColorFilter = new();
+    // ConPTY output can split multi-byte UTF-8 across reads; decode before Feed(byte[]).
+    private readonly Utf8StreamDecoder _utf8Decoder = new();
 
     private ConPtySession? _liveSession;
     private Action<byte[]>? _liveSessionDataHandler;
@@ -339,6 +341,7 @@ public partial class AgentCliPanelView : UserControl
         if (clearDisplay)
         {
             _dimColorFilter.Reset();
+            _utf8Decoder.Reset();
             try
             {
                 _model.Feed("\u001bc\u001b[?1049l\u001b[2J\u001b[H\u001b[0m");
@@ -404,7 +407,9 @@ public partial class AgentCliPanelView : UserControl
         var followBottom = terminal.Buffer.IsAtBottom;
         var pinnedYDisp = terminal.Buffer.YDisp;
 
-        terminal.Feed(data, data.Length);
+        var text = _utf8Decoder.Decode(data);
+        if (text.Length > 0)
+            _model.Feed(text);
 
         if (followBottom)
             _model.EnsureCaretIsVisible();

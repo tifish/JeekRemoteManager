@@ -360,6 +360,34 @@ try
               "Server monitor process list switches between memory and CPU top-eight sorting");
     }
 
+    // --- Streaming UTF-8 (Chinese split across packets must not become U+FFFD) ---
+    var chineseUtf8 = Encoding.UTF8.GetBytes("中文测试");
+    Check(chineseUtf8.Length >= 6, "Chinese UTF-8 sample is multi-byte");
+    // Library path: per-packet GetString turns incomplete sequences into replacement chars.
+    var brokenModel = new TerminalControlModel(new TerminalOptions { Cols = 40, Rows = 5, Scrollback = 10 });
+    brokenModel.Feed(chineseUtf8.AsSpan(0, 2).ToArray(), 2);
+    brokenModel.Feed(chineseUtf8.AsSpan(2).ToArray(), chineseUtf8.Length - 2);
+    var brokenText = brokenModel.Terminal.Buffer.GetLine(0)?.TranslateToString(true) ?? "";
+    Check(brokenText.Contains('\uFFFD'),
+          "TerminalControlModel.Feed(byte[]) produces U+FFFD when UTF-8 is split mid-character");
+
+    var streamDecoder = new Utf8StreamDecoder();
+    var streamed = streamDecoder.Decode(chineseUtf8.AsSpan(0, 2))
+                   + streamDecoder.Decode(chineseUtf8.AsSpan(2));
+    Check(streamed == "中文测试" && !streamed.Contains('\uFFFD'),
+          "Utf8StreamDecoder reassembles Chinese split across packets");
+
+    var fixedModel = new TerminalControlModel(new TerminalOptions { Cols = 40, Rows = 5, Scrollback = 10 });
+    // One byte at a time through the decoder (worst-case packet split).
+    var perByteDecoder = new Utf8StreamDecoder();
+    var rebuilt = new StringBuilder();
+    foreach (var b in chineseUtf8)
+        rebuilt.Append(perByteDecoder.Decode([b]));
+    fixedModel.Feed(rebuilt.ToString());
+    var fixedText = fixedModel.Terminal.Buffer.GetLine(0)?.TranslateToString(true) ?? "";
+    Check(fixedText.Contains("中文测试", StringComparison.Ordinal) && !fixedText.Contains('\uFFFD'),
+          "Terminal receives intact Chinese when fed via Utf8StreamDecoder + Feed(string)");
+
     // --- Terminal clipboard text ---
     var softWrapTerminal = new TerminalControlModel(new TerminalOptions { Cols = 10, Rows = 5, Scrollback = 10 });
     softWrapTerminal.Feed("abcdefghijklmnop\r\nXYZ");

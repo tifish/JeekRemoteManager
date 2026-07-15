@@ -10,6 +10,8 @@
     </Application.DataTemplates>
 
     <Application.Resources>
+        <!-- Terminal primary mono font; CJK missing glyphs use FontManagerOptions.FontFallbacks. -->
+        <x:String x:Key="SvcSystems.UI.TerminalFontFamily">Cascadia Mono, Consolas, Microsoft YaHei UI, Microsoft YaHei, NSimSun, Noto Sans SC, monospace</x:String>
         <!-- Balanced ANSI palette for the embedded SSH terminal. -->
         <SolidColorBrush x:Key="SvcSystems.UI.TerminalCaretBrush" Color="#D8E2EA" />
         <SolidColorBrush x:Key="SvcSystems.UI.TerminalSelectionBrush" Color="#405E81AC" />
