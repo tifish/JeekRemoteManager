@@ -43,7 +43,7 @@ public static class DebugMcpContract
         Tool("read_logs", "Read the current app log tail.",
             new() { ["lines"] = Prop("integer", "Lines, 1-2000 (default 200)."), ["filter"] = Prop("string", "Case-insensitive filter.") }),
         Tool("ai_conversation_trash_check", "Verify AI conversation recycle-bin lifecycle and responsive row layout using isolated temporary data.", new()),
-        Tool("ai_chat_stress", "Verify AI streaming coalescing, transcript virtualization, and jump-to-latest behavior during streamed layout growth.",
+        Tool("ai_chat_stress", "Verify AI streaming coalescing, transcript virtualization, jump-to-latest behavior, and composer-resize bottom following.",
             new() { ["message_count"] = Prop("integer", "Temporary messages (default 500)."), ["characters_per_message"] = Prop("integer", "Characters per message (default 200)."), ["stream_chunk_count"] = Prop("integer", "Chunks (default 2000)."), ["characters_per_chunk"] = Prop("integer", "Characters per chunk (default 10)."), ["scroll_update_count"] = Prop("integer", "Streaming layout updates after jumping to latest (default 100).") }));
 
     public static JsonObject InitializeResult(string name, string title, string version, string? requestedVersion)

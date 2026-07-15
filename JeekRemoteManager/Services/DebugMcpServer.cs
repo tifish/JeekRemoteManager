@@ -867,7 +867,10 @@ internal static class DebugMcpServer
             var scrollFollowTask = await OnUiAsync(() =>
                 state.view.RunDebugScrollFollowStressAsync(scrollUpdateCount));
             var scrollFollow = await scrollFollowTask.WaitAsync(TimeSpan.FromSeconds(15));
-            return ToolText($"streaming: {streaming}\ntranscript: {transcript}\nscrollFollow: {scrollFollow}");
+
+            var composerResizeTask = await OnUiAsync(state.view.RunDebugComposerResizeCheckAsync);
+            var composerResize = await composerResizeTask.WaitAsync(TimeSpan.FromSeconds(15));
+            return ToolText($"streaming: {streaming}\ntranscript: {transcript}\nscrollFollow: {scrollFollow}\ncomposerResize: {composerResize}");
         }
         finally
         {

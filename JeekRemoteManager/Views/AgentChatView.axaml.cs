@@ -272,6 +272,54 @@ public partial class AgentChatView : UserControl
         }
     }
 
+    /// <summary>Grows the composer while the transcript is following the latest message.
+    /// The returned viewport and bottom-gap values let Debug MCP verify that the last
+    /// message remains fully visible as the composer takes more vertical space.</summary>
+    public async Task<string> RunDebugComposerResizeCheckAsync()
+    {
+        if (DataContext is not AgentChatViewModel vm)
+            throw new InvalidOperationException("The AI panel is not initialized.");
+
+        var originalInput = InputBox.Text;
+        var added = new List<ChatMessageViewModel>();
+        try
+        {
+            InputBox.Text = "";
+            var payload = new string('c', 240);
+            for (var i = 0; i < 30; i++)
+            {
+                var message = new ChatMessageViewModel(ChatRole.User, $"composer-resize-{i}: {payload}");
+                added.Add(message);
+                vm.Messages.Add(message);
+            }
+
+            await Task.Delay(150);
+            ScrollToLatest();
+            await Task.Delay(100);
+
+            var scroll = MessagesScroll
+                         ?? throw new InvalidOperationException("The transcript scroll viewer is unavailable.");
+            var viewportBefore = scroll.Viewport.Height;
+            var gapBefore = Math.Max(0, scroll.Extent.Height - viewportBefore - scroll.Offset.Y);
+
+            InputBox.Text = string.Join(Environment.NewLine,
+                Enumerable.Range(1, 12).Select(i => $"composer line {i}"));
+            await Task.Delay(150);
+
+            var viewportAfter = scroll.Viewport.Height;
+            var gapAfter = Math.Max(0, scroll.Extent.Height - viewportAfter - scroll.Offset.Y);
+            return $"viewportBefore={viewportBefore:F1}; viewportAfter={viewportAfter:F1}; "
+                   + $"gapBefore={gapBefore:F1}; gapAfter={gapAfter:F1}; "
+                   + $"atBottom={IsNearBottom()}; stickToBottom={_stickToBottom}";
+        }
+        finally
+        {
+            InputBox.Text = originalInput;
+            foreach (var message in added)
+                vm.Messages.Remove(message);
+        }
+    }
+
     private static int EnsureSelectableCodeBlocks(Visual root)
     {
         var replaced = 0;
@@ -453,8 +501,9 @@ public partial class AgentChatView : UserControl
         if (MessagesScroll is null)
             return;
 
-        // Content growth while pinned keeps the viewport on the latest messages.
-        if (_stickToBottom && e.ExtentDelta.Y > 0.5)
+        // Content growth and a shrinking viewport (for example, when the multiline
+        // composer grows) must both keep the latest message above the composer.
+        if (_stickToBottom && (e.ExtentDelta.Y > 0.5 || e.ViewportDelta.Y < -0.5))
         {
             // ScrollToEnd and ScrollIntoView can synchronously raise ScrollChanged. Queue
             // and coalesce the follow-up so streamed layout growth cannot recurse until
