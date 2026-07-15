@@ -1296,6 +1296,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
                 _session.TextReplaced += OnTextReplaced;
                 _session.TurnCompleted += OnTurnCompleted;
                 _session.Errored += OnErrored;
+                _session.StatusHint += OnStatusHint;
                 _session.Exited += OnExited;
                 NotifySteerAvailabilityChanged();
             }
@@ -1350,10 +1351,31 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             session.TextReplaced -= OnTextReplaced;
             session.TurnCompleted -= OnTurnCompleted;
             session.Errored -= OnErrored;
+            session.StatusHint -= OnStatusHint;
             session.Exited -= OnExited;
             _ = session.DisposeAsync();
         }
     }
+
+    private void OnStatusHint(string message) => Dispatcher.UIThread.Post(() =>
+    {
+        if (!IsBusy || string.IsNullOrWhiteSpace(message))
+            return;
+
+        // Provider retries often retract the draft answer; keep the thinking bubble so the
+        // panel does not look idle while a provisional jrm-tool draft is rewritten.
+        if (_pendingAssistant is not null
+            && (string.IsNullOrWhiteSpace(_pendingAssistant.Text) || _pendingAssistant.IsThinking))
+        {
+            if (!_pendingAssistant.IsThinking)
+                StartThinking();
+            _pendingAssistant.ThinkingText = message;
+        }
+
+        // Prefer provider retry status over "tool draft pending" — retries mean the draft
+        // was not committed and must not be read as an executable request.
+        StatusText = message;
+    });
 
     private void OnTextDelta(string delta)
     {
@@ -1388,12 +1410,19 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             if (_pendingAssistant is null)
                 return;
 
-            StopThinking();
             _pendingAssistant.Text = text;
             _pendingAssistant.IsStreaming = true;
+            // Empty replacements mean a failed/retried model draft was retracted — including
+            // provisional jrm-tool fences that were never committed by TurnCompleted.
+            if (string.IsNullOrEmpty(text) && IsBusy)
+                StartThinking();
+            else
+                StopThinking();
+
             _streamRenderUpdateCount++;
             OnPropertyChanged(nameof(StreamRenderUpdateCount));
             OnPropertyChanged(nameof(PendingStreamCharacterCount));
+            UpdateProvisionalToolStatus();
         });
     }
 
@@ -1430,6 +1459,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         _streamRenderUpdateCount++;
         OnPropertyChanged(nameof(StreamRenderUpdateCount));
         OnPropertyChanged(nameof(PendingStreamCharacterCount));
+        UpdateProvisionalToolStatus();
     }
 
     private void DiscardPendingTextDeltas()
@@ -1441,6 +1471,20 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         }
 
         OnPropertyChanged(nameof(PendingStreamCharacterCount));
+    }
+
+    /// <summary>
+    /// Streamed jrm-tool fences are provisional until TurnCompleted. Surface that so a Grok
+    /// API-retry draft is not mistaken for a command that AutoRun already should have run.
+    /// </summary>
+    private void UpdateProvisionalToolStatus()
+    {
+        if (!IsBusy || !_isModelTurnActive || _pendingAssistant is null)
+            return;
+        if (ExtractFirstToolRequest(_pendingAssistant.Text) is null)
+            return;
+
+        StatusText = L("AiToolDraftPending");
     }
 
     private void OnTurnCompleted(AgentTurnResult result) => Dispatcher.UIThread.Post(() =>
@@ -1463,6 +1507,9 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         if (_pendingAssistant is not null)
         {
             StopThinking();
+            // Prefer the session's authoritative completed text. For Grok API failures the
+            // completed text is the error detail; provisional streamed jrm-tool drafts must
+            // not be treated as committed tool requests.
             _pendingAssistant.Text = SelectCompletedText(_pendingAssistant.Text, result.Text);
             _pendingAssistant.IsStreaming = false;
             answer = _pendingAssistant.Text;
@@ -1483,28 +1530,25 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
                 ? L("AiTurnCost", result.OutputTokens, result.CostUsd)
                 : L("AiTurnTokens", result.OutputTokens);
 
+        // Only committed, successful turns may auto-run tools. Streamed fences during Grok
+        // retries are drafts until session/prompt (or an equivalent completion) finishes.
         var toolRequest = AutoRun && !result.IsError
             ? ExtractFirstToolRequest(answer)
             : null;
         if (toolRequest?.TerminalAction is { } terminalAction && _runTerminalAction is not null)
         {
-            // Keep IsBusy true across the recovery and the model's follow-up turn.
             _ = RunTerminalActionAndContinueAsync(terminalAction);
             return;
         }
 
         if (toolRequest?.Transfer is { } transfer && _transferFiles is not null)
         {
-            // Keep IsBusy true across the whole auto loop.
             _ = TransferAndContinueAsync(transfer);
             return;
         }
 
         if (toolRequest?.Command is { } command && _runCaptured is not null)
         {
-            // Two independent danger signals: the model self-tagged the block, or the local
-            // blacklist matched. Either one pauses the loop unless the user opted into
-            // automatically approving potentially destructive commands.
             if (RequiresDangerConfirmation(command, toolRequest.Dangerous))
             {
                 AskDangerConfirmation(command);
@@ -1525,6 +1569,17 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     /// completes. Public so Debug MCP can verify stale previews are replaced.</summary>
     public string DebugReconcileCompletedText(string streamedText, string completedText) =>
         SelectCompletedText(streamedText, completedText);
+
+    /// <summary>Debug snapshot of AI auto-run / provisional-tool state for the live panel.</summary>
+    public string DebugAutoToolState()
+    {
+        var pendingTool = _pendingAssistant is null
+            ? null
+            : ExtractFirstToolRequest(_pendingAssistant.Text)?.Command;
+        return $"busy={IsBusy}; modelTurn={_isModelTurnActive}; autoRun={AutoRun}; "
+               + $"pendingToolDraft={(pendingTool is null ? "none" : "yes")}; "
+               + $"status={StatusText}";
+    }
 
     /// <summary>Returns the final safety decision for an auto-run command. Public so the
     /// running UI can be verified through the generic Debug MCP object-path tools without
@@ -1684,11 +1739,14 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             return;
 
         ClearActivityPlaceholder();
-        Messages.Add(new ChatMessageViewModel(ChatRole.Tool, TruncateForDisplay(output)));
+        // Keep the chat bubble and the model follow-up identical. Large dumps are offloaded
+        // to a local file so Grok's prompt path does not mid-cut the text and claim "truncated".
+        var feedback = FormatToolOutputForAgent(output);
+        Messages.Add(new ChatMessageViewModel(ChatRole.Tool, feedback));
         PersistCurrentConversation();
 
         BeginActivityPlaceholder(ActivityKind.Thinking);
-        await SendToSessionAsync($"Output of `{command}`:\n```\n{output}\n```");
+        await SendToSessionAsync($"Output of `{command}`:\n```\n{feedback}\n```");
     }
 
     private async Task TransferAndContinueAsync(AgentFileTransfer transfer)
@@ -1720,11 +1778,12 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             return;
 
         ClearActivityPlaceholder();
-        Messages.Add(new ChatMessageViewModel(ChatRole.Tool, TruncateForDisplay(outcome)));
+        var feedback = FormatToolOutputForAgent(outcome);
+        Messages.Add(new ChatMessageViewModel(ChatRole.Tool, feedback));
         PersistCurrentConversation();
 
         BeginActivityPlaceholder(ActivityKind.Thinking);
-        await SendToSessionAsync($"Result of the {label}:\n```\n{outcome}\n```");
+        await SendToSessionAsync($"Result of the {label}:\n```\n{feedback}\n```");
     }
 
     private async Task RunTerminalActionAndContinueAsync(AgentTerminalAction action)
@@ -2036,13 +2095,63 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         return sources.Count == 0 ? null : new AgentFileTransfer(isUpload, sources, destination);
     }
 
-    private static string TruncateForDisplay(string output)
+    /// <summary>
+    /// Formats remote command/transfer output for both the chat UI and the model follow-up.
+    /// Grok Build offloads oversized <c>session/prompt</c> bodies and shows the model a
+    /// mid-cut preview, which the model reports as "output was truncated". Keep small
+    /// results inline; save large dumps under the agent temp dir and point at the path.
+    /// </summary>
+    internal static string FormatToolOutputForAgent(string output)
     {
-        const int limit = 4000;
-        return output.Length <= limit
-            ? output
-            : output[..limit] + "\n… [truncated]";
+        // Empirically Grok starts mid-cutting user prompts well below 20k chars. Stay under
+        // that budget for the inline path so the model sees a complete message.
+        const int inlineLimit = 6_000;
+        if (string.IsNullOrEmpty(output) || output.Length <= inlineLimit)
+            return output;
+
+        const int headChars = 2_500;
+        const int tailChars = 2_500;
+        var preview = output[..headChars] + "\n\n…\n\n" + output[^tailChars..];
+
+        var path = TrySaveToolOutputCapture(output);
+        if (path is not null)
+        {
+            return $"[full output: {output.Length} chars saved to local file]\n"
+                   + $"path: {path}\n"
+                   + "Use your local read_file tool on that path if you need every line, "
+                   + "or re-run a narrower remote command.\n\n"
+                   + "Preview (head + tail):\n"
+                   + preview;
+        }
+
+        return preview
+               + $"\n\n[full output was {output.Length} chars; middle not inlined here. "
+               + "Re-run a narrower remote command if you need the rest.]";
     }
+
+    private static string? TrySaveToolOutputCapture(string output)
+    {
+        try
+        {
+            var root = DebugInstanceContext.RuntimeTempRoot;
+            if (string.IsNullOrWhiteSpace(root))
+                root = Path.Combine(Path.GetTempPath(), "JeekRemoteManager");
+
+            // Same agent cwd tree Grok uses (…/agent), so relative paths also resolve.
+            var dir = Path.Combine(root, "agent", "jrm-captures");
+            Directory.CreateDirectory(dir);
+            var path = Path.Combine(dir, $"{DateTime.UtcNow:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}.txt");
+            File.WriteAllText(path, output);
+            return path;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Public wrapper for Debug MCP / SmokeTest verification of agent tool feedback.</summary>
+    public static string DebugTruncateForAgent(string output) => FormatToolOutputForAgent(output);
 
     public async ValueTask DisposeAsync()
     {
@@ -2065,6 +2174,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             session.TextReplaced -= OnTextReplaced;
             session.TurnCompleted -= OnTurnCompleted;
             session.Errored -= OnErrored;
+            session.StatusHint -= OnStatusHint;
             session.Exited -= OnExited;
             await session.DisposeAsync();
         }

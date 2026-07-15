@@ -803,6 +803,41 @@ try
           && grokExhaustedResult is { IsError: true, Text: "service temporarily at capacity" },
           "Grok drops exhausted retry candidates and reports the rate-limit reason");
 
+    var grokApiFailed = new GrokChatSession("grok", root);
+    var grokApiFailedPreview = "";
+    var grokApiStatusHints = new List<string>();
+    AgentTurnResult? grokApiFailedResult = null;
+    grokApiFailed.TextDelta += text => grokApiFailedPreview += text;
+    grokApiFailed.TextReplaced += text => grokApiFailedPreview = text;
+    grokApiFailed.StatusHint += hint => grokApiStatusHints.Add(hint);
+    grokApiFailed.TurnCompleted += result => grokApiFailedResult = result;
+    typeof(GrokChatSession)
+        .GetField("_acceptPromptUpdates", BindingFlags.Instance | BindingFlags.NonPublic)!
+        .SetValue(grokApiFailed, true);
+    using (var apiCandidate = JsonDocument.Parse(
+               "{\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"stale api block\"}},\"_meta\":{\"streamStartMs\":400}}"))
+        handleGrokSessionUpdate.Invoke(grokApiFailed, [apiCandidate.RootElement]);
+    using (var apiRetrying = JsonDocument.Parse(
+               "{\"update\":{\"sessionUpdate\":\"retry_state\",\"type\":\"retrying\",\"attempt\":14,\"max_retries\":15,\"reason\":\"API error (status 500 Internal Server Error): error: Service temporarily unavailable.\"},\"_meta\":{\"agentTimestampMs\":450}}"))
+        handleGrokRetryUpdate.Invoke(grokApiFailed, [apiRetrying.RootElement]);
+    using (var apiFailed = JsonDocument.Parse(
+               "{\"update\":{\"sessionUpdate\":\"retry_state\",\"type\":\"failed\",\"error_type\":\"api\",\"message\":\"API error (status 500 Internal Server Error): error: Service temporarily unavailable.\"},\"_meta\":{\"agentTimestampMs\":500}}"))
+        handleGrokRetryUpdate.Invoke(grokApiFailed, [apiFailed.RootElement]);
+    using (var turnFailed = JsonDocument.Parse(
+               "{\"update\":{\"sessionUpdate\":\"turn_completed\",\"stop_reason\":\"error\",\"agent_result\":\"API error (status 500 Internal Server Error): error: Service temporarily unavailable.\"}}"))
+        handleGrokRetryUpdate.Invoke(grokApiFailed, [turnFailed.RootElement]);
+    using (var apiCompleted = JsonDocument.Parse("{\"stopReason\":\"error\"}"))
+        handleGrokPromptCompleted.Invoke(grokApiFailed, [apiCompleted.RootElement]);
+    Check(grokApiFailedPreview.Length == 0
+          && grokApiFailedResult is
+          {
+              IsError: true,
+              Text: "API error (status 500 Internal Server Error): error: Service temporarily unavailable."
+          }
+          && grokApiStatusHints.Exists(h => h.Contains("API retry 14/15", StringComparison.Ordinal))
+          && grokApiStatusHints.Exists(h => h.Contains("Service temporarily unavailable", StringComparison.Ordinal)),
+          "Grok surfaces failed API retries instead of generic Internal error");
+
     var codexItems = new CodexChatSession("codex", root);
     var codexPreview = "";
     AgentTurnResult? codexItemResult = null;
@@ -2424,6 +2459,34 @@ try
           && !Encoding.UTF8.GetString(partialExitVisible).Contains(interactivePayload.ExitMarkerPrefix, StringComparison.Ordinal)
           && Encoding.UTF8.GetString(finalExitVisible).Length == 0,
           "Interactive shell monitor waits for a full exit marker line before completing and hides the following stale prompt");
+
+    var cleanShellOutput = typeof(TerminalView)
+        .GetMethod("CleanShellOutput", BindingFlags.Static | BindingFlags.NonPublic)!;
+    var rawCapturedShell =
+        "stty -echo 2>/dev/null || true; printf '__JRM_READY_TOK__'\n" +
+        "__JRM_READY_TOK__\nroot@host:~# \n" +
+        "__JRM_BEGIN_TOK__\n" +
+        "=== OS / Kernel ===\nLinux test 6.1\n" +
+        "__JRM_EXIT_TOK__:0\nroot@host:~# \n";
+    var cleanedShell = (string)cleanShellOutput.Invoke(null, [rawCapturedShell])!;
+    Check(cleanedShell == "=== OS / Kernel ===\nLinux test 6.1"
+          && !cleanedShell.Contains("__JRM_", StringComparison.Ordinal)
+          && !cleanedShell.Contains("stty -echo", StringComparison.Ordinal),
+          "AI command capture keeps only the script body between BEGIN and EXIT markers");
+
+    var shortAgentOut = AgentChatViewModel.DebugTruncateForAgent("hello");
+    var longAgentBody = new string('A', 50_000) + "MID" + new string('B', 50_000);
+    var longAgentOut = AgentChatViewModel.DebugTruncateForAgent(longAgentBody);
+    Check(shortAgentOut == "hello"
+          && longAgentOut.Contains("saved to local file", StringComparison.Ordinal)
+          && longAgentOut.Contains("path:", StringComparison.Ordinal)
+          && longAgentOut.Contains("Preview (head + tail)", StringComparison.Ordinal)
+          && longAgentOut.Contains(new string('A', 100), StringComparison.Ordinal)
+          && longAgentOut.Contains(new string('B', 100), StringComparison.Ordinal)
+          && !longAgentOut.Contains("MID", StringComparison.Ordinal)
+          && longAgentOut.Length < longAgentBody.Length
+          && !longAgentOut.Contains("truncated", StringComparison.OrdinalIgnoreCase),
+          "AI agent feedback offloads large dumps to a local file with head/tail preview");
 
     var interruptedPayload = InteractiveShellPayloadRunner.Build("sleep 30", "INTERRUPTTOKEN");
     var interruptedMonitor = new InteractiveShellPayloadMonitor(interruptedPayload);

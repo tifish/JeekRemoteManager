@@ -42,6 +42,13 @@ public interface IAgentChatSession : IAsyncDisposable
     /// <summary>A protocol or process error (stderr line, parse failure, or crash).</summary>
     event Action<string>? Errored;
 
+    /// <summary>Optional in-turn progress (e.g. provider API retries). Not a hard failure.</summary>
+    event Action<string>? StatusHint
+    {
+        add { }
+        remove { }
+    }
+
     /// <summary>The subprocess exited.</summary>
     event Action? Exited;
 

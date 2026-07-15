@@ -45,7 +45,10 @@ public static class DebugMcpContract
         Tool("ai_conversation_draft_check", "Verify AI composer drafts are saved with a session and restored after recreating the panel.", new()),
         Tool("ai_conversation_trash_check", "Verify AI conversation recycle-bin lifecycle and responsive row layout using isolated temporary data.", new()),
         Tool("ai_chat_stress", "Verify AI streaming coalescing, the bounded transcript projection, Markdown selection stability, jump-to-latest behavior, and composer-resize bottom following.",
-            new() { ["message_count"] = Prop("integer", "Temporary messages (default 500)."), ["characters_per_message"] = Prop("integer", "Characters per message (default 200)."), ["stream_chunk_count"] = Prop("integer", "Chunks (default 2000)."), ["characters_per_chunk"] = Prop("integer", "Characters per chunk (default 10)."), ["scroll_update_count"] = Prop("integer", "Streaming layout updates after jumping to latest (default 100)."), ["window_width"] = Prop("integer", "Stress window width (default 600)."), ["window_height"] = Prop("integer", "Stress window height (default 800).") }));
+            new() { ["message_count"] = Prop("integer", "Temporary messages (default 500)."), ["characters_per_message"] = Prop("integer", "Characters per message (default 200)."), ["stream_chunk_count"] = Prop("integer", "Chunks (default 2000)."), ["characters_per_chunk"] = Prop("integer", "Characters per chunk (default 10)."), ["scroll_update_count"] = Prop("integer", "Streaming layout updates after jumping to latest (default 100)."), ["window_width"] = Prop("integer", "Stress window width (default 600)."), ["window_height"] = Prop("integer", "Stress window height (default 800).") }),
+        Tool("ai_runtime_snapshot",
+            "Snapshot the active terminal AI panel: busy/model-turn/auto-run state, eager tool flags, command execution counts, recent message roles, and status text. Use this to diagnose stuck auto-run loops.",
+            new()));
 
     public static JsonObject InitializeResult(string name, string title, string version, string? requestedVersion)
     {

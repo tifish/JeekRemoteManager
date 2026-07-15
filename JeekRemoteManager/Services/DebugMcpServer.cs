@@ -415,6 +415,7 @@ internal static class DebugMcpServer
                 "ai_conversation_draft_check" => await AiConversationDraftCheckAsync(),
                 "ai_conversation_trash_check" => await AiConversationTrashCheckAsync(),
                 "ai_chat_stress" => await AiChatStressAsync(args),
+                "ai_runtime_snapshot" => await AiRuntimeSnapshotAsync(),
                 _ => throw new InvalidOperationException($"Unknown tool: {name}"),
             };
         }
@@ -817,6 +818,76 @@ internal static class DebugMcpServer
 
         var result = selected.TakeLast(lineCount).ToList();
         return ToolText(result.Count == 0 ? "(no matching log lines)" : string.Join('\n', result));
+    }
+
+    private static async Task<JsonObject> AiRuntimeSnapshotAsync()
+    {
+        var text = await OnUiAsync(() =>
+        {
+            if (Desktop?.MainWindow is not Views.MainWindow main)
+                return "MainWindow is not available.";
+
+            var tabs = main.FindControl<TabControl>("RightTabs");
+            if (tabs is null)
+                return "RightTabs not found.";
+
+            var sb = new StringBuilder();
+            var index = 0;
+            var found = 0;
+            foreach (var item in tabs.Items)
+            {
+                if (item is not TabItem { Content: TerminalView terminal })
+                {
+                    index++;
+                    continue;
+                }
+
+                found++;
+                var selected = ReferenceEquals(tabs.SelectedItem, item);
+                var ai = terminal.AiViewModel;
+                sb.AppendLine($"--- terminal tab[{index}] selected={selected} connected={terminal.IsTerminalConnected} ---");
+                sb.AppendLine($"source={terminal.SourcePath}");
+                sb.AppendLine(
+                    $"aiCommand exec={terminal.AiCommandExecutionCount} complete={terminal.AiCommandCompletionCount} "
+                    + $"running={terminal.IsAiCommandRunning} lockAvailable={terminal.IsCommandLockAvailable} "
+                    + $"payloadRunning={terminal.IsTerminalCommandRunning}");
+                if (ai is null)
+                {
+                    sb.AppendLine("AiViewModel: null (panel not opened yet)");
+                }
+                else
+                {
+                    sb.AppendLine(ai.DebugAutoToolState());
+                    sb.AppendLine(
+                        $"provider={ai.SelectedProvider?.Label} model={ai.SelectedModel?.Value} "
+                        + $"effort={ai.SelectedEffort?.Value} nativeSession={ai.CurrentNativeSessionId}");
+                    sb.AppendLine($"messages={ai.Messages.Count} conversation={ai.CurrentConversationId}");
+                    var from = Math.Max(0, ai.Messages.Count - 8);
+                    for (var i = from; i < ai.Messages.Count; i++)
+                    {
+                        var m = ai.Messages[i];
+                        var preview = m.Text.Length <= 120 ? m.Text : m.Text[..120] + "…";
+                        preview = preview.Replace('\r', ' ').Replace('\n', ' ');
+                        sb.AppendLine(
+                            $"  [{i}] {m.Role} stream={m.IsStreaming} think={m.IsThinking} "
+                            + $"awaitDecision={m.IsAwaitingDecision} len={m.Text.Length} | {preview}");
+                    }
+
+                    var pendingTool = AgentChatViewModel.ExtractFirstToolRequest(
+                        ai.Messages.LastOrDefault(m => m.IsAssistant)?.Text ?? "");
+                    sb.AppendLine(
+                        $"lastAssistantTool={(pendingTool is null ? "none" : pendingTool.Name + "/" + (pendingTool.Command is null ? "-" : "command"))}");
+                }
+
+                index++;
+            }
+
+            if (found == 0)
+                sb.AppendLine("No TerminalView tabs are open.");
+            return sb.ToString();
+        });
+
+        return ToolText(text);
     }
 
     private static async Task<JsonObject> AiChatStressAsync(JsonObject args)

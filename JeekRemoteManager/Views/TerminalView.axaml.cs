@@ -133,7 +133,26 @@ public partial class TerminalView : UserControl
     private static string CleanShellOutput(string text)
     {
         text = AnsiAndControlChars.Replace(text, string.Empty);
-        return text.Replace("\r\n", "\n").Replace('\r', '\n');
+        text = text.Replace("\r\n", "\n").Replace('\r', '\n');
+
+        // InteractiveShellPayloadMonitor returns the full raw stream, including the prepare
+        // command echo and READY/BEGIN/EXIT markers. The AI panel only wants the script body
+        // between BEGIN and EXIT; otherwise TruncateForDisplay often cuts the real output.
+        const string beginPrefix = "__JRM_BEGIN_";
+        const string exitPrefix = "__JRM_EXIT_";
+        var beginIndex = text.LastIndexOf(beginPrefix, StringComparison.Ordinal);
+        if (beginIndex >= 0)
+        {
+            var beginLineEnd = text.IndexOf('\n', beginIndex);
+            if (beginLineEnd >= 0)
+            {
+                var bodyStart = beginLineEnd + 1;
+                var exitIndex = text.IndexOf(exitPrefix, bodyStart, StringComparison.Ordinal);
+                text = exitIndex >= bodyStart ? text[bodyStart..exitIndex] : text[bodyStart..];
+            }
+        }
+
+        return text.Trim();
     }
 
     /// <summary>Raised on the UI thread when the remote shell sets its title (OSC).</summary>
@@ -1022,6 +1041,9 @@ public partial class TerminalView : UserControl
             "Use exactly one tool per response and wait for its returned result before deciding the next " +
             "step. When the task is done, reply with a short summary and no tool block. Text that is not " +
             "a tool call must be plain prose or a plain fenced block without a language tag. " +
+            "Large remote command results may arrive as a short preview plus a local file path; that is " +
+            "complete delivery, not a failed capture — read the path with a local file tool if you need " +
+            "every line, or re-run a narrower remote command. " +
             "Your own built-in tools (shell, file access, etc.), if you have any, run on the user's " +
             "LOCAL Windows machine where JeekRemoteManager runs — NOT on the server. Use them for " +
             "local-side work (e.g. reading or writing local files, or transferring files between the " +

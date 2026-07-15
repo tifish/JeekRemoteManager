@@ -83,6 +83,7 @@ public sealed class GrokChatSession : IAgentChatSession
     public event Action<string>? TextReplaced;
     public event Action<AgentTurnResult>? TurnCompleted;
     public event Action<string>? Errored;
+    public event Action<string>? StatusHint;
     public event Action? Exited;
 
     private static Task<IReadOnlyList<AgentModelInfo>?>? _modelListCache;
@@ -597,7 +598,11 @@ public sealed class GrokChatSession : IAgentChatSession
                 _sessionReady.TrySetException(new InvalidOperationException(message));
             if (id == _promptRequestId)
             {
-                TurnCompleted?.Invoke(new AgentTurnResult(message, 0, 0, _numTurns, IsError: true));
+                // Grok often collapses API 500s to JSON-RPC "Internal error"; prefer the
+                // detailed reason captured from retry_state / turn_completed.
+                var detail = ResolveErrorText(message);
+                Log.ZLogWarning($"Grok session/prompt failed: {detail}");
+                TurnCompleted?.Invoke(new AgentTurnResult(detail, 0, 0, ++_numTurns, IsError: true));
                 _promptRequestId = -1;
                 _acceptPromptUpdates = false;
             }
@@ -656,7 +661,9 @@ public sealed class GrokChatSession : IAgentChatSession
     private void HandlePromptCompleted(JsonElement result)
     {
         var stopReason = result.TryGetProperty("stopReason", out var sr) ? sr.GetString() : null;
-        var isError = stopReason is "refusal" or "max_tokens" or "max_turn_requests" or "rate_limit";
+        // "error" is emitted when the model/API failed after retries (often HTTP 500).
+        var isError = stopReason is "refusal" or "max_tokens" or "max_turn_requests"
+            or "rate_limit" or "error";
         // cancelled is not treated as a hard error bubble; the panel already tracks cancel.
 
         if (result.TryGetProperty("_meta", out var meta))
@@ -676,8 +683,15 @@ public sealed class GrokChatSession : IAgentChatSession
         }
 
         var text = _currentText.ToString();
-        if (isError && text.Length == 0 && !string.IsNullOrWhiteSpace(_lastRetryError))
+        if (isError && !string.IsNullOrWhiteSpace(_lastRetryError)
+            && (text.Length == 0 || stopReason == "error" || IsGenericInternalError(text)))
+        {
             text = _lastRetryError;
+        }
+
+        if (isError && stopReason != "cancelled")
+            Log.ZLogWarning($"Grok turn stopped with {stopReason}: {text}");
+
         TurnCompleted?.Invoke(new AgentTurnResult(
             text,
             _lastCostUsd,
@@ -685,6 +699,21 @@ public sealed class GrokChatSession : IAgentChatSession
             ++_numTurns,
             isError && stopReason != "cancelled"));
     }
+
+    private string ResolveErrorText(string fallback)
+    {
+        if (!string.IsNullOrWhiteSpace(_lastRetryError)
+            && (string.IsNullOrWhiteSpace(fallback) || IsGenericInternalError(fallback)))
+        {
+            return _lastRetryError;
+        }
+
+        return string.IsNullOrWhiteSpace(fallback) ? "unknown error" : fallback;
+    }
+
+    private static bool IsGenericInternalError(string message) =>
+        message.Equals("Internal error", StringComparison.OrdinalIgnoreCase)
+        || message.Equals("internal error", StringComparison.OrdinalIgnoreCase);
 
     private Task HandleServerRequestAsync(JsonElement id, string method, JsonElement root)
     {
@@ -771,22 +800,49 @@ public sealed class GrokChatSession : IAgentChatSession
     private void HandleGrokSessionUpdate(JsonElement p)
     {
         if (!p.TryGetProperty("update", out var update)
-            || !update.TryGetProperty("sessionUpdate", out var kind)
-            || kind.GetString() != "retry_state"
-            || !update.TryGetProperty("type", out var retryType))
+            || !update.TryGetProperty("sessionUpdate", out var kindProp))
         {
             return;
         }
 
-        var retryKind = retryType.GetString();
-        if (retryKind is not ("retrying" or "exhausted"))
+        var kind = kindProp.GetString();
+        if (kind == "turn_completed")
+        {
+            CaptureTurnCompletedError(update);
+            return;
+        }
+
+        if (kind != "retry_state" || !update.TryGetProperty("type", out var retryType))
             return;
 
-        if (retryKind == "exhausted"
-            && update.TryGetProperty("reason", out var reason)
-            && reason.GetString() is { Length: > 0 } retryError)
-        {
+        var retryKind = retryType.GetString();
+        if (retryKind is not ("retrying" or "exhausted" or "failed"))
+            return;
+
+        // Current Grok emits terminal failures as type=failed with "message"; older builds
+        // used type=exhausted with "reason". retrying also carries "reason" — keep the latest.
+        if (TryReadRetryError(update, out var retryError))
             _lastRetryError = retryError;
+
+        if (retryKind == "retrying")
+        {
+            var attempt = update.TryGetProperty("attempt", out var attemptEl) && attemptEl.TryGetInt32(out var n)
+                ? n
+                : 0;
+            var maxRetries = update.TryGetProperty("max_retries", out var maxEl) && maxEl.TryGetInt32(out var max)
+                ? max
+                : 0;
+            var reason = string.IsNullOrWhiteSpace(_lastRetryError)
+                ? "temporary provider error"
+                : ShortenRetryReason(_lastRetryError);
+            StatusHint?.Invoke(attempt > 0 && maxRetries > 0
+                ? $"API retry {attempt}/{maxRetries}: {reason}"
+                : $"API retry: {reason}");
+        }
+        else if (retryKind is "exhausted" or "failed"
+                 && !string.IsNullOrWhiteSpace(_lastRetryError))
+        {
+            StatusHint?.Invoke(_lastRetryError);
         }
 
         var retryTimestamp = p.TryGetProperty("_meta", out var meta)
@@ -808,7 +864,61 @@ public sealed class GrokChatSession : IAgentChatSession
             _currentText.Length = _activeStreamTextStart;
         _activeStreamStartMs = null;
         _activeStreamTextStart = _currentText.Length;
+        // Retract abandoned tool-call drafts so the chat does not look like a command is
+        // waiting to run while the provider is still retrying the model API.
         TextReplaced?.Invoke(_currentText.ToString());
+    }
+
+    private static string ShortenRetryReason(string reason)
+    {
+        // Keep the panel status line readable; full detail stays on the final error bubble.
+        const int limit = 120;
+        var compact = reason.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        if (compact.Contains("Service temporarily unavailable", StringComparison.OrdinalIgnoreCase))
+            return "Service temporarily unavailable";
+        if (compact.Contains("Internal Server Error", StringComparison.OrdinalIgnoreCase))
+            return "Internal Server Error";
+        return compact.Length <= limit ? compact : compact[..limit] + "…";
+    }
+
+    private void CaptureTurnCompletedError(JsonElement update)
+    {
+        var stopReason = update.TryGetProperty("stop_reason", out var snake)
+            ? snake.GetString()
+            : update.TryGetProperty("stopReason", out var camel) ? camel.GetString() : null;
+        if (stopReason is not ("error" or "rate_limit" or "refusal" or "max_tokens" or "max_turn_requests"))
+            return;
+
+        if (update.TryGetProperty("agent_result", out var agentResult)
+            && agentResult.GetString() is { Length: > 0 } detail)
+        {
+            _lastRetryError = detail;
+        }
+        else if (update.TryGetProperty("agentResult", out var agentResultCamel)
+                 && agentResultCamel.GetString() is { Length: > 0 } detailCamel)
+        {
+            _lastRetryError = detailCamel;
+        }
+    }
+
+    private static bool TryReadRetryError(JsonElement update, out string error)
+    {
+        if (update.TryGetProperty("message", out var message)
+            && message.GetString() is { Length: > 0 } messageText)
+        {
+            error = messageText;
+            return true;
+        }
+
+        if (update.TryGetProperty("reason", out var reason)
+            && reason.GetString() is { Length: > 0 } reasonText)
+        {
+            error = reasonText;
+            return true;
+        }
+
+        error = "";
+        return false;
     }
 
     private void HandleSessionUpdate(JsonElement p)
