@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -117,7 +118,8 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     private readonly Func<AgentFileTransfer, CancellationToken, Task<string>>? _transferFiles;
     private readonly Func<AgentTerminalAction, CancellationToken, Task<string>>? _runTerminalAction;
     private readonly CancellationTokenSource _cts = new();
-    private readonly DispatcherTimer _thinkingTimer = new() { Interval = TimeSpan.FromMilliseconds(450) };
+    private readonly DispatcherTimer _thinkingTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
+    private readonly Stopwatch _activityStopwatch = new();
     private readonly object _streamDeltaGate = new();
     private readonly StringBuilder _streamDeltaBuffer = new();
     private bool _streamFlushScheduled;
@@ -1533,6 +1535,10 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     /// executes. Public for Debug MCP verification without needing a live shell wait.</summary>
     public void DebugShowRunningActivity() => BeginActivityPlaceholder(ActivityKind.Running);
 
+    /// <summary>Shows the same Thinking… activity bubble used while waiting for an agent.
+    /// Public for Debug MCP verification without starting a provider session.</summary>
+    public void DebugShowThinkingActivity() => BeginActivityPlaceholder(ActivityKind.Thinking);
+
     /// <summary>Removes a temporary activity bubble created for Debug MCP checks.</summary>
     public void DebugClearActivity() => ClearActivityPlaceholder();
 
@@ -1876,6 +1882,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
     private int _thinkingStep;
     private ActivityKind _activityKind = ActivityKind.Thinking;
+    public long ActivityElapsedSeconds { get; private set; }
 
     /// <summary>Adds an empty assistant bubble and starts its animated status text
     /// (Thinking… / Running…).</summary>
@@ -1886,7 +1893,6 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         OnPropertyChanged(nameof(StreamRenderUpdateCount));
         _pendingAssistant = new ChatMessageViewModel(ChatRole.Assistant, "");
         Messages.Add(_pendingAssistant);
-        StatusText = kind == ActivityKind.Running ? L("AiWaitingCommand") : L("AiWaiting");
         StartActivity(kind);
     }
 
@@ -1911,9 +1917,11 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     {
         _activityKind = kind;
         _thinkingStep = 2;
+        ActivityElapsedSeconds = 0;
+        _activityStopwatch.Restart();
         if (_pendingAssistant is not null)
         {
-            _pendingAssistant.ThinkingText = BuildActivityText(_thinkingStep);
+            StatusText = _pendingAssistant.ThinkingText = BuildActivityText(_thinkingStep);
             _pendingAssistant.IsThinking = true;
         }
 
@@ -1924,6 +1932,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     private void StopThinking()
     {
         _thinkingTimer.Stop();
+        _activityStopwatch.Stop();
         if (_pendingAssistant is not null)
             _pendingAssistant.IsThinking = false;
     }
@@ -1936,14 +1945,19 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             return;
         }
 
+        var elapsedSeconds = (long)_activityStopwatch.Elapsed.TotalSeconds;
+        if (elapsedSeconds == ActivityElapsedSeconds)
+            return;
+
+        ActivityElapsedSeconds = elapsedSeconds;
         _thinkingStep = (_thinkingStep + 1) % 3;
-        _pendingAssistant.ThinkingText = BuildActivityText(_thinkingStep);
+        StatusText = _pendingAssistant.ThinkingText = BuildActivityText(_thinkingStep);
     }
 
     private string BuildActivityText(int step)
     {
         var label = _activityKind == ActivityKind.Running ? L("AiRunning") : L("AiThinking");
-        return label + new string('.', step + 1);
+        return label + new string('.', step + 1) + " · " + L("AiElapsedSeconds", ActivityElapsedSeconds);
     }
 
     /// <summary>Finds the first valid canonical jrm-tool request in an assistant response.</summary>

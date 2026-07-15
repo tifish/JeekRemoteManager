@@ -276,6 +276,7 @@ AiWaiting	Thinking…	思考中…
 AiThinking	Thinking	思考中
 AiWaitingCommand	Running…	运行中…
 AiRunning	Running	运行中
+AiElapsedSeconds	{0}s	{0} 秒
 AiTurnCost	{0} tokens · ${1:F4}	{0} tokens · ${1:F4}
 AiTurnTokens	{0} tokens	{0} tokens
 AiTurnError	The assistant hit an error.	助手执行出错。

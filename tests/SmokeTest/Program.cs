@@ -950,6 +950,38 @@ try
     Check(runningMessage.ShowsThinking && runningMessage.ThinkingText.StartsWith("Running", StringComparison.Ordinal),
           "AI command execution reuses the thinking placeholder for Running status");
 
+    var activityVm = new AgentChatViewModel(
+        [
+            new AgentProvider(
+                "Test",
+                "",
+                [new AgentOption("Default", null)],
+                [new AgentOption("Default", null)],
+                (_, _) => null),
+        ],
+        () => null,
+        null);
+    activityVm.DebugShowThinkingActivity();
+    var thinkingActivity = activityVm.Messages.Last(m => m.IsAssistant);
+    Check(thinkingActivity.ShowsThinking && activityVm.ActivityElapsedSeconds == 0
+          && activityVm.StatusText == thinkingActivity.ThinkingText,
+          "AI Thinking activity starts its elapsed-seconds counter at zero");
+    await Task.Delay(1100);
+    typeof(AgentChatViewModel)
+        .GetMethod("OnThinkingTimerTick", BindingFlags.Instance | BindingFlags.NonPublic)!
+        .Invoke(activityVm, [null, EventArgs.Empty]);
+    Check(activityVm.ActivityElapsedSeconds >= 1
+          && activityVm.StatusText == thinkingActivity.ThinkingText,
+          "AI Thinking activity updates its elapsed time in seconds");
+    activityVm.DebugClearActivity();
+    activityVm.DebugShowRunningActivity();
+    var runningActivity = activityVm.Messages.Last(m => m.IsAssistant);
+    Check(runningActivity.ShowsThinking && activityVm.ActivityElapsedSeconds == 0
+          && activityVm.StatusText == runningActivity.ThinkingText,
+          "AI Running activity starts its elapsed-seconds counter at zero");
+    activityVm.DebugClearActivity();
+    await activityVm.DisposeAsync();
+
     // RunAndContinueAsync shows Running… while the shell command is in flight.
     var commandStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
     var releaseCommand = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
