@@ -974,8 +974,9 @@ try
     activityVm.DebugShowThinkingActivity();
     var thinkingActivity = activityVm.Messages.Last(m => m.IsAssistant);
     Check(thinkingActivity.ShowsThinking && activityVm.ActivityElapsedSeconds == 0
-          && activityVm.StatusText == thinkingActivity.ThinkingText,
-          "AI Thinking activity starts its elapsed-seconds counter at zero");
+          && activityVm.StatusText == thinkingActivity.ThinkingText
+          && !thinkingActivity.ThinkingText.Contains('.'),
+          "AI Thinking activity starts its elapsed-seconds counter without animated dots");
     await Task.Delay(1100);
     typeof(AgentChatViewModel)
         .GetMethod("OnThinkingTimerTick", BindingFlags.Instance | BindingFlags.NonPublic)!
@@ -987,8 +988,9 @@ try
     activityVm.DebugShowRunningActivity();
     var runningActivity = activityVm.Messages.Last(m => m.IsAssistant);
     Check(runningActivity.ShowsThinking && activityVm.ActivityElapsedSeconds == 0
-          && activityVm.StatusText == runningActivity.ThinkingText,
-          "AI Running activity starts its elapsed-seconds counter at zero");
+          && activityVm.StatusText == runningActivity.ThinkingText
+          && !runningActivity.ThinkingText.Contains('.'),
+          "AI Running activity starts its elapsed-seconds counter without animated dots");
     activityVm.DebugClearActivity();
     await activityVm.DisposeAsync();
 

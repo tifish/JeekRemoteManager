@@ -1882,12 +1882,11 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
         Running,
     }
 
-    private int _thinkingStep;
     private ActivityKind _activityKind = ActivityKind.Thinking;
     public long ActivityElapsedSeconds { get; private set; }
 
-    /// <summary>Adds an empty assistant bubble and starts its animated status text
-    /// (Thinking… / Running…).</summary>
+    /// <summary>Adds an empty assistant bubble and starts its timed activity status
+    /// (Thinking / Running).</summary>
     private void BeginActivityPlaceholder(ActivityKind kind)
     {
         DiscardPendingTextDeltas();
@@ -1918,12 +1917,11 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     private void StartActivity(ActivityKind kind)
     {
         _activityKind = kind;
-        _thinkingStep = 2;
         ActivityElapsedSeconds = 0;
         _activityStopwatch.Restart();
         if (_pendingAssistant is not null)
         {
-            StatusText = _pendingAssistant.ThinkingText = BuildActivityText(_thinkingStep);
+            StatusText = _pendingAssistant.ThinkingText = BuildActivityText();
             _pendingAssistant.IsThinking = true;
         }
 
@@ -1952,14 +1950,13 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             return;
 
         ActivityElapsedSeconds = elapsedSeconds;
-        _thinkingStep = (_thinkingStep + 1) % 3;
-        StatusText = _pendingAssistant.ThinkingText = BuildActivityText(_thinkingStep);
+        StatusText = _pendingAssistant.ThinkingText = BuildActivityText();
     }
 
-    private string BuildActivityText(int step)
+    private string BuildActivityText()
     {
         var label = _activityKind == ActivityKind.Running ? L("AiRunning") : L("AiThinking");
-        return label + new string('.', step + 1) + " · " + L("AiElapsedSeconds", ActivityElapsedSeconds);
+        return label + " · " + L("AiElapsedSeconds", ActivityElapsedSeconds);
     }
 
     /// <summary>Finds the first valid canonical jrm-tool request in an assistant response.</summary>
