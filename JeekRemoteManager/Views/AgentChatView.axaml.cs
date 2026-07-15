@@ -26,6 +26,7 @@ public partial class AgentChatView : UserControl
     private bool _stickToBottom = true;
     private bool _isProgrammaticScroll;
     private bool _scrollUpdateScheduled;
+    private bool _codeBlockFixupScheduled;
     private int _scrollToEndDepth;
 
     /// <summary>Debug MCP diagnostic for detecting synchronous scroll re-entry.</summary>
@@ -135,8 +136,20 @@ public partial class AgentChatView : UserControl
 
     private void OnMarkdownLayoutUpdated(object? sender, EventArgs e)
     {
-        if (sender is Visual markdown)
-            EnsureSelectableCodeBlocks(markdown);
+        // LayoutUpdated runs inside the render loop's layout iterations, and
+        // EnsureSelectableCodeBlocks mutates the visual tree, which invalidates layout
+        // again. Doing that synchronously here lets scroll-follow realization churn feed
+        // the same render pass until Avalonia throws "Infinite layout loop detected".
+        // Coalesce the fix-up into one dispatcher job that runs after layout settles.
+        if (_codeBlockFixupScheduled)
+            return;
+
+        _codeBlockFixupScheduled = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _codeBlockFixupScheduled = false;
+            EnsureSelectableCodeBlocks(MessagesList);
+        }, DispatcherPriority.Loaded);
     }
 
     /// <summary>Replaces Markdown.Avalonia.Tight's plain fenced-code text controls with
@@ -311,6 +324,91 @@ public partial class AgentChatView : UserControl
             return $"viewportBefore={viewportBefore:F1}; viewportAfter={viewportAfter:F1}; "
                    + $"gapBefore={gapBefore:F1}; gapAfter={gapAfter:F1}; "
                    + $"atBottom={IsNearBottom()}; stickToBottom={_stickToBottom}";
+        }
+        finally
+        {
+            InputBox.Text = originalInput;
+            foreach (var message in added)
+                vm.Messages.Remove(message);
+        }
+    }
+
+    /// <summary>Reproduces the crash path from the build-218 field report: a transcript
+    /// full of Markdown code fences pinned to the bottom while the composer keeps
+    /// resizing and new fenced messages keep arriving. Code-block replacement plus
+    /// scroll-follow realization churn used to re-invalidate layout inside a single
+    /// render pass until Avalonia threw "Infinite layout loop detected".</summary>
+    public async Task<string> RunDebugCodeBlockFollowStressAsync(int iterationCount)
+    {
+        if (iterationCount is < 1 or > 500)
+            throw new ArgumentOutOfRangeException(nameof(iterationCount));
+        if (DataContext is not AgentChatViewModel vm)
+            throw new InvalidOperationException("The AI panel is not initialized.");
+
+        var originalInput = InputBox.Text;
+        var added = new List<ChatMessageViewModel>();
+
+        static string FencedMessage(int index)
+        {
+            var codeLines = string.Join('\n',
+                Enumerable.Range(1, 8).Select(line => $"echo code-{index}-line-{line}"));
+            return $"Fenced message {index}:\n```bash\n{codeLines}\n```\ntrailing prose {index}.";
+        }
+
+        try
+        {
+            InputBox.Text = "";
+            for (var i = 0; i < 24; i++)
+            {
+                var message = new ChatMessageViewModel(ChatRole.Assistant, FencedMessage(i));
+                added.Add(message);
+                vm.Messages.Add(message);
+            }
+
+            await Task.Delay(200);
+            MaxScrollToEndDepth = 0;
+            ScrollToEndCallCount = 0;
+            ScrollToLatest();
+            await Task.Delay(150);
+
+            var tallComposer = string.Join(Environment.NewLine,
+                Enumerable.Range(1, 10).Select(i => $"composer line {i}"));
+            var window = TopLevel.GetTopLevel(this) as Window;
+            var originalWidth = window?.Width;
+            for (var i = 0; i < iterationCount; i++)
+            {
+                // Alternate the composer height (viewport shrink/grow) and the panel
+                // width (like dragging the connection-panel splitter, which re-wraps
+                // every realized message) while new fenced messages keep arriving, so
+                // scroll-follow, virtualization re-estimation, and code-block
+                // replacement all overlap like they do in live use.
+                InputBox.Text = i % 2 == 0 ? tallComposer : "";
+                if (window is not null && originalWidth is { } width)
+                    window.Width = width - i % 8 * 25;
+                if (i % 3 == 0)
+                {
+                    var message = new ChatMessageViewModel(ChatRole.Assistant,
+                        FencedMessage(24 + i));
+                    added.Add(message);
+                    vm.Messages.Add(message);
+                }
+
+                await Task.Delay(15);
+            }
+
+            if (window is not null && originalWidth is { } restoredWidth)
+                window.Width = restoredWidth;
+
+            await Task.Delay(250);
+            var pendingReplacements = EnsureSelectableCodeBlocks(MessagesList);
+            var selectableCodeBlocks = MessagesList.GetVisualDescendants()
+                .OfType<SelectableTextBlock>()
+                .Count(text => text.Name == "SelectableCodeBlock");
+            return $"iterations={iterationCount}; messages={added.Count}; "
+                   + $"selectableCodeBlocks={selectableCodeBlocks}; "
+                   + $"pendingReplacements={pendingReplacements}; "
+                   + $"atBottom={IsNearBottom()}; stickToBottom={_stickToBottom}; "
+                   + $"scrollCalls={ScrollToEndCallCount}; maxScrollDepth={MaxScrollToEndDepth}";
         }
         finally
         {
@@ -507,8 +605,16 @@ public partial class AgentChatView : UserControl
         {
             // ScrollToEnd and ScrollIntoView can synchronously raise ScrollChanged. Queue
             // and coalesce the follow-up so streamed layout growth cannot recurse until
-            // Windows runs out of stack guard pages.
-            ScheduleScrollUpdate();
+            // Windows runs out of stack guard pages. Skip the queue entirely while the
+            // offset is still pinned to the bottom: virtualized height re-estimation
+            // reports extent jitter on every pass, and following it would keep the
+            // realization churn alive for the rest of the render loop.
+            var bottomGap = MessagesScroll.Extent.Height - MessagesScroll.Viewport.Height
+                            - MessagesScroll.Offset.Y;
+            if (bottomGap > 0.5)
+                ScheduleScrollUpdate();
+            else
+                UpdateScrollToBottomButton();
             return;
         }
 
