@@ -141,6 +141,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     private int _conversationStartIndex;
     private bool _isModelTurnActive;
     private int _transcriptMessageLimit = InitialTranscriptMessageLimit;
+    private long _terminalDisconnectNotificationCount;
 
     // One CTS per user-initiated turn (covering the whole auto-run loop); Stop cancels it.
     private CancellationTokenSource? _turnCts;
@@ -590,6 +591,14 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     /// <summary>Whether the current busy state can accept a steer message. Command and
     /// transfer activity remains busy but is deliberately not steerable.</summary>
     public bool CanSteer => IsBusy && IsModelTurnActive && _session?.SupportsSteering == true;
+
+    /// <summary>The latest terminal transport state reported by the hosting terminal.
+    /// Exposed so Debug MCP can verify disconnect/reconnect feedback in the live panel.</summary>
+    public string TerminalConnectionState { get; private set; } = "connected";
+
+    /// <summary>Number of server disconnects surfaced in this panel.</summary>
+    public long TerminalDisconnectNotificationCount =>
+        Interlocked.Read(ref _terminalDisconnectNotificationCount);
 
     partial void OnIsBusyChanged(bool value)
     {
@@ -1794,6 +1803,40 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     }
 
     private void OnExited() => Dispatcher.UIThread.Post(HandleSessionExited);
+
+    /// <summary>Surfaces an unexpected server disconnect while the AI is working. Public
+    /// so the live notification path can be exercised through Debug MCP.</summary>
+    public void NotifyTerminalDisconnected()
+    {
+        TerminalConnectionState = "reconnecting";
+        OnPropertyChanged(nameof(TerminalConnectionState));
+        Interlocked.Increment(ref _terminalDisconnectNotificationCount);
+        OnPropertyChanged(nameof(TerminalDisconnectNotificationCount));
+        AddTerminalConnectionMessage(L("AiTerminalDisconnected"));
+    }
+
+    /// <summary>Reports that the hosting terminal established a fresh server channel.</summary>
+    public void NotifyTerminalReconnected()
+    {
+        TerminalConnectionState = "connected";
+        OnPropertyChanged(nameof(TerminalConnectionState));
+        AddTerminalConnectionMessage(L("AiTerminalReconnected"));
+    }
+
+    /// <summary>Reports that the automatic reconnect attempt could not restore the server.</summary>
+    public void NotifyTerminalReconnectFailed(string error)
+    {
+        TerminalConnectionState = "failed";
+        OnPropertyChanged(nameof(TerminalConnectionState));
+        AddTerminalConnectionMessage(L("AiTerminalReconnectFailed", error));
+    }
+
+    private void AddTerminalConnectionMessage(string message)
+    {
+        Messages.Add(new ChatMessageViewModel(ChatRole.System, message));
+        StatusText = message;
+        PersistCurrentConversation();
+    }
 
     private void HandleSessionExited()
     {

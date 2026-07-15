@@ -408,6 +408,22 @@ try
     Check(authError && !ordinaryError,
           "AI authentication errors are separated from retryable agent errors");
 
+    var terminalMessageCount = aiVm.Messages.Count;
+    aiVm.NotifyTerminalDisconnected();
+    aiVm.NotifyTerminalReconnected();
+    Check(aiVm.TerminalConnectionState == "connected"
+          && aiVm.TerminalDisconnectNotificationCount == 1
+          && aiVm.Messages.Count == terminalMessageCount + 2
+          && aiVm.Messages[^2].Role == ChatRole.System
+          && aiVm.Messages[^1].Role == ChatRole.System,
+          "AI chat surfaces terminal disconnect and reconnect state changes");
+    aiVm.NotifyTerminalReconnectFailed("network unavailable");
+    Check(aiVm.TerminalConnectionState == "failed"
+          && aiVm.Messages.Count == terminalMessageCount + 3
+          && aiVm.Messages[^1].Role == ChatRole.System
+          && aiVm.StatusText == aiVm.Messages[^1].Text,
+          "AI chat surfaces automatic terminal reconnect failures");
+
     // --- AI conversation history persists and restores provider-native sessions ---
     var aiHistoryStore = new AiConversationStore(Path.Combine(root, "ai-conversations"));
     var savedConversation = new AiConversation

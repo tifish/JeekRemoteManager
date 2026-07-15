@@ -281,6 +281,9 @@ AiTurnTokens	{0} tokens	{0} tokens
 AiTurnError	The assistant hit an error.	助手执行出错。
 AiSessionEnded	Session ended.	会话已结束。
 AiLoginRequired	{0} login is missing or expired. Log in locally, then send again.	{0} 未登录或登录已过期。请在本机完成登录后重新发送。
+AiTerminalDisconnected	Server connection lost. Reconnecting automatically…	服务器连接已断开，正在自动重连…
+AiTerminalReconnected	Server reconnected. The assistant can continue.	服务器已重新连接，AI 可继续执行。
+AiTerminalReconnectFailed	Automatic server reconnection failed: {0}	服务器自动重连失败：{0}
 AiAutoRun	Auto-run	自动执行
 AiAutoRunHint	The assistant runs its own commands on the server and reads their output; only potentially destructive commands ask for confirmation.	助手自动在服务器上执行命令并读取输出，仅对可能破坏数据的命令要求确认。
 AiAutoApprove	Auto-approve	自动同意

@@ -97,6 +97,10 @@ public partial class TerminalView : UserControl
     private long _aiCommandExecutionCount;
     private long _aiCommandCompletionCount;
     private long _terminalRecoveryCount;
+    private Task<bool>? _aiAutoReconnectTask;
+    private long _aiAutoReconnectAttemptCount;
+    private long _aiAutoReconnectSuccessCount;
+    private string _aiAutoReconnectState = "idle";
     private volatile bool _disposed;
 
     // The AI panel, terminal, and monitor panel live in grid columns 0, 2, and 4; named
@@ -112,6 +116,9 @@ public partial class TerminalView : UserControl
 
     private sealed class ShellRecoveryRequestedException(string message)
         : OperationCanceledException(message);
+
+    private sealed class TerminalConnectionLostException()
+        : InvalidOperationException("Server connection was lost during terminal command execution.");
 
     // Strips ANSI escape sequences (CSI colors/cursor, OSC titles, other Fe escapes) and
     // stray control characters so captured shell output reads as plain text in the AI panel
@@ -160,6 +167,18 @@ public partial class TerminalView : UserControl
     public long AiCommandCompletionCount => Interlocked.Read(ref _aiCommandCompletionCount);
 
     public long TerminalRecoveryCount => Interlocked.Read(ref _terminalRecoveryCount);
+
+    /// <summary>Latest AI-triggered automatic reconnect state, exposed for Debug MCP.</summary>
+    public string AiAutoReconnectState => _aiAutoReconnectState;
+
+    public bool IsAiAutoReconnectRunning =>
+        Volatile.Read(ref _aiAutoReconnectTask) is { IsCompleted: false };
+
+    public long AiAutoReconnectAttemptCount =>
+        Interlocked.Read(ref _aiAutoReconnectAttemptCount);
+
+    public long AiAutoReconnectSuccessCount =>
+        Interlocked.Read(ref _aiAutoReconnectSuccessCount);
 
     private bool IsConnected =>
         _channel is not null
@@ -1007,6 +1026,24 @@ public partial class TerminalView : UserControl
         {
             return "[command cancelled or timed out]";
         }
+        catch (TerminalConnectionLostException)
+        {
+            var reconnectTask = Volatile.Read(ref _aiAutoReconnectTask);
+            if (reconnectTask is null)
+                return "[command interrupted: server connection lost; command outcome is unknown]";
+
+            try
+            {
+                var reconnected = await reconnectTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+                return reconnected
+                    ? "[command interrupted: server connection lost; terminal reconnected automatically; command outcome is unknown]"
+                    : "[command interrupted: server connection lost; automatic reconnect failed; command outcome is unknown]";
+            }
+            catch (OperationCanceledException)
+            {
+                return "[command interrupted: server connection lost; reconnect wait cancelled; command outcome is unknown]";
+            }
+        }
         catch (Exception ex)
         {
             return $"[command failed: {ex.Message}]";
@@ -1512,11 +1549,26 @@ public partial class TerminalView : UserControl
                 return;
 
             _shellClosed = true;
-            _activePayloadMonitor?.Fail(new InvalidOperationException("Terminal closed during script execution."));
+            var shouldAutoReconnect = _aiViewModel?.IsBusy == true;
+            TaskCompletionSource<bool>? reconnectCompletion = null;
+            if (shouldAutoReconnect)
+            {
+                reconnectCompletion = new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                Volatile.Write(ref _aiAutoReconnectTask, reconnectCompletion.Task);
+            }
+
+            _activePayloadMonitor?.Fail(new TerminalConnectionLostException());
             Dispatcher.UIThread.Post(() =>
             {
                 FeedLine("\r\n\u001b[33m[session closed]\u001b[0m");
-                FeedReconnectHint();
+                if (reconnectCompletion is null)
+                {
+                    FeedReconnectHint();
+                    return;
+                }
+
+                _ = CompleteAiAutoReconnectAsync(reconnectCompletion);
             });
         };
 
@@ -1527,6 +1579,87 @@ public partial class TerminalView : UserControl
         SyncWindowSize();
         StartLoginCommands(_connection!, generation);
         Dispatcher.UIThread.Post(OpenConfiguredPanelsAfterLogin, DispatcherPriority.Background);
+    }
+
+    private async Task CompleteAiAutoReconnectAsync(TaskCompletionSource<bool> completion)
+    {
+        string? error = null;
+        try
+        {
+            if (_disposed || _connection is null)
+                throw new InvalidOperationException("Terminal is closed.");
+
+            _aiAutoReconnectState = "reconnecting";
+            _aiViewModel?.NotifyTerminalDisconnected();
+
+            var retryDelays = new[]
+            {
+                TimeSpan.Zero,
+                TimeSpan.FromSeconds(1),
+                TimeSpan.FromSeconds(3),
+            };
+            foreach (var retryDelay in retryDelays)
+            {
+                if (retryDelay > TimeSpan.Zero)
+                    await Task.Delay(retryDelay);
+                if (_disposed)
+                    throw new InvalidOperationException("Terminal is closed.");
+
+                Interlocked.Increment(ref _aiAutoReconnectAttemptCount);
+                var generation = ConnectionGeneration;
+                ReconnectTerminal();
+                if (ConnectionGeneration == generation || _connected is null)
+                {
+                    error = "Reconnect could not be started.";
+                    continue;
+                }
+
+                try
+                {
+                    await _connected.Task;
+                    if (!IsConnected)
+                        throw new InvalidOperationException("The new terminal channel is not connected.");
+
+                    _aiAutoReconnectState = "connected";
+                    Interlocked.Increment(ref _aiAutoReconnectSuccessCount);
+                    _aiViewModel?.NotifyTerminalReconnected();
+                    completion.TrySetResult(true);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    error = ex.GetBaseException().Message;
+                }
+            }
+
+            throw new InvalidOperationException(error ?? "Unknown connection error.");
+        }
+        catch (Exception ex)
+        {
+            error = ex.GetBaseException().Message;
+        }
+
+        _aiAutoReconnectState = "failed";
+        if (!_disposed)
+            _aiViewModel?.NotifyTerminalReconnectFailed(error ?? "Unknown connection error.");
+        completion.TrySetResult(false);
+    }
+
+    /// <summary>Runs the production AI disconnect notification and reconnect sequence on
+    /// the current terminal. Intended for live Debug MCP verification.</summary>
+    public async Task<string> RunAiAutoReconnectForDebugAsync()
+    {
+        if (_aiViewModel is null)
+            return "[AI panel has not been opened]";
+        if (_disposed || _connection is null)
+            return "[terminal is closed]";
+
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Volatile.Write(ref _aiAutoReconnectTask, completion.Task);
+        _ = CompleteAiAutoReconnectAsync(completion);
+        var reconnected = await completion.Task;
+        return $"state={AiAutoReconnectState}; connected={IsTerminalConnected}; success={reconnected}; "
+               + $"attempts={AiAutoReconnectAttemptCount}; successes={AiAutoReconnectSuccessCount}";
     }
 
     /// <summary>
