@@ -424,44 +424,15 @@ public partial class MainWindowViewModel : ViewModelBase
     /// null = system file association. Configured in the Settings dialog.</summary>
     public string? FileBrowserEditorPath => _settings.Settings.FileBrowserEditorPath;
 
-    /// <summary>Persisted AI panel options (provider, per-provider model/effort, checkboxes),
-    /// shared across terminal tabs and remembered across runs.</summary>
-    public AiPanelOptions AiPanelOptions
+    /// <summary>Last-used AI CLI provider label ("Claude", "Codex", "Grok"), shared across tabs.</summary>
+    public string? AiProvider
     {
-        get => new(
-            _settings.Settings.AiProvider,
-            new Dictionary<string, AiProviderChoice>(_settings.Settings.AiProviderChoices),
-            _settings.Settings.AiAutoRun,
-            _settings.Settings.AiAutoApproveDangerousCommands,
-            _settings.Settings.AiShowCommandOutput,
-            _settings.Settings.AiAgentMode);
+        get => _settings.Settings.AiProvider;
         set
         {
-            _settings.Settings.AiProvider = value.Provider;
-            _settings.Settings.AiProviderChoices = value.ProviderChoices.ToDictionary(
-                pair => pair.Key,
-                pair => new AiProviderChoice { Model = pair.Value.Model, Effort = pair.Value.Effort });
-            _settings.Settings.AiAutoRun = value.AutoRun;
-            _settings.Settings.AiAutoApproveDangerousCommands = value.AutoApproveDangerousCommands;
-            _settings.Settings.AiShowCommandOutput = value.ShowCommandOutput;
-            _settings.Settings.AiAgentMode = value.AgentMode;
+            _settings.Settings.AiProvider = value;
             _settings.SaveIfChanged();
         }
-    }
-
-    /// <summary>User-defined AI API providers, persisted with the roaming settings.</summary>
-    public List<CustomAiProvider> CustomAiProviders =>
-        _settings.Settings.CustomAiProviders.Select(p => p.Clone()).ToList();
-
-    /// <summary>Raised after <see cref="SetCustomAiProviders"/> persists a new list, so
-    /// every open terminal tab can rebuild its AI panel's provider picker.</summary>
-    public event Action? CustomAiProvidersChanged;
-
-    public void SetCustomAiProviders(List<CustomAiProvider> providers)
-    {
-        _settings.Settings.CustomAiProviders = providers;
-        _settings.SaveIfChanged();
-        CustomAiProvidersChanged?.Invoke();
     }
 
     /// <summary>True when a terminal tab is the active right-pane tab. Drives the
@@ -3329,27 +3300,8 @@ public partial class MainWindowViewModel : ViewModelBase
                 }
             }
 
-            // Custom AI provider API keys live in the roaming settings as jrm1 blobs;
-            // they migrate in the same all-or-nothing sweep. Legacy plaintext keys are
-            // not master-password-bound and pass through untouched.
-            var aiKeys = new List<(CustomAiProvider Provider, string Clear)>();
-            foreach (var provider in _settings.Settings.CustomAiProviders)
-            {
-                if (string.IsNullOrEmpty(provider.ApiKey) || !MasterKeyService.IsPasswordBlob(provider.ApiKey))
-                    continue;
-                if (current.TryDecryptPassword(provider.ApiKey, out var clearKey))
-                    aiKeys.Add((provider, clearKey));
-                else
-                    unreadable++;
-            }
-
             if (unreadable > 0)
                 throw new InvalidOperationException(L("MasterChangeUnreadablePasswords", unreadable));
-
-            foreach (var (provider, clearKey) in aiKeys)
-                provider.ApiKey = MasterKeyService.EncryptWithPassword(newPassword, clearKey);
-            if (aiKeys.Count > 0)
-                _settings.SaveIfChanged();
 
             foreach (var item in pending)
             {

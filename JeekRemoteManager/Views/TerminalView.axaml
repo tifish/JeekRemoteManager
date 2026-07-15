@@ -28,7 +28,7 @@
                 IsVisible="False"
                 BorderBrush="{DynamicResource BorderBrushSoft}"
                 BorderThickness="0,0,1,0">
-            <views:AgentChatView x:Name="AiPanel" />
+            <views:AgentCliPanelView x:Name="AiPanel" />
         </Border>
 
         <GridSplitter x:Name="AiSplitter"

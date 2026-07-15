@@ -51,7 +51,19 @@ public sealed class ConPtySession : IDisposable
     }
 
     /// <summary>Starts <paramref name="exePath"/> under a new pseudo console.</summary>
-    public static ConPtySession Start(string exePath, IReadOnlyList<string> arguments, int cols, int rows)
+    public static ConPtySession Start(string exePath, IReadOnlyList<string> arguments, int cols, int rows) =>
+        Start(exePath, arguments, cols, rows, workingDirectory: null);
+
+    /// <summary>
+    /// Starts <paramref name="exePath"/> under a new pseudo console, optionally in
+    /// <paramref name="workingDirectory"/> (created when missing).
+    /// </summary>
+    public static ConPtySession Start(
+        string exePath,
+        IReadOnlyList<string> arguments,
+        int cols,
+        int rows,
+        string? workingDirectory)
     {
         CreatePipePair(out var inputRead, out var inputWrite);
         SafeFileHandle? outputRead = null, outputWrite = null;
@@ -70,7 +82,13 @@ public sealed class ConPtySession : IDisposable
             inputRead = null!;
             outputWrite = null;
 
-            process = SpawnAttachedProcess(pseudoConsole, BuildCommandLine(exePath, arguments));
+            if (!string.IsNullOrWhiteSpace(workingDirectory))
+                Directory.CreateDirectory(workingDirectory);
+
+            process = SpawnAttachedProcess(
+                pseudoConsole,
+                BuildCommandLine(exePath, arguments),
+                string.IsNullOrWhiteSpace(workingDirectory) ? null : workingDirectory);
             job = CreateKillOnCloseJob();
             if (!AssignProcessToJobObject(job, process))
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "AssignProcessToJobObject failed.");
@@ -226,7 +244,10 @@ public sealed class ConPtySession : IDisposable
         return sb.ToString();
     }
 
-    private static SafeFileHandle SpawnAttachedProcess(IntPtr pseudoConsole, string commandLine)
+    private static SafeFileHandle SpawnAttachedProcess(
+        IntPtr pseudoConsole,
+        string commandLine,
+        string? workingDirectory)
     {
         var attributeListSize = IntPtr.Zero;
         InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref attributeListSize);
@@ -251,7 +272,7 @@ public sealed class ConPtySession : IDisposable
 
                 if (!CreateProcessW(
                         null, commandLine, IntPtr.Zero, IntPtr.Zero, bInheritHandles: false,
-                        ExtendedStartupInfoPresent, IntPtr.Zero, null,
+                        ExtendedStartupInfoPresent, IntPtr.Zero, workingDirectory,
                         ref startupInfo, out var processInfo))
                 {
                     throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateProcess failed.");

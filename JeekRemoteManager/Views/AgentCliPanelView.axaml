@@ -1,0 +1,143 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:JeekRemoteManager.ViewModels"
+             xmlns:terminal="using:SvcSystems.UI.Terminal"
+             xmlns:l="using:Jeek.Avalonia.Localization"
+             x:Class="JeekRemoteManager.Views.AgentCliPanelView"
+             x:DataType="vm:AgentCliPanelViewModel">
+    <DockPanel LastChildFill="True">
+        <Border DockPanel.Dock="Top"
+                Padding="8,6"
+                BorderBrush="{DynamicResource BorderBrushSoft}"
+                BorderThickness="0,0,0,1"
+                Background="{DynamicResource ChromeSurfaceBrush}">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <ComboBox Classes="header-option"
+                              MinWidth="110"
+                              ItemsSource="{Binding Providers}"
+                              SelectedItem="{Binding SelectedProvider}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Label}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <Button Content="{l:Localize AiCliStart}"
+                            Command="{Binding StartCommand}"
+                            IsVisible="{Binding ShowStartButton}"
+                            MinHeight="28"
+                            Padding="10,2" />
+                    <Button Content="{l:Localize AiCliRestart}"
+                            Command="{Binding RestartCommand}"
+                            IsVisible="{Binding IsRunning}"
+                            MinHeight="28"
+                            Padding="10,2" />
+                    <Button Content="{l:Localize AiCliStop}"
+                            Command="{Binding StopCommand}"
+                            IsVisible="{Binding IsRunning}"
+                            MinHeight="28"
+                            Padding="10,2" />
+                    <Button Content="{l:Localize AiCliInstall}"
+                            Command="{Binding InstallCommand}"
+                            IsVisible="{Binding ShowInstallPrompt}"
+                            MinHeight="28"
+                            Padding="10,2" />
+                    <CheckBox Content="{l:Localize AiCliUseWindowsTerminal}"
+                              IsChecked="{Binding UseWindowsTerminal}"
+                              VerticalAlignment="Center" />
+                    <CheckBox Content="{l:Localize AiAgentMode}"
+                              IsChecked="{Binding AgentMode}"
+                              VerticalAlignment="Center" />
+                    <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                        <Button Content="A−"
+                                ToolTip.Tip="{l:Localize FontDecrease}"
+                                Click="OnFontDecreaseClick"
+                                MinHeight="28"
+                                MinWidth="32"
+                                Padding="6,2" />
+                        <TextBlock x:Name="FontSizeLabel"
+                                   VerticalAlignment="Center"
+                                   MinWidth="28"
+                                   TextAlignment="Center"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource TextMutedBrush}" />
+                        <Button Content="A+"
+                                ToolTip.Tip="{l:Localize FontIncrease}"
+                                Click="OnFontIncreaseClick"
+                                MinHeight="28"
+                                MinWidth="32"
+                                Padding="6,2" />
+                    </StackPanel>
+                </StackPanel>
+                <Button Grid.Column="1"
+                        Classes="toolbar icon-button"
+                        ToolTip.Tip="{l:Localize Close}"
+                        Click="OnCloseClick"
+                        MinWidth="32"
+                        MinHeight="28"
+                        Padding="0"
+                        HorizontalContentAlignment="Center"
+                        VerticalContentAlignment="Center"
+                        VerticalAlignment="Center">
+                    <TextBlock Classes="icon"
+                               FontSize="10"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               Text="&#xE711;" />
+                </Button>
+            </Grid>
+        </Border>
+
+        <TextBlock DockPanel.Dock="Top"
+                   Margin="10,6,10,4"
+                   Text="{Binding StatusText}"
+                   TextWrapping="Wrap"
+                   Foreground="{DynamicResource TextMutedBrush}"
+                   FontSize="12" />
+
+        <!-- Single fill child: install prompt or terminal host. -->
+        <Grid x:Name="TerminalHost" MinHeight="120" MinWidth="160">
+            <!-- Not installed: prompt + one-click install. -->
+            <Border IsVisible="{Binding ShowInstallPrompt}"
+                    Padding="24"
+                    VerticalAlignment="Center"
+                    HorizontalAlignment="Center">
+                <StackPanel Spacing="12" MaxWidth="420" HorizontalAlignment="Center">
+                    <TextBlock Text="{Binding StatusText}"
+                               TextWrapping="Wrap"
+                               TextAlignment="Center"
+                               FontSize="13" />
+                    <Button Content="{l:Localize AiCliInstallNow}"
+                            Command="{Binding InstallCommand}"
+                            HorizontalAlignment="Center"
+                            MinHeight="32"
+                            Padding="16,6"
+                            IsDefault="True" />
+                    <TextBlock Text="{l:Localize AiCliInstallHint}"
+                               TextWrapping="Wrap"
+                               TextAlignment="Center"
+                               FontSize="11"
+                               Foreground="{DynamicResource TextMutedBrush}"
+                               Opacity="0.85" />
+                </StackPanel>
+            </Border>
+
+            <terminal:TerminalControl x:Name="CliTerm"
+                                      HorizontalAlignment="Stretch"
+                                      VerticalAlignment="Stretch"
+                                      ClipToBounds="True"
+                                      RightClickAction="ContextMenu"
+                                      IsVisible="{Binding ShowEmbeddedTerminal}" />
+            <Border Margin="16"
+                    IsVisible="{Binding ShowExternalHint}"
+                    VerticalAlignment="Center"
+                    HorizontalAlignment="Center">
+                <TextBlock Text="{l:Localize AiCliExternalHint}"
+                           TextWrapping="Wrap"
+                           HorizontalAlignment="Center"
+                           Foreground="{DynamicResource TextMutedBrush}" />
+            </Border>
+        </Grid>
+    </DockPanel>
+</UserControl>

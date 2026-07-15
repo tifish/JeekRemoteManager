@@ -170,12 +170,6 @@ public class SettingsService
             MonitorPanelWidth = roamingSettings.MonitorPanelWidth,
             FileBrowserEditorPath = roamingSettings.FileBrowserEditorPath,
             AiProvider = roamingSettings.AiProvider,
-            AiProviderChoices = roamingSettings.AiProviderChoices,
-            AiAutoRun = roamingSettings.AiAutoRun,
-            AiAutoApproveDangerousCommands = roamingSettings.AiAutoApproveDangerousCommands,
-            AiShowCommandOutput = roamingSettings.AiShowCommandOutput,
-            AiAgentMode = roamingSettings.AiAgentMode,
-            CustomAiProviders = roamingSettings.CustomAiProviders,
         };
 
     private static MachineAppSettings ToMachineSettings(AppSettings settings)
@@ -210,12 +204,6 @@ public class SettingsService
             MonitorPanelWidth = settings.MonitorPanelWidth,
             FileBrowserEditorPath = settings.FileBrowserEditorPath,
             AiProvider = settings.AiProvider,
-            AiProviderChoices = settings.AiProviderChoices ?? new Dictionary<string, AiProviderChoice>(),
-            AiAutoRun = settings.AiAutoRun,
-            AiAutoApproveDangerousCommands = settings.AiAutoApproveDangerousCommands,
-            AiShowCommandOutput = settings.AiShowCommandOutput,
-            AiAgentMode = settings.AiAgentMode,
-            CustomAiProviders = settings.CustomAiProviders ?? new List<CustomAiProvider>(),
         };
         NormalizeRoamingSettings(roamingSettings);
         return roamingSettings;
@@ -246,12 +234,6 @@ public class SettingsService
         settings.MonitorPanelWidth = normalized.MonitorPanelWidth;
         settings.FileBrowserEditorPath = normalized.FileBrowserEditorPath;
         settings.AiProvider = normalized.AiProvider;
-        settings.AiProviderChoices = normalized.AiProviderChoices;
-        settings.AiAutoRun = normalized.AiAutoRun;
-        settings.AiAutoApproveDangerousCommands = normalized.AiAutoApproveDangerousCommands;
-        settings.AiShowCommandOutput = normalized.AiShowCommandOutput;
-        settings.AiAgentMode = normalized.AiAgentMode;
-        settings.CustomAiProviders = normalized.CustomAiProviders;
     }
 
     private static void NormalizeMachineSettings(MachineAppSettings settings)
@@ -298,35 +280,6 @@ public class SettingsService
             settings.FileBrowserEditorPath = null;
         if (string.IsNullOrWhiteSpace(settings.AiProvider))
             settings.AiProvider = null;
-        settings.AiProviderChoices ??= new Dictionary<string, AiProviderChoice>();
-        foreach (var key in new List<string>(settings.AiProviderChoices.Keys))
-        {
-            var choice = settings.AiProviderChoices[key];
-            if (choice is not null)
-            {
-                if (string.IsNullOrWhiteSpace(choice.Model))
-                    choice.Model = null;
-                if (string.IsNullOrWhiteSpace(choice.Effort))
-                    choice.Effort = null;
-            }
-            // Drop empty entries so "both defaults" and "never chosen" serialize the same.
-            if (choice is null || (choice.Model is null && choice.Effort is null))
-                settings.AiProviderChoices.Remove(key);
-        }
-        settings.CustomAiProviders ??= new List<CustomAiProvider>();
-        settings.CustomAiProviders.RemoveAll(p => p is null || string.IsNullOrWhiteSpace(p.Name));
-        foreach (var provider in settings.CustomAiProviders)
-        {
-            provider.Name = provider.Name.Trim();
-            if (string.IsNullOrWhiteSpace(provider.BaseUrl))
-                provider.BaseUrl = null;
-            if (string.IsNullOrWhiteSpace(provider.ApiKey))
-                provider.ApiKey = null;
-            provider.Models ??= new List<string>();
-            provider.Models.RemoveAll(string.IsNullOrWhiteSpace);
-            if (!Enum.IsDefined(provider.ApiType))
-                provider.ApiType = CustomAiApiType.OpenAI;
-        }
     }
 
     private static StorageLocation NormalizeStorageLocation(StorageLocation location) =>

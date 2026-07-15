@@ -60,17 +60,6 @@
           "Avalonia": "[12.0.0, 13.0.0)"
         }
       },
-      "Markdown.Avalonia.Tight": {
-        "type": "Direct",
-        "requested": "[12.0.0-a3, )",
-        "resolved": "12.0.0-a3",
-        "contentHash": "ogAS4ZYcMnMgNDPvBAxRQxziL0iCdZHzBurYjqYTkTArVTzVZJ0exzBjStJ2yvfodO2bnTndwrO3Y5IAneRyXw==",
-        "dependencies": {
-          "Avalonia": "12.0.0",
-          "ColorDocument.Avalonia": "12.0.0-a3",
-          "ColorTextBlock.Avalonia": "12.0.0-a3"
-        }
-      },
       "nulastudio.NetBeauty": {
         "type": "Direct",
         "requested": "[2.1.5, )",
@@ -201,23 +190,6 @@
         "type": "Transitive",
         "resolved": "2.6.2",
         "contentHash": "7oWOcvnntmMKNzDLsdxAYqApt+AjpRpP2CShjMfIa3umZ42UQMvH0tl1qAliYPNYO6vTdcGMqnRrCPmsfzTI1w=="
-      },
-      "ColorDocument.Avalonia": {
-        "type": "Transitive",
-        "resolved": "12.0.0-a3",
-        "contentHash": "2MwW34IORon/fsqIJ99CDKMQ4Ht4xgbAQP93GGKAtXbTWevzmxbtr83IJ7tfRFmkxN3KCcYNhsKJ3JY+oD8KHA==",
-        "dependencies": {
-          "Avalonia": "12.0.0",
-          "ColorTextBlock.Avalonia": "12.0.0-a3"
-        }
-      },
-      "ColorTextBlock.Avalonia": {
-        "type": "Transitive",
-        "resolved": "12.0.0-a3",
-        "contentHash": "atiMWViOXGG4bYBYxR+azVAM5XA53/exUpa3GHBL0Ktu+swS8I2ljmg6uLAqSINyq3KXrDpr2qL8hj0D+5bfPA==",
-        "dependencies": {
-          "Avalonia": "12.0.0"
-        }
       },
       "DotNetRunCmd": {
         "type": "Transitive",

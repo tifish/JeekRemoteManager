@@ -85,14 +85,13 @@ public partial class TerminalView : UserControl
     private Timer? _resizeOutputFlushTimer;
     private long _resizeOutputDeadlineTicks;
     private string? _pendingKeyboardCopyText;
-    private AgentChatViewModel? _aiViewModel;
+    private AgentCliPanelViewModel? _aiViewModel;
+    private AgentRemoteMcpServer? _agentRemoteMcp;
     private double _aiPanelWidth = 380;
     private FileBrowserViewModel? _fileBrowserViewModel;
     private double _fileBrowserHeight = 260;
     private ServerMonitorViewModel? _monitorViewModel;
     private double _monitorPanelWidth = 260;
-    private MainWindowViewModel? _customProvidersOwner;
-    private Action? _customProvidersChangedHandler;
     private int _isAiCommandRunning;
     private long _aiCommandExecutionCount;
     private long _aiCommandCompletionCount;
@@ -160,8 +159,11 @@ public partial class TerminalView : UserControl
 
     public Connection? Connection => _connection;
 
-    /// <summary>The lazily-created AI panel view model, exposed for Debug MCP verification.</summary>
-    public AgentChatViewModel? AiViewModel => _aiViewModel;
+    /// <summary>The lazily-created AI CLI panel view model, exposed for Debug MCP verification.</summary>
+    public AgentCliPanelViewModel? AiViewModel => _aiViewModel;
+
+    /// <summary>Product MCP endpoint for the AI CLI on this tab (null until the panel starts it).</summary>
+    public string? AgentRemoteMcpUrl => _agentRemoteMcp?.EndpointUrl;
 
     public string? SourcePath => _sourcePath;
 
@@ -209,6 +211,7 @@ public partial class TerminalView : UserControl
         InitializeComponent();
 
         Term.Model = _model;
+        TerminalTextInputMethodClient.Attach(Term);
         Term.ContextRequested += OnTerminalContextRequested;
         Term.AddHandler(InputElement.KeyDownEvent, OnTerminalPreviewKeyDown, RoutingStrategies.Tunnel);
         Term.AddHandler(InputElement.KeyUpEvent, OnTerminalPreviewKeyUp, RoutingStrategies.Tunnel);
@@ -446,6 +449,10 @@ public partial class TerminalView : UserControl
 
     public bool IsAiPanelOpen => AiPanelHost.IsVisible;
 
+    /// <summary>AI ConPTY pump diagnostics for Debug MCP (null when panel never opened).</summary>
+    public string? DebugAiOutputStats =>
+        _aiViewModel is null ? null : AiPanel.DebugOutputStats;
+
     /// <summary>True while a login-command <c>#input</c> directive is waiting for Enter.</summary>
     public bool IsLoginManualInputPending => Volatile.Read(ref _loginManualInputTcs) is not null;
 
@@ -539,12 +546,12 @@ public partial class TerminalView : UserControl
         _model.UpdateDisplay();
     }
 
-    /// <summary>Shows or hides the AI assistant side panel for this terminal, creating its
-    /// per-connection chat session on first open.</summary>
+    /// <summary>Shows or hides the AI agent CLI side panel for this terminal, creating its
+    /// per-connection MCP server and panel view-model on first open.</summary>
     public void ToggleAiPanel()
     {
         if (_aiViewModel is null)
-            _aiViewModel = CreateAgentChatViewModel();
+            _aiViewModel = CreateAgentCliPanelViewModel();
 
         var show = !AiPanelHost.IsVisible;
         if (!show)
@@ -554,10 +561,22 @@ public partial class TerminalView : UserControl
         ApplyAiPanelLayout();
         PanelStateChanged?.Invoke(this, EventArgs.Empty);
 
-        if (show && IsLoginManualInputPending)
-            FocusTerminal();
-        else if (show)
-            Dispatcher.UIThread.Post(() => AiPanel.FocusInput(), DispatcherPriority.Background);
+        if (show)
+        {
+            // Match the main terminal font, then remeasure ConPTY against the opened column.
+            AiPanel.SetFontSize(Term.FontSize);
+            Dispatcher.UIThread.Post(async () =>
+            {
+                AiPanel.NotifyHostLayoutChanged();
+                // Auto-start the agent CLI so opening the panel is enough.
+                if (_aiViewModel is not null)
+                    await _aiViewModel.EnsureStartedAsync();
+                if (!IsLoginManualInputPending)
+                    AiPanel.FocusCliTerminal();
+            }, DispatcherPriority.Loaded);
+            if (IsLoginManualInputPending)
+                FocusTerminal();
+        }
         else
             FocusTerminal();
     }
@@ -597,7 +616,7 @@ public partial class TerminalView : UserControl
             FileBrowserRow.MinHeight = 0;
             FileBrowserRow.Height = new GridLength(0, GridUnitType.Pixel);
             if (IsAgentModeLayoutActive)
-                Dispatcher.UIThread.Post(() => AiPanel.FocusInput(), DispatcherPriority.Background);
+                Dispatcher.UIThread.Post(() => AiPanel.FocusCliTerminal(), DispatcherPriority.Background);
             else
                 FocusTerminal();
         }
@@ -767,6 +786,9 @@ public partial class TerminalView : UserControl
 
         AiSplitter.IsVisible = show && !agentMode;
 
+        if (show)
+            Dispatcher.UIThread.Post(() => AiPanel.NotifyHostLayoutChanged(), DispatcherPriority.Loaded);
+
         if (!show)
         {
             // Collapse the column so it leaves no gap.
@@ -814,185 +836,66 @@ public partial class TerminalView : UserControl
             vm.AiPanelWidth = _aiPanelWidth;
     }
 
-    private List<AgentProvider> BuildAgentProviders(string systemPrompt)
+    private AgentCliPanelViewModel CreateAgentCliPanelViewModel()
     {
-        var claudePath = AgentCliLocator.FindClaude();
-        var codexPath = AgentCliLocator.FindCodex();
-        var grokPath = AgentCliLocator.FindGrok();
-        var workingDir = Path.Combine(DebugInstanceContext.RuntimeTempRoot, "agent");
+        EnsureAgentRemoteMcp();
 
-        var providers = new List<AgentProvider>
-        {
-            AgentChatViewModel.CreateClaudeProvider(claudePath is null
-                ? null
-                : (model, effort) => new ClaudeChatSession(claudePath, workingDir, systemPrompt, model: model, effort: effort),
-                claudePath is null
-                    ? null
-                    : (model, effort, sessionId) => new ClaudeChatSession(
-                        claudePath, workingDir, systemPrompt, sessionId, model, effort)),
-            AgentChatViewModel.CreateCodexProvider(
-                codexPath is null
-                    ? null
-                    : (model, effort) => new CodexChatSession(codexPath, workingDir, systemPrompt, model: model, effort: effort),
-                codexPath is null
-                    ? null
-                    : () => CodexChatSession.ListModelsCachedAsync(codexPath),
-                AgentModelCatalogCache.Load("Codex"),
-                models => AgentModelCatalogCache.Save("Codex", models),
-                codexPath is null
-                    ? null
-                    : (model, effort, sessionId) => new CodexChatSession(
-                        codexPath, workingDir, systemPrompt, model, effort, sessionId)),
-            AgentChatViewModel.CreateGrokProvider(
-                grokPath is null
-                    ? null
-                    : (model, effort) => new GrokChatSession(grokPath, workingDir, systemPrompt, model: model, effort: effort),
-                grokPath is null
-                    ? null
-                    : () => GrokChatSession.ListModelsCachedAsync(grokPath),
-                AgentModelCatalogCache.Load("Grok"),
-                models => AgentModelCatalogCache.Save("Grok", models),
-                grokPath is null
-                    ? null
-                    : (model, effort, sessionId) => new GrokChatSession(
-                        grokPath, workingDir, systemPrompt, model, effort, sessionId)),
-        };
+        // Durable workspace mirrors the connection tree path (e.g. Connections/vps/bwg.json
+        // → %LOCALAPPDATA%\JeekRemoteManager\AgentWorkspaces\vps\bwg with CLAUDE.md + AGENTS.md).
+        var workingDir = ResolveAgentCliWorkingDirectory();
 
-        if (DataContext is MainWindowViewModel mainVm)
-        {
-            foreach (var config in mainVm.CustomAiProviders)
-            {
-                var cfg = config;
-                var apiKey = DecryptApiKey(cfg.ApiKey);
-                var configured = !string.IsNullOrEmpty(apiKey) && cfg.Models.Count > 0;
-                providers.Add(AgentChatViewModel.CreateCustomProvider(cfg, !configured
-                    ? null
-                    : (model, effort) => cfg.ApiType == CustomAiApiType.Anthropic
-                        ? new AnthropicChatSession(cfg.BaseUrl, apiKey!, model ?? cfg.Models[0], systemPrompt)
-                        : new OpenAiChatSession(cfg.BaseUrl, apiKey!, model ?? cfg.Models[0], systemPrompt, effort)));
-            }
-        }
-
-        return providers;
-    }
-
-    /// <summary>Returns the clear-text API key: jrm1 blobs are decrypted with the master
-    /// password (null when that fails), legacy plaintext values pass through unchanged.</summary>
-    private static string? DecryptApiKey(string? stored)
-    {
-        if (string.IsNullOrWhiteSpace(stored))
-            return null;
-        if (!MasterKeyService.IsPasswordBlob(stored))
-            return stored;
-        return PasswordProtector.TryDecrypt(stored, out var clear) ? clear : null;
-    }
-
-    private AgentChatViewModel CreateAgentChatViewModel()
-    {
-        var systemPrompt = BuildAssistantSystemPrompt();
-        var providers = BuildAgentProviders(systemPrompt);
-
-        var vm = new AgentChatViewModel(
-            providers,
-            takeSelection: () =>
-            {
-                if (!Term.HasSelection)
-                    return null;
-                var text = GetTerminalSelectionText(Term.SelectedText);
-                // Consume the selection: clearing it also hides the panel's hint.
-                _model.ClearSelection();
-                return text;
-            },
-            runCaptured: RunCapturedAsync,
-            transferFiles: TransferFilesAsync,
-            initialOptions: (DataContext as MainWindowViewModel)?.AiPanelOptions,
-            persistOptions: options =>
-            {
-                if (DataContext is MainWindowViewModel mainVm)
-                    mainVm.AiPanelOptions = options;
-            },
-            runTerminalAction: RunAiTerminalActionAsync,
-            conversationScopeId: BuildAiConversationScopeId(),
-            connectionLabel: BuildAiConversationLabel(),
-            legacyConversationScopeIds: [BuildLegacyAiConversationScopeId()]);
-
-        vm.ConversationHistoryInteraction = () =>
-            TopLevel.GetTopLevel(this) is Window owner
-                ? AiConversationHistoryDialog.ShowAsync(owner, vm)
-                : Task.CompletedTask;
-
-        // The gear button: edit the custom providers, persist them, and let the changed
-        // event below rebuild the picker in every open terminal tab (including this one).
-        vm.ManageProvidersInteraction = async () =>
-        {
-            if (DataContext is not MainWindowViewModel mainVm
-                || TopLevel.GetTopLevel(this) is not Window owner)
-            {
-                return;
-            }
-
-            var edited = await CustomAiProvidersDialog.ShowAsync(owner, mainVm.CustomAiProviders);
-            if (edited is not null)
-                mainVm.SetCustomAiProviders(edited);
-        };
-
-        if (DataContext is MainWindowViewModel providersOwner)
-        {
-            _customProvidersChangedHandler = () =>
-            {
-                if (!_disposed)
-                    vm.ReplaceProviders(BuildAgentProviders(systemPrompt));
-            };
-            providersOwner.CustomAiProvidersChanged += _customProvidersChangedHandler;
-            _customProvidersOwner = providersOwner;
-        }
-
-        // Keep the panel's "selection will be attached" hint in sync with the terminal.
-        vm.HasTerminalSelection = Term.HasSelection;
-        _model.Terminal.Selection.SelectionChanged += () => Dispatcher.UIThread.Post(() =>
-        {
-            if (!_disposed)
-                vm.HasTerminalSelection = Term.HasSelection;
-        });
-
-        // Relayout when the user flips agent mode: remember the side-panel width first (a
-        // no-op when the column is already star-sized), then switch the columns over.
-        vm.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(AgentChatViewModel.AgentMode))
+        var preferred = (DataContext as MainWindowViewModel)?.AiProvider;
+        var vm = new AgentCliPanelViewModel(
+            workingDir,
+            () => _agentRemoteMcp,
+            preferred,
+            onAgentModeChanged: _ =>
             {
                 PersistAiPanelWidth();
                 ApplyAiPanelLayout();
                 if (IsLoginManualInputPending)
                     FocusTerminal();
-            }
+            })
+        {
+            // Re-write CLAUDE.md / AGENTS.md from the current connection each Start/Restart.
+            PrepareWorkspace = () => ResolveAgentCliWorkingDirectory(),
+        };
+
+        // Remember last-chosen provider across tabs and runs.
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName != nameof(AgentCliPanelViewModel.SelectedProvider))
+                return;
+            if (DataContext is MainWindowViewModel mainVm)
+                mainVm.AiProvider = vm.SelectedProvider.Label;
         };
 
         AiPanel.DataContext = vm;
         return vm;
     }
 
-    private string BuildAiConversationScopeId()
+    /// <summary>
+    /// %LOCALAPPDATA%\JeekRemoteManager\AgentWorkspaces\&lt;tree-relative-path&gt; for this
+    /// tab's connection, with CLAUDE.md / AGENTS.md rewritten for the current server context.
+    /// </summary>
+    private string ResolveAgentCliWorkingDirectory()
     {
-        if (_connection is not null && Guid.TryParse(_connection.ConnectionId, out _))
-            return $"connection:{_connection.ConnectionId.Trim()}";
+        var mainVm = DataContext as MainWindowViewModel;
+        var connectionsRoot = mainVm?.RootPath
+            ?? SettingsService.ResolveConnectionsRoot(StorageLocation.UserDirectory);
 
-        return BuildLegacyAiConversationScopeId();
+        return AgentCliWorkspace.Ensure(connectionsRoot, _sourcePath, _connection);
     }
 
-    private string BuildLegacyAiConversationScopeId()
+    private void EnsureAgentRemoteMcp()
     {
-        if (!string.IsNullOrWhiteSpace(_sourcePath))
-        {
-            try { return Path.GetFullPath(_sourcePath); }
-            catch { return _sourcePath; }
-        }
+        if (_agentRemoteMcp is not null)
+            return;
 
-        if (_connection is null)
-            return "unknown";
-        return _connection.IsWsl
-            ? $"wsl:{_connection.TargetLabel}"
-            : $"ssh:{_connection.Username}@{_connection.Host}:{_connection.Port}";
+        var tools = new TerminalAgentRemoteTools(this);
+        var server = new AgentRemoteMcpServer(tools);
+        server.Start();
+        _agentRemoteMcp = server;
     }
 
     private string BuildAiConversationLabel()
@@ -1003,62 +906,95 @@ public partial class TerminalView : UserControl
             : _connection?.TargetLabel ?? "Unknown connection";
     }
 
-    private string BuildAssistantSystemPrompt()
+    /// <summary>Adapts this terminal tab's harness to the product MCP tool surface.</summary>
+    private sealed class TerminalAgentRemoteTools(TerminalView owner) : IAgentRemoteTools
     {
-        var name = _connection?.Name;
-        var host = _connection?.IsWsl == true
-            ? $"local WSL distribution {_connection.TargetLabel}"
-            : _connection?.Host;
-        var target = !string.IsNullOrWhiteSpace(name)
-            ? $"\"{name}\" ({host})"
-            : host ?? "a remote server";
+        public string ConnectionLabel => owner.BuildAiConversationLabel();
 
-        var terminalKind = _connection?.IsWsl == true ? "WSL" : "SSH";
+        public bool IsWsl => owner._connection?.IsWsl == true;
 
-        // WSL shares the Windows filesystem, so plain cp beats any transfer protocol there;
-        // SSH connections get the canonical file.upload/file.download tools.
-        var transferInstructions = _connection?.IsWsl == true
-            ? "To move files between Windows and the distro, just cp them: Windows drives are " +
-              "mounted inside the distro under /mnt (C:\\Users is /mnt/c/Users). "
-            : "The `file.upload` and `file.download` tools accept one `SOURCE -> DESTINATION` " +
-              "line per file. For file.upload, SOURCE is a local Windows file path and DESTINATION " +
-              "is a remote directory (optional; defaults to the shell's current directory, created " +
-              "if missing). For file.download, SOURCE is a remote file path and DESTINATION is a " +
-              "local Windows directory (optional; defaults to the user's Downloads folder). " +
-              "All lines in one block share the first destination. The transfer runs through the " +
-              "terminal via ZMODEM (requires lrzsz on the server) and its result is returned to " +
-              "you like command output. ";
+        public Task<string> RunCommandAsync(string command, CancellationToken cancellationToken = default) =>
+            owner.RunCapturedAsync(command, cancellationToken);
 
-        return
-            $"You are an assistant embedded inside JeekRemoteManager, operating an interactive {terminalKind} " +
-            $"terminal connected to {target}. " +
-            "JeekRemoteManager exposes one canonical app-tool protocol. To call a tool, output exactly " +
-            "ONE fenced block tagged `jrm-tool`. The first line inside the block is the tool name; all " +
-            "remaining lines are its payload. Available tools: `terminal.run` runs a non-interactive " +
-            "remote command or short script; `terminal.run-danger` does the same but asks the user to " +
-            "confirm destructive or hard-to-reverse work; `terminal.interrupt` stops the current terminal " +
-            "command and restores shell input; `terminal.reconnect` rebuilds the SSH channel. " +
-            "Use exactly one tool per response and wait for its returned result before deciding the next " +
-            "step. When the task is done, reply with a short summary and no tool block. Text that is not " +
-            "a tool call must be plain prose or a plain fenced block without a language tag. " +
-            "Large remote command results may arrive as a short preview plus a local file path; that is " +
-            "complete delivery, not a failed capture — read the path with a local file tool if you need " +
-            "every line, or re-run a narrower remote command. " +
-            "Your own built-in tools (shell, file access, etc.), if you have any, run on the user's " +
-            "LOCAL Windows machine where JeekRemoteManager runs — NOT on the server. Use them for " +
-            "local-side work (e.g. reading or writing local files, or transferring files between the " +
-            "local machine and the server); use `terminal.run` for everything that must run on the " +
-            "server. Never mix the two up. " +
-            transferInstructions +
-            "For recovery, use `terminal.interrupt` first. Use `terminal.reconnect` only when interrupt " +
-            "did not restore a usable shell or the SSH channel is unhealthy. Recovery tools run without " +
-            "user confirmation and their result is returned to you. " +
-            "`terminal.run` executes without confirmation, so avoid destructive actions unless explicitly asked, and " +
-            "prefer non-interactive flags (e.g. `-y`). " +
-            "SAFETY: use `terminal.run-danger` instead of `terminal.run` for deleting or overwriting files " +
-            "or directories, dropping databases or tables, formatting or repartitioning disks, " +
-            "force-pushing, or removing volumes or containers with data. The user is then asked to " +
-            "confirm before it runs. Assume a Linux server unless told otherwise.";
+        public Task<string> TransferFilesAsync(AgentFileTransfer transfer, CancellationToken cancellationToken = default) =>
+            owner.TransferFilesAsync(transfer, cancellationToken);
+
+        public Task<string> RunTerminalActionAsync(AgentTerminalAction action, CancellationToken cancellationToken = default) =>
+            owner.RunAiTerminalActionAsync(action, cancellationToken);
+
+        public async Task<bool> ConfirmDangerousCommandAsync(
+            string command,
+            CancellationToken cancellationToken = default)
+        {
+            return await Dispatcher.UIThread.InvokeAsync(async () =>
+            {
+                if (owner._disposed)
+                    return false;
+
+                var ownerWindow = TopLevel.GetTopLevel(owner) as Window;
+                var dialog = new Window
+                {
+                    Title = LocalizerGet("AiCliDangerTitle"),
+                    Width = 520,
+                    Height = 280,
+                    WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                    CanResize = false,
+                };
+
+                var tcs = new TaskCompletionSource<bool>();
+                var prompt = new TextBlock
+                {
+                    Text = string.Format(LocalizerGet("AiCliDangerPrompt"), Environment.NewLine, command),
+                    TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                    Margin = new Avalonia.Thickness(16),
+                };
+                var allow = new Button
+                {
+                    Content = LocalizerGet("AiCliDangerAllow"),
+                    Margin = new Avalonia.Thickness(8),
+                    IsDefault = true,
+                };
+                var deny = new Button
+                {
+                    Content = LocalizerGet("AiCliDangerDeny"),
+                    Margin = new Avalonia.Thickness(8),
+                    IsCancel = true,
+                };
+                allow.Click += (_, _) => { tcs.TrySetResult(true); dialog.Close(); };
+                deny.Click += (_, _) => { tcs.TrySetResult(false); dialog.Close(); };
+                dialog.Closing += (_, _) => tcs.TrySetResult(false);
+
+                dialog.Content = new DockPanel
+                {
+                    LastChildFill = true,
+                    Children =
+                    {
+                        new StackPanel
+                        {
+                            Orientation = Avalonia.Layout.Orientation.Horizontal,
+                            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+                            Margin = new Avalonia.Thickness(8),
+                            [DockPanel.DockProperty] = Dock.Bottom,
+                            Children = { deny, allow },
+                        },
+                        new ScrollViewer { Content = prompt },
+                    },
+                };
+
+                if (ownerWindow is not null)
+                    await dialog.ShowDialog(ownerWindow);
+                else
+                    dialog.Show();
+
+                return await tcs.Task;
+            });
+        }
+
+        private static string LocalizerGet(string key)
+        {
+            try { return Jeek.Avalonia.Localization.Localizer.Get(key); }
+            catch { return key; }
+        }
     }
 
     /// <summary>
@@ -1426,10 +1362,11 @@ public partial class TerminalView : UserControl
         _ = ConnectAsync(generation);
     }
 
-    /// <summary>Sets the terminal font size in points.</summary>
+    /// <summary>Sets the terminal font size in points (main shell and AI CLI panel).</summary>
     public void SetFontSize(double size)
     {
         Term.FontSize = size;
+        AiPanel.SetFontSize(size);
         // A font size change resizes the character cell, so the column/row geometry
         // changes too. Push the new size to the remote after the control re-measures
         // rather than relying on it raising SizeChanged for a font-only change.
@@ -1635,7 +1572,8 @@ public partial class TerminalView : UserControl
                 return;
 
             _shellClosed = true;
-            var shouldAutoReconnect = _aiViewModel?.IsBusy == true;
+            // While an agent CLI is open, keep the remote shell alive so MCP tools stay useful.
+            var shouldAutoReconnect = _aiViewModel?.IsRunning == true;
             TaskCompletionSource<bool>? reconnectCompletion = null;
             if (shouldAutoReconnect)
             {
@@ -1676,7 +1614,6 @@ public partial class TerminalView : UserControl
                 throw new InvalidOperationException("Terminal is closed.");
 
             _aiAutoReconnectState = "reconnecting";
-            _aiViewModel?.NotifyTerminalDisconnected();
 
             var retryDelays = new[]
             {
@@ -1708,7 +1645,6 @@ public partial class TerminalView : UserControl
 
                     _aiAutoReconnectState = "connected";
                     Interlocked.Increment(ref _aiAutoReconnectSuccessCount);
-                    _aiViewModel?.NotifyTerminalReconnected();
                     completion.TrySetResult(true);
                     return;
                 }
@@ -1727,7 +1663,7 @@ public partial class TerminalView : UserControl
 
         _aiAutoReconnectState = "failed";
         if (!_disposed)
-            _aiViewModel?.NotifyTerminalReconnectFailed(error ?? "Unknown connection error.");
+            FeedLine($"\u001b[31m[AI auto-reconnect failed] {error ?? "Unknown connection error."}\u001b[0m");
         completion.TrySetResult(false);
     }
 
@@ -1862,7 +1798,7 @@ public partial class TerminalView : UserControl
             if (IsLoginManualInputPending)
                 FocusTerminal();
             else if (IsAgentModeLayoutActive)
-                Dispatcher.UIThread.Post(() => AiPanel.FocusInput(), DispatcherPriority.Background);
+                Dispatcher.UIThread.Post(() => AiPanel.FocusCliTerminal(), DispatcherPriority.Background);
         }, DispatcherPriority.Background);
 
     private void OnShellData(byte[] data)
@@ -2482,6 +2418,14 @@ public partial class TerminalView : UserControl
         {
             try
             {
+                // Quit a stuck pager first (less shows "(END)" and waits for 'q'), then Ctrl+C.
+                lock (_shellWriteGate)
+                {
+                    channel.Write(Encoding.UTF8.GetBytes("q"));
+                }
+
+                await Task.Delay(80).ConfigureAwait(false);
+
                 lock (_shellWriteGate)
                 {
                     channel.Write([0x03]);
@@ -2658,11 +2602,6 @@ public partial class TerminalView : UserControl
         Interlocked.Exchange(ref _pendingSharedClient, null)?.Release();
         DisposeTransport();
 
-        if (_customProvidersOwner is not null && _customProvidersChangedHandler is not null)
-            _customProvidersOwner.CustomAiProvidersChanged -= _customProvidersChangedHandler;
-        _customProvidersOwner = null;
-        _customProvidersChangedHandler = null;
-
         _fileBrowserViewModel?.Dispose();
         _fileBrowserViewModel = null;
 
@@ -2673,5 +2612,10 @@ public partial class TerminalView : UserControl
         _aiViewModel = null;
         if (ai is not null)
             _ = ai.DisposeAsync();
+
+        var mcp = _agentRemoteMcp;
+        _agentRemoteMcp = null;
+        if (mcp is not null)
+            _ = mcp.DisposeAsync();
     }
 }

@@ -311,6 +311,30 @@ AiOptionDefault	Default	默认
 AiSettingsChanged	Settings changed; applies to a new conversation.	设置已更改，将用于新对话。
 AiAgentMode	Agent mode	Agent 模式
 AiAgentModeHint	Hide the SSH terminal and let the assistant fill the whole tab. Commands still run on the server.	隐藏 SSH 终端面板，AI 助手占满整个页面。命令仍会在服务器上执行。
+AiCliStart	Start	启动
+AiCliRestart	Restart	重启
+AiCliStop	Stop	停止
+AiCliInstall	Install	安装
+AiCliInstallNow	Install now	立即安装
+AiCliInstallHint	Uses the official installer. Requires network access. You may need to log in after install.	将运行官方安装命令，需要联网。安装后可能还需要登录。
+AiCliNotInstalled	{0} is not installed.{2}{2}Install command:{2}{1}	未安装 {0}。{2}{2}安装命令：{2}{1}
+AiCliInstalling	Installing {0}…{2}{1}	正在安装 {0}…{2}{1}
+AiCliInstallSucceeded	{0} installed. Starting…	{0} 已安装，正在启动…
+AiCliInstallFailed	Could not install {0}.{2}{1}	无法安装 {0}。{2}{1}
+AiCliUseWindowsTerminal	Windows Terminal	Windows Terminal
+AiCliReady	{0} is ready.	{0} 已就绪。
+AiCliRunning	{0} is running in the side panel.	{0} 正在侧栏中运行。
+AiCliRunningExternal	{0} is running in Windows Terminal.	{0} 正在 Windows Terminal 中运行。
+AiCliStartFailed	Failed to start CLI: {0}	启动 CLI 失败：{0}
+AiCliExited	{0} exited (code {1}). Click Start to run again.	{0} 已退出（代码 {1}）。点击「启动」可再次运行。
+AiCliExitedNoCode	{0} exited. Click Start to run again.	{0} 已退出。点击「启动」可再次运行。
+AiCliStopped	{0} stopped.	{0} 已停止。
+AiCliMcpUnavailable	Remote MCP tools are not available yet. Close and reopen the AI panel.	远程 MCP 工具尚未就绪，请关闭后重新打开 AI 面板。
+AiCliExternalHint	The agent CLI is running in Windows Terminal. Remote server tools are provided by JeekRemoteManager over MCP.	Agent CLI 正在 Windows Terminal 中运行。远程服务器工具由 JeekRemoteManager 通过 MCP 提供。
+AiCliDangerTitle	Confirm dangerous command	确认危险命令
+AiCliDangerPrompt	The AI wants to run this on the remote server:{0}{0}{1}{0}{0}Allow it?	AI 想在远程服务器上执行：{0}{0}{1}{0}{0}是否允许？
+AiCliDangerAllow	Allow	允许
+AiCliDangerDeny	Deny	拒绝
 AiManageProviders	Manage custom providers…	管理自定义提供方…
 AiCustomProvidersTitle	Custom AI providers	自定义 AI 提供方
 AiCustomNotConfigured	This provider needs an API key and at least one model. Configure it with the gear button.	该提供方缺少 API 密钥或模型列表，请点击齿轮按钮配置。

@@ -64,12 +64,12 @@ public sealed class SshTerminalChannel : ITerminalChannel
     }
 }
 
-/// <summary>A local WSL (ConPTY) process as a terminal channel.</summary>
-public sealed class WslTerminalChannel : ITerminalChannel
+/// <summary>A local process attached through ConPTY (WSL, agent CLIs, …).</summary>
+public sealed class LocalConPtyTerminalChannel : ITerminalChannel
 {
     private readonly ConPtySession _session;
 
-    public WslTerminalChannel(ConPtySession session)
+    public LocalConPtyTerminalChannel(ConPtySession session)
     {
         _session = session;
         session.DataReceived += data => DataReceived?.Invoke(data);
@@ -91,4 +91,39 @@ public sealed class WslTerminalChannel : ITerminalChannel
     public void Resize(uint cols, uint rows) => _session.Resize((int)cols, (int)rows);
 
     public void Dispose() => _session.Dispose();
+}
+
+/// <summary>A local WSL (ConPTY) process as a terminal channel.</summary>
+public sealed class WslTerminalChannel : ITerminalChannel
+{
+    private readonly LocalConPtyTerminalChannel _inner;
+
+    public WslTerminalChannel(ConPtySession session) =>
+        _inner = new LocalConPtyTerminalChannel(session);
+
+    public event Action<byte[]>? DataReceived
+    {
+        add => _inner.DataReceived += value;
+        remove => _inner.DataReceived -= value;
+    }
+
+    public event Action<string>? ErrorMessage
+    {
+        add => _inner.ErrorMessage += value;
+        remove => _inner.ErrorMessage -= value;
+    }
+
+    public event Action? Closed
+    {
+        add => _inner.Closed += value;
+        remove => _inner.Closed -= value;
+    }
+
+    public bool SupportsBinaryTransfers => false;
+
+    public void Write(byte[] data) => _inner.Write(data);
+
+    public void Resize(uint cols, uint rows) => _inner.Resize(cols, rows);
+
+    public void Dispose() => _inner.Dispose();
 }

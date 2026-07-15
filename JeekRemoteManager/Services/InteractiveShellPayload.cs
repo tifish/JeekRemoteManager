@@ -44,8 +44,12 @@ public static class InteractiveShellPayloadRunner
         // epilogue — status capture, hook sourcing, echo restore, exit marker — shares
         // ONE logical line with the heredoc pipeline, so the shell reads a single
         // command and nothing is prompted or echoed after the script's own output.
+        // Disable interactive pagers (less/more). Otherwise git/systemctl/man open `less`,
+        // print "(END)", and never reach the EXIT marker — the AI then calls terminal_interrupt.
         var prepareCommand =
             "stty -echo 2>/dev/null || true; " +
+            "export PAGER=cat GIT_PAGER=cat SYSTEMD_PAGER=cat MANPAGER=cat " +
+            "BAT_PAGER=cat DELTA_PAGER=cat GH_PAGER=cat LESS= LV=; " +
             "__jrm_old_ps2=${PS2-}; PS2=; " +
             "__jrm_current_shell_hook=${TMPDIR:-/tmp}/jeekremote-current-shell-" + token + "-$$.sh; " +
             "if ( umask 077 && : > \"$__jrm_current_shell_hook\" ) 2>/dev/null; then " +

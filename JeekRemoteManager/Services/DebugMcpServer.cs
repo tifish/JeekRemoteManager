@@ -412,9 +412,6 @@ internal static class DebugMcpServer
                 "visual_tree" => await VisualTreeAsync(args),
                 "screenshot" => await ScreenshotAsync(),
                 "read_logs" => ReadLogs(args),
-                "ai_conversation_draft_check" => await AiConversationDraftCheckAsync(),
-                "ai_conversation_trash_check" => await AiConversationTrashCheckAsync(),
-                "ai_chat_stress" => await AiChatStressAsync(args),
                 "ai_runtime_snapshot" => await AiRuntimeSnapshotAsync(),
                 _ => throw new InvalidOperationException($"Unknown tool: {name}"),
             };
@@ -857,26 +854,16 @@ internal static class DebugMcpServer
                 }
                 else
                 {
-                    sb.AppendLine(ai.DebugAutoToolState());
                     sb.AppendLine(
-                        $"provider={ai.SelectedProvider?.Label} model={ai.SelectedModel?.Value} "
-                        + $"effort={ai.SelectedEffort?.Value} nativeSession={ai.CurrentNativeSessionId}");
-                    sb.AppendLine($"messages={ai.Messages.Count} conversation={ai.CurrentConversationId}");
-                    var from = Math.Max(0, ai.Messages.Count - 8);
-                    for (var i = from; i < ai.Messages.Count; i++)
-                    {
-                        var m = ai.Messages[i];
-                        var preview = m.Text.Length <= 120 ? m.Text : m.Text[..120] + "…";
-                        preview = preview.Replace('\r', ' ').Replace('\n', ' ');
-                        sb.AppendLine(
-                            $"  [{i}] {m.Role} stream={m.IsStreaming} think={m.IsThinking} "
-                            + $"awaitDecision={m.IsAwaitingDecision} len={m.Text.Length} | {preview}");
-                    }
-
-                    var pendingTool = AgentChatViewModel.ExtractFirstToolRequest(
-                        ai.Messages.LastOrDefault(m => m.IsAssistant)?.Text ?? "");
-                    sb.AppendLine(
-                        $"lastAssistantTool={(pendingTool is null ? "none" : pendingTool.Name + "/" + (pendingTool.Command is null ? "-" : "command"))}");
+                        $"cliProvider={ai.SelectedProvider.Label} available={ai.SelectedProvider.IsAvailable} "
+                        + $"running={ai.IsRunning} embedded={ai.HasEmbeddedSession} "
+                        + $"useWindowsTerminal={ai.UseWindowsTerminal} agentMode={ai.AgentMode} "
+                        + $"installing={ai.IsInstalling}");
+                    sb.AppendLine($"status={ai.StatusText}");
+                    sb.AppendLine($"workspace={ai.WorkingDirectory}");
+                    sb.AppendLine($"mcpUrl={terminal.AgentRemoteMcpUrl ?? "(none)"}");
+                    // Session attach state (TabControl unload/reload wiring).
+                    sb.AppendLine($"outputStats={terminal.DebugAiOutputStats ?? "(n/a)"}");
                 }
 
                 index++;
@@ -888,212 +875,6 @@ internal static class DebugMcpServer
         });
 
         return ToolText(text);
-    }
-
-    private static async Task<JsonObject> AiChatStressAsync(JsonObject args)
-    {
-        var messageCount = args["message_count"]?.GetValue<int>() ?? 500;
-        var charactersPerMessage = args["characters_per_message"]?.GetValue<int>() ?? 200;
-        var streamChunkCount = args["stream_chunk_count"]?.GetValue<int>() ?? 2_000;
-        var charactersPerChunk = args["characters_per_chunk"]?.GetValue<int>() ?? 10;
-        var scrollUpdateCount = args["scroll_update_count"]?.GetValue<int>() ?? 100;
-        var windowWidth = Math.Clamp(args["window_width"]?.GetValue<int>() ?? 600, 240, 2_000);
-        var windowHeight = Math.Clamp(args["window_height"]?.GetValue<int>() ?? 800, 240, 2_000);
-
-        var state = await OnUiAsync(() =>
-        {
-            var vm = new AgentChatViewModel(
-                [
-                    new AgentProvider(
-                        "Debug",
-                        "",
-                        [new AgentOption("Default", null)],
-                        [new AgentOption("Default", null)],
-                        (_, _) => null),
-                ],
-                () => null,
-                null);
-            var view = new AgentChatView { DataContext = vm };
-            var window = new Window
-            {
-                Width = windowWidth,
-                Height = windowHeight,
-                ShowInTaskbar = false,
-                WindowDecorations = WindowDecorations.None,
-                Opacity = 0,
-                Content = view,
-            };
-            window.Show();
-            return (vm, view, window);
-        });
-
-        try
-        {
-            await Task.Delay(150);
-            var streamingTask = await OnUiAsync(() =>
-                state.vm.RunDebugStreamingStressAsync(streamChunkCount, charactersPerChunk));
-            var streaming = await streamingTask.WaitAsync(TimeSpan.FromSeconds(15));
-
-            var transcriptTask = await OnUiAsync(() =>
-                state.view.RunDebugTranscriptStressAsync(messageCount, charactersPerMessage));
-            var transcript = await transcriptTask.WaitAsync(TimeSpan.FromSeconds(15));
-
-            var scrollFollowTask = await OnUiAsync(() =>
-                state.view.RunDebugScrollFollowStressAsync(scrollUpdateCount));
-            var scrollFollow = await scrollFollowTask.WaitAsync(TimeSpan.FromSeconds(45));
-
-            var markdownScrollTask = await OnUiAsync(() =>
-                state.view.RunDebugMarkdownScrollSelectionCheckAsync(Math.Clamp(messageCount, 2, 200)));
-            var markdownScroll = await markdownScrollTask.WaitAsync(TimeSpan.FromSeconds(30));
-
-            var composerResizeTask = await OnUiAsync(state.view.RunDebugComposerResizeCheckAsync);
-            var composerResize = await composerResizeTask.WaitAsync(TimeSpan.FromSeconds(15));
-            return ToolText($"streaming: {streaming}\ntranscript: {transcript}\n"
-                            + $"scrollFollow: {scrollFollow}\nmarkdownScroll: {markdownScroll}\n"
-                            + $"composerResize: {composerResize}");
-        }
-        finally
-        {
-            var disposeTask = await OnUiAsync(() =>
-            {
-                state.window.Close();
-                return state.vm.DisposeAsync().AsTask();
-            });
-            await disposeTask;
-        }
-    }
-
-    private static async Task<JsonObject> AiConversationTrashCheckAsync()
-    {
-        var basePath = DebugInstanceContext.Info.RuntimeTempRoot;
-        if (string.IsNullOrWhiteSpace(basePath))
-            basePath = Path.GetTempPath();
-        var root = Path.Combine(basePath, $"ai-conversation-trash-check-{Guid.NewGuid():N}");
-        var now = DateTimeOffset.UtcNow;
-
-        try
-        {
-            var store = new AiConversationStore(root);
-            var conversation = new AiConversation
-            {
-                Id = "debug-trash-lifecycle",
-                ScopeId = "debug-scope",
-                Provider = "Debug",
-                NativeSessionId = "debug-session",
-                Title = "Debug recycle-bin lifecycle",
-                Messages = { new AiConversationMessage { Role = "User", Text = "test" } },
-            };
-            store.Save(conversation);
-
-            var moved = store.MoveToTrash(conversation.Id)
-                        && store.LoadSummaries(conversation.ScopeId).Count == 0
-                        && store.LoadSummaries(conversation.ScopeId, deleted: true).Count == 1;
-            var restored = store.RestoreFromTrash(conversation.Id)
-                           && store.LoadSummaries(conversation.ScopeId).Count == 1
-                           && store.LoadSummaries(conversation.ScopeId, deleted: true).Count == 0;
-
-            store.MoveToTrash(conversation.Id);
-            var expired = store.Load(conversation.Id)!;
-            expired.DeletedAt = now - AiConversationStore.TrashRetention - TimeSpan.FromMinutes(1);
-            store.Save(expired);
-
-            var retained = new AiConversation
-            {
-                Id = "debug-trash-retained",
-                ScopeId = conversation.ScopeId,
-                Provider = "Debug",
-                NativeSessionId = "debug-session-2",
-                Title = "Recent recycle-bin entry",
-                DeletedAt = now - AiConversationStore.TrashRetention + TimeSpan.FromMinutes(1),
-            };
-            store.Save(retained);
-            var purgedCount = store.PurgeExpiredTrash(now);
-            var expiry = purgedCount == 1
-                         && store.Load(conversation.Id) is null
-                         && store.Load(retained.Id) is not null;
-
-            var layout = await OnUiAsync(() =>
-                $"activeSmall=[{AiConversationHistoryDialog.DebugMeasureConversationRow(420, deleted: false)}]; "
-                + $"activeWide=[{AiConversationHistoryDialog.DebugMeasureConversationRow(680, deleted: false)}]; "
-                + $"trashSmall=[{AiConversationHistoryDialog.DebugMeasureConversationRow(420, deleted: true)}]; "
-                + $"dialogSmall=[{AiConversationHistoryDialog.DebugMeasureDialogLayout(480, 360)}]; "
-                + $"dialogWide=[{AiConversationHistoryDialog.DebugMeasureDialogLayout(720, 520)}]; "
-                + $"interaction=[{AiConversationHistoryDialog.DebugCheckConversationRowInteraction()}]");
-
-            return ToolText($"moved={moved}; restored={restored}; expiredPurged={expiry}; "
-                            + $"retentionDays={AiConversationStore.TrashRetention.TotalDays:0}; {layout}");
-        }
-        finally
-        {
-            try { Directory.Delete(root, recursive: true); } catch { /* best-effort debug cleanup */ }
-        }
-    }
-
-    private static async Task<JsonObject> AiConversationDraftCheckAsync()
-    {
-        var basePath = DebugInstanceContext.Info.RuntimeTempRoot;
-        if (string.IsNullOrWhiteSpace(basePath))
-            basePath = Path.GetTempPath();
-        var root = Path.Combine(basePath, $"ai-conversation-draft-check-{Guid.NewGuid():N}");
-        const string conversationId = "debug-draft-roundtrip";
-        const string scopeId = "debug-draft-scope";
-        const string initialDraft = "draft before panel recreation";
-        const string updatedDraft = "updated draft saved with session";
-
-        AgentChatViewModel CreateViewModel(AiConversationStore store) => new(
-            [
-                new AgentProvider(
-                    "Debug",
-                    "",
-                    [new AgentOption("Default", null)],
-                    [new AgentOption("Default", null)],
-                    (_, _) => null,
-                    ResumeSessionFactory: (_, _, _) => null),
-            ],
-            () => null,
-            null,
-            conversationStore: store,
-            conversationScopeId: scopeId,
-            connectionLabel: "Debug draft");
-
-        try
-        {
-            var store = new AiConversationStore(root);
-            store.Save(new AiConversation
-            {
-                Id = conversationId,
-                ScopeId = scopeId,
-                ConnectionLabel = "Debug draft",
-                Provider = "Debug",
-                NativeSessionId = "debug-session",
-                Title = "Debug draft roundtrip",
-                DraftText = initialDraft,
-                Messages = { new AiConversationMessage { Role = "User", Text = "test" } },
-            });
-
-            var first = await OnUiAsync(() => CreateViewModel(store));
-            var initialRestored = await OnUiAsync(() =>
-                first.RestoreConversation(conversationId) && first.InputText == initialDraft);
-            var firstDispose = await OnUiAsync(() =>
-            {
-                first.InputText = updatedDraft;
-                return first.DisposeAsync().AsTask();
-            });
-            await firstDispose;
-
-            var saved = store.Load(conversationId)?.DraftText == updatedDraft;
-            var second = await OnUiAsync(() => CreateViewModel(store));
-            var recreatedRestored = await OnUiAsync(() =>
-                second.RestoreConversation(conversationId) && second.InputText == updatedDraft);
-            var secondDispose = await OnUiAsync(() => second.DisposeAsync().AsTask());
-            await secondDispose;
-
-            return ToolText($"initialRestored={initialRestored}; saved={saved}; recreatedRestored={recreatedRestored}");
-        }
-        finally
-        {
-            try { Directory.Delete(root, recursive: true); } catch { /* best-effort debug cleanup */ }
-        }
     }
 
     #endregion

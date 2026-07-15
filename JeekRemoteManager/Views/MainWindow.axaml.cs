@@ -173,21 +173,6 @@ public partial class MainWindow : Window
             .Select(item => item.Header?.ToString() ?? string.Empty)
             .ToArray() ?? [];
 
-    /// <summary>Exercises AI turn-completion text reconciliation without requiring a live
-    /// provider session. Exposed for Debug MCP verification.</summary>
-    public string DebugReconcileCompletedAgentText(string streamedText, string completedText) =>
-        AgentChatViewModel.SelectCompletedText(streamedText, completedText);
-
-    /// <summary>Verifies that a terminal Codex error notification does not end the AI turn
-    /// before the matching turn/completed notification. Exposed for Debug MCP.</summary>
-    public string DebugCodexTurnErrorLifecycle(string terminalError) =>
-        CodexChatSession.DebugTurnErrorLifecycle(terminalError);
-
-    /// <summary>Verifies that Codex commentary and tool items accumulate in order and
-    /// that a following empty final-answer item does not erase them. Exposed for Debug MCP.</summary>
-    public string DebugCodexAgentMessageAccumulationLifecycle() =>
-        CodexChatSession.DebugAgentMessageAccumulationLifecycle();
-
     private void BuildMoreActionsMenu()
     {
         if (DataContext is not MainWindowViewModel vm)
