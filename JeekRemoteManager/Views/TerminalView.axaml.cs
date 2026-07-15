@@ -427,6 +427,38 @@ public partial class TerminalView : UserControl
 
     public bool IsAiPanelOpen => AiPanelHost.IsVisible;
 
+    /// <summary>True while a login-command <c>#input</c> directive is waiting for Enter.</summary>
+    public bool IsLoginManualInputPending => Volatile.Read(ref _loginManualInputTcs) is not null;
+
+    /// <summary>Rendered terminal visibility exposed for Debug MCP verification.</summary>
+    public bool IsTerminalAreaVisible => TerminalArea.IsVisible;
+
+    /// <summary>Whether the AI panel currently owns the full tab.</summary>
+    public bool IsAgentModeLayoutActive => ShouldUseAgentModeLayout(
+        AiPanelHost.IsVisible,
+        _aiViewModel?.AgentMode == true,
+        IsLoginManualInputPending);
+
+    /// <summary>Computes the effective Agent layout without changing the persisted preference.</summary>
+    public static bool ShouldUseAgentModeLayout(
+        bool aiPanelVisible,
+        bool agentModeRequested,
+        bool loginManualInputPending) =>
+        aiPanelVisible && agentModeRequested && !loginManualInputPending;
+
+    /// <summary>
+    /// Submits one login-command answer through the real terminal input path. This is
+    /// intentionally limited to an active <c>#input</c> wait for safe Debug MCP checks.
+    /// </summary>
+    public bool DebugSubmitLoginInput(string input)
+    {
+        if (!IsConnected || !IsLoginManualInputPending)
+            return false;
+
+        HandleUserInput(Encoding.UTF8.GetBytes((input ?? string.Empty) + "\r"));
+        return true;
+    }
+
     /// <summary>Rendered side-panel columns exposed for Debug MCP verification.</summary>
     public int AiPanelColumn => Grid.GetColumn(AiPanelHost);
 
@@ -447,6 +479,29 @@ public partial class TerminalView : UserControl
         {
             var buffer = _model.Terminal.Buffer;
             return (buffer.Y, buffer.YBase, buffer.YBase + buffer.Y, _model.Terminal.Cols, _model.Terminal.Rows);
+        }
+    }
+
+    /// <summary>Plain text currently visible in the terminal viewport for Debug MCP checks.</summary>
+    public string DebugVisibleTerminalText
+    {
+        get
+        {
+            var terminal = _model.Terminal;
+            var buffer = terminal.Buffer;
+            var firstRow = Math.Max(0, buffer.YDisp);
+            var lastRow = Math.Min(buffer.Length, firstRow + terminal.Rows);
+            var text = new StringBuilder();
+
+            for (var row = firstRow; row < lastRow; row++)
+            {
+                if (row > firstRow)
+                    text.Append('\n');
+                if (buffer.GetLine(row) is { } line)
+                    text.Append(line.TranslateToString(true));
+            }
+
+            return text.ToString().TrimEnd();
         }
     }
 
@@ -480,7 +535,9 @@ public partial class TerminalView : UserControl
         ApplyAiPanelLayout();
         PanelStateChanged?.Invoke(this, EventArgs.Empty);
 
-        if (show)
+        if (show && IsLoginManualInputPending)
+            FocusTerminal();
+        else if (show)
             Dispatcher.UIThread.Post(() => AiPanel.FocusInput(), DispatcherPriority.Background);
         else
             FocusTerminal();
@@ -520,7 +577,7 @@ public partial class TerminalView : UserControl
             // Collapse the row so it leaves no gap.
             FileBrowserRow.MinHeight = 0;
             FileBrowserRow.Height = new GridLength(0, GridUnitType.Pixel);
-            if (AiPanelHost.IsVisible && _aiViewModel?.AgentMode == true)
+            if (IsAgentModeLayoutActive)
                 Dispatcher.UIThread.Post(() => AiPanel.FocusInput(), DispatcherPriority.Background);
             else
                 FocusTerminal();
@@ -679,7 +736,7 @@ public partial class TerminalView : UserControl
     private void ApplyAiPanelLayout()
     {
         var show = AiPanelHost.IsVisible;
-        var agentMode = show && _aiViewModel?.AgentMode == true;
+        var agentMode = IsAgentModeLayoutActive;
 
         // Hiding the terminal area (not just collapsing the column) keeps the pty size
         // stable, so remote command output isn't rewrapped to a zero-width window.
@@ -718,7 +775,7 @@ public partial class TerminalView : UserControl
     /// the AI conversation while agent mode owns the tab.</summary>
     private void ApplyFileBrowserPlacement()
     {
-        var agentMode = AiPanelHost.IsVisible && _aiViewModel?.AgentMode == true;
+        var agentMode = IsAgentModeLayoutActive;
         var column = agentMode ? 0 : 2;
         Grid.SetColumn(FileSplitter, column);
         Grid.SetColumn(FileBrowserHost, column);
@@ -887,6 +944,8 @@ public partial class TerminalView : UserControl
             {
                 PersistAiPanelWidth();
                 ApplyAiPanelLayout();
+                if (IsLoginManualInputPending)
+                    FocusTerminal();
             }
         };
 
@@ -1334,7 +1393,12 @@ public partial class TerminalView : UserControl
 
     private void BeginConnectionAttempt()
     {
+        var pendingLoginInput = Interlocked.Exchange(ref _loginManualInputTcs, null);
+        var hadPendingLoginInput = pendingLoginInput is not null;
+        pendingLoginInput?.TrySetCanceled();
         var generation = Interlocked.Increment(ref _connectionGeneration);
+        if (hadPendingLoginInput)
+            RefreshLoginManualInputLayout(generation);
         _connected = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         _shellClosed = false;
         _ = ConnectAsync(generation);
@@ -1709,7 +1773,8 @@ public partial class TerminalView : UserControl
                 if (LoginCommandSequence.IsManualInputDirective(line))
                 {
                     var manualInput = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                    _loginManualInputTcs = manualInput;
+                    Interlocked.Exchange(ref _loginManualInputTcs, manualInput)?.TrySetCanceled();
+                    RefreshLoginManualInputLayout(generation);
                     try
                     {
                         // No timeout: fetching a 2FA code can take as long as it takes.
@@ -1722,7 +1787,8 @@ public partial class TerminalView : UserControl
                     }
                     finally
                     {
-                        _loginManualInputTcs = null;
+                        Interlocked.CompareExchange(ref _loginManualInputTcs, null, manualInput);
+                        RefreshLoginManualInputLayout(generation);
                     }
 
                     // The next command must wait for output produced after the
@@ -1763,6 +1829,19 @@ public partial class TerminalView : UserControl
             }
         });
     }
+
+    private void RefreshLoginManualInputLayout(int generation) =>
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_disposed || generation != _connectionGeneration)
+                return;
+
+            ApplyAiPanelLayout();
+            if (IsLoginManualInputPending)
+                FocusTerminal();
+            else if (IsAgentModeLayoutActive)
+                Dispatcher.UIThread.Post(() => AiPanel.FocusInput(), DispatcherPriority.Background);
+        }, DispatcherPriority.Background);
 
     private void OnShellData(byte[] data)
     {
@@ -2543,6 +2622,7 @@ public partial class TerminalView : UserControl
     {
         _disposed = true;
         Interlocked.Increment(ref _connectionGeneration);
+        Interlocked.Exchange(ref _loginManualInputTcs, null)?.TrySetCanceled();
         _connectInProgress = false;
         _connected?.TrySetCanceled();
         _activePayloadMonitor?.Fail(new ObjectDisposedException(nameof(TerminalView)));
