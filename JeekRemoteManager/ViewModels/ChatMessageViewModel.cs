@@ -14,6 +14,15 @@ public enum ChatRole
     Confirmation,
 }
 
+public enum MessageRenderState
+{
+    PlainText,
+    Thinking,
+    StreamingPlainText,
+    CompletedMarkdown,
+    CompletedPlainText,
+}
+
 /// <summary>One bubble in the AI chat transcript. <see cref="Text"/> is observable so streamed
 /// tokens append live.</summary>
 public sealed partial class ChatMessageViewModel : ObservableObject
@@ -46,14 +55,24 @@ public sealed partial class ChatMessageViewModel : ObservableObject
 
     public bool HasText => !string.IsNullOrEmpty(Text);
 
-    public bool ShowsThinking => IsAssistant && IsThinking && !HasText;
+    /// <summary>A single render decision consumed by the assistant content view. Streaming
+    /// and finalized messages never ask the transcript scroller to inspect Markdown state.</summary>
+    public MessageRenderState RenderState =>
+        !IsAssistant ? MessageRenderState.PlainText :
+        IsThinking && !HasText ? MessageRenderState.Thinking :
+        IsStreaming ? MessageRenderState.StreamingPlainText :
+        Text.Length > MarkdownCharacterLimit ? MessageRenderState.CompletedPlainText :
+        MessageRenderState.CompletedMarkdown;
+
+    public bool ShowsThinking => RenderState == MessageRenderState.Thinking;
 
     /// <summary>While an answer is streaming, or after it grows beyond the safe Markdown
     /// limit, render selectable plain text instead of repeatedly rebuilding a Markdown tree.</summary>
-    public bool ShowsPlainText => IsPlainBubble || IsAssistant && !ShowsThinking
-        && (IsStreaming || Text.Length > MarkdownCharacterLimit);
+    public bool ShowsPlainText => RenderState is MessageRenderState.PlainText
+        or MessageRenderState.StreamingPlainText
+        or MessageRenderState.CompletedPlainText;
 
-    public bool ShowsAssistantMarkdown => IsAssistant && !ShowsThinking && !ShowsPlainText;
+    public bool ShowsAssistantMarkdown => RenderState == MessageRenderState.CompletedMarkdown;
 
     /// <summary>Markdown used by the assistant bubble. Some agents emit an opening
     /// fenced-code marker immediately after prose; Markdown requires that marker to
@@ -62,6 +81,7 @@ public sealed partial class ChatMessageViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasText))]
+    [NotifyPropertyChangedFor(nameof(RenderState))]
     [NotifyPropertyChangedFor(nameof(ShowsThinking))]
     [NotifyPropertyChangedFor(nameof(ShowsPlainText))]
     [NotifyPropertyChangedFor(nameof(ShowsAssistantMarkdown))]
@@ -69,6 +89,7 @@ public sealed partial class ChatMessageViewModel : ObservableObject
     private string _text;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RenderState))]
     [NotifyPropertyChangedFor(nameof(ShowsThinking))]
     [NotifyPropertyChangedFor(nameof(ShowsPlainText))]
     [NotifyPropertyChangedFor(nameof(ShowsAssistantMarkdown))]
@@ -76,6 +97,7 @@ public sealed partial class ChatMessageViewModel : ObservableObject
     private bool _isThinking;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RenderState))]
     [NotifyPropertyChangedFor(nameof(ShowsPlainText))]
     [NotifyPropertyChangedFor(nameof(ShowsAssistantMarkdown))]
     [NotifyPropertyChangedFor(nameof(RenderedMarkdown))]

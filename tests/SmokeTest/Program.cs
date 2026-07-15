@@ -6,6 +6,7 @@ using System.Reflection;
 using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
 using JeekRemoteManager.ViewModels;
+using JeekRemoteManager.Views;
 using SvcSystems.UI.Terminal;
 using XTerm.Selection;
 
@@ -813,10 +814,12 @@ try
         IsThinking = true,
         ThinkingText = "Thinking...",
     };
-    Check(thinkingMessage.ShowsThinking && !thinkingMessage.ShowsAssistantMarkdown,
+    Check(thinkingMessage.RenderState == MessageRenderState.Thinking
+          && thinkingMessage.ShowsThinking && !thinkingMessage.ShowsAssistantMarkdown,
           "AI assistant empty response shows the thinking placeholder");
     thinkingMessage.Text = "answer";
-    Check(!thinkingMessage.ShowsThinking && thinkingMessage.ShowsAssistantMarkdown,
+    Check(thinkingMessage.RenderState == MessageRenderState.CompletedMarkdown
+          && !thinkingMessage.ShowsThinking && thinkingMessage.ShowsAssistantMarkdown,
           "AI thinking placeholder hides after response text appears");
 
     const string attachedFence = "Checking the server```bash\nuname -a\n```";
@@ -834,20 +837,63 @@ try
     {
         IsStreaming = true,
     };
-    Check(streamingMessage.ShowsPlainText && !streamingMessage.ShowsAssistantMarkdown
+    Check(streamingMessage.RenderState == MessageRenderState.StreamingPlainText
+          && streamingMessage.ShowsPlainText && !streamingMessage.ShowsAssistantMarkdown
           && streamingMessage.RenderedMarkdown == "",
           "AI streamed answers skip Markdown parsing until the turn completes");
     streamingMessage.IsStreaming = false;
-    Check(!streamingMessage.ShowsPlainText && streamingMessage.ShowsAssistantMarkdown
+    Check(streamingMessage.RenderState == MessageRenderState.CompletedMarkdown
+          && !streamingMessage.ShowsPlainText && streamingMessage.ShowsAssistantMarkdown
           && streamingMessage.RenderedMarkdown == "partial answer",
           "AI completed answers switch to one final Markdown render");
 
     var oversizedMessage = new ChatMessageViewModel(
         ChatRole.Assistant,
         new string('x', ChatMessageViewModel.MarkdownCharacterLimit + 1));
-    Check(oversizedMessage.ShowsPlainText && !oversizedMessage.ShowsAssistantMarkdown
+    Check(oversizedMessage.RenderState == MessageRenderState.CompletedPlainText
+          && oversizedMessage.ShowsPlainText && !oversizedMessage.ShowsAssistantMarkdown
           && oversizedMessage.RenderedMarkdown == "",
           "AI oversized answers remain plain text instead of building an unbounded Markdown tree");
+
+    var transcriptVm = new AgentChatViewModel(
+        [
+            new AgentProvider(
+                "Test",
+                "",
+                [new AgentOption("Default", null)],
+                [new AgentOption("Default", null)],
+                (_, _) => null),
+        ],
+        () => null,
+        null);
+    for (var i = 0; i < AgentChatViewModel.InitialTranscriptMessageLimit + 25; i++)
+        transcriptVm.Messages.Add(new ChatMessageViewModel(ChatRole.User, $"message-{i}"));
+    Check(transcriptVm.Messages.Count == AgentChatViewModel.InitialTranscriptMessageLimit + 25
+          && transcriptVm.TranscriptMessages.Count == AgentChatViewModel.InitialTranscriptMessageLimit
+          && transcriptVm.HiddenEarlierMessageCount == 25
+          && transcriptVm.TranscriptMessages[0].Text == "message-25",
+          "AI transcript keeps full history while projecting a bounded recent window");
+    transcriptVm.LoadEarlierMessagesCommand.Execute(null);
+    Check(transcriptVm.TranscriptMessages.Count == AgentChatViewModel.InitialTranscriptMessageLimit + 25
+          && transcriptVm.HiddenEarlierMessageCount == 0
+          && transcriptVm.TranscriptMessages[0].Text == "message-0",
+          "AI transcript loads earlier history in a separate page operation");
+    await transcriptVm.DisposeAsync();
+
+    var scrollController = new TranscriptScrollController();
+    Check(scrollController.IsFollowingLatest
+          && scrollController.ShouldFollowLayoutChange(20, 0),
+          "AI transcript follows layout growth only in latest-message mode");
+    scrollController.BeginManualNavigation();
+    Check(!scrollController.IsFollowingLatest
+          && !scrollController.ShouldFollowLayoutChange(20, 0),
+          "AI transcript manual navigation disables automatic following");
+    scrollController.CompleteManualNavigation(isAtBottom: false);
+    Check(!scrollController.IsFollowingLatest,
+          "AI transcript remains in browsing mode away from the bottom");
+    scrollController.CompleteManualNavigation(isAtBottom: true);
+    Check(scrollController.IsFollowingLatest,
+          "AI transcript resumes following after the user reaches the bottom");
 
     var streamingVm = new AgentChatViewModel(
         [

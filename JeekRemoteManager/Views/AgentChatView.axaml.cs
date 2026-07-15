@@ -20,27 +20,19 @@ namespace JeekRemoteManager.Views;
 public partial class AgentChatView : UserControl
 {
     private const double NearBottomThreshold = 48;
-    private const int MaxProgrammaticFollowUps = 64;
     private static readonly TimeSpan ScrollFollowInterval = TimeSpan.FromMilliseconds(1);
 
     private INotifyCollectionChanged? _observed;
-    private ScrollViewer? _messagesScroll;
-    private bool _stickToBottom = true;
+    private readonly TranscriptScrollController _scrollController = new();
     private bool _isProgrammaticScroll;
     private IDisposable? _scrollUpdateTimer;
-    private bool _scrollVerificationPending;
     private int _scrollToEndDepth;
-    private int _remainingProgrammaticFollowUps;
 
     /// <summary>Debug MCP diagnostic for detecting synchronous scroll re-entry.</summary>
     public int MaxScrollToEndDepth { get; private set; }
 
     /// <summary>Debug MCP diagnostic for verifying that coalescing bounds scroll work.</summary>
     public int ScrollToEndCallCount { get; private set; }
-
-    /// <summary>Debug MCP diagnostic for layout changes raised by a programmatic
-    /// scroll that must not enqueue another scroll-to-end operation.</summary>
-    public int SuppressedProgrammaticFollowUpCount { get; private set; }
 
     /// <summary>Raised by the panel's own close button; the hosting TerminalView
     /// collapses the panel.</summary>
@@ -79,85 +71,46 @@ public partial class AgentChatView : UserControl
     /// floating jump-to-bottom control is shown. Public for Debug MCP.</summary>
     public bool IsScrollToBottomButtonVisible => ScrollToBottomButton.IsVisible;
 
-    /// <summary>Number of currently realized chat bubbles. With virtualization this stays
-    /// close to the viewport size even when the transcript contains hundreds of messages.</summary>
+    /// <summary>Number of chat bubbles in the bounded, non-virtualized transcript window.</summary>
     public int RealizedMessageCount => MessagesList.GetVisualDescendants()
         .OfType<Border>()
         .Count(border => border.Classes.Contains("chat-bubble"));
 
-    public int FirstRealizedMessageIndex => MessagesList.GetVisualDescendants()
-        .OfType<VirtualizingStackPanel>()
-        .FirstOrDefault()?.FirstRealizedIndex ?? -1;
+    public int FirstRealizedMessageIndex => DataContext is AgentChatViewModel vm
+        && vm.TranscriptMessages.Count > 0
+            ? vm.Messages.Count - vm.TranscriptMessages.Count
+            : -1;
 
-    public int LastRealizedMessageIndex => MessagesList.GetVisualDescendants()
-        .OfType<VirtualizingStackPanel>()
-        .FirstOrDefault()?.LastRealizedIndex ?? -1;
+    public int LastRealizedMessageIndex => DataContext is AgentChatViewModel vm
+        && vm.TranscriptMessages.Count > 0
+            ? vm.Messages.Count - 1
+            : -1;
 
-    private ScrollViewer? MessagesScroll
-    {
-        get
-        {
-            AttachMessagesScroll();
-            return _messagesScroll;
-        }
-    }
+    public bool IsFollowingLatest => _scrollController.IsFollowingLatest;
 
     private void OnLoaded(object? sender, RoutedEventArgs e)
     {
-        AttachMessagesScroll();
-        _remainingProgrammaticFollowUps = MaxProgrammaticFollowUps;
-        ScrollMessagesToEnd();
-        ScheduleScrollVerification();
-    }
-
-    private void AttachMessagesScroll()
-    {
-        if (_messagesScroll is not null)
-            return;
-
-        var scroll = MessagesList.GetVisualDescendants()
-            .OfType<ScrollViewer>()
-            .FirstOrDefault(control => !control.Classes.Contains("CodeBlock"));
-        if (scroll is null)
-            return;
-
-        _messagesScroll = scroll;
-        _messagesScroll.ScrollChanged += OnMessagesScrollChanged;
+        _scrollController.FollowLatest();
+        ScheduleScrollUpdate();
     }
 
     private void OnUnloaded(object? sender, RoutedEventArgs e)
     {
         _scrollUpdateTimer?.Dispose();
         _scrollUpdateTimer = null;
-        _scrollVerificationPending = false;
-        if (_messagesScroll is not null)
-            _messagesScroll.ScrollChanged -= OnMessagesScrollChanged;
-        _messagesScroll = null;
     }
 
     /// <summary>Scrolls the transcript to the end and resumes following new messages.
     /// Public for Debug MCP and the floating button.</summary>
     public void ScrollToLatest()
     {
-        _stickToBottom = true;
-        _remainingProgrammaticFollowUps = MaxProgrammaticFollowUps;
+        _scrollController.FollowLatest();
         ScrollMessagesToEnd();
-        ScheduleScrollVerification();
+        ScheduleScrollUpdate();
         UpdateScrollToBottomButton();
     }
 
     private void OnScrollToBottomClick(object? sender, RoutedEventArgs e) => ScrollToLatest();
-
-    private void OnMarkdownLayoutUpdated(object? sender, EventArgs e)
-    {
-        if (sender is Visual markdown)
-            EnsureSelectableCodeBlocks(markdown);
-    }
-
-    /// <summary>Replaces Markdown.Avalonia.Tight's plain fenced-code text controls with
-    /// selectable equivalents while leaving their scroll viewers and styles intact.
-    /// Public so Debug MCP can verify the rendered control type.</summary>
-    public int EnsureSelectableCodeBlocks() => EnsureSelectableCodeBlocks(MessagesList);
 
     /// <summary>Adds an assistant message to the live transcript for Debug MCP
     /// rendering checks without starting an external agent session.</summary>
@@ -171,9 +124,9 @@ public partial class AgentChatView : UserControl
         return message;
     }
 
-    /// <summary>Adds a temporary large transcript, lets the live ListBox lay it out, and
-    /// removes it again. The returned counters let Debug MCP verify virtualization without
-    /// changing the user's conversation.</summary>
+    /// <summary>Adds a temporary large transcript, lets the bounded transcript window lay
+    /// it out, and removes it again. The returned counters let Debug MCP verify that the
+    /// non-virtualized visual tree stays bounded without changing the user's conversation.</summary>
     public async Task<string> RunDebugTranscriptStressAsync(int messageCount, int charactersPerMessage)
     {
         if (messageCount is < 1 or > 2_000)
@@ -198,11 +151,14 @@ public partial class AgentChatView : UserControl
         await Task.Delay(150);
 
         var realized = RealizedMessageCount;
+        var projected = vm.TranscriptMessageCount;
+        var hidden = vm.HiddenEarlierMessageCount;
         var first = FirstRealizedMessageIndex;
         var last = LastRealizedMessageIndex;
         var bottomButtonHidden = !IsScrollToBottomButtonVisible;
 
-        MessagesScroll?.ScrollToHome();
+        _scrollController.BeginManualNavigation();
+        TranscriptScroll.ScrollToHome();
         await Task.Delay(50);
         var awayButtonVisible = IsScrollToBottomButtonVisible;
         ScrollToLatest();
@@ -215,7 +171,7 @@ public partial class AgentChatView : UserControl
             vm.Messages.Remove(message);
 
         return $"messages={messageCount}; chars={messageCount * charactersPerMessage}; "
-               + $"realized={realized}; range={first}-{last}; "
+               + $"projected={projected}; hidden={hidden}; realized={realized}; range={first}-{last}; "
                + $"bottomButtonHidden={bottomButtonHidden}; awayButtonVisible={awayButtonVisible}; "
                + $"returnedToLast={returnedToLast}; returnedButtonHidden={returnedButtonHidden}; "
                + $"elapsedMs={stopwatch.ElapsedMilliseconds}";
@@ -251,8 +207,8 @@ public partial class AgentChatView : UserControl
             await Task.Delay(150);
             // Make the synthetic setup deterministic even if a previously queued layout
             // follow-up is still waiting in this invisible test window.
-            _stickToBottom = false;
-            MessagesScroll?.ScrollToHome();
+            _scrollController.BeginManualNavigation();
+            TranscriptScroll.ScrollToHome();
             await Task.Delay(75);
             UpdateScrollToBottomButton();
             var buttonVisibleBefore = IsScrollToBottomButtonVisible;
@@ -271,13 +227,11 @@ public partial class AgentChatView : UserControl
             await Task.Delay(150 + updateCount * 2);
             var atBottom = IsNearBottom();
             var buttonHiddenAfter = !IsScrollToBottomButtonVisible;
-            var scroll = MessagesScroll;
-            var bottomGap = scroll is null
-                ? double.NaN
-                : Math.Max(0, scroll.Extent.Height - scroll.Viewport.Height - scroll.Offset.Y);
+            var scroll = TranscriptScroll;
+            var bottomGap = Math.Max(0, scroll.Extent.Height - scroll.Viewport.Height - scroll.Offset.Y);
             return $"updates={updateCount}; buttonVisibleBefore={buttonVisibleBefore}; "
                    + $"atBottom={atBottom}; buttonHiddenAfter={buttonHiddenAfter}; "
-                   + $"stickToBottom={_stickToBottom}; bottomGap={bottomGap:F1}; "
+                   + $"stickToBottom={_scrollController.IsFollowingLatest}; bottomGap={bottomGap:F1}; "
                    + $"scrollCalls={ScrollToEndCallCount}; maxScrollDepth={MaxScrollToEndDepth}";
         }
         finally
@@ -310,16 +264,12 @@ public partial class AgentChatView : UserControl
             }
 
             await Task.Delay(250);
-            EnsureSelectableCodeBlocks();
-            await Task.Delay(50);
-
             MaxScrollToEndDepth = 0;
             ScrollToEndCallCount = 0;
             ScrollToLatest();
             await Task.Delay(250);
 
-            var scroll = MessagesScroll
-                         ?? throw new InvalidOperationException("The transcript scroll viewer is unavailable.");
+            var scroll = TranscriptScroll;
             var bottomGap = Math.Max(0, scroll.Extent.Height - scroll.Viewport.Height - scroll.Offset.Y);
             var reachedLast = LastRealizedMessageIndex == vm.Messages.Count - 1;
 
@@ -383,12 +333,10 @@ public partial class AgentChatView : UserControl
             ScrollToLatest();
             await Task.Delay(100);
 
-            var scroll = MessagesScroll
-                         ?? throw new InvalidOperationException("The transcript scroll viewer is unavailable.");
+            var scroll = TranscriptScroll;
             var viewportBefore = scroll.Viewport.Height;
             var gapBefore = Math.Max(0, scroll.Extent.Height - viewportBefore - scroll.Offset.Y);
             var scrollCallsBefore = ScrollToEndCallCount;
-            SuppressedProgrammaticFollowUpCount = 0;
 
             InputBox.Text = string.Join(Environment.NewLine,
                 Enumerable.Range(1, 12).Select(i => $"composer line {i}"));
@@ -417,9 +365,8 @@ public partial class AgentChatView : UserControl
             var composerScrollCalls = ScrollToEndCallCount - scrollCallsBefore;
             return $"viewportBefore={viewportBefore:F1}; viewportAfter={viewportAfter:F1}; "
                    + $"gapBefore={gapBefore:F1}; gapAfter={gapAfter:F1}; "
-                   + $"atBottom={IsNearBottom()}; stickToBottom={_stickToBottom}; "
-                   + $"scrollCalls={composerScrollCalls}; maxScrollDepth={MaxScrollToEndDepth}; "
-                   + $"suppressedFollowUps={SuppressedProgrammaticFollowUpCount}";
+                   + $"atBottom={IsNearBottom()}; stickToBottom={_scrollController.IsFollowingLatest}; "
+                   + $"scrollCalls={composerScrollCalls}; maxScrollDepth={MaxScrollToEndDepth}";
         }
         finally
         {
@@ -427,48 +374,6 @@ public partial class AgentChatView : UserControl
             foreach (var message in added)
                 vm.Messages.Remove(message);
         }
-    }
-
-    private static int EnsureSelectableCodeBlocks(Visual root)
-    {
-        var replaced = 0;
-        foreach (var scroller in root.GetVisualDescendants()
-                     .OfType<ScrollViewer>()
-                     .Where(control => control.Classes.Contains("CodeBlock")))
-        {
-            if (scroller.Content is SelectableTextBlock existingSelectable)
-            {
-                EnsureCodeBlockHeight(scroller, existingSelectable.Text);
-                continue;
-            }
-
-            if (scroller.Content is not TextBlock code)
-                continue;
-
-            var selectable = new SelectableTextBlock
-            {
-                Name = "SelectableCodeBlock",
-                Text = code.Text,
-                TextWrapping = code.TextWrapping,
-            };
-            foreach (var @class in code.Classes)
-                selectable.Classes.Add(@class);
-
-            scroller.Content = selectable;
-            EnsureCodeBlockHeight(scroller, selectable.Text);
-            replaced++;
-        }
-
-        return replaced;
-    }
-
-    private static void EnsureCodeBlockHeight(ScrollViewer scroller, string? text)
-    {
-        // Markdown.Avalonia overlays its horizontal scrollbar. The stylesheet reserves
-        // one line for it; grow the viewport for every actual code line so multiline
-        // blocks are not clipped down to their first row after becoming selectable.
-        var lineCount = string.IsNullOrEmpty(text) ? 1 : text.Count(ch => ch == '\n') + 1;
-        scroller.MinHeight = Math.Max(32, lineCount * 16 + 16);
     }
 
     private void OnMessageContextRequested(object? sender, ContextRequestedEventArgs e)
@@ -501,8 +406,8 @@ public partial class AgentChatView : UserControl
 
         if (IsScrollbarInteraction(source))
         {
-            _stickToBottom = false;
-            ScheduleScrollUpdate();
+            _scrollController.BeginManualNavigation();
+            UpdateScrollToBottomButton();
         }
 
         foreach (var text in MessagesList.GetVisualDescendants().OfType<SelectableTextBlock>())
@@ -525,7 +430,7 @@ public partial class AgentChatView : UserControl
 
         Dispatcher.UIThread.Post(() =>
         {
-            _stickToBottom = IsNearBottom();
+            _scrollController.CompleteManualNavigation(IsNearBottom());
             UpdateScrollToBottomButton();
         }, DispatcherPriority.Background);
     }
@@ -535,25 +440,17 @@ public partial class AgentChatView : UserControl
         // Any wheel gesture is manual navigation. Suspend automatic following until the
         // gesture actually reaches the bottom; otherwise a growing Markdown transcript
         // can fight a downward scroll and recycle the selected text controls underneath it.
-        _stickToBottom = false;
+        _scrollController.BeginManualNavigation();
 
         Dispatcher.UIThread.Post(() =>
         {
-            _stickToBottom = IsNearBottom();
+            _scrollController.CompleteManualNavigation(IsNearBottom());
             UpdateScrollToBottomButton();
         }, DispatcherPriority.Background);
     }
 
     private static bool IsScrollbarInteraction(Visual source) =>
         source is ScrollBar || source.GetVisualAncestors().OfType<ScrollBar>().Any();
-
-    private void OnMessagesSelectionChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        // ListBox supplies virtualization, but the transcript itself is not a selectable
-        // list: selection belongs to the text controls inside each bubble.
-        if (MessagesList.SelectedIndex >= 0)
-            MessagesList.SelectedIndex = -1;
-    }
 
     private async void OnCopyMessageClick(object? sender, RoutedEventArgs e)
     {
@@ -577,9 +474,10 @@ public partial class AgentChatView : UserControl
 
         if (DataContext is AgentChatViewModel vm)
         {
-            _observed = vm.Messages;
+            _observed = vm.TranscriptMessages;
             _observed.CollectionChanged += OnMessagesChanged;
-            _stickToBottom = true;
+            _scrollController.FollowLatest();
+            ScheduleScrollUpdate();
             UpdateScrollToBottomButton();
         }
         else
@@ -593,7 +491,8 @@ public partial class AgentChatView : UserControl
     {
         if (e.Action == NotifyCollectionChangedAction.Reset)
         {
-            _stickToBottom = true;
+            if (DataContext is AgentChatViewModel vm && vm.TranscriptMessages.Count == 0)
+                _scrollController.FollowLatest();
             UpdateScrollToBottomButton();
             return;
         }
@@ -603,40 +502,23 @@ public partial class AgentChatView : UserControl
             or NotifyCollectionChangedAction.Remove))
             return;
 
-        ScheduleScrollUpdate();
+        if (_scrollController.IsFollowingLatest)
+            ScheduleScrollUpdate();
+        else
+            UpdateScrollToBottomButton();
     }
 
     private void OnMessagesScrollChanged(object? sender, ScrollChangedEventArgs e)
     {
-        if (MessagesScroll is null)
-            return;
-
-        // Content growth and a shrinking viewport (for example, when the multiline
-        // composer grows) must both keep the latest message above the composer.
-        if (_stickToBottom && (e.ExtentDelta.Y > 0.5 || e.ViewportDelta.Y < -0.5))
+        if (!_isProgrammaticScroll
+            && _scrollController.ShouldFollowLayoutChange(e.ExtentDelta.Y, e.ViewportDelta.Y))
         {
-            // ScrollIntoView can change the realized range and report another extent or
-            // viewport change before this scroll operation finishes. A few queued passes
-            // are needed for a virtualized list to converge, but leaving the chain
-            // unbounded can feed layout back into itself until Avalonia aborts with
-            // "Infinite layout loop detected".
-            if (_isProgrammaticScroll)
-                return;
-
-            _remainingProgrammaticFollowUps = MaxProgrammaticFollowUps;
-            // ScrollToEnd and ScrollIntoView can synchronously raise ScrollChanged. Queue
-            // and coalesce the follow-up so streamed layout growth cannot recurse until
-            // Windows runs out of stack guard pages.
             ScheduleScrollUpdate();
-            return;
         }
 
-        // Only real input handlers turn following off. Virtualized layout can report
-        // offset changes in either direction while item heights are being re-estimated,
-        // so ScrollChanged alone cannot distinguish those from user scrolling.
-        if (!_isProgrammaticScroll && !_stickToBottom
+        if (!_isProgrammaticScroll && !_scrollController.IsFollowingLatest
             && Math.Abs(e.OffsetDelta.Y) > 0.5 && IsNearBottom())
-            _stickToBottom = true;
+            _scrollController.CompleteManualNavigation(isAtBottom: true);
 
         UpdateScrollToBottomButton();
     }
@@ -648,17 +530,8 @@ public partial class AgentChatView : UserControl
         MaxScrollToEndDepth = Math.Max(MaxScrollToEndDepth, _scrollToEndDepth);
         try
         {
-            // ScrollViewer.ScrollToEnd realizes the virtualized tail itself. Calling
-            // ListBox.ScrollIntoView first makes a variable-height Markdown list choose a
-            // competing anchor: the later extent correction can then jump back toward the
-            // first items, preventing both manual scrolling and the latest-message button
-            // from reaching the end while recycling selected Markdown controls.
             _isProgrammaticScroll = true;
-            if (MessagesScroll is null)
-                return;
-
-            MessagesScroll.ScrollToEnd();
-            _stickToBottom = true;
+            TranscriptScroll.ScrollToEnd();
             UpdateScrollToBottomButton();
         }
         finally
@@ -669,70 +542,38 @@ public partial class AgentChatView : UserControl
         }
     }
 
-    private void ScheduleScrollUpdate(bool verification = false)
+    private void ScheduleScrollUpdate()
     {
-        _scrollVerificationPending |= verification;
         if (_scrollUpdateTimer is not null)
             return;
 
-        // Run after the current layout/render pass. A dispatcher post can execute while
-        // the virtualized ListBox is still changing its extent and immediately feed that
-        // change back into the same render cycle.
+        // One coalesced pass after layout is sufficient because the transcript window is
+        // non-virtualized and completed Markdown controls are immutable.
         _scrollUpdateTimer = DispatcherTimer.RunOnce(() =>
         {
             _scrollUpdateTimer?.Dispose();
             _scrollUpdateTimer = null;
-            var isVerification = _scrollVerificationPending;
-            _scrollVerificationPending = false;
-            if (_stickToBottom)
-            {
-                // A verification pass runs after the previous scroll and its layout.
-                // Stop once the settled extent confirms that the viewport is at the end.
-                if (!isVerification || !IsNearBottom())
-                {
-                    ScrollMessagesToEnd();
-                    ScheduleScrollVerification();
-                }
-                else
-                {
-                    UpdateScrollToBottomButton();
-                }
-            }
-            else
-                UpdateScrollToBottomButton();
+            if (_scrollController.IsFollowingLatest && !IsNearBottom())
+                ScrollMessagesToEnd();
+            UpdateScrollToBottomButton();
         }, ScrollFollowInterval, DispatcherPriority.Background);
-    }
-
-    private void ScheduleScrollVerification()
-    {
-        if (_remainingProgrammaticFollowUps <= 0)
-        {
-            SuppressedProgrammaticFollowUpCount++;
-            return;
-        }
-
-        _remainingProgrammaticFollowUps--;
-        ScheduleScrollUpdate(verification: true);
     }
 
     private bool IsNearBottom()
     {
-        if (MessagesScroll is null)
-            return true;
-
-        var extent = MessagesScroll.Extent.Height;
-        var viewport = MessagesScroll.Viewport.Height;
+        var extent = TranscriptScroll.Extent.Height;
+        var viewport = TranscriptScroll.Viewport.Height;
         if (extent <= viewport + 1)
             return true;
 
         var maxOffset = extent - viewport;
-        return MessagesScroll.Offset.Y >= maxOffset - NearBottomThreshold;
+        return TranscriptScroll.Offset.Y >= maxOffset - NearBottomThreshold;
     }
 
     private void UpdateScrollToBottomButton()
     {
-        var show = MessagesScroll is { IsVisible: true }
-                   && MessagesScroll.Extent.Height > MessagesScroll.Viewport.Height + 1
+        var show = TranscriptScroll.IsVisible
+                   && TranscriptScroll.Extent.Height > TranscriptScroll.Viewport.Height + 1
                    && !IsNearBottom();
         if (ScrollToBottomButton.IsVisible != show)
             ScrollToBottomButton.IsVisible = show;

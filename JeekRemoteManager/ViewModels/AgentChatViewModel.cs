@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text;
@@ -73,6 +74,9 @@ public sealed record AgentProvider(
 /// </summary>
 public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 {
+    public const int InitialTranscriptMessageLimit = 200;
+    public const int TranscriptMessagePageSize = 100;
+
     private const int StreamRenderIntervalMilliseconds = 50;
 
     // Canonical tool protocol: one ```jrm-tool block whose first line is a namespaced
@@ -136,6 +140,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     private string? _pendingResumeSessionId;
     private int _conversationStartIndex;
     private bool _isModelTurnActive;
+    private int _transcriptMessageLimit = InitialTranscriptMessageLimit;
 
     // One CTS per user-initiated turn (covering the whole auto-run loop); Stop cancels it.
     private CancellationTokenSource? _turnCts;
@@ -176,7 +181,7 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
             legacyConversationScopeIds,
             _connectionLabel);
         _thinkingTimer.Tick += OnThinkingTimerTick;
-        Messages.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasMessages));
+        Messages.CollectionChanged += OnMessagesCollectionChanged;
         ConversationHistory.CollectionChanged += (_, _) =>
         {
             OnPropertyChanged(nameof(HasConversationHistory));
@@ -337,6 +342,17 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
 
     public ObservableCollection<ChatMessageViewModel> Messages { get; } = new();
 
+    /// <summary>The bounded message window rendered by the transcript. Full history stays
+    /// in <see cref="Messages"/> and in the conversation store; older rows are loaded in
+    /// fixed-size pages so the non-virtualized visual tree remains predictable.</summary>
+    public ObservableCollection<ChatMessageViewModel> TranscriptMessages { get; } = new();
+
+    public int TranscriptMessageCount => TranscriptMessages.Count;
+
+    public int HiddenEarlierMessageCount => Math.Max(0, Messages.Count - TranscriptMessages.Count);
+
+    public bool HasEarlierMessages => HiddenEarlierMessageCount > 0;
+
     /// <summary>Number of UI text updates used for the current streamed answer. Public so
     /// Debug MCP can verify that token bursts are coalesced instead of rendered one by one.</summary>
     public int StreamRenderUpdateCount => _streamRenderUpdateCount;
@@ -411,6 +427,53 @@ public sealed partial class AgentChatViewModel : ViewModelBase, IAsyncDisposable
     /// <summary>True while the transcript contains at least one message. The view uses this
     /// to swap the empty-conversation welcome state for the live transcript.</summary>
     public bool HasMessages => Messages.Count > 0;
+
+    [RelayCommand(CanExecute = nameof(HasEarlierMessages))]
+    private void LoadEarlierMessages()
+    {
+        _transcriptMessageLimit = Math.Min(Messages.Count,
+            _transcriptMessageLimit + TranscriptMessagePageSize);
+        RebuildTranscriptMessages();
+    }
+
+    private void OnMessagesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        OnPropertyChanged(nameof(HasMessages));
+
+        if (e.Action == NotifyCollectionChangedAction.Add
+            && e.NewItems is { Count: > 0 }
+            && e.NewStartingIndex >= Messages.Count - e.NewItems.Count)
+        {
+            foreach (ChatMessageViewModel message in e.NewItems)
+                TranscriptMessages.Add(message);
+            while (TranscriptMessages.Count > _transcriptMessageLimit)
+                TranscriptMessages.RemoveAt(0);
+            NotifyTranscriptWindowChanged();
+            return;
+        }
+
+        if (e.Action == NotifyCollectionChangedAction.Reset)
+            _transcriptMessageLimit = InitialTranscriptMessageLimit;
+
+        RebuildTranscriptMessages();
+    }
+
+    private void RebuildTranscriptMessages()
+    {
+        var start = Math.Max(0, Messages.Count - _transcriptMessageLimit);
+        TranscriptMessages.Clear();
+        for (var i = start; i < Messages.Count; i++)
+            TranscriptMessages.Add(Messages[i]);
+        NotifyTranscriptWindowChanged();
+    }
+
+    private void NotifyTranscriptWindowChanged()
+    {
+        OnPropertyChanged(nameof(TranscriptMessageCount));
+        OnPropertyChanged(nameof(HiddenEarlierMessageCount));
+        OnPropertyChanged(nameof(HasEarlierMessages));
+        LoadEarlierMessagesCommand.NotifyCanExecuteChanged();
+    }
 
     public ObservableCollection<AgentProvider> Providers { get; }
 

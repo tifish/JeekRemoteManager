@@ -2,7 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:JeekRemoteManager.ViewModels"
              xmlns:l="using:Jeek.Avalonia.Localization"
-             xmlns:md="using:Markdown.Avalonia"
+             xmlns:views="using:JeekRemoteManager.Views"
              x:Class="JeekRemoteManager.Views.AgentChatView"
              x:DataType="vm:AgentChatViewModel">
     <UserControl.Styles>
@@ -351,28 +351,27 @@
                 </StackPanel>
             </Border>
 
-            <ListBox x:Name="MessagesList"
-                     ItemsSource="{Binding Messages}"
-                     IsVisible="{Binding HasMessages}"
-                     Margin="16,12,16,18"
-                     Padding="0"
-                     BorderThickness="0"
-                     Background="Transparent"
-                     Focusable="False"
-                     SelectionChanged="OnMessagesSelectionChanged">
-                <ListBox.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <VirtualizingStackPanel CacheLength="1" />
-                    </ItemsPanelTemplate>
-                </ListBox.ItemsPanel>
-                <ListBox.Styles>
-                    <Style Selector="ListBoxItem">
-                        <Setter Property="Padding" Value="0" />
-                        <Setter Property="Margin" Value="0" />
-                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                    </Style>
-                </ListBox.Styles>
-                    <ListBox.ItemTemplate>
+            <ScrollViewer x:Name="TranscriptScroll"
+                          IsVisible="{Binding HasMessages}"
+                          HorizontalScrollBarVisibility="Disabled"
+                          VerticalScrollBarVisibility="Auto"
+                          ScrollChanged="OnMessagesScrollChanged">
+                <StackPanel Margin="16,12,16,18">
+                    <Button HorizontalAlignment="Center"
+                            Margin="0,0,0,8"
+                            IsVisible="{Binding HasEarlierMessages}"
+                            Command="{Binding LoadEarlierMessagesCommand}"
+                            Content="{l:Localize AiLoadEarlierMessages}" />
+
+                    <ItemsControl x:Name="MessagesList"
+                                  ItemsSource="{Binding TranscriptMessages}"
+                                  Focusable="False">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:ChatMessageViewModel">
                             <Border x:Name="ChatBubble"
                                     Classes="chat-bubble"
@@ -399,7 +398,7 @@
                                     <Panel Classes="message-content">
                                         <SelectableTextBlock Text="{Binding Text}"
                                                              TextWrapping="Wrap"
-                                                             IsVisible="{Binding ShowsPlainText}"
+                                                             IsVisible="{Binding IsPlainBubble}"
                                                              Foreground="{DynamicResource TextPrimaryBrush}" />
 
                                         <StackPanel IsVisible="{Binding IsConfirmation}" Spacing="8">
@@ -427,32 +426,15 @@
                                                        IsVisible="{Binding DecisionText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                         </StackPanel>
 
-                                        <StackPanel Orientation="Horizontal"
-                                                    Spacing="7"
-                                                    VerticalAlignment="Center"
-                                                    IsVisible="{Binding ShowsThinking}">
-                                            <Border Width="7" Height="7" CornerRadius="4"
-                                                    Background="{DynamicResource AccentBrush}"
-                                                    VerticalAlignment="Center" />
-                                            <TextBlock Text="{Binding ThinkingText}"
-                                                       TextWrapping="Wrap"
-                                                       Foreground="{DynamicResource TextMutedBrush}" />
-                                        </StackPanel>
-
-                                        <md:MarkdownScrollViewer Markdown="{Binding RenderedMarkdown}"
-                                                                 IsVisible="{Binding ShowsAssistantMarkdown}"
-                                                                 LayoutUpdated="OnMarkdownLayoutUpdated"
-                                                                 SelectionEnabled="True">
-                                            <md:MarkdownScrollViewer.Styles>
-                                                <StyleInclude Source="avares://JeekRemoteManager/Views/AgentChatMarkdown.axaml" />
-                                            </md:MarkdownScrollViewer.Styles>
-                                        </md:MarkdownScrollViewer>
+                                        <views:AssistantMessageContentView IsVisible="{Binding IsAssistant}" />
                                     </Panel>
                                 </Panel>
                             </Border>
                         </DataTemplate>
-                    </ListBox.ItemTemplate>
-            </ListBox>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </ScrollViewer>
 
             <!-- Shown when the transcript is scrolled away from the latest messages. -->
             <Button x:Name="ScrollToBottomButton"
