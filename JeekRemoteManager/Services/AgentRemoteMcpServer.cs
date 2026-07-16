@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Text;
@@ -245,6 +246,8 @@ public sealed class AgentRemoteMcpServer : IAsyncDisposable
             ["instructions"] =
                 "Tools operate the interactive remote terminal currently open in JeekRemoteManager " +
                 $"(connection: {_tools.ConnectionLabel}). They do not open a new SSH session. " +
+                "One command owns the shell at a time — call terminal_status if unsure. " +
+                "File transfers use the same shell (works through bastion/jump hosts; no SFTP). " +
                 "Local shell tools still run on the Windows host.",
         };
     }
@@ -253,25 +256,74 @@ public sealed class AgentRemoteMcpServer : IAsyncDisposable
     {
         var transferHint = _tools.IsWsl
             ? "On WSL, prefer cp between /mnt/c/... and the distro; this tool still works when useful."
-            : "Uses ZMODEM through the live SSH terminal (requires lrzsz on the server).";
+            : "Uses ZMODEM through the live interactive SSH shell (requires lrzsz). " +
+              "Works through bastion/jump-host login sequences; not a separate SFTP session.";
+
+        var runProps = MergeProps(
+            Prop("command", "string", "Remote command to execute."),
+            Prop("timeout_seconds", "integer",
+                "Optional wall-clock timeout. When exceeded, the host interrupts the command " +
+                "and returns a timeout result. Omit for no product-side timeout."));
 
         return new JsonArray(
+            Tool("terminal_status",
+                "Read-only snapshot: connected, command lock free?, AI command running?, transfer " +
+                "in progress?, connection label. Does not wait on the command lock.",
+                new JsonObject(),
+                null),
+            Tool("connection_info",
+                "Safe connection metadata (type, target, notes). Never returns passwords or keys.",
+                new JsonObject(),
+                null),
             Tool("terminal_run",
                 "Run a non-interactive command or short script on the remote server's interactive shell " +
-                "and return captured output (exit code + stdout/stderr).",
-                Prop("command", "string", "Remote command to execute."),
+                "and return captured output (exit code + stdout/stderr). Serializes with other shell ops.",
+                runProps,
                 ["command"]),
             Tool("terminal_run_danger",
                 "Like terminal_run, but always asks the user to confirm first. Use for destructive " +
                 "or hard-to-reverse work (rm -rf, DROP TABLE, force-push, disk wipe, …).",
-                Prop("command", "string", "Remote command to execute after confirmation."),
+                runProps,
                 ["command"]),
             Tool("terminal_interrupt",
-                "Send interrupt (Ctrl-C) and restore shell input on the remote terminal.",
+                "Force-interrupt the active captured command (Ctrl-C + shell recovery). " +
+                "Does not take the command lock — safe to call while terminal_run is still in flight " +
+                "if your client supports concurrent tool calls.",
                 new JsonObject(),
                 null),
             Tool("terminal_reconnect",
                 "Rebuild the SSH/WSL channel when interrupt did not restore a usable shell.",
+                new JsonObject(),
+                null),
+            Tool("terminal_scrollback",
+                "Return the last N lines of plain text from the terminal buffer/viewport " +
+                "(includes user-typed output, not only AI commands).",
+                Prop("lines", "integer", "How many trailing lines to return (default 80, max 500)."),
+                null),
+            Tool("terminal_send_keys",
+                "Write raw text/keys to the live shell without capturing output " +
+                "(e.g. 'q' to leave a pager, or answers to an interactive prompt). " +
+                "Does not acquire the command lock. Prefer terminal_run for normal commands.",
+                Prop("text", "string", "Text to send. Use \\n for Enter; Ctrl-C is better via terminal_interrupt."),
+                ["text"]),
+            Tool("ask_user",
+                "Ask the user a question in a JeekRemoteManager dialog. " +
+                "Use for decisions that need human input (not for shell output).",
+                MergeProps(
+                    Prop("prompt", "string", "Question to show the user."),
+                    new JsonObject
+                    {
+                        ["options"] = new JsonObject
+                        {
+                            ["type"] = "array",
+                            ["items"] = new JsonObject { ["type"] = "string" },
+                            ["description"] = "Optional choices (2–8). When set, user picks one button.",
+                        },
+                    }),
+                ["prompt"]),
+            Tool("monitor_snapshot",
+                "Latest server-monitor panel readings (CPU/mem/load/disks) when the monitor " +
+                "has data for this tab. Read-only; may report that the panel has no samples yet.",
                 new JsonObject(),
                 null),
             Tool("file_upload",
@@ -318,12 +370,18 @@ public sealed class AgentRemoteMcpServer : IAsyncDisposable
 
         var text = name switch
         {
+            "terminal_status" => await _tools.GetStatusAsync().ConfigureAwait(false),
+            "connection_info" => await _tools.GetConnectionInfoAsync().ConfigureAwait(false),
             "terminal_run" => await RunCommandToolAsync(args, forceDanger: false).ConfigureAwait(false),
             "terminal_run_danger" => await RunCommandToolAsync(args, forceDanger: true).ConfigureAwait(false),
             "terminal_interrupt" => await _tools.RunTerminalActionAsync(AgentTerminalAction.ForceInterrupt)
                 .ConfigureAwait(false),
             "terminal_reconnect" => await _tools.RunTerminalActionAsync(AgentTerminalAction.Reconnect)
                 .ConfigureAwait(false),
+            "terminal_scrollback" => await _tools.GetScrollbackAsync(ReadLinesArg(args)).ConfigureAwait(false),
+            "terminal_send_keys" => await SendKeysToolAsync(args).ConfigureAwait(false),
+            "ask_user" => await AskUserToolAsync(args).ConfigureAwait(false),
+            "monitor_snapshot" => await _tools.GetMonitorSnapshotAsync().ConfigureAwait(false),
             "file_upload" => await TransferToolAsync(args, isUpload: true).ConfigureAwait(false),
             "file_download" => await TransferToolAsync(args, isUpload: false).ConfigureAwait(false),
             _ => throw new ArgumentException($"Unknown tool: {name}"),
@@ -345,7 +403,72 @@ public sealed class AgentRemoteMcpServer : IAsyncDisposable
                 return "[cancelled] user rejected the dangerous command";
         }
 
-        return await _tools.RunCommandAsync(command).ConfigureAwait(false);
+        int? timeoutSeconds = null;
+        if (args["timeout_seconds"] is JsonNode timeoutNode)
+        {
+            try
+            {
+                var value = timeoutNode.GetValue<int>();
+                if (value > 0)
+                    timeoutSeconds = Math.Min(value, 24 * 60 * 60);
+            }
+            catch
+            {
+                return "[error] timeout_seconds must be a positive integer";
+            }
+        }
+
+        return await _tools.RunCommandAsync(command, timeoutSeconds).ConfigureAwait(false);
+    }
+
+    private async Task<string> SendKeysToolAsync(JsonObject args)
+    {
+        var text = args["text"]?.GetValue<string>();
+        if (text is null)
+            return "[error] text is required";
+        if (text.Length == 0)
+            return "[error] text must not be empty";
+        if (text.Length > 4096)
+            return "[error] text is too long (max 4096 characters)";
+        return await _tools.SendKeysAsync(text).ConfigureAwait(false);
+    }
+
+    private async Task<string> AskUserToolAsync(JsonObject args)
+    {
+        var prompt = args["prompt"]?.GetValue<string>()?.Trim();
+        if (string.IsNullOrEmpty(prompt))
+            return "[error] prompt is required";
+
+        List<string>? options = null;
+        if (args["options"] is JsonArray optionsNode)
+        {
+            options = new List<string>();
+            foreach (var item in optionsNode)
+            {
+                var option = item?.GetValue<string>()?.Trim();
+                if (!string.IsNullOrEmpty(option))
+                    options.Add(option);
+            }
+
+            if (options.Count is < 2 or > 8)
+                return "[error] options must contain 2–8 non-empty choices when provided";
+        }
+
+        return await _tools.AskUserAsync(prompt, options).ConfigureAwait(false);
+    }
+
+    private static int ReadLinesArg(JsonObject args)
+    {
+        if (args["lines"] is not JsonNode linesNode)
+            return 80;
+        try
+        {
+            return linesNode.GetValue<int>();
+        }
+        catch
+        {
+            return 80;
+        }
     }
 
     /// <summary>Returns the host-side safety decision without executing a command, for tests and Debug MCP.</summary>
@@ -384,7 +507,8 @@ public sealed class AgentRemoteMcpServer : IAsyncDisposable
                     ["text"] = text,
                 }),
             ["isError"] = text.StartsWith("[error]", StringComparison.OrdinalIgnoreCase)
-                || text.StartsWith("[cancelled]", StringComparison.OrdinalIgnoreCase),
+                || text.StartsWith("[cancelled]", StringComparison.OrdinalIgnoreCase)
+                || text.StartsWith("[timeout", StringComparison.OrdinalIgnoreCase),
         };
 
     private static JsonObject Tool(string name, string description, JsonObject properties, string[]? required)
@@ -408,8 +532,20 @@ public sealed class AgentRemoteMcpServer : IAsyncDisposable
     private static JsonObject Prop(string name, string type, string description) =>
         new() { [name] = new JsonObject { ["type"] = type, ["description"] = description } };
 
-    // Fix Prop usage - Tool expects properties object, not single Prop for first tools.
-    // The two terminal_run tools pass Prop(...) which returns { command: {...} } - correct.
+    private static JsonObject MergeProps(params JsonObject[] parts)
+    {
+        var merged = new JsonObject();
+        foreach (var part in parts)
+        {
+            foreach (var (key, value) in part)
+            {
+                if (value is not null)
+                    merged[key] = value.DeepClone();
+            }
+        }
+
+        return merged;
+    }
 
     private static JsonObject RpcResult(JsonNode? id, JsonNode result) =>
         new() { ["jsonrpc"] = "2.0", ["id"] = id, ["result"] = result };

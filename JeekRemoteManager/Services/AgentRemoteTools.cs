@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -10,6 +11,8 @@ namespace JeekRemoteManager.Services;
 /// Upload: <paramref name="Sources"/> are local Windows files, <paramref name="Destination"/>
 /// is a remote directory (null = the shell's current directory). Download: sources are remote
 /// files, destination is a local directory (null = the user's Downloads folder).
+/// Transfers share the interactive shell (ZMODEM on SSH) so bastion/jump-host logins still work;
+/// there is no separate SFTP channel.
 /// </summary>
 public sealed record AgentFileTransfer(bool IsUpload, IReadOnlyList<string> Sources, string? Destination);
 
@@ -30,7 +33,15 @@ public interface IAgentRemoteTools
 
     bool IsWsl { get; }
 
-    Task<string> RunCommandAsync(string command, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Runs a command on the shared interactive shell. Optional
+    /// <paramref name="timeoutSeconds"/> aborts with interrupt when exceeded
+    /// (null = no product-side timeout).
+    /// </summary>
+    Task<string> RunCommandAsync(
+        string command,
+        int? timeoutSeconds = null,
+        CancellationToken cancellationToken = default);
 
     Task<string> TransferFilesAsync(AgentFileTransfer transfer, CancellationToken cancellationToken = default);
 
@@ -40,6 +51,30 @@ public interface IAgentRemoteTools
     /// Asks the user to approve a dangerous remote command. Returns false when cancelled.
     /// </summary>
     Task<bool> ConfirmDangerousCommandAsync(string command, CancellationToken cancellationToken = default);
+
+    /// <summary>Connection + shell lock/running snapshot (does not acquire the command lock).</summary>
+    Task<string> GetStatusAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Connection metadata safe for the agent (no secrets).</summary>
+    Task<string> GetConnectionInfoAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Last N lines of terminal scrollback / viewport text.</summary>
+    Task<string> GetScrollbackAsync(int lines, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Writes raw text to the live shell without capturing output (e.g. pager keys).
+    /// Does not acquire the command lock.
+    /// </summary>
+    Task<string> SendKeysAsync(string text, CancellationToken cancellationToken = default);
+
+    /// <summary>Asks the user a free-form or multi-choice question in the UI.</summary>
+    Task<string> AskUserAsync(
+        string prompt,
+        IReadOnlyList<string>? options,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Latest server-monitor panel snapshot when available.</summary>
+    Task<string> GetMonitorSnapshotAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>Identity of a local agent CLI the AI panel can launch.</summary>
@@ -67,6 +102,27 @@ public sealed record AgentCliDescriptor(
 /// </summary>
 public static class AgentCliCatalog
 {
+    /// <summary>
+    /// Remote tools that auto-run mode may allow without extra prompts.
+    /// Destructive shell work still goes through terminal_run / terminal_run_danger
+    /// (and host-side danger confirmation where applicable).
+    /// </summary>
+    public static readonly string[] AutoRunSafeToolNames =
+    [
+        "terminal_run",
+        "terminal_run_danger",
+        "terminal_interrupt",
+        "terminal_reconnect",
+        "terminal_status",
+        "terminal_scrollback",
+        "terminal_send_keys",
+        "connection_info",
+        "monitor_snapshot",
+        "ask_user",
+        "file_upload",
+        "file_download",
+    ];
+
     public static IReadOnlyList<AgentCliDescriptor> Discover() =>
     [
         new(AgentCliKind.Claude, "Claude", AgentCliLocator.FindClaude(),
@@ -101,7 +157,7 @@ public static class AgentCliCatalog
         return
         [
             "--allowedTools",
-            "mcp__jrm-remote__terminal_run,mcp__jrm-remote__terminal_run_danger",
+            string.Join(',', AutoRunSafeToolNames.Select(n => $"mcp__jrm-remote__{n}")),
         ];
     }
 
@@ -109,30 +165,29 @@ public static class AgentCliCatalog
     {
         // --no-alt-screen: host scrollback/scrollbar (Codex default TUI uses alternate screen).
         // MCP URL: workspace .codex/config.toml. Approval is the only optional runtime policy.
+        var mode = autoRun ? "approve" : "prompt";
         var args = new List<string> { "--no-alt-screen" };
-        if (autoRun)
+        foreach (var name in AutoRunSafeToolNames)
         {
             args.Add("-c");
-            args.Add("mcp_servers.jrm-remote.tools.terminal_run.approval_mode=\"approve\"");
-            args.Add("-c");
-            args.Add("mcp_servers.jrm-remote.tools.terminal_run_danger.approval_mode=\"approve\"");
-        }
-        else
-        {
-            args.Add("-c");
-            args.Add("mcp_servers.jrm-remote.tools.terminal_run.approval_mode=\"prompt\"");
-            args.Add("-c");
-            args.Add("mcp_servers.jrm-remote.tools.terminal_run_danger.approval_mode=\"prompt\"");
+            args.Add($"mcp_servers.jrm-remote.tools.{name}.approval_mode=\"{mode}\"");
         }
 
         return args;
     }
 
-    private static IReadOnlyList<string> BuildGrokArguments(bool autoRun) => autoRun
-        ?
-        [
-            "--allow", "MCPTool(jrm-remote__terminal_run)",
-            "--allow", "MCPTool(jrm-remote__terminal_run_danger)",
-        ]
-        : Array.Empty<string>();
+    private static IReadOnlyList<string> BuildGrokArguments(bool autoRun)
+    {
+        if (!autoRun)
+            return Array.Empty<string>();
+
+        var args = new List<string>();
+        foreach (var name in AutoRunSafeToolNames)
+        {
+            args.Add("--allow");
+            args.Add($"MCPTool(jrm-remote__{name})");
+        }
+
+        return args;
+    }
 }

@@ -624,13 +624,17 @@ try
           && !claudeAutoArgs.Contains("--append-system-prompt")
           && !claudeAutoArgs.Contains("--strict-mcp-config")
           && !claudePromptArgs.Contains("--allowedTools")
+          && claudeAutoArgs.Any(a => a.Contains("mcp__jrm-remote__terminal_status", StringComparison.Ordinal)
+                                     && a.Contains("mcp__jrm-remote__terminal_run", StringComparison.Ordinal))
           && codexAutoArgs.Contains("--no-alt-screen")
           && !codexAutoArgs.Any(a => a.Contains("mcp_servers.jrm-remote.url=", StringComparison.Ordinal))
           && codexAutoArgs.Any(a => a.Contains("terminal_run.approval_mode=\"approve\"", StringComparison.Ordinal))
+          && codexAutoArgs.Any(a => a.Contains("terminal_status.approval_mode=\"approve\"", StringComparison.Ordinal))
           && codexPromptArgs.Any(a => a.Contains("terminal_run.approval_mode=\"prompt\"", StringComparison.Ordinal))
           && grokAutoArgs.Contains("MCPTool(jrm-remote__terminal_run)")
+          && grokAutoArgs.Contains("MCPTool(jrm-remote__terminal_status)")
           && grokAutoArgs.Contains("MCPTool(jrm-remote__terminal_run_danger)"),
-          "AI CLI args are runtime-only; MCP URL and system context live in the workspace");
+          "AI CLI args are runtime-only; MCP URL/context live in workspace; auto-run allows expanded jrm-remote tools");
 
     await using (var safetyServer = new AgentRemoteMcpServer(new SmokeAgentRemoteTools()))
     {
@@ -2185,12 +2189,30 @@ sealed class SmokeAgentRemoteTools : IAgentRemoteTools
 {
     public string ConnectionLabel => "smoke";
     public bool IsWsl => false;
-    public Task<string> RunCommandAsync(string command, CancellationToken cancellationToken = default) =>
-        Task.FromResult(command);
+    public Task<string> RunCommandAsync(
+        string command,
+        int? timeoutSeconds = null,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(timeoutSeconds is { } t ? $"{command}|timeout={t}" : command);
     public Task<string> TransferFilesAsync(AgentFileTransfer transfer, CancellationToken cancellationToken = default) =>
         Task.FromResult("ok");
     public Task<string> RunTerminalActionAsync(AgentTerminalAction action, CancellationToken cancellationToken = default) =>
         Task.FromResult("ok");
     public Task<bool> ConfirmDangerousCommandAsync(string command, CancellationToken cancellationToken = default) =>
         Task.FromResult(true);
+    public Task<string> GetStatusAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult("connected=true\ncommand_lock_available=true");
+    public Task<string> GetConnectionInfoAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult("type=SSH\ntarget=smoke");
+    public Task<string> GetScrollbackAsync(int lines, CancellationToken cancellationToken = default) =>
+        Task.FromResult($"[scrollback lines=0 requested={lines}]");
+    public Task<string> SendKeysAsync(string text, CancellationToken cancellationToken = default) =>
+        Task.FromResult($"[keys sent bytes={text.Length}]");
+    public Task<string> AskUserAsync(
+        string prompt,
+        IReadOnlyList<string>? options,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult("[answer] smoke");
+    public Task<string> GetMonitorSnapshotAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult("[monitor unavailable]");
 }

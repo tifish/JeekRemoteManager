@@ -1081,14 +1081,38 @@ public partial class TerminalView : UserControl
 
         public bool IsWsl => owner._connection?.IsWsl == true;
 
-        public Task<string> RunCommandAsync(string command, CancellationToken cancellationToken = default) =>
-            owner.RunCapturedAsync(command, cancellationToken);
+        public Task<string> RunCommandAsync(
+            string command,
+            int? timeoutSeconds = null,
+            CancellationToken cancellationToken = default) =>
+            owner.RunCapturedAsync(command, timeoutSeconds, cancellationToken);
 
         public Task<string> TransferFilesAsync(AgentFileTransfer transfer, CancellationToken cancellationToken = default) =>
             owner.TransferFilesAsync(transfer, cancellationToken);
 
         public Task<string> RunTerminalActionAsync(AgentTerminalAction action, CancellationToken cancellationToken = default) =>
             owner.RunAiTerminalActionAsync(action, cancellationToken);
+
+        public Task<string> GetStatusAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(owner.BuildAgentTerminalStatus());
+
+        public Task<string> GetConnectionInfoAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(owner.BuildAgentConnectionInfo());
+
+        public Task<string> GetScrollbackAsync(int lines, CancellationToken cancellationToken = default) =>
+            owner.GetAgentScrollbackAsync(lines);
+
+        public Task<string> SendKeysAsync(string text, CancellationToken cancellationToken = default) =>
+            Task.FromResult(owner.SendKeysForAgent(text));
+
+        public Task<string> AskUserAsync(
+            string prompt,
+            IReadOnlyList<string>? options,
+            CancellationToken cancellationToken = default) =>
+            owner.AskUserForAgentAsync(prompt, options);
+
+        public Task<string> GetMonitorSnapshotAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(owner.BuildAgentMonitorSnapshot());
 
         public async Task<bool> ConfirmDangerousCommandAsync(
             string command,
@@ -1171,7 +1195,10 @@ public partial class TerminalView : UserControl
     /// same payload runner as script execution, and echoes the command into the terminal so
     /// the user sees exactly what the assistant ran.
     /// </summary>
-    internal async Task<string> RunCapturedAsync(string command, CancellationToken cancellationToken)
+    internal async Task<string> RunCapturedAsync(
+        string command,
+        int? timeoutSeconds = null,
+        CancellationToken cancellationToken = default)
     {
         if (_disposed)
             return "[terminal closed]";
@@ -1187,6 +1214,8 @@ public partial class TerminalView : UserControl
 
         await _scriptLock.WaitAsync(cancellationToken);
         var commandStarted = false;
+        var startedAt = Environment.TickCount64;
+        CancellationTokenSource? timeoutCts = null;
         try
         {
             if (_disposed || _shellClosed || _channel is null)
@@ -1199,13 +1228,36 @@ public partial class TerminalView : UserControl
             Dispatcher.UIThread.Post(() =>
                 FeedLine($"\r\n\u001b[35m[AI]\u001b[0m $ {AiCommandTerminalText.NormalizeForTerminalEcho(command)}"));
 
-            var result = await ExecuteRemotePayloadAsync(command, cancellationToken);
-            await FeedCompletionLineAndRefreshPromptAsync(
-                $"\u001b[35m[AI exit {result.ExitCode}]\u001b[0m");
+            var runToken = cancellationToken;
+            if (timeoutSeconds is > 0)
+            {
+                timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds.Value));
+                runToken = timeoutCts.Token;
+            }
 
-            var output = CleanShellOutput(result.Output ?? string.Empty).Trim();
-            Interlocked.Increment(ref _aiCommandCompletionCount);
-            return $"[exit {result.ExitCode}]\n{output}";
+            try
+            {
+                var result = await ExecuteRemotePayloadAsync(command, runToken);
+                await FeedCompletionLineAndRefreshPromptAsync(
+                    $"\u001b[35m[AI exit {result.ExitCode}]\u001b[0m");
+
+                var output = CleanShellOutput(result.Output ?? string.Empty).Trim();
+                Interlocked.Increment(ref _aiCommandCompletionCount);
+                var durationMs = Environment.TickCount64 - startedAt;
+                return $"[exit {result.ExitCode}]\n[duration_ms {durationMs}]\n{output}";
+            }
+            catch (OperationCanceledException) when (
+                timeoutCts is not null
+                && timeoutCts.IsCancellationRequested
+                && !cancellationToken.IsCancellationRequested)
+            {
+                // Product-side timeout: force full recovery so the channel is usable again.
+                ForceInterruptTerminalCommand();
+                var durationMs = Environment.TickCount64 - startedAt;
+                Interlocked.Increment(ref _aiCommandCompletionCount);
+                return $"[timeout after {timeoutSeconds}s; interrupted]\n[duration_ms {durationMs}]";
+            }
         }
         catch (OperationCanceledException)
         {
@@ -1235,6 +1287,7 @@ public partial class TerminalView : UserControl
         }
         finally
         {
+            timeoutCts?.Dispose();
             if (commandStarted)
                 Interlocked.Exchange(ref _isAiCommandRunning, 0);
             _scriptLock.Release();
@@ -1242,8 +1295,287 @@ public partial class TerminalView : UserControl
     }
 
     /// <summary>Runs a captured terminal command for live Debug MCP verification.</summary>
-    public Task<string> RunTerminalCommandForDebugAsync(string command) =>
-        RunCapturedAsync(command, CancellationToken.None);
+    public Task<string> RunTerminalCommandForDebugAsync(string command, int? timeoutSeconds = null) =>
+        RunCapturedAsync(command, timeoutSeconds, CancellationToken.None);
+
+    internal string BuildAgentTerminalStatus()
+    {
+        var transferActive = _activeZmodemQueue is not null || _aiTransferCompletion is not null;
+        return
+            $"connection={BuildAiConversationLabel()}\n" +
+            $"connected={IsConnected}\n" +
+            $"shell_closed={_shellClosed}\n" +
+            $"command_lock_available={IsCommandLockAvailable}\n" +
+            $"ai_command_running={IsAiCommandRunning}\n" +
+            $"terminal_command_running={IsTerminalCommandRunning}\n" +
+            $"user_input_suppressed={IsUserInputSuppressed}\n" +
+            $"transfer_in_progress={transferActive}\n" +
+            $"script_running={IsScriptRunning}\n" +
+            $"connection_generation={ConnectionGeneration}\n" +
+            $"ai_exec_count={AiCommandExecutionCount}\n" +
+            $"ai_complete_count={AiCommandCompletionCount}\n" +
+            $"recovery_count={TerminalRecoveryCount}\n" +
+            $"is_wsl={_connection?.IsWsl == true}\n" +
+            $"auto_reconnect_state={AiAutoReconnectState}";
+    }
+
+    internal string BuildAgentConnectionInfo()
+    {
+        var c = _connection;
+        if (c is null)
+            return "label=(none)\ntype=unknown\nconnected=false";
+
+        var kind = c.IsWsl ? "WSL" : c.IsRdp ? "RDP" : "SSH";
+        var target = c.IsWsl
+            ? (string.IsNullOrWhiteSpace(c.WslDistro) ? "default WSL distribution" : c.WslDistro.Trim())
+            : string.IsNullOrWhiteSpace(c.Host)
+                ? "(unknown host)"
+                : $"{c.Username}@{c.Host}:{c.Port}";
+
+        var notes = string.IsNullOrWhiteSpace(c.Notes) ? "(none)" : c.Notes.Trim();
+        return
+            $"label={BuildAiConversationLabel()}\n" +
+            $"type={kind}\n" +
+            $"target={target}\n" +
+            $"source_path={_sourcePath ?? "(none)"}\n" +
+            $"connected={IsConnected}\n" +
+            $"notes={notes}";
+    }
+
+    internal async Task<string> GetAgentScrollbackAsync(int lines)
+    {
+        lines = Math.Clamp(lines <= 0 ? 80 : lines, 1, 500);
+        return await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (_disposed)
+                return "[terminal closed]";
+            return CaptureScrollbackText(lines);
+        });
+    }
+
+    private string CaptureScrollbackText(int lines)
+    {
+        var terminal = _model.Terminal;
+        var buffer = terminal.Buffer;
+        var lastRow = buffer.Length;
+        var firstRow = Math.Max(0, lastRow - lines);
+        var text = new StringBuilder();
+
+        for (var row = firstRow; row < lastRow; row++)
+        {
+            if (row > firstRow)
+                text.Append('\n');
+            if (buffer.GetLine(row) is { } line)
+                text.Append(line.TranslateToString(true).TrimEnd());
+        }
+
+        var body = text.ToString().TrimEnd();
+        return string.IsNullOrEmpty(body)
+            ? $"[scrollback lines=0 requested={lines}]\n"
+            : $"[scrollback lines={Math.Min(lines, lastRow - firstRow)} requested={lines}]\n{body}";
+    }
+
+    internal string SendKeysForAgent(string text)
+    {
+        if (_disposed)
+            return "[terminal closed]";
+        if (!IsConnected || _channel is null)
+            return "[not connected]";
+        if (string.IsNullOrEmpty(text))
+            return "[error] text is required";
+
+        // Unescape common agent encodings so "q\\n" works as pager quit + Enter.
+        var payload = text
+            .Replace("\\r\\n", "\r\n", StringComparison.Ordinal)
+            .Replace("\\n", "\n", StringComparison.Ordinal)
+            .Replace("\\r", "\r", StringComparison.Ordinal)
+            .Replace("\\t", "\t", StringComparison.Ordinal);
+
+        try
+        {
+            WriteToShell(Encoding.UTF8.GetBytes(payload));
+            return $"[keys sent bytes={Encoding.UTF8.GetByteCount(payload)}]";
+        }
+        catch (Exception ex)
+        {
+            return $"[error] failed to send keys: {ex.Message}";
+        }
+    }
+
+    internal async Task<string> AskUserForAgentAsync(string prompt, IReadOnlyList<string>? options)
+    {
+        if (_disposed)
+            return "[cancelled] terminal closed";
+
+        return await Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            if (_disposed)
+                return "[cancelled] terminal closed";
+
+            var ownerWindow = TopLevel.GetTopLevel(this) as Window;
+            var dialog = new Window
+            {
+                Title = "AI assistant",
+                Width = 520,
+                Height = options is { Count: > 0 } ? 320 : 260,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                CanResize = false,
+            };
+
+            var tcs = new TaskCompletionSource<string>();
+            var promptBlock = new TextBlock
+            {
+                Text = prompt,
+                TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                Margin = new Avalonia.Thickness(16),
+            };
+
+            var buttons = new StackPanel
+            {
+                Orientation = Avalonia.Layout.Orientation.Horizontal,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+                Margin = new Avalonia.Thickness(8),
+                [DockPanel.DockProperty] = Dock.Bottom,
+            };
+
+            if (options is { Count: > 0 })
+            {
+                foreach (var option in options)
+                {
+                    var captured = option;
+                    var button = new Button
+                    {
+                        Content = captured,
+                        Margin = new Avalonia.Thickness(8),
+                    };
+                    button.Click += (_, _) =>
+                    {
+                        tcs.TrySetResult($"[answer] {captured}");
+                        dialog.Close();
+                    };
+                    buttons.Children.Add(button);
+                }
+            }
+            else
+            {
+                var input = new TextBox
+                {
+                    AcceptsReturn = false,
+                    Margin = new Avalonia.Thickness(16, 0, 16, 8),
+                    [DockPanel.DockProperty] = Dock.Bottom,
+                };
+                var ok = new Button
+                {
+                    Content = "OK",
+                    Margin = new Avalonia.Thickness(8),
+                    IsDefault = true,
+                };
+                var cancel = new Button
+                {
+                    Content = "Cancel",
+                    Margin = new Avalonia.Thickness(8),
+                    IsCancel = true,
+                };
+                ok.Click += (_, _) =>
+                {
+                    tcs.TrySetResult(string.IsNullOrWhiteSpace(input.Text)
+                        ? "[answer]"
+                        : $"[answer] {input.Text.Trim()}");
+                    dialog.Close();
+                };
+                cancel.Click += (_, _) =>
+                {
+                    tcs.TrySetResult("[cancelled] user dismissed the question");
+                    dialog.Close();
+                };
+                buttons.Children.Add(cancel);
+                buttons.Children.Add(ok);
+
+                dialog.Content = new DockPanel
+                {
+                    LastChildFill = true,
+                    Children =
+                    {
+                        buttons,
+                        input,
+                        new ScrollViewer { Content = promptBlock },
+                    },
+                };
+
+                dialog.Closing += (_, _) =>
+                    tcs.TrySetResult("[cancelled] user dismissed the question");
+
+                if (ownerWindow is not null)
+                    await dialog.ShowDialog(ownerWindow);
+                else
+                    dialog.Show();
+
+                return await tcs.Task;
+            }
+
+            dialog.Content = new DockPanel
+            {
+                LastChildFill = true,
+                Children =
+                {
+                    buttons,
+                    new ScrollViewer { Content = promptBlock },
+                },
+            };
+            dialog.Closing += (_, _) =>
+                tcs.TrySetResult("[cancelled] user dismissed the question");
+
+            if (ownerWindow is not null)
+                await dialog.ShowDialog(ownerWindow);
+            else
+                dialog.Show();
+
+            return await tcs.Task;
+        });
+    }
+
+    internal string BuildAgentMonitorSnapshot()
+    {
+        var vm = _monitorViewModel;
+        if (vm is null)
+            return "[monitor unavailable]\nreason=panel never opened for this tab\nhint=open the monitor panel or enable auto-open on the connection";
+
+        if (vm.IsFailed)
+            return $"[monitor failed]\nhost={vm.HostLabel}\naddress={vm.AddressText}";
+
+        if (!vm.HasData)
+            return $"[monitor waiting]\nhost={vm.HostLabel}\naddress={vm.AddressText}\nshell_ready={vm.IsMonitorShellReady}\nsamples={vm.MonitorSampleCount}";
+
+        var sb = new StringBuilder();
+        sb.AppendLine("[monitor ok]");
+        sb.AppendLine($"host={vm.HostLabel}");
+        sb.AppendLine($"address={vm.AddressText}");
+        sb.AppendLine($"uptime={vm.UptimeText}");
+        sb.AppendLine($"latency={vm.LatencyText}");
+        sb.AppendLine($"load={vm.LoadText}");
+        sb.AppendLine($"cpu={vm.CpuText} ({vm.CpuPercent:0.#}%)");
+        sb.AppendLine($"mem={vm.MemText} ({vm.MemPercent:0.#}%)");
+        sb.AppendLine($"swap={vm.SwapText} ({vm.SwapPercent:0.#}%)");
+        sb.AppendLine($"net_up={vm.UploadRateText}");
+        sb.AppendLine($"net_down={vm.DownloadRateText}");
+        sb.AppendLine($"samples={vm.MonitorSampleCount}");
+
+        if (vm.Disks.Count > 0)
+        {
+            sb.AppendLine("disks:");
+            foreach (var disk in vm.Disks.Take(12))
+                sb.AppendLine($"  {disk.MountPoint} size={disk.SizeText} used={disk.UsedPercent:0.#}%");
+        }
+
+        if (vm.Processes.Count > 0)
+        {
+            sb.AppendLine("top_processes:");
+            foreach (var proc in vm.Processes.Take(8))
+                sb.AppendLine($"  cpu={proc.CpuText} mem={proc.MemText} {proc.Command}");
+        }
+
+        return sb.ToString().TrimEnd();
+    }
 
     private async Task<string> RunAiTerminalActionAsync(
         AgentTerminalAction action,
