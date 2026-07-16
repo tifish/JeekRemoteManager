@@ -21,6 +21,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     private readonly string _workingDirectory;
     private readonly Func<AgentRemoteMcpServer?> _getMcpServer;
     private readonly Action<bool>? _onAgentModeChanged;
+    private readonly Action<bool, bool>? _onSafetyOptionsChanged;
     private readonly SemaphoreSlim _startGate = new(1, 1);
     private ConPtySession? _session;
     private Process? _externalProcess;
@@ -43,11 +44,17 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         string workingDirectory,
         Func<AgentRemoteMcpServer?> getMcpServer,
         string? preferredProviderLabel = null,
+        bool autoRun = true,
+        bool autoApproveDangerousCommands = false,
+        Action<bool, bool>? onSafetyOptionsChanged = null,
         Action<bool>? onAgentModeChanged = null)
     {
         _workingDirectory = workingDirectory;
         _getMcpServer = getMcpServer;
         _onAgentModeChanged = onAgentModeChanged;
+        _onSafetyOptionsChanged = onSafetyOptionsChanged;
+        _autoRun = autoRun;
+        _autoApproveDangerousCommands = autoApproveDangerousCommands;
         Directory.CreateDirectory(_workingDirectory);
 
         foreach (var descriptor in AgentCliCatalog.Discover())
@@ -76,6 +83,12 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
     [ObservableProperty]
     private bool _agentMode;
+
+    [ObservableProperty]
+    private bool _autoRun = true;
+
+    [ObservableProperty]
+    private bool _autoApproveDangerousCommands;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowInstallPrompt))]
@@ -128,6 +141,16 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     }
 
     partial void OnAgentModeChanged(bool value) => _onAgentModeChanged?.Invoke(value);
+
+    partial void OnAutoRunChanged(bool value)
+    {
+        _onSafetyOptionsChanged?.Invoke(value, AutoApproveDangerousCommands);
+        if (IsRunning)
+            _ = RestartAsync();
+    }
+
+    partial void OnAutoApproveDangerousCommandsChanged(bool value) =>
+        _onSafetyOptionsChanged?.Invoke(AutoRun, value);
 
     partial void OnUseWindowsTerminalChanged(bool value)
     {
@@ -268,10 +291,9 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         foreach (var d in discovered)
             Providers.Add(d);
 
-        _selectedProvider = Providers.FirstOrDefault(p => p.Kind == preferKind)
+        SelectedProvider = Providers.FirstOrDefault(p => p.Kind == preferKind)
             ?? Providers.FirstOrDefault(p => p.IsAvailable)
             ?? Providers[0];
-        OnPropertyChanged(nameof(SelectedProvider));
         NotifyLayoutFlags();
     }
 
@@ -325,7 +347,8 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
                 var args = AgentCliCatalog.BuildInteractiveArguments(
                     provider.Kind,
                     _workingDirectory,
-                    mcpUrl);
+                    mcpUrl,
+                    AutoRun);
 
                 if (UseWindowsTerminal && TryStartWindowsTerminal(exePath, args))
                 {

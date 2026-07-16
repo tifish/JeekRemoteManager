@@ -170,6 +170,8 @@ public class SettingsService
             MonitorPanelWidth = roamingSettings.MonitorPanelWidth,
             FileBrowserEditorPath = roamingSettings.FileBrowserEditorPath,
             AiProvider = roamingSettings.AiProvider,
+            AiAutoRun = roamingSettings.AiAutoRun,
+            AiAutoApproveDangerousCommands = roamingSettings.AiAutoApproveDangerousCommands,
         };
 
     private static MachineAppSettings ToMachineSettings(AppSettings settings)
@@ -204,6 +206,8 @@ public class SettingsService
             MonitorPanelWidth = settings.MonitorPanelWidth,
             FileBrowserEditorPath = settings.FileBrowserEditorPath,
             AiProvider = settings.AiProvider,
+            AiAutoRun = settings.AiAutoRun,
+            AiAutoApproveDangerousCommands = settings.AiAutoApproveDangerousCommands,
         };
         NormalizeRoamingSettings(roamingSettings);
         return roamingSettings;
@@ -234,6 +238,8 @@ public class SettingsService
         settings.MonitorPanelWidth = normalized.MonitorPanelWidth;
         settings.FileBrowserEditorPath = normalized.FileBrowserEditorPath;
         settings.AiProvider = normalized.AiProvider;
+        settings.AiAutoRun = normalized.AiAutoRun;
+        settings.AiAutoApproveDangerousCommands = normalized.AiAutoApproveDangerousCommands;
     }
 
     private static void NormalizeMachineSettings(MachineAppSettings settings)

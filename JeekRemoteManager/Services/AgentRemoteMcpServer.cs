@@ -21,6 +21,9 @@ public sealed class AgentRemoteMcpServer : IAsyncDisposable
     private static readonly string[] ProtocolVersions = ["2024-11-05", "2025-03-26", "2025-06-18"];
 
     private readonly IAgentRemoteTools _tools;
+
+    /// <summary>When true, destructive commands skip JRM's additional confirmation dialog.</summary>
+    public bool AutoApproveDangerousCommands { get; set; }
     private readonly string _token;
     private HttpListener? _listener;
     private int _port;
@@ -335,8 +338,7 @@ public sealed class AgentRemoteMcpServer : IAsyncDisposable
         if (string.IsNullOrEmpty(command))
             return "[error] command is required";
 
-        var danger = forceDanger || DangerousCommandDetector.IsDangerous(command);
-        if (danger)
+        if (RequiresDangerConfirmation(command, forceDanger))
         {
             var approved = await _tools.ConfirmDangerousCommandAsync(command).ConfigureAwait(false);
             if (!approved)
@@ -345,6 +347,11 @@ public sealed class AgentRemoteMcpServer : IAsyncDisposable
 
         return await _tools.RunCommandAsync(command).ConfigureAwait(false);
     }
+
+    /// <summary>Returns the host-side safety decision without executing a command, for tests and Debug MCP.</summary>
+    public bool RequiresDangerConfirmation(string command, bool dangerTagged) =>
+        !AutoApproveDangerousCommands
+        && (dangerTagged || DangerousCommandDetector.IsDangerous(command));
 
     private async Task<string> TransferToolAsync(JsonObject args, bool isUpload)
     {

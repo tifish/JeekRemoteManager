@@ -87,6 +87,12 @@ public class AppSettings
 
     /// <summary>AI panel: last-used provider label ("Claude", "Codex", "Grok"). Null = first available.</summary>
     public string? AiProvider { get; set; }
+
+    /// <summary>AI panel: whether remote command tools run without the agent CLI asking first.</summary>
+    public bool AiAutoRun { get; set; } = true;
+
+    /// <summary>AI panel: whether potentially destructive remote commands bypass confirmation.</summary>
+    public bool AiAutoApproveDangerousCommands { get; set; }
 }
 
 /// <summary>Settings that are bound to this Windows account and machine.</summary>
@@ -156,6 +162,12 @@ public class RoamingAppSettings
 
     /// <summary>AI panel: last-used provider label ("Claude", "Codex", "Grok"). Null = first available.</summary>
     public string? AiProvider { get; set; }
+
+    /// <summary>AI panel: whether remote command tools run without the agent CLI asking first.</summary>
+    public bool AiAutoRun { get; set; } = true;
+
+    /// <summary>AI panel: whether potentially destructive remote commands bypass confirmation.</summary>
+    public bool AiAutoApproveDangerousCommands { get; set; }
 }
 
 /// <summary>Outcome of the Settings dialog. <see cref="Language"/> and <see cref="Theme"/>

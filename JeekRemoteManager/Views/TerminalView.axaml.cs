@@ -165,6 +165,9 @@ public partial class TerminalView : UserControl
     /// <summary>The lazily-created AI CLI panel view model, exposed for Debug MCP verification.</summary>
     public AgentCliPanelViewModel? AiViewModel => _aiViewModel;
 
+    /// <summary>Current connection-scoped agent MCP server, exposed for Debug MCP safety probes.</summary>
+    public AgentRemoteMcpServer? AgentRemoteMcp => _agentRemoteMcp;
+
     /// <summary>Product MCP endpoint for the AI CLI on this tab (null until the panel starts it).</summary>
     public string? AgentRemoteMcpUrl => _agentRemoteMcp?.EndpointUrl;
 
@@ -871,10 +874,23 @@ public partial class TerminalView : UserControl
         var workingDir = ResolveAgentCliWorkingDirectory();
 
         var preferred = (DataContext as MainWindowViewModel)?.AiProvider;
+        var mainVm = DataContext as MainWindowViewModel;
         var vm = new AgentCliPanelViewModel(
             workingDir,
             () => _agentRemoteMcp,
             preferred,
+            autoRun: mainVm?.AiAutoRun ?? true,
+            autoApproveDangerousCommands: mainVm?.AiAutoApproveDangerousCommands ?? false,
+            onSafetyOptionsChanged: (autoRun, autoApprove) =>
+            {
+                if (DataContext is MainWindowViewModel ownerVm)
+                {
+                    ownerVm.AiAutoRun = autoRun;
+                    ownerVm.AiAutoApproveDangerousCommands = autoApprove;
+                }
+                if (_agentRemoteMcp is not null)
+                    _agentRemoteMcp.AutoApproveDangerousCommands = autoApprove;
+            },
             onAgentModeChanged: _ =>
             {
                 PersistAiPanelWidth();
@@ -919,7 +935,11 @@ public partial class TerminalView : UserControl
             return;
 
         var tools = new TerminalAgentRemoteTools(this);
-        var server = new AgentRemoteMcpServer(tools);
+        var server = new AgentRemoteMcpServer(tools)
+        {
+            AutoApproveDangerousCommands =
+                (DataContext as MainWindowViewModel)?.AiAutoApproveDangerousCommands ?? false,
+        };
         server.Start();
         _agentRemoteMcp = server;
     }

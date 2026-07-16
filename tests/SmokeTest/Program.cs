@@ -536,6 +536,35 @@ try
           && File.ReadAllText(Path.Combine(workspace, "AGENTS.md")).Contains("edge VPS", StringComparison.Ordinal),
           "AI CLI workspace mirrors connection tree path under LocalAppData and writes CLAUDE.md/AGENTS.md");
 
+    var claudeAutoArgs = AgentCliCatalog.BuildInteractiveArguments(
+        AgentCliKind.Claude, workspace, "http://127.0.0.1:1234/mcp", autoRun: true);
+    var claudePromptArgs = AgentCliCatalog.BuildInteractiveArguments(
+        AgentCliKind.Claude, workspace, "http://127.0.0.1:1234/mcp", autoRun: false);
+    var codexAutoArgs = AgentCliCatalog.BuildInteractiveArguments(
+        AgentCliKind.Codex, workspace, "http://127.0.0.1:1234/mcp", autoRun: true);
+    var codexPromptArgs = AgentCliCatalog.BuildInteractiveArguments(
+        AgentCliKind.Codex, workspace, "http://127.0.0.1:1234/mcp", autoRun: false);
+    var grokAutoArgs = AgentCliCatalog.BuildInteractiveArguments(
+        AgentCliKind.Grok, workspace, "http://127.0.0.1:1234/mcp", autoRun: true);
+    Check(claudeAutoArgs.Contains("--allowedTools")
+          && !claudePromptArgs.Contains("--allowedTools")
+          && codexAutoArgs.Any(a => a.Contains("terminal_run.approval_mode=\"approve\"", StringComparison.Ordinal))
+          && codexPromptArgs.Any(a => a.Contains("terminal_run.approval_mode=\"prompt\"", StringComparison.Ordinal))
+          && grokAutoArgs.Contains("MCPTool(jrm-remote__terminal_run)")
+          && grokAutoArgs.Contains("MCPTool(jrm-remote__terminal_run_danger)"),
+          "AI auto-run maps only JRM remote command tools to each agent CLI permission surface");
+
+    await using (var safetyServer = new AgentRemoteMcpServer(new SmokeAgentRemoteTools()))
+    {
+        Check(safetyServer.RequiresDangerConfirmation("rm -rf /tmp/jrm-smoke", false)
+              && safetyServer.RequiresDangerConfirmation("echo safe", true),
+              "AI dangerous-command confirmation remains enabled by default");
+        safetyServer.AutoApproveDangerousCommands = true;
+        Check(!safetyServer.RequiresDangerConfirmation("rm -rf /tmp/jrm-smoke", false)
+              && !safetyServer.RequiresDangerConfirmation("echo safe", true),
+              "AI auto-approve bypasses detector and agent-tagged dangerous-command confirmations");
+    }
+
     var dimFilter = new TerminalDimColorFilter();
     var dimRewritten = Encoding.ASCII.GetString(dimFilter.Process(Encoding.ASCII.GetBytes("\u001b[2msecondary\u001b[22m")));
     var dimWithColor = Encoding.ASCII.GetString(dimFilter.Process(Encoding.ASCII.GetBytes("\u001b[0m\u001b[2;32mkeep green\u001b[0m")));
@@ -1061,6 +1090,8 @@ try
     {
         Language = "zh",
         Theme = "Dark",
+        AiAutoRun = false,
+        AiAutoApproveDangerousCommands = true,
         RecentConnectionPaths = { Path.Combine(root, "Servers", "web01.json") },
         LastSelectedConnectionPath = Path.Combine(root, "Servers", "web01.json"),
         RecentExpanded = false,
@@ -1093,9 +1124,13 @@ try
         Theme = settingsWithRecent.Theme,
         CheckUpdateOnStartup = settingsWithRecent.CheckUpdateOnStartup,
         UpdateCheckIntervalHours = settingsWithRecent.UpdateCheckIntervalHours,
+        AiAutoRun = settingsWithRecent.AiAutoRun,
+        AiAutoApproveDangerousCommands = settingsWithRecent.AiAutoApproveDangerousCommands,
     });
     Check(roamingSettingsJson.Contains(nameof(RoamingAppSettings.Language))
           && roamingSettingsJson.Contains(nameof(RoamingAppSettings.Theme))
+          && roamingSettingsJson.Contains(nameof(RoamingAppSettings.AiAutoRun))
+          && roamingSettingsJson.Contains(nameof(RoamingAppSettings.AiAutoApproveDangerousCommands))
           && !roamingSettingsJson.Contains(nameof(MachineAppSettings.RecentConnectionPaths))
           && !roamingSettingsJson.Contains(nameof(MachineAppSettings.MainWindowWidth)),
           "Roaming settings persist machine-independent preferences only");
@@ -1109,13 +1144,22 @@ try
     Check(!File.Exists(tempMachineSettingsPath) && !File.Exists(tempRoamingSettingsPath),
           "Unchanged settings flush does not write settings.json");
     tempSettings.Settings.Language = "zh";
+    tempSettings.Settings.AiAutoRun = false;
+    tempSettings.Settings.AiAutoApproveDangerousCommands = true;
     Check(!File.Exists(tempRoamingSettingsPath), "Settings changes stay in memory before flush");
     Check(tempSettings.SaveIfChanged()
           && File.Exists(tempRoamingSettingsPath)
           && !File.Exists(tempMachineSettingsPath),
           "Changed roaming settings flush writes roaming settings.json");
     var savedSettingsJson = File.ReadAllText(tempRoamingSettingsPath);
-    Check(savedSettingsJson.Contains("\"Language\": \"zh\""), "Changed roaming settings are serialized after flush");
+    Check(savedSettingsJson.Contains("\"Language\": \"zh\"")
+          && savedSettingsJson.Contains("\"AiAutoRun\": false")
+          && savedSettingsJson.Contains("\"AiAutoApproveDangerousCommands\": true"),
+          "Changed roaming settings are serialized after flush");
+    var reloadedAiSettings = new SettingsService(tempMachineSettingsPath, tempRoamingSettingsPath);
+    Check(!reloadedAiSettings.Settings.AiAutoRun
+          && reloadedAiSettings.Settings.AiAutoApproveDangerousCommands,
+          "AI command safety options round-trip through roaming settings");
     File.SetLastWriteTimeUtc(tempRoamingSettingsPath, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
     var unchangedWriteTime = File.GetLastWriteTimeUtc(tempRoamingSettingsPath);
     Check(tempSettings.SaveIfChanged(), "Second unchanged settings flush succeeds");
@@ -2058,3 +2102,17 @@ finally
 }
 
 return failures;
+
+sealed class SmokeAgentRemoteTools : IAgentRemoteTools
+{
+    public string ConnectionLabel => "smoke";
+    public bool IsWsl => false;
+    public Task<string> RunCommandAsync(string command, CancellationToken cancellationToken = default) =>
+        Task.FromResult(command);
+    public Task<string> TransferFilesAsync(AgentFileTransfer transfer, CancellationToken cancellationToken = default) =>
+        Task.FromResult("ok");
+    public Task<string> RunTerminalActionAsync(AgentTerminalAction action, CancellationToken cancellationToken = default) =>
+        Task.FromResult("ok");
+    public Task<bool> ConfirmDangerousCommandAsync(string command, CancellationToken cancellationToken = default) =>
+        Task.FromResult(true);
+}

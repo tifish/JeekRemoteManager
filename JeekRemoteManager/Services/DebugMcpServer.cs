@@ -858,10 +858,14 @@ internal static class DebugMcpServer
                         $"cliProvider={ai.SelectedProvider.Label} available={ai.SelectedProvider.IsAvailable} "
                         + $"running={ai.IsRunning} embedded={ai.HasEmbeddedSession} "
                         + $"useWindowsTerminal={ai.UseWindowsTerminal} agentMode={ai.AgentMode} "
-                        + $"installing={ai.IsInstalling}");
+                        + $"installing={ai.IsInstalling} autoRun={ai.AutoRun} "
+                        + $"autoApprove={ai.AutoApproveDangerousCommands}");
                     sb.AppendLine($"status={ai.StatusText}");
                     sb.AppendLine($"workspace={ai.WorkingDirectory}");
                     sb.AppendLine($"mcpUrl={terminal.AgentRemoteMcpUrl ?? "(none)"}");
+                    sb.AppendLine(
+                        "dangerProbe=" + (terminal.AgentRemoteMcp?.RequiresDangerConfirmation(
+                            "rm -rf /tmp/jrm-debug-probe", dangerTagged: false).ToString() ?? "(n/a)"));
                     // Session attach state (TabControl unload/reload wiring).
                     sb.AppendLine($"outputStats={terminal.DebugAiOutputStats ?? "(n/a)"}");
                 }

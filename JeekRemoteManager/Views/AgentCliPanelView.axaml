@@ -11,8 +11,8 @@
                 BorderBrush="{DynamicResource BorderBrushSoft}"
                 BorderThickness="0,0,0,1"
                 Background="{DynamicResource ChromeSurfaceBrush}">
-            <Grid ColumnDefinitions="*,Auto">
-                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                     <ComboBox Classes="header-option"
                               MinWidth="110"
                               ItemsSource="{Binding Providers}"
@@ -43,8 +43,24 @@
                             IsVisible="{Binding ShowInstallPrompt}"
                             MinHeight="28"
                             Padding="10,2" />
+                </StackPanel>
+                <WrapPanel Grid.Row="1"
+                           Margin="0,4,0,0"
+                           Orientation="Horizontal"
+                           VerticalAlignment="Center">
                     <CheckBox Content="{l:Localize AiCliUseWindowsTerminal}"
                               IsChecked="{Binding UseWindowsTerminal}"
+                              VerticalAlignment="Center" />
+                    <CheckBox x:Name="AutoRunCheckBox"
+                              Content="{l:Localize AiAutoRun}"
+                              IsChecked="{Binding AutoRun}"
+                              ToolTip.Tip="{l:Localize AiAutoRunHint}"
+                              VerticalAlignment="Center" />
+                    <CheckBox x:Name="AutoApproveCheckBox"
+                              Content="{l:Localize AiAutoApprove}"
+                              IsChecked="{Binding AutoApproveDangerousCommands}"
+                              IsEnabled="{Binding AutoRun}"
+                              ToolTip.Tip="{l:Localize AiAutoApproveHint}"
                               VerticalAlignment="Center" />
                     <CheckBox Content="{l:Localize AiAgentMode}"
                               IsChecked="{Binding AgentMode}"
@@ -69,8 +85,9 @@
                                 MinWidth="32"
                                 Padding="6,2" />
                     </StackPanel>
-                </StackPanel>
-                <Button Grid.Column="1"
+                </WrapPanel>
+                <Button Grid.RowSpan="2"
+                        Grid.Column="1"
                         Classes="toolbar icon-button"
                         ToolTip.Tip="{l:Localize Close}"
                         Click="OnCloseClick"

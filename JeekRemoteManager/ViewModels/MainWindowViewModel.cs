@@ -435,6 +435,33 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Whether the selected agent CLI may invoke JRM remote command tools without
+    /// its own per-call permission prompt.</summary>
+    public bool AiAutoRun
+    {
+        get => _settings.Settings.AiAutoRun;
+        set
+        {
+            if (_settings.Settings.AiAutoRun == value)
+                return;
+            _settings.Settings.AiAutoRun = value;
+            _settings.SaveIfChanged();
+        }
+    }
+
+    /// <summary>Whether JRM skips its additional confirmation for destructive remote commands.</summary>
+    public bool AiAutoApproveDangerousCommands
+    {
+        get => _settings.Settings.AiAutoApproveDangerousCommands;
+        set
+        {
+            if (_settings.Settings.AiAutoApproveDangerousCommands == value)
+                return;
+            _settings.Settings.AiAutoApproveDangerousCommands = value;
+            _settings.SaveIfChanged();
+        }
+    }
+
     /// <summary>True when a terminal tab is the active right-pane tab. Drives the
     /// visibility of the terminal font-size toolbar buttons.</summary>
     [ObservableProperty]

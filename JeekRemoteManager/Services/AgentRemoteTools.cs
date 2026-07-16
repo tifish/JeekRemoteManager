@@ -77,36 +77,62 @@ public static class AgentCliCatalog
     public static IReadOnlyList<string> BuildInteractiveArguments(
         AgentCliKind kind,
         string workingDirectory,
-        string mcpUrl)
+        string mcpUrl,
+        bool autoRun = true)
     {
         WriteMcpConfig(kind, workingDirectory, mcpUrl);
         return kind switch
         {
             AgentCliKind.Claude =>
-            [
-                "--mcp-config",
-                Path.Combine(workingDirectory, "jrm-mcp.json"),
-                "--strict-mcp-config",
-                "--append-system-prompt",
-                BuildRemoteSystemPrompt(),
-            ],
+            BuildClaudeArguments(workingDirectory, autoRun),
             AgentCliKind.Codex =>
-            [
-                // Use the normal buffer so host scrollback/scrollbar work. Codex's default
-                // alternate-screen TUI keeps history inside the app (unlike Claude/Grok
-                // which scroll themselves) and cannot use our terminal scrollbar.
-                "--no-alt-screen",
-                // Force the per-session HTTP MCP server even if the project config is not trusted yet.
-                "-c",
-                $"mcp_servers.jrm-remote.url=\"{mcpUrl.Replace("\"", "\\\"", StringComparison.Ordinal)}\"",
-            ],
+            BuildCodexArguments(mcpUrl, autoRun),
             AgentCliKind.Grok =>
-            [
-                // Project config under workingDirectory/.grok/config.toml is written by WriteMcpConfig.
-            ],
+            BuildGrokArguments(autoRun),
             _ => Array.Empty<string>(),
         };
     }
+
+    private static IReadOnlyList<string> BuildClaudeArguments(string workingDirectory, bool autoRun)
+    {
+        var args = new List<string>
+        {
+            "--mcp-config",
+            Path.Combine(workingDirectory, "jrm-mcp.json"),
+            "--strict-mcp-config",
+            "--append-system-prompt",
+            BuildRemoteSystemPrompt(),
+        };
+        if (autoRun)
+        {
+            args.Add("--allowedTools");
+            args.Add("mcp__jrm-remote__terminal_run,mcp__jrm-remote__terminal_run_danger");
+        }
+        return args;
+    }
+
+    private static IReadOnlyList<string> BuildCodexArguments(string mcpUrl, bool autoRun) =>
+        [
+            // Use the normal buffer so host scrollback/scrollbar work. Codex's default
+            // alternate-screen TUI keeps history inside the app (unlike Claude/Grok
+            // which scroll themselves) and cannot use our terminal scrollbar.
+            "--no-alt-screen",
+            // Force the per-session HTTP MCP server even if the project config is not trusted yet.
+            "-c",
+            $"mcp_servers.jrm-remote.url=\"{mcpUrl.Replace("\"", "\\\"", StringComparison.Ordinal)}\"",
+            "-c",
+            $"mcp_servers.jrm-remote.tools.terminal_run.approval_mode=\"{(autoRun ? "approve" : "prompt")}\"",
+            "-c",
+            $"mcp_servers.jrm-remote.tools.terminal_run_danger.approval_mode=\"{(autoRun ? "approve" : "prompt")}\"",
+        ];
+
+    private static IReadOnlyList<string> BuildGrokArguments(bool autoRun) => autoRun
+        ?
+        [
+            "--allow", "MCPTool(jrm-remote__terminal_run)",
+            "--allow", "MCPTool(jrm-remote__terminal_run_danger)",
+        ]
+        : Array.Empty<string>();
 
     public static string BuildRemoteSystemPrompt() =>
         "You are assisting inside JeekRemoteManager. The user's remote server is available only " +
