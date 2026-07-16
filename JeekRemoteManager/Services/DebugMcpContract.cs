@@ -44,6 +44,9 @@ public static class DebugMcpContract
             new() { ["lines"] = Prop("integer", "Lines, 1-2000 (default 200)."), ["filter"] = Prop("string", "Case-insensitive filter.") }),
         Tool("ai_runtime_snapshot",
             "Snapshot each terminal tab's AI CLI panel: provider, running/install state, SSH terminal visibility, MCP URL, and command execution counts.",
+            new()),
+        Tool("terminal_tab_focus_check",
+            "Temporarily creates two terminal tabs and verifies that each restores its own in-memory focused control after switching.",
             new()));
 
     public static JsonObject InitializeResult(string name, string title, string version, string? requestedVersion)

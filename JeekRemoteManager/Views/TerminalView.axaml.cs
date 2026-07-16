@@ -103,6 +103,7 @@ public partial class TerminalView : UserControl
     private long _aiAutoReconnectAttemptCount;
     private long _aiAutoReconnectSuccessCount;
     private string _aiAutoReconnectState = "idle";
+    private WeakReference<InputElement>? _lastFocusedElement;
     private volatile bool _disposed;
 
     // The AI panel, terminal, and monitor panel live in grid columns 0, 2, and 4; named
@@ -215,6 +216,15 @@ public partial class TerminalView : UserControl
     public TerminalView()
     {
         InitializeComponent();
+
+        // A TerminalView instance belongs to exactly one SSH tab. Remember its
+        // most recently focused descendant so switching tabs can return to the
+        // terminal, file browser, AI panel, etc. without persisting UI focus.
+        AddHandler(
+            InputElement.GotFocusEvent,
+            OnDescendantGotFocus,
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
 
         Term.Model = _model;
         TerminalTextInputMethodClient.Attach(Term);
@@ -436,6 +446,78 @@ public partial class TerminalView : UserControl
     /// </summary>
     public void FocusTerminal() =>
         Dispatcher.UIThread.Post(() => Term.Focus(), DispatcherPriority.Background);
+
+    /// <summary>
+    /// Restores the last focused control in this terminal tab, falling back to
+    /// the SSH terminal when the previous control no longer exists or is hidden.
+    /// The weak reference is intentionally session-only and is never persisted.
+    /// </summary>
+    public void RestoreLastFocus() =>
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_lastFocusedElement is { } lastFocused
+                && lastFocused.TryGetTarget(out var target)
+                && target is Avalonia.Visual visual
+                && ReferenceEquals(visual.FindAncestorOfType<TerminalView>(includeSelf: true), this)
+                && target.Focus())
+            {
+                return;
+            }
+
+            Term.Focus();
+        }, DispatcherPriority.Background);
+
+    private void OnDescendantGotFocus(object? sender, RoutedEventArgs e)
+    {
+        if (e.Source is InputElement focused
+            && focused is Avalonia.Visual visual
+            && ReferenceEquals(visual.FindAncestorOfType<TerminalView>(includeSelf: true), this))
+        {
+            _lastFocusedElement = new WeakReference<InputElement>(focused);
+        }
+    }
+
+    internal string DebugLastFocusTarget =>
+        _lastFocusedElement is { } lastFocused && lastFocused.TryGetTarget(out var target)
+            ? DescribeFocusTarget(target)
+            : "(none)";
+
+    internal string DebugCurrentFocusTarget
+    {
+        get
+        {
+            var focused = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement();
+            return focused is Avalonia.Visual visual
+                   && ReferenceEquals(visual.FindAncestorOfType<TerminalView>(includeSelf: true), this)
+                ? DescribeFocusTarget(focused)
+                : "(outside)";
+        }
+    }
+
+    /// <summary>Creates a second, non-terminal focus target for the Debug MCP
+    /// tab-switch probe without opening any network-backed panel.</summary>
+    internal void DebugFocusSecondaryTarget()
+    {
+        ScrollToBottomButton.IsVisible = true;
+        ScrollToBottomButton.Focus();
+    }
+
+    /// <summary>Makes the embedded AI terminal focusable in the Debug MCP fixture.
+    /// This catches Loaded handlers that override the per-tab restored focus.</summary>
+    internal void DebugPrepareLoadedFocusCompetitor()
+    {
+        AiPanelHost.IsVisible = true;
+        AiColumn.MinWidth = 220;
+        AiColumn.Width = new GridLength(220, GridUnitType.Pixel);
+        AiPanel.DebugShowCliTerminalForTabFocusProbe();
+    }
+
+    private static string DescribeFocusTarget(IInputElement? target) => target switch
+    {
+        Control { Name.Length: > 0 } control => $"{control.GetType().Name}#{control.Name}",
+        null => "(none)",
+        _ => target.GetType().Name,
+    };
 
     public void ShowScriptPanel()
     {

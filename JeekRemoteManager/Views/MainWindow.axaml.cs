@@ -1045,8 +1045,8 @@ public partial class MainWindow : Window
             RightTabs.SelectedIndex = Math.Clamp(index - 1, 0, RightTabs.Items.Count - 1);
     }
 
-    // When a terminal tab becomes active, give it keyboard focus so typing goes
-    // straight to the remote shell.
+    // When a terminal tab becomes active, restore the control that had keyboard
+    // focus in that tab (the shell, file browser, AI panel, etc.).
     private void OnRightTabsSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         // SelectionChanged bubbles: a selection change in any list INSIDE a tab
@@ -1064,7 +1064,7 @@ public partial class MainWindow : Window
             vm.IsTerminalActive = view is not null;
 
         UpdateTerminalPanelToggleStates();
-        view?.FocusTerminal();
+        view?.RestoreLastFocus();
     }
 
     /// <summary>Syncs the monitor/AI/file-browser toolbar buttons' "on" highlight

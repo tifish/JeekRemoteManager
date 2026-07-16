@@ -110,7 +110,6 @@ public partial class AgentCliPanelView : UserControl
         {
             TryReattachEmbeddedSession();
             Dispatcher.UIThread.Post(SyncViewportToConPty, DispatcherPriority.Loaded);
-            FocusCliTerminal();
         };
     }
 
@@ -571,6 +570,9 @@ public partial class AgentCliPanelView : UserControl
             if (CliTerm.IsVisible)
                 CliTerm.Focus();
         }, DispatcherPriority.Input);
+
+    internal void DebugShowCliTerminalForTabFocusProbe() =>
+        CliTerm.IsVisible = true;
 
     public void NotifyHostLayoutChanged() =>
         Dispatcher.UIThread.Post(SyncViewportToConPty, DispatcherPriority.Loaded);

@@ -413,6 +413,7 @@ internal static class DebugMcpServer
                 "screenshot" => await ScreenshotAsync(),
                 "read_logs" => ReadLogs(args),
                 "ai_runtime_snapshot" => await AiRuntimeSnapshotAsync(),
+                "terminal_tab_focus_check" => await TerminalTabFocusCheckAsync(),
                 _ => throw new InvalidOperationException($"Unknown tool: {name}"),
             };
         }
@@ -884,6 +885,93 @@ internal static class DebugMcpServer
         });
 
         return ToolText(text);
+    }
+
+    private static async Task<JsonObject> TerminalTabFocusCheckAsync()
+    {
+        TabControl? tabs = null;
+        object? originalSelection = null;
+        TabItem? firstTab = null;
+        TabItem? secondTab = null;
+        TerminalView? firstView = null;
+        TerminalView? secondView = null;
+
+        try
+        {
+            await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main)
+                    throw new InvalidOperationException("MainWindow is not available.");
+
+                tabs = main.FindControl<TabControl>("RightTabs")
+                       ?? throw new InvalidOperationException("RightTabs not found.");
+                originalSelection = tabs.SelectedItem;
+                firstView = new TerminalView();
+                secondView = new TerminalView();
+                firstView.DebugPrepareLoadedFocusCompetitor();
+                firstTab = new TabItem { Header = "Focus probe A", Content = firstView };
+                secondTab = new TabItem { Header = "Focus probe B", Content = secondView };
+                tabs.Items.Add(firstTab);
+                tabs.Items.Add(secondTab);
+                tabs.SelectedItem = firstTab;
+                return true;
+            });
+
+            await Task.Delay(75);
+            var firstFocused = await OnUiAsync(() =>
+            {
+                firstView!.DebugFocusSecondaryTarget();
+                return firstView.DebugCurrentFocusTarget;
+            });
+
+            await OnUiAsync(() =>
+            {
+                tabs!.SelectedItem = secondTab;
+                return true;
+            });
+            await Task.Delay(75);
+            var secondFocused = await OnUiAsync(() => secondView!.DebugCurrentFocusTarget);
+
+            await OnUiAsync(() =>
+            {
+                tabs!.SelectedItem = firstTab;
+                return true;
+            });
+            await Task.Delay(75);
+            var restoredFocus = await OnUiAsync(() => firstView!.DebugCurrentFocusTarget);
+            var rememberedFocus = await OnUiAsync(() => firstView!.DebugLastFocusTarget);
+
+            var passed = firstFocused.EndsWith("#ScrollToBottomButton", StringComparison.Ordinal)
+                         && secondFocused.EndsWith("#Term", StringComparison.Ordinal)
+                         && restoredFocus == firstFocused
+                         && rememberedFocus == firstFocused;
+            return ToolText(
+                $"{(passed ? "PASS" : "FAIL")}: terminal-tab focus is kept per tab in memory.\n"
+                + $"first={firstFocused}\nsecond={secondFocused}\n"
+                + $"restored={restoredFocus}\nremembered={rememberedFocus}",
+                isError: !passed);
+        }
+        finally
+        {
+            if (tabs is not null)
+            {
+                await OnUiAsync(() =>
+                {
+                    if (originalSelection is not null && tabs.Items.Contains(originalSelection))
+                        tabs.SelectedItem = originalSelection;
+                    else if (tabs.Items.Count > 0)
+                        tabs.SelectedIndex = 0;
+
+                    if (firstTab is not null)
+                        tabs.Items.Remove(firstTab);
+                    if (secondTab is not null)
+                        tabs.Items.Remove(secondTab);
+                    firstView?.Close();
+                    secondView?.Close();
+                    return true;
+                });
+            }
+        }
     }
 
     #endregion
