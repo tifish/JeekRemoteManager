@@ -645,6 +645,37 @@ try
         Check(!safetyServer.RequiresDangerConfirmation("rm -rf /tmp/jrm-smoke", false)
               && !safetyServer.RequiresDangerConfirmation("echo safe", true),
               "AI auto-approve bypasses detector and agent-tagged dangerous-command confirmations");
+
+        // tools/list must succeed even when terminal_run and terminal_run_danger share schema props.
+        // (JsonNode "already has a parent" regressed Codex MCP startup.)
+        safetyServer.Start();
+        var toolsListOk = false;
+        var toolsListNames = "";
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+            var listBody = """{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}""";
+            using var listResp = await http.PostAsync(
+                safetyServer.EndpointUrl,
+                new StringContent(listBody, Encoding.UTF8, "application/json"));
+            var listJson = await listResp.Content.ReadAsStringAsync();
+            var listNode = JsonNode.Parse(listJson) as JsonObject;
+            var tools = listNode?["result"]?["tools"] as JsonArray;
+            toolsListOk = listResp.IsSuccessStatusCode
+                          && listNode?["error"] is null
+                          && tools is { Count: > 0 }
+                          && tools.Any(t => t?["name"]?.GetValue<string>() == "terminal_run")
+                          && tools.Any(t => t?["name"]?.GetValue<string>() == "terminal_run_danger");
+            toolsListNames = tools is null
+                ? listJson
+                : string.Join(',', tools.Select(t => t?["name"]?.GetValue<string>() ?? "?"));
+        }
+        catch (Exception ex)
+        {
+            toolsListNames = ex.Message;
+        }
+
+        Check(toolsListOk, $"Agent MCP tools/list returns shared-schema tools ({toolsListNames})");
     }
 
     var dimFilter = new TerminalDimColorFilter();

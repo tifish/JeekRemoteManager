@@ -513,10 +513,12 @@ public sealed class AgentRemoteMcpServer : IAsyncDisposable
 
     private static JsonObject Tool(string name, string description, JsonObject properties, string[]? required)
     {
+        // DeepClone: callers may reuse one properties object for several tools
+        // (e.g. terminal_run + terminal_run_danger). JsonNode forbids dual parents.
         var schema = new JsonObject
         {
             ["type"] = "object",
-            ["properties"] = properties,
+            ["properties"] = properties.DeepClone(),
         };
         if (required is { Length: > 0 })
             schema["required"] = new JsonArray(Array.ConvertAll(required, r => (JsonNode)r));
