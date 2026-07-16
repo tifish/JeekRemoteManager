@@ -18,5 +18,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-rem Launch the GUI detached so this console can close.
-start "" "%APP_EXE%"
+rem Launch via Launch.cmd (WMI). Safe for Grok Build's kill-on-close job;
+rem other agents can use plain start, but this path works everywhere.
+call "%~dp0Launch.cmd"
+exit /b %ERRORLEVEL%

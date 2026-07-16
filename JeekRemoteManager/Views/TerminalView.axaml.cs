@@ -988,8 +988,10 @@ public partial class TerminalView : UserControl
         EnsureAgentRemoteMcp();
 
         // Durable workspace mirrors the connection tree path (e.g. Connections/vps/bwg.json
-        // → %LOCALAPPDATA%\JeekRemoteManager\AgentWorkspaces\vps\bwg with CLAUDE.md + AGENTS.md).
-        var workingDir = ResolveAgentCliWorkingDirectory();
+        // → %LOCALAPPDATA%\JeekRemoteManager\AgentWorkspaces\vps\bwg). Write AGENTS.md and
+        // project MCP configs as soon as the panel opens so desktop Claude/Codex/Grok can
+        // open this folder without any CLI flags.
+        var workingDir = ResolveAgentCliWorkingDirectory(_agentRemoteMcp?.EndpointUrl);
 
         var preferred = (DataContext as MainWindowViewModel)?.AiProvider;
         var mainVm = DataContext as MainWindowViewModel;
@@ -1017,8 +1019,9 @@ public partial class TerminalView : UserControl
                     FocusTerminal();
             })
         {
-            // Re-write CLAUDE.md / AGENTS.md from the current connection each Start/Restart.
-            PrepareWorkspace = () => ResolveAgentCliWorkingDirectory(),
+            // Re-write AGENTS.md / CLAUDE.md + project MCP configs with the live endpoint
+            // so CLI and desktop agents read everything from the workspace (not argv).
+            PrepareWorkspace = mcpUrl => ResolveAgentCliWorkingDirectory(mcpUrl),
         };
 
         // Remember last-chosen provider across tabs and runs.
@@ -1036,15 +1039,16 @@ public partial class TerminalView : UserControl
 
     /// <summary>
     /// %LOCALAPPDATA%\JeekRemoteManager\AgentWorkspaces\&lt;tree-relative-path&gt; for this
-    /// tab's connection, with CLAUDE.md / AGENTS.md rewritten for the current server context.
+    /// tab's connection. Rewrites AGENTS.md / CLAUDE.md (and project MCP configs when
+    /// <paramref name="mcpEndpointUrl"/> is set) so agents need no command-line context.
     /// </summary>
-    private string ResolveAgentCliWorkingDirectory()
+    private string ResolveAgentCliWorkingDirectory(string? mcpEndpointUrl = null)
     {
         var mainVm = DataContext as MainWindowViewModel;
         var connectionsRoot = mainVm?.RootPath
             ?? SettingsService.ResolveConnectionsRoot(StorageLocation.UserDirectory);
 
-        return AgentCliWorkspace.Ensure(connectionsRoot, _sourcePath, _connection);
+        return AgentCliWorkspace.Ensure(connectionsRoot, _sourcePath, _connection, mcpEndpointUrl);
     }
 
     private void EnsureAgentRemoteMcp()

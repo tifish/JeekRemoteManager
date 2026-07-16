@@ -571,6 +571,7 @@ try
               Path.GetFullPath(localRoot),
               StringComparison.OrdinalIgnoreCase),
           "AI CLI workspace root is %LOCALAPPDATA%\\JeekRemoteManager\\AgentWorkspaces");
+    const string smokeMcpUrl = "http://127.0.0.1:1234/agent/smoketest/mcp";
     var workspace = AgentCliWorkspace.Ensure(
         connectionsRoot,
         bwgFile,
@@ -582,33 +583,54 @@ try
             Port = 22,
             Username = "root",
             Notes = "edge VPS",
-        });
+        },
+        smokeMcpUrl);
+    var agentsMd = File.ReadAllText(Path.Combine(workspace, "AGENTS.md"));
+    var claudeMd = File.ReadAllText(Path.Combine(workspace, "CLAUDE.md")).Trim();
+    var mcpJson = File.Exists(Path.Combine(workspace, ".mcp.json"))
+        ? File.ReadAllText(Path.Combine(workspace, ".mcp.json"))
+        : "";
+    var codexToml = File.Exists(Path.Combine(workspace, ".codex", "config.toml"))
+        ? File.ReadAllText(Path.Combine(workspace, ".codex", "config.toml"))
+        : "";
+    var grokToml = File.Exists(Path.Combine(workspace, ".grok", "config.toml"))
+        ? File.ReadAllText(Path.Combine(workspace, ".grok", "config.toml"))
+        : "";
     Check(relative.Replace('\\', '/') == "vps/bwg"
           && workspace.Replace('\\', '/').EndsWith("AgentWorkspaces/vps/bwg", StringComparison.OrdinalIgnoreCase)
           && workspace.StartsWith(Path.GetFullPath(localRoot), StringComparison.OrdinalIgnoreCase)
           && File.Exists(Path.Combine(workspace, "CLAUDE.md"))
           && File.Exists(Path.Combine(workspace, "AGENTS.md"))
-          && File.ReadAllText(Path.Combine(workspace, "CLAUDE.md")).Contains("jrm-remote", StringComparison.Ordinal)
-          && File.ReadAllText(Path.Combine(workspace, "AGENTS.md")).Contains("edge VPS", StringComparison.Ordinal),
-          "AI CLI workspace mirrors connection tree path under LocalAppData and writes CLAUDE.md/AGENTS.md");
+          && claudeMd == "@AGENTS.md"
+          && !claudeMd.Contains("jrm-remote", StringComparison.Ordinal)
+          && agentsMd.Contains("jrm-remote", StringComparison.Ordinal)
+          && agentsMd.Contains("edge VPS", StringComparison.Ordinal)
+          && agentsMd.Contains(smokeMcpUrl, StringComparison.Ordinal)
+          && agentsMd.Contains(".mcp.json", StringComparison.Ordinal)
+          && !agentsMd.Contains("--append-system-prompt", StringComparison.Ordinal)
+          && mcpJson.Contains(smokeMcpUrl, StringComparison.Ordinal)
+          && codexToml.Contains(smokeMcpUrl, StringComparison.Ordinal)
+          && grokToml.Contains(smokeMcpUrl, StringComparison.Ordinal)
+          && grokToml.Contains("transport = \"http\"", StringComparison.Ordinal),
+          "AI workspace writes AGENTS.md (full) + CLAUDE.md include + project MCP configs");
 
-    var claudeAutoArgs = AgentCliCatalog.BuildInteractiveArguments(
-        AgentCliKind.Claude, workspace, "http://127.0.0.1:1234/mcp", autoRun: true);
-    var claudePromptArgs = AgentCliCatalog.BuildInteractiveArguments(
-        AgentCliKind.Claude, workspace, "http://127.0.0.1:1234/mcp", autoRun: false);
-    var codexAutoArgs = AgentCliCatalog.BuildInteractiveArguments(
-        AgentCliKind.Codex, workspace, "http://127.0.0.1:1234/mcp", autoRun: true);
-    var codexPromptArgs = AgentCliCatalog.BuildInteractiveArguments(
-        AgentCliKind.Codex, workspace, "http://127.0.0.1:1234/mcp", autoRun: false);
-    var grokAutoArgs = AgentCliCatalog.BuildInteractiveArguments(
-        AgentCliKind.Grok, workspace, "http://127.0.0.1:1234/mcp", autoRun: true);
+    var claudeAutoArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Claude, autoRun: true);
+    var claudePromptArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Claude, autoRun: false);
+    var codexAutoArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Codex, autoRun: true);
+    var codexPromptArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Codex, autoRun: false);
+    var grokAutoArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Grok, autoRun: true);
     Check(claudeAutoArgs.Contains("--allowedTools")
+          && !claudeAutoArgs.Contains("--mcp-config")
+          && !claudeAutoArgs.Contains("--append-system-prompt")
+          && !claudeAutoArgs.Contains("--strict-mcp-config")
           && !claudePromptArgs.Contains("--allowedTools")
+          && codexAutoArgs.Contains("--no-alt-screen")
+          && !codexAutoArgs.Any(a => a.Contains("mcp_servers.jrm-remote.url=", StringComparison.Ordinal))
           && codexAutoArgs.Any(a => a.Contains("terminal_run.approval_mode=\"approve\"", StringComparison.Ordinal))
           && codexPromptArgs.Any(a => a.Contains("terminal_run.approval_mode=\"prompt\"", StringComparison.Ordinal))
           && grokAutoArgs.Contains("MCPTool(jrm-remote__terminal_run)")
           && grokAutoArgs.Contains("MCPTool(jrm-remote__terminal_run_danger)"),
-          "AI auto-run maps only JRM remote command tools to each agent CLI permission surface");
+          "AI CLI args are runtime-only; MCP URL and system context live in the workspace");
 
     await using (var safetyServer = new AgentRemoteMcpServer(new SmokeAgentRemoteTools()))
     {

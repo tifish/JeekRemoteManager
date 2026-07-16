@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -61,7 +60,11 @@ public sealed record AgentCliDescriptor(
     public bool IsAvailable => !string.IsNullOrWhiteSpace(ExecutablePath);
 }
 
-/// <summary>Locates the three supported agent CLIs and builds launch argument lists.</summary>
+/// <summary>
+/// Locates the three supported agent CLIs and builds launch argument lists.
+/// Remote-server context and MCP endpoints live in the workspace (<c>AGENTS.md</c>,
+/// project MCP configs) — not on the command line.
+/// </summary>
 public static class AgentCliCatalog
 {
     public static IReadOnlyList<AgentCliDescriptor> Discover() =>
@@ -74,57 +77,56 @@ public static class AgentCliCatalog
             AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.Grok)),
     ];
 
+    /// <summary>
+    /// Runtime-only CLI flags. Connection context, system guidance, and MCP URL are
+    /// written into the workspace by <see cref="AgentCliWorkspace.Ensure"/> before launch.
+    /// </summary>
     public static IReadOnlyList<string> BuildInteractiveArguments(
         AgentCliKind kind,
-        string workingDirectory,
-        string mcpUrl,
-        bool autoRun = true)
-    {
-        WriteMcpConfig(kind, workingDirectory, mcpUrl);
-        return kind switch
+        bool autoRun = true) =>
+        kind switch
         {
-            AgentCliKind.Claude =>
-            BuildClaudeArguments(workingDirectory, autoRun),
-            AgentCliKind.Codex =>
-            BuildCodexArguments(mcpUrl, autoRun),
-            AgentCliKind.Grok =>
-            BuildGrokArguments(autoRun),
+            AgentCliKind.Claude => BuildClaudeArguments(autoRun),
+            AgentCliKind.Codex => BuildCodexArguments(autoRun),
+            AgentCliKind.Grok => BuildGrokArguments(autoRun),
             _ => Array.Empty<string>(),
         };
+
+    private static IReadOnlyList<string> BuildClaudeArguments(bool autoRun)
+    {
+        // MCP URL + instructions: workspace .mcp.json and AGENTS.md/CLAUDE.md (cwd = workspace).
+        if (!autoRun)
+            return Array.Empty<string>();
+
+        return
+        [
+            "--allowedTools",
+            "mcp__jrm-remote__terminal_run,mcp__jrm-remote__terminal_run_danger",
+        ];
     }
 
-    private static IReadOnlyList<string> BuildClaudeArguments(string workingDirectory, bool autoRun)
+    private static IReadOnlyList<string> BuildCodexArguments(bool autoRun)
     {
-        var args = new List<string>
-        {
-            "--mcp-config",
-            Path.Combine(workingDirectory, "jrm-mcp.json"),
-            "--strict-mcp-config",
-            "--append-system-prompt",
-            BuildRemoteSystemPrompt(),
-        };
+        // --no-alt-screen: host scrollback/scrollbar (Codex default TUI uses alternate screen).
+        // MCP URL: workspace .codex/config.toml. Approval is the only optional runtime policy.
+        var args = new List<string> { "--no-alt-screen" };
         if (autoRun)
         {
-            args.Add("--allowedTools");
-            args.Add("mcp__jrm-remote__terminal_run,mcp__jrm-remote__terminal_run_danger");
+            args.Add("-c");
+            args.Add("mcp_servers.jrm-remote.tools.terminal_run.approval_mode=\"approve\"");
+            args.Add("-c");
+            args.Add("mcp_servers.jrm-remote.tools.terminal_run_danger.approval_mode=\"approve\"");
         }
+        else
+        {
+            args.Add("-c");
+            args.Add("mcp_servers.jrm-remote.tools.terminal_run.approval_mode=\"prompt\"");
+            args.Add("-c");
+            args.Add("mcp_servers.jrm-remote.tools.terminal_run_danger.approval_mode=\"prompt\"");
+        }
+
         return args;
     }
-
-    private static IReadOnlyList<string> BuildCodexArguments(string mcpUrl, bool autoRun) =>
-        [
-            // Use the normal buffer so host scrollback/scrollbar work. Codex's default
-            // alternate-screen TUI keeps history inside the app (unlike Claude/Grok
-            // which scroll themselves) and cannot use our terminal scrollbar.
-            "--no-alt-screen",
-            // Force the per-session HTTP MCP server even if the project config is not trusted yet.
-            "-c",
-            $"mcp_servers.jrm-remote.url=\"{mcpUrl.Replace("\"", "\\\"", StringComparison.Ordinal)}\"",
-            "-c",
-            $"mcp_servers.jrm-remote.tools.terminal_run.approval_mode=\"{(autoRun ? "approve" : "prompt")}\"",
-            "-c",
-            $"mcp_servers.jrm-remote.tools.terminal_run_danger.approval_mode=\"{(autoRun ? "approve" : "prompt")}\"",
-        ];
 
     private static IReadOnlyList<string> BuildGrokArguments(bool autoRun) => autoRun
         ?
@@ -133,66 +135,4 @@ public static class AgentCliCatalog
             "--allow", "MCPTool(jrm-remote__terminal_run_danger)",
         ]
         : Array.Empty<string>();
-
-    public static string BuildRemoteSystemPrompt() =>
-        "You are assisting inside JeekRemoteManager. The user's remote server is available only " +
-        "through the jrm-remote MCP tools (terminal_run, terminal_run_danger, terminal_interrupt, " +
-        "terminal_reconnect, file_upload, file_download). Your built-in shell/file tools act on the " +
-        "local Windows machine where JeekRemoteManager runs — never confuse them with the remote " +
-        "server. Prefer jrm-remote tools for anything that must run on the connected SSH/WSL session.";
-
-    private static void WriteMcpConfig(AgentCliKind kind, string workingDirectory, string mcpUrl)
-    {
-        Directory.CreateDirectory(workingDirectory);
-        switch (kind)
-        {
-            case AgentCliKind.Claude:
-            {
-                var path = Path.Combine(workingDirectory, "jrm-mcp.json");
-                var json =
-                    "{\n" +
-                    "  \"mcpServers\": {\n" +
-                    "    \"jrm-remote\": {\n" +
-                    "      \"type\": \"http\",\n" +
-                    $"      \"url\": \"{EscapeJson(mcpUrl)}\"\n" +
-                    "    }\n" +
-                    "  }\n" +
-                    "}\n";
-                File.WriteAllText(path, json);
-                break;
-            }
-            case AgentCliKind.Codex:
-            {
-                var dir = Path.Combine(workingDirectory, ".codex");
-                Directory.CreateDirectory(dir);
-                var path = Path.Combine(dir, "config.toml");
-                var toml =
-                    "# Generated by JeekRemoteManager — per-session remote tools\n" +
-                    "[mcp_servers.jrm-remote]\n" +
-                    $"url = \"{EscapeToml(mcpUrl)}\"\n";
-                File.WriteAllText(path, toml);
-                break;
-            }
-            case AgentCliKind.Grok:
-            {
-                var dir = Path.Combine(workingDirectory, ".grok");
-                Directory.CreateDirectory(dir);
-                var path = Path.Combine(dir, "config.toml");
-                // Grok project MCP uses [mcp_servers.name] with transport + url for HTTP.
-                var toml =
-                    "# Generated by JeekRemoteManager — per-session remote tools\n" +
-                    "[mcp_servers.jrm-remote]\n" +
-                    "transport = \"http\"\n" +
-                    $"url = \"{EscapeToml(mcpUrl)}\"\n";
-                File.WriteAllText(path, toml);
-                break;
-            }
-        }
-    }
-
-    private static string EscapeJson(string value) =>
-        value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);
-
-    private static string EscapeToml(string value) =>
-        value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);
 }

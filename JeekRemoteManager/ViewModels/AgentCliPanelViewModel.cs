@@ -33,9 +33,11 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     public Func<(int Cols, int Rows)>? GetViewportSize { get; set; }
 
     /// <summary>
-    /// Optional hook run immediately before each CLI start (refresh CLAUDE.md / AGENTS.md).
+    /// Optional hook run immediately before each CLI start. Receives the live MCP endpoint
+    /// URL so the workspace can refresh <c>AGENTS.md</c>/<c>CLAUDE.md</c> and project MCP
+    /// configs (no server details on the command line).
     /// </summary>
-    public Action? PrepareWorkspace { get; set; }
+    public Action<string>? PrepareWorkspace { get; set; }
 
     /// <summary>Absolute local workspace for this connection (%LOCALAPPDATA%\JeekRemoteManager\AgentWorkspaces\...).</summary>
     public string WorkingDirectory => _workingDirectory;
@@ -338,17 +340,15 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
             try
             {
-                // Refresh connection-scoped CLAUDE.md / AGENTS.md before the CLI loads them.
-                try { PrepareWorkspace?.Invoke(); }
+                // Refresh AGENTS.md / CLAUDE.md + project MCP configs with the live endpoint
+                // before the CLI (or a desktop app opening this folder) loads them.
+                try { PrepareWorkspace?.Invoke(mcpUrl); }
                 catch { /* best-effort; still launch the CLI */ }
 
                 Directory.CreateDirectory(_workingDirectory);
                 var exePath = provider.ExecutablePath;
-                var args = AgentCliCatalog.BuildInteractiveArguments(
-                    provider.Kind,
-                    _workingDirectory,
-                    mcpUrl,
-                    AutoRun);
+                // Runtime flags only (auto-approve tools / scrollback). Server context is in AGENTS.md.
+                var args = AgentCliCatalog.BuildInteractiveArguments(provider.Kind, AutoRun);
 
                 if (UseWindowsTerminal && TryStartWindowsTerminal(exePath, args))
                 {
