@@ -86,14 +86,6 @@ public partial class AgentCliPanelView : UserControl
         AddHandler(InputElement.KeyDownEvent, OnPanelPreviewKeyDown, RoutingStrategies.Tunnel);
         CliTerm.ContextRequested += OnCliContextRequested;
         CliTerm.AddHandler(InputElement.KeyDownEvent, OnCliPreviewKeyDown, RoutingStrategies.Tunnel);
-        // Tunnel so we run before TerminalControl: on the normal buffer, prefer host
-        // scrollback (Codex --no-alt-screen). Otherwise mouse-tracking mode steals the
-        // wheel and the external scrollbar looks dead.
-        CliTerm.AddHandler(
-            InputElement.PointerWheelChangedEvent,
-            OnCliPointerWheel,
-            RoutingStrategies.Tunnel);
-
         TerminalHost.SizeChanged += (_, _) =>
             Dispatcher.UIThread.Post(SyncViewportToConPty, DispatcherPriority.Render);
         SizeChanged += (_, _) =>
@@ -177,6 +169,17 @@ public partial class AgentCliPanelView : UserControl
 
     /// <summary>Rendered AI header height exposed for Debug MCP layout verification.</summary>
     public double DebugHeaderHeight => AiHeader.Bounds.Height;
+
+    /// <summary>Exercises Codex host-history wheel routing through Debug MCP.</summary>
+    public string DebugScrollHostWheel(double deltaY)
+    {
+        var before = _model.ScrollOffset;
+        var handled = CliTerm.ScrollHostHistory(new Vector(0, deltaY));
+        return
+            $"handled={handled} deltaY={deltaY:0.##} before={before} after={_model.ScrollOffset} " +
+            $"max={_model.MaxScrollback} alt={_model.Terminal.IsAlternateBufferActive} " +
+            $"mouseMode={_model.IsMouseModeActive} atBottom={_model.Terminal.Buffer.IsAtBottom}";
+    }
 
     private void OnCloseClick(object? sender, RoutedEventArgs e) =>
         CloseRequested?.Invoke(this, EventArgs.Empty);
@@ -383,10 +386,12 @@ public partial class AgentCliPanelView : UserControl
             try
             {
                 _model.Feed("\u001b[?1049l\u001b[0m");
+                TerminalScrollbackReset.Reset(_model);
                 if (replaced)
                     _model.Feed("\u001b[2J\u001b[H");
                 else
                     _model.Feed("\r\n\u001b[33m[session ended]\u001b[0m\r\n");
+                _model.EnsureCaretIsVisible();
                 RecordCursorRow();
                 RefreshLocalDisplay();
             }
@@ -422,6 +427,8 @@ public partial class AgentCliPanelView : UserControl
             try
             {
                 _model.Feed("\u001bc\u001b[?1049l\u001b[2J\u001b[H\u001b[0m");
+                TerminalScrollbackReset.Reset(_model);
+                _model.EnsureCaretIsVisible();
                 RecordCursorRow();
                 RefreshLocalDisplay();
             }
@@ -531,22 +538,6 @@ public partial class AgentCliPanelView : UserControl
         _model.UpdateDisplay();
         Interlocked.Increment(ref _displayRefreshCount);
         RecordCursorRow();
-    }
-
-    /// <summary>
-    /// Normal-buffer agents (Codex --no-alt-screen) scroll via host history. Do not let
-    /// mouse-tracking mode convert the wheel into CSI mouse events the app ignores.
-    /// </summary>
-    private void OnCliPointerWheel(object? sender, PointerWheelEventArgs e)
-    {
-        if (e.Delta.Y == 0)
-            return;
-
-        if (_model.Terminal.IsAlternateBufferActive)
-            return; // Claude/Grok TUI: leave TerminalControl mouse-mode handling.
-
-        _model.HandlePointerWheel(e.Delta);
-        e.Handled = true;
     }
 
     private void UnhookSession()

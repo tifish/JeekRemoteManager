@@ -1,7 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:JeekRemoteManager.ViewModels"
-             xmlns:terminal="using:SvcSystems.UI.Terminal"
+             xmlns:views="using:JeekRemoteManager.Views"
              xmlns:l="using:Jeek.Avalonia.Localization"
              x:Class="JeekRemoteManager.Views.AgentCliPanelView"
              x:DataType="vm:AgentCliPanelViewModel">
@@ -161,12 +161,12 @@
                 </StackPanel>
             </Border>
 
-            <terminal:TerminalControl x:Name="CliTerm"
-                                      HorizontalAlignment="Stretch"
-                                      VerticalAlignment="Stretch"
-                                      ClipToBounds="True"
-                                      RightClickAction="ContextMenu"
-                                      IsVisible="{Binding ShowEmbeddedTerminal}" />
+            <views:AgentTerminalControl x:Name="CliTerm"
+                                        HorizontalAlignment="Stretch"
+                                        VerticalAlignment="Stretch"
+                                        ClipToBounds="True"
+                                        RightClickAction="ContextMenu"
+                                        IsVisible="{Binding ShowEmbeddedTerminal}" />
             <Border Margin="16"
                     IsVisible="{Binding ShowExternalHint}"
                     VerticalAlignment="Center"

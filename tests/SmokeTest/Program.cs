@@ -543,6 +543,19 @@ try
           && noScrollbackModel.Terminal.Buffer.YBase + noScrollbackModel.Terminal.Buffer.Y == noSbAbs,
           "Terminal resize repair is a no-op when absolute cursor is already correct");
 
+    var resetScrollbackModel = FeedScrollbackPrompt(10);
+    resetScrollbackModel.ScrollLines(-5);
+    Check(resetScrollbackModel.MaxScrollback > 0
+          && !resetScrollbackModel.Terminal.Buffer.IsAtBottom,
+          "Terminal scrollback reset test starts with history above the viewport");
+    TerminalScrollbackReset.Reset(resetScrollbackModel);
+    Check(resetScrollbackModel.MaxScrollback == 0
+          && resetScrollbackModel.ScrollOffset == 0
+          && resetScrollbackModel.Terminal.Buffer.Lines.Length == resetScrollbackModel.Terminal.Rows
+          && resetScrollbackModel.Terminal.Buffer.IsAtBottom
+          && !resetScrollbackModel.CanScroll,
+          "Terminal scrollback reset restores one initial-size viewport");
+
     // --- AI CLI workspace + dim color filter ---
     var connectionsRoot = Path.Combine(Path.GetTempPath(), "jrm-agent-ws-smoke", "Connections");
     Directory.CreateDirectory(Path.Combine(connectionsRoot, "vps"));
