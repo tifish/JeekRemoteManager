@@ -20,7 +20,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 {
     private readonly string _workingDirectory;
     private readonly Func<AgentRemoteMcpServer?> _getMcpServer;
-    private readonly Action<bool>? _onAgentModeChanged;
+    private readonly Action<bool>? _onHideSshTerminalChanged;
     private readonly Action<bool, bool>? _onSafetyOptionsChanged;
     private readonly SemaphoreSlim _startGate = new(1, 1);
     private ConPtySession? _session;
@@ -47,11 +47,11 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         bool autoRun = true,
         bool autoApproveDangerousCommands = false,
         Action<bool, bool>? onSafetyOptionsChanged = null,
-        Action<bool>? onAgentModeChanged = null)
+        Action<bool>? onHideSshTerminalChanged = null)
     {
         _workingDirectory = workingDirectory;
         _getMcpServer = getMcpServer;
-        _onAgentModeChanged = onAgentModeChanged;
+        _onHideSshTerminalChanged = onHideSshTerminalChanged;
         _onSafetyOptionsChanged = onSafetyOptionsChanged;
         _autoRun = autoRun;
         _autoApproveDangerousCommands = autoApproveDangerousCommands;
@@ -82,7 +82,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     private bool _useWindowsTerminal;
 
     [ObservableProperty]
-    private bool _agentMode;
+    private bool _hideSshTerminal;
 
     [ObservableProperty]
     private bool _autoRun = true;
@@ -140,7 +140,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         InstallCommand.NotifyCanExecuteChanged();
     }
 
-    partial void OnAgentModeChanged(bool value) => _onAgentModeChanged?.Invoke(value);
+    partial void OnHideSshTerminalChanged(bool value) => _onHideSshTerminalChanged?.Invoke(value);
 
     partial void OnAutoRunChanged(bool value)
     {

@@ -469,18 +469,18 @@ public partial class TerminalView : UserControl
     /// <summary>Rendered terminal visibility exposed for Debug MCP verification.</summary>
     public bool IsTerminalAreaVisible => TerminalArea.IsVisible;
 
-    /// <summary>Whether the AI panel currently owns the full tab.</summary>
-    public bool IsAgentModeLayoutActive => ShouldUseAgentModeLayout(
+    /// <summary>Whether the SSH terminal is currently hidden by the AI panel preference.</summary>
+    public bool IsSshTerminalHidden => ShouldHideSshTerminal(
         AiPanelHost.IsVisible,
-        _aiViewModel?.AgentMode == true,
+        _aiViewModel?.HideSshTerminal == true,
         IsLoginManualInputPending);
 
-    /// <summary>Computes the effective Agent layout without changing the persisted preference.</summary>
-    public static bool ShouldUseAgentModeLayout(
+    /// <summary>Computes whether the SSH terminal should be hidden without changing the preference.</summary>
+    public static bool ShouldHideSshTerminal(
         bool aiPanelVisible,
-        bool agentModeRequested,
+        bool hideSshTerminalRequested,
         bool loginManualInputPending) =>
-        aiPanelVisible && agentModeRequested && !loginManualInputPending;
+        aiPanelVisible && hideSshTerminalRequested && !loginManualInputPending;
 
     /// <summary>
     /// Submits one login-command answer through the real terminal input path. This is
@@ -648,7 +648,7 @@ public partial class TerminalView : UserControl
             // Collapse the row so it leaves no gap.
             FileBrowserRow.MinHeight = 0;
             FileBrowserRow.Height = new GridLength(0, GridUnitType.Pixel);
-            if (IsAgentModeLayoutActive)
+            if (IsSshTerminalHidden)
                 Dispatcher.UIThread.Post(() => AiPanel.FocusCliTerminal(), DispatcherPriority.Background);
             else
                 FocusTerminal();
@@ -801,23 +801,23 @@ public partial class TerminalView : UserControl
     /// <summary>
     /// Lays out the terminal/AI columns for the current panel state. Three states: panel
     /// hidden (terminal full width), side panel (terminal + splitter + fixed-width panel),
-    /// and agent mode (terminal fully hidden, panel takes the whole tab above an optional
+    /// and hidden-terminal mode (the AI panel takes the whole tab above an optional
     /// file browser).
     /// </summary>
     private void ApplyAiPanelLayout()
     {
         var show = AiPanelHost.IsVisible;
-        var agentMode = IsAgentModeLayoutActive;
+        var hideSshTerminal = IsSshTerminalHidden;
 
         // Hiding the terminal area (not just collapsing the column) keeps the pty size
         // stable, so remote command output isn't rewrapped to a zero-width window.
-        TerminalArea.IsVisible = !agentMode;
-        TerminalColumn.MinWidth = agentMode ? 0 : 200;
-        TerminalColumn.Width = agentMode
+        TerminalArea.IsVisible = !hideSshTerminal;
+        TerminalColumn.MinWidth = hideSshTerminal ? 0 : 200;
+        TerminalColumn.Width = hideSshTerminal
             ? new GridLength(0, GridUnitType.Pixel)
             : new GridLength(1, GridUnitType.Star);
 
-        AiSplitter.IsVisible = show && !agentMode;
+        AiSplitter.IsVisible = show && !hideSshTerminal;
 
         if (show)
             Dispatcher.UIThread.Post(() => AiPanel.NotifyHostLayoutChanged(), DispatcherPriority.Loaded);
@@ -828,7 +828,7 @@ public partial class TerminalView : UserControl
             AiColumn.MinWidth = 0;
             AiColumn.Width = new GridLength(0, GridUnitType.Pixel);
         }
-        else if (agentMode)
+        else if (hideSshTerminal)
         {
             AiColumn.MinWidth = 0;
             AiColumn.Width = new GridLength(1, GridUnitType.Star);
@@ -846,17 +846,17 @@ public partial class TerminalView : UserControl
     }
 
     /// <summary>Places the shared file-browser row below the terminal normally, or below
-    /// the AI conversation while agent mode owns the tab.</summary>
+    /// the AI conversation while the SSH terminal is hidden.</summary>
     private void ApplyFileBrowserPlacement()
     {
-        var agentMode = IsAgentModeLayoutActive;
-        var column = agentMode ? 0 : 2;
+        var hideSshTerminal = IsSshTerminalHidden;
+        var column = hideSshTerminal ? 0 : 2;
         Grid.SetColumn(FileSplitter, column);
         Grid.SetColumn(FileBrowserHost, column);
 
-        // Outside agent mode the AI panel continues alongside both terminal rows. In
-        // agent mode it yields the remembered bottom row only while the browser is open.
-        Grid.SetRowSpan(AiPanelHost, agentMode && FileBrowserHost.IsVisible ? 1 : 3);
+        // With the SSH terminal visible, the AI panel continues alongside both terminal rows.
+        // When hidden, it yields the remembered bottom row only while the browser is open.
+        Grid.SetRowSpan(AiPanelHost, hideSshTerminal && FileBrowserHost.IsVisible ? 1 : 3);
     }
 
     private void PersistAiPanelWidth()
@@ -895,7 +895,7 @@ public partial class TerminalView : UserControl
                 if (_agentRemoteMcp is not null)
                     _agentRemoteMcp.AutoApproveDangerousCommands = autoApprove;
             },
-            onAgentModeChanged: _ =>
+            onHideSshTerminalChanged: _ =>
             {
                 PersistAiPanelWidth();
                 ApplyAiPanelLayout();
@@ -1848,7 +1848,7 @@ public partial class TerminalView : UserControl
             ApplyAiPanelLayout();
             if (IsLoginManualInputPending)
                 FocusTerminal();
-            else if (IsAgentModeLayoutActive)
+            else if (IsSshTerminalHidden)
                 Dispatcher.UIThread.Post(() => AiPanel.FocusCliTerminal(), DispatcherPriority.Background);
         }, DispatcherPriority.Background);
 

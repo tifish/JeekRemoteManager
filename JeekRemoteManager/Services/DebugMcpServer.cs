@@ -857,9 +857,13 @@ internal static class DebugMcpServer
                     sb.AppendLine(
                         $"cliProvider={ai.SelectedProvider.Label} available={ai.SelectedProvider.IsAvailable} "
                         + $"running={ai.IsRunning} embedded={ai.HasEmbeddedSession} "
-                        + $"useWindowsTerminal={ai.UseWindowsTerminal} agentMode={ai.AgentMode} "
+                        + $"useWindowsTerminal={ai.UseWindowsTerminal} hideSshTerminal={ai.HideSshTerminal} "
                         + $"installing={ai.IsInstalling} autoRun={ai.AutoRun} "
                         + $"autoApprove={ai.AutoApproveDangerousCommands}");
+                    sb.AppendLine(
+                        $"terminalVisible={terminal.IsTerminalAreaVisible} "
+                        + $"sshTerminalHidden={terminal.IsSshTerminalHidden} "
+                        + $"loginInputPending={terminal.IsLoginManualInputPending}");
                     sb.AppendLine($"status={ai.StatusText}");
                     sb.AppendLine($"workspace={ai.WorkingDirectory}");
                     sb.AppendLine($"mcpUrl={terminal.AgentRemoteMcpUrl ?? "(none)"}");

@@ -103,9 +103,10 @@
                                 <MenuItem Header="{l:Localize AiCliUseWindowsTerminal}"
                                           ToggleType="CheckBox"
                                           IsChecked="{Binding UseWindowsTerminal, Mode=TwoWay}" />
-                                <MenuItem Header="{l:Localize AiAgentMode}"
+                                <MenuItem Header="{l:Localize AiHideSshTerminal}"
                                           ToggleType="CheckBox"
-                                          IsChecked="{Binding AgentMode, Mode=TwoWay}" />
+                                          IsChecked="{Binding HideSshTerminal, Mode=TwoWay}"
+                                          ToolTip.Tip="{l:Localize AiHideSshTerminalHint}" />
                                 <Separator />
                                 <MenuItem Header="{l:Localize FontDecrease}"
                                           Click="OnFontDecreaseClick" />

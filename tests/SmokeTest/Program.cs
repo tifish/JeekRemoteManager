@@ -265,21 +265,21 @@ try
           "Duplicated sessions without a marker preserve existing login-command behavior");
     Check(LoginCommandSequence.IsManualInputDirective("  #INPUT  "),
           "Manual-input login directive remains case-insensitive");
-    Check(TerminalView.ShouldUseAgentModeLayout(
+    Check(TerminalView.ShouldHideSshTerminal(
               aiPanelVisible: true,
-              agentModeRequested: true,
+              hideSshTerminalRequested: true,
               loginManualInputPending: false),
-          "Agent mode owns the tab when no login input is pending");
-    Check(!TerminalView.ShouldUseAgentModeLayout(
+          "Hide SSH terminal preference applies when no login input is pending");
+    Check(!TerminalView.ShouldHideSshTerminal(
               aiPanelVisible: true,
-              agentModeRequested: true,
+              hideSshTerminalRequested: true,
               loginManualInputPending: true),
-          "Pending login input temporarily overrides the Agent layout");
-    Check(!TerminalView.ShouldUseAgentModeLayout(
+          "Pending login input temporarily shows the SSH terminal");
+    Check(!TerminalView.ShouldHideSshTerminal(
               aiPanelVisible: true,
-              agentModeRequested: false,
+              hideSshTerminalRequested: false,
               loginManualInputPending: false),
-          "Completing login input does not force a disabled Agent mode");
+          "Disabled preference keeps the SSH terminal visible");
     var autoPanelConnection = new Connection
     {
         Type = ConnectionType.Ssh,
