@@ -121,6 +121,9 @@ public partial class AgentCliPanelView : UserControl
         $"packets={Interlocked.Read(ref _receivedPacketCount)} batches={Interlocked.Read(ref _feedBatchCount)} " +
         $"refreshes={Interlocked.Read(ref _displayRefreshCount)} pending={_sessionOutputBuffer.PendingPacketCount}";
 
+    /// <summary>Rendered AI header height exposed for Debug MCP layout verification.</summary>
+    public double DebugHeaderHeight => AiHeader.Bounds.Height;
+
     private void OnCloseClick(object? sender, RoutedEventArgs e) =>
         CloseRequested?.Invoke(this, EventArgs.Empty);
 

@@ -6,112 +6,132 @@
              x:Class="JeekRemoteManager.Views.AgentCliPanelView"
              x:DataType="vm:AgentCliPanelViewModel">
     <DockPanel LastChildFill="True">
-        <Border DockPanel.Dock="Top"
-                Padding="8,6"
+        <Border x:Name="AiHeader"
+                DockPanel.Dock="Top"
+                Padding="6,4"
                 BorderBrush="{DynamicResource BorderBrushSoft}"
                 BorderThickness="0,0,0,1"
                 Background="{DynamicResource ChromeSurfaceBrush}">
-            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
-                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                    <ComboBox Classes="header-option"
-                              MinWidth="110"
-                              ItemsSource="{Binding Providers}"
-                              SelectedItem="{Binding SelectedProvider}">
-                        <ComboBox.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding Label}" />
-                            </DataTemplate>
-                        </ComboBox.ItemTemplate>
-                    </ComboBox>
-                    <Button Content="{l:Localize AiCliStart}"
+            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
+                <ComboBox Grid.Column="0"
+                          Classes="header-option"
+                          MinWidth="92"
+                          MaxWidth="120"
+                          MinHeight="28"
+                          ItemsSource="{Binding Providers}"
+                          SelectedItem="{Binding SelectedProvider}">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Label}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+
+                <TextBlock Grid.Column="1"
+                           VerticalAlignment="Center"
+                           Text="{Binding StatusText}"
+                           TextTrimming="CharacterEllipsis"
+                           MaxLines="1"
+                           FontSize="11"
+                           Foreground="{DynamicResource TextMutedBrush}"
+                           ToolTip.Tip="{Binding StatusText}" />
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
+                    <Button Classes="toolbar icon-button"
                             Command="{Binding StartCommand}"
                             IsVisible="{Binding ShowStartButton}"
+                            ToolTip.Tip="{l:Localize AiCliStart}"
                             MinHeight="28"
-                            Padding="10,2" />
-                    <Button Content="{l:Localize AiCliRestart}"
+                            MinWidth="28"
+                            Padding="0">
+                        <TextBlock Classes="icon" FontSize="12" Text="&#xE768;" />
+                    </Button>
+                    <Button Classes="toolbar icon-button"
                             Command="{Binding RestartCommand}"
                             IsVisible="{Binding IsRunning}"
+                            ToolTip.Tip="{l:Localize AiCliRestart}"
                             MinHeight="28"
-                            Padding="10,2" />
-                    <Button Content="{l:Localize AiCliStop}"
+                            MinWidth="28"
+                            Padding="0">
+                        <TextBlock Classes="icon" FontSize="12" Text="&#xE72C;" />
+                    </Button>
+                    <Button Classes="toolbar icon-button"
                             Command="{Binding StopCommand}"
                             IsVisible="{Binding IsRunning}"
+                            ToolTip.Tip="{l:Localize AiCliStop}"
                             MinHeight="28"
-                            Padding="10,2" />
-                    <Button Content="{l:Localize AiCliInstall}"
+                            MinWidth="28"
+                            Padding="0">
+                        <TextBlock Classes="icon" FontSize="12" Text="&#xE71A;" />
+                    </Button>
+                    <Button Classes="toolbar icon-button"
                             Command="{Binding InstallCommand}"
                             IsVisible="{Binding ShowInstallPrompt}"
+                            ToolTip.Tip="{l:Localize AiCliInstall}"
                             MinHeight="28"
-                            Padding="10,2" />
-                </StackPanel>
-                <WrapPanel Grid.Row="1"
-                           Margin="0,4,0,0"
-                           Orientation="Horizontal"
-                           VerticalAlignment="Center">
-                    <CheckBox Content="{l:Localize AiCliUseWindowsTerminal}"
-                              IsChecked="{Binding UseWindowsTerminal}"
-                              VerticalAlignment="Center" />
-                    <CheckBox x:Name="AutoRunCheckBox"
-                              Content="{l:Localize AiAutoRun}"
-                              IsChecked="{Binding AutoRun}"
-                              ToolTip.Tip="{l:Localize AiAutoRunHint}"
-                              VerticalAlignment="Center" />
-                    <CheckBox x:Name="AutoApproveCheckBox"
-                              Content="{l:Localize AiAutoApprove}"
-                              IsChecked="{Binding AutoApproveDangerousCommands}"
-                              IsEnabled="{Binding AutoRun}"
-                              ToolTip.Tip="{l:Localize AiAutoApproveHint}"
-                              VerticalAlignment="Center" />
-                    <CheckBox Content="{l:Localize AiAgentMode}"
-                              IsChecked="{Binding AgentMode}"
-                              VerticalAlignment="Center" />
-                    <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-                        <Button Content="A−"
-                                ToolTip.Tip="{l:Localize FontDecrease}"
-                                Click="OnFontDecreaseClick"
-                                MinHeight="28"
-                                MinWidth="32"
-                                Padding="6,2" />
-                        <TextBlock x:Name="FontSizeLabel"
+                            MinWidth="28"
+                            Padding="0">
+                        <TextBlock Classes="icon" FontSize="12" Text="&#xE896;" />
+                    </Button>
+                    <Button x:Name="AiOptionsButton"
+                            Classes="toolbar icon-button"
+                            ToolTip.Tip="{l:Localize AiCliOptions}"
+                            MinWidth="42"
+                            MinHeight="28"
+                            Padding="4,0">
+                        <StackPanel Orientation="Horizontal" Spacing="3">
+                            <TextBlock Classes="icon" FontSize="12" Text="&#xE713;" />
+                            <TextBlock x:Name="FontSizeLabel"
+                                       VerticalAlignment="Center"
+                                       FontSize="10"
+                                       Foreground="{DynamicResource TextMutedBrush}" />
+                        </StackPanel>
+                        <Button.Flyout>
+                            <MenuFlyout>
+                                <MenuItem x:Name="AutoRunMenuItem"
+                                          Header="{l:Localize AiAutoRun}"
+                                          ToggleType="CheckBox"
+                                          IsChecked="{Binding AutoRun, Mode=TwoWay}"
+                                          ToolTip.Tip="{l:Localize AiAutoRunHint}" />
+                                <MenuItem x:Name="AutoApproveMenuItem"
+                                          Header="{l:Localize AiAutoApprove}"
+                                          ToggleType="CheckBox"
+                                          IsChecked="{Binding AutoApproveDangerousCommands, Mode=TwoWay}"
+                                          IsEnabled="{Binding AutoRun}"
+                                          ToolTip.Tip="{l:Localize AiAutoApproveHint}" />
+                                <Separator />
+                                <MenuItem Header="{l:Localize AiCliUseWindowsTerminal}"
+                                          ToggleType="CheckBox"
+                                          IsChecked="{Binding UseWindowsTerminal, Mode=TwoWay}" />
+                                <MenuItem Header="{l:Localize AiAgentMode}"
+                                          ToggleType="CheckBox"
+                                          IsChecked="{Binding AgentMode, Mode=TwoWay}" />
+                                <Separator />
+                                <MenuItem Header="{l:Localize FontDecrease}"
+                                          Click="OnFontDecreaseClick" />
+                                <MenuItem Header="{l:Localize FontIncrease}"
+                                          Click="OnFontIncreaseClick" />
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
+                    <Button Classes="toolbar icon-button"
+                            ToolTip.Tip="{l:Localize Close}"
+                            Click="OnCloseClick"
+                            MinWidth="28"
+                            MinHeight="28"
+                            Padding="0"
+                            HorizontalContentAlignment="Center"
+                            VerticalContentAlignment="Center"
+                            VerticalAlignment="Center">
+                        <TextBlock Classes="icon"
+                                   FontSize="9"
+                                   HorizontalAlignment="Center"
                                    VerticalAlignment="Center"
-                                   MinWidth="28"
-                                   TextAlignment="Center"
-                                   FontSize="12"
-                                   Foreground="{DynamicResource TextMutedBrush}" />
-                        <Button Content="A+"
-                                ToolTip.Tip="{l:Localize FontIncrease}"
-                                Click="OnFontIncreaseClick"
-                                MinHeight="28"
-                                MinWidth="32"
-                                Padding="6,2" />
-                    </StackPanel>
-                </WrapPanel>
-                <Button Grid.RowSpan="2"
-                        Grid.Column="1"
-                        Classes="toolbar icon-button"
-                        ToolTip.Tip="{l:Localize Close}"
-                        Click="OnCloseClick"
-                        MinWidth="32"
-                        MinHeight="28"
-                        Padding="0"
-                        HorizontalContentAlignment="Center"
-                        VerticalContentAlignment="Center"
-                        VerticalAlignment="Center">
-                    <TextBlock Classes="icon"
-                               FontSize="10"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center"
-                               Text="&#xE711;" />
-                </Button>
+                                   Text="&#xE711;" />
+                    </Button>
+                </StackPanel>
             </Grid>
         </Border>
-
-        <TextBlock DockPanel.Dock="Top"
-                   Margin="10,6,10,4"
-                   Text="{Binding StatusText}"
-                   TextWrapping="Wrap"
-                   Foreground="{DynamicResource TextMutedBrush}"
-                   FontSize="12" />
 
         <!-- Single fill child: install prompt or terminal host. -->
         <Grid x:Name="TerminalHost" MinHeight="120" MinWidth="160">

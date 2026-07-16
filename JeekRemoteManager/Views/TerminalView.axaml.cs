@@ -459,6 +459,10 @@ public partial class TerminalView : UserControl
     public string? DebugAiOutputStats =>
         _aiViewModel is null ? null : AiPanel.DebugOutputStats;
 
+    /// <summary>Rendered AI header height exposed for Debug MCP layout verification.</summary>
+    public double? DebugAiHeaderHeight =>
+        _aiViewModel is null ? null : AiPanel.DebugHeaderHeight;
+
     /// <summary>True while a login-command <c>#input</c> directive is waiting for Enter.</summary>
     public bool IsLoginManualInputPending => Volatile.Read(ref _loginManualInputTcs) is not null;
 

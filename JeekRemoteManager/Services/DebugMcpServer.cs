@@ -868,6 +868,7 @@ internal static class DebugMcpServer
                             "rm -rf /tmp/jrm-debug-probe", dangerTagged: false).ToString() ?? "(n/a)"));
                     // Session attach state (TabControl unload/reload wiring).
                     sb.AppendLine($"outputStats={terminal.DebugAiOutputStats ?? "(n/a)"}");
+                    sb.AppendLine($"headerHeight={terminal.DebugAiHeaderHeight?.ToString("0.#") ?? "(n/a)"}");
                 }
 
                 index++;

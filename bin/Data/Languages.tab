@@ -315,6 +315,7 @@ AiCliStart	Start	启动
 AiCliRestart	Restart	重启
 AiCliStop	Stop	停止
 AiCliInstall	Install	安装
+AiCliOptions	AI panel options	AI 面板选项
 AiCliInstallNow	Install now	立即安装
 AiCliInstallHint	Uses the official installer. Requires network access. You may need to log in after install.	将运行官方安装命令，需要联网。安装后可能还需要登录。
 AiCliNotInstalled	{0} is not installed.{2}{2}Install command:{2}{1}	未安装 {0}。{2}{2}安装命令：{2}{1}
