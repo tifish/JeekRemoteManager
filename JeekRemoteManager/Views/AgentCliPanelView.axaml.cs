@@ -1,4 +1,6 @@
 using System;
+using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -19,6 +21,7 @@ public partial class AgentCliPanelView : UserControl
     private const double MaxFontSize = 28;
 
     private static readonly TimeSpan ResizeSettleDebounce = TimeSpan.FromMilliseconds(120);
+    private static readonly TimeSpan OutputFrameInterval = TimeSpan.FromMilliseconds(16);
 
     private readonly TerminalControlModel _model = new(new TerminalOptions
     {
@@ -36,10 +39,17 @@ public partial class AgentCliPanelView : UserControl
         Interval = ResizeSettleDebounce,
     };
 
+    private readonly DispatcherTimer _outputFrameTimer = new()
+    {
+        Interval = OutputFrameInterval,
+    };
+
     // Codex/Claude use SGR dim which this terminal does not paint; rewrite to soft gray.
     private readonly TerminalDimColorFilter _dimColorFilter = new();
     // ConPTY output can split multi-byte UTF-8 across reads; decode before Feed(byte[]).
     private readonly Utf8StreamDecoder _utf8Decoder = new();
+    // Present one completed terminal frame instead of every ConPTY packet in a TUI redraw.
+    private readonly TerminalSessionOutputBuffer _sessionOutputBuffer = new();
 
     private ConPtySession? _liveSession;
     private Action<byte[]>? _liveSessionDataHandler;
@@ -50,6 +60,9 @@ public partial class AgentCliPanelView : UserControl
     private int _lastFedCursorRow;
     private int _lastFedAbsoluteCursorRow;
     private int _sessionFeedGeneration;
+    private long _receivedPacketCount;
+    private long _feedBatchCount;
+    private long _displayRefreshCount;
 
     public event EventHandler? CloseRequested;
 
@@ -63,6 +76,7 @@ public partial class AgentCliPanelView : UserControl
         UpdateFontSizeLabel();
 
         _resizeSettleTimer.Tick += OnResizeSettleTick;
+        _outputFrameTimer.Tick += OnOutputFrameTick;
 
         _model.UserInput += (_, e) => _vm?.WriteToSession(e.Data.ToArray());
         _model.SizeChanged += OnModelSizeChanged;
@@ -103,7 +117,9 @@ public partial class AgentCliPanelView : UserControl
         $"vmEmbedded={_vm?.HasEmbeddedSession == true} handler={(_liveSessionDataHandler is null ? "no" : "yes")} " +
         $"canScroll={_model.CanScroll} mouseMode={_model.IsMouseModeActive} " +
         $"alt={_model.Terminal.IsAlternateBufferActive} " +
-        $"yDisp={_model.ScrollOffset} yBase={_model.MaxScrollback} atBottom={_model.Terminal.Buffer.IsAtBottom}";
+        $"yDisp={_model.ScrollOffset} yBase={_model.MaxScrollback} atBottom={_model.Terminal.Buffer.IsAtBottom} " +
+        $"packets={Interlocked.Read(ref _receivedPacketCount)} batches={Interlocked.Read(ref _feedBatchCount)} " +
+        $"refreshes={Interlocked.Read(ref _displayRefreshCount)} pending={_sessionOutputBuffer.PendingPacketCount}";
 
     private void OnCloseClick(object? sender, RoutedEventArgs e) =>
         CloseRequested?.Invoke(this, EventArgs.Empty);
@@ -342,6 +358,10 @@ public partial class AgentCliPanelView : UserControl
         {
             _dimColorFilter.Reset();
             _utf8Decoder.Reset();
+            _sessionOutputBuffer.Clear();
+            Interlocked.Exchange(ref _receivedPacketCount, 0);
+            Interlocked.Exchange(ref _feedBatchCount, 0);
+            Interlocked.Exchange(ref _displayRefreshCount, 0);
             try
             {
                 _model.Feed("\u001bc\u001b[?1049l\u001b[2J\u001b[H\u001b[0m");
@@ -375,25 +395,54 @@ public partial class AgentCliPanelView : UserControl
         if (data.Length == 0)
             return;
 
-        // Same pattern as the SSH terminal: post each chunk to the UI thread.
-        Dispatcher.UIThread.Post(() =>
+        Interlocked.Increment(ref _receivedPacketCount);
+        if (!_sessionOutputBuffer.Append(data, feedGeneration))
+            return;
+
+        // Start a one-frame window on the UI thread. Cursor moves and text replacement
+        // sequences emitted during that window are then presented atomically.
+        Dispatcher.UIThread.Post(
+            () =>
+            {
+                if (!_outputFrameTimer.IsEnabled)
+                    _outputFrameTimer.Start();
+            },
+            DispatcherPriority.Background);
+    }
+
+    private void OnOutputFrameTick(object? sender, EventArgs e)
+    {
+        _outputFrameTimer.Stop();
+        if (_liveSession is not { } session)
         {
-            if (feedGeneration != _sessionFeedGeneration
-                || !ReferenceEquals(_liveSession, session))
+            _sessionOutputBuffer.Clear();
+            return;
+        }
+
+        DrainSessionOutput(session, _sessionFeedGeneration);
+    }
+
+    private void DrainSessionOutput(ConPtySession session, int feedGeneration)
+    {
+        var data = _sessionOutputBuffer.Drain(feedGeneration);
+        if (data.Length == 0
+            || feedGeneration != _sessionFeedGeneration
+            || !ReferenceEquals(_liveSession, session))
+            return;
+
+        try
+        {
+            var filtered = _dimColorFilter.Process(data);
+            if (filtered.Length == 0)
                 return;
 
-            try
-            {
-                var filtered = _dimColorFilter.Process(data);
-                if (filtered.Length == 0)
-                    return;
-                FeedPreservingUserScroll(filtered);
-            }
-            catch
-            {
-                // control may be tearing down
-            }
-        });
+            Interlocked.Increment(ref _feedBatchCount);
+            FeedPreservingUserScroll(filtered);
+        }
+        catch
+        {
+            // control may be tearing down
+        }
     }
 
     /// <summary>
@@ -408,8 +457,14 @@ public partial class AgentCliPanelView : UserControl
         var pinnedYDisp = terminal.Buffer.YDisp;
 
         var text = _utf8Decoder.Decode(data);
-        if (text.Length > 0)
-            _model.Feed(text);
+        if (text.Length == 0)
+            return;
+
+        // Feed the parser directly. TerminalControlModel.Feed performs its own display
+        // update before this method restores scroll position, exposing intermediate Codex
+        // cursor locations and then causing another refresh below.
+        var utf8 = Encoding.UTF8.GetBytes(text);
+        terminal.Feed(utf8, utf8.Length);
 
         if (followBottom)
             _model.EnsureCaretIsVisible();
@@ -417,6 +472,7 @@ public partial class AgentCliPanelView : UserControl
             _model.ScrollToYDisp(pinnedYDisp);
 
         _model.UpdateDisplay();
+        Interlocked.Increment(ref _displayRefreshCount);
         RecordCursorRow();
     }
 
@@ -447,6 +503,8 @@ public partial class AgentCliPanelView : UserControl
         _liveSessionDataHandler = null;
         _liveSession = null;
         _sessionFeedGeneration++;
+        _outputFrameTimer.Stop();
+        _sessionOutputBuffer.Clear();
     }
 
     public void FocusCliTerminal() =>

@@ -418,6 +418,18 @@ try
           && !resizeOutput.TryAppend("later"u8),
           "Terminal resize output drains atomically and then resumes direct display");
 
+    var sessionOutput = new TerminalSessionOutputBuffer();
+    Check(sessionOutput.Append("\u001b[10;2H"u8, generation: 7)
+          && !sessionOutput.Append("working"u8, generation: 7)
+          && !sessionOutput.Append("\u001b[12;4H"u8, generation: 6)
+          && sessionOutput.PendingPacketCount == 3,
+          "AI terminal output schedules one UI drain for a burst of ConPTY packets");
+    Check(Encoding.UTF8.GetString(sessionOutput.Drain(generation: 7)) == "\u001b[10;2Hworking"
+          && sessionOutput.PendingPacketCount == 0
+          && sessionOutput.Append("done"u8, generation: 7),
+          "AI terminal output coalesces current-session packets and drops stale output");
+    sessionOutput.Clear();
+
     // --- Terminal buffer resize cursor repair (maximize/shrink) ---
     static string BufferLineText(XTerm.Buffer.BufferLine? line)
     {
@@ -2046,4 +2058,3 @@ finally
 }
 
 return failures;
-
