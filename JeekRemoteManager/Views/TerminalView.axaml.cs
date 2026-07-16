@@ -459,6 +459,14 @@ public partial class TerminalView : UserControl
     public string? DebugAiOutputStats =>
         _aiViewModel is null ? null : AiPanel.DebugOutputStats;
 
+    /// <summary>Plain text in the AI CLI viewport exposed for Debug MCP verification.</summary>
+    public string? DebugAiVisibleText =>
+        _aiViewModel is null ? null : AiPanel.DebugVisibleText;
+
+    /// <summary>Raises a function key from the AI header through the real panel key route.</summary>
+    public bool DebugPressAiFunctionKeyFromHeader(int functionKeyNumber) =>
+        _aiViewModel is not null && AiPanel.DebugPressFunctionKeyFromHeader(functionKeyNumber);
+
     /// <summary>Rendered AI header height exposed for Debug MCP layout verification.</summary>
     public double? DebugAiHeaderHeight =>
         _aiViewModel is null ? null : AiPanel.DebugHeaderHeight;
@@ -516,6 +524,30 @@ public partial class TerminalView : UserControl
             var buffer = _model.Terminal.Buffer;
             return (buffer.Y, buffer.YBase, buffer.YBase + buffer.Y, _model.Terminal.Cols, _model.Terminal.Rows);
         }
+    }
+
+    /// <summary>Last SSH terminal function key forwarded through the shared encoder.</summary>
+    public string DebugLastTerminalFunctionKey { get; private set; } = "(none)";
+
+    /// <summary>Last forwarded SSH function-key sequence as hexadecimal bytes.</summary>
+    public string DebugLastTerminalFunctionKeyHex { get; private set; } = "(none)";
+
+    /// <summary>Number of SSH terminal function keys forwarded by this view.</summary>
+    public int DebugForwardedTerminalFunctionKeyCount { get; private set; }
+
+    /// <summary>Raises a function key on the SSH terminal through its real key route.</summary>
+    public bool DebugPressTerminalFunctionKey(int functionKeyNumber)
+    {
+        if (functionKeyNumber is < 1 or > 24)
+            return false;
+
+        var e = new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = (Key)((int)Key.F1 + functionKeyNumber - 1),
+        };
+        Term.RaiseEvent(e);
+        return e.Handled;
     }
 
     /// <summary>Plain text currently visible in the terminal viewport for Debug MCP checks.</summary>
@@ -1930,6 +1962,21 @@ public partial class TerminalView : UserControl
 
     private async void OnTerminalPreviewKeyDown(object? sender, KeyEventArgs e)
     {
+        if (!e.Handled
+            && TerminalFunctionKeySequence.TryEncode(
+                e.Key,
+                e.KeyModifiers,
+                out var functionKeyNumber,
+                out var sequence))
+        {
+            e.Handled = true;
+            DebugForwardedTerminalFunctionKeyCount++;
+            DebugLastTerminalFunctionKey = $"F{functionKeyNumber}+{e.KeyModifiers}";
+            DebugLastTerminalFunctionKeyHex = Convert.ToHexString(Encoding.ASCII.GetBytes(sequence));
+            _model.Send(sequence);
+            return;
+        }
+
         if (Term.HasSelection && IsTerminalCopyGestureKey(e.Key))
             _pendingKeyboardCopyText = GetTerminalSelectionText(Term.SelectedText);
 

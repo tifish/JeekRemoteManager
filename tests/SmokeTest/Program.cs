@@ -72,6 +72,49 @@ try
               < mainWindowCode.IndexOf("menu.Items.Add(monitor);", StringComparison.Ordinal),
           "Terminal tab menu places AI before monitor");
 
+    var functionKeySequences = new[]
+    {
+        "\u001bOP", "\u001bOQ", "\u001bOR", "\u001bOS",
+        "\u001b[15~", "\u001b[17~", "\u001b[18~", "\u001b[19~",
+        "\u001b[20~", "\u001b[21~", "\u001b[23~", "\u001b[24~",
+        "\u001b[25~", "\u001b[26~", "\u001b[28~", "\u001b[29~",
+        "\u001b[31~", "\u001b[32~", "\u001b[33~", "\u001b[34~",
+        "\u001b[42~", "\u001b[43~", "\u001b[44~", "\u001b[45~",
+    };
+    var allFunctionKeysEncoded = true;
+    for (var i = 0; i < functionKeySequences.Length; i++)
+    {
+        var key = (Avalonia.Input.Key)((int)Avalonia.Input.Key.F1 + i);
+        allFunctionKeysEncoded &= TerminalFunctionKeySequence.TryEncode(
+            key,
+            Avalonia.Input.KeyModifiers.None,
+            out var number,
+            out var sequence)
+            && number == i + 1
+            && sequence == functionKeySequences[i];
+    }
+    Check(allFunctionKeysEncoded, "Terminal input encodes every function key from F1 through F24");
+    Check(TerminalFunctionKeySequence.TryEncode(
+              Avalonia.Input.Key.F2,
+              Avalonia.Input.KeyModifiers.Shift | Avalonia.Input.KeyModifiers.Control,
+              out var modifiedFunctionKeyNumber,
+              out var modifiedFunctionKeySequence)
+          && modifiedFunctionKeyNumber == 2
+          && modifiedFunctionKeySequence == "\u001b[1;6Q",
+          "Terminal input preserves function-key modifier combinations");
+    Check(!TerminalFunctionKeySequence.TryEncode(
+              Avalonia.Input.Key.Enter,
+              Avalonia.Input.KeyModifiers.None,
+              out _,
+              out _),
+          "Function-key forwarding leaves non-function keys to their focused control");
+    Check(!TerminalFunctionKeySequence.TryEncode(
+              Avalonia.Input.Key.F4,
+              Avalonia.Input.KeyModifiers.Alt,
+              out _,
+              out _),
+          "Function-key forwarding preserves the host Alt+F4 shortcut");
+
     // --- Master-password setup (password material cached via DPAPI) ---
     // Point the DPAPI cache at the temp root so we never touch the real one.
     MasterKeyService.CachePath = Path.Combine(root, "master-password.bin");

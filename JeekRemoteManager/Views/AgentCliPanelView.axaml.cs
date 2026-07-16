@@ -81,6 +81,9 @@ public partial class AgentCliPanelView : UserControl
         _model.UserInput += (_, e) => _vm?.WriteToSession(e.Data.ToArray());
         _model.SizeChanged += OnModelSizeChanged;
 
+        // Function keys are CLI-level shortcuts. Route F1-F24 from the whole panel
+        // so they still reach the embedded process after header interaction.
+        AddHandler(InputElement.KeyDownEvent, OnPanelPreviewKeyDown, RoutingStrategies.Tunnel);
         CliTerm.ContextRequested += OnCliContextRequested;
         CliTerm.AddHandler(InputElement.KeyDownEvent, OnCliPreviewKeyDown, RoutingStrategies.Tunnel);
         // Tunnel so we run before TerminalControl: on the normal buffer, prefer host
@@ -119,7 +122,59 @@ public partial class AgentCliPanelView : UserControl
         $"alt={_model.Terminal.IsAlternateBufferActive} " +
         $"yDisp={_model.ScrollOffset} yBase={_model.MaxScrollback} atBottom={_model.Terminal.Buffer.IsAtBottom} " +
         $"packets={Interlocked.Read(ref _receivedPacketCount)} batches={Interlocked.Read(ref _feedBatchCount)} " +
-        $"refreshes={Interlocked.Read(ref _displayRefreshCount)} pending={_sessionOutputBuffer.PendingPacketCount}";
+        $"refreshes={Interlocked.Read(ref _displayRefreshCount)} pending={_sessionOutputBuffer.PendingPacketCount} " +
+        $"fnKeys={DebugForwardedFunctionKeyCount} lastFn={DebugLastForwardedFunctionKey} " +
+        $"lastFnHex={DebugLastForwardedFunctionKeyHex}";
+
+    /// <summary>Last panel-forwarded function key, exposed for Debug MCP.</summary>
+    public string DebugLastForwardedFunctionKey { get; private set; } = "(none)";
+
+    /// <summary>Last function-key sequence as hexadecimal bytes, exposed for Debug MCP.</summary>
+    public string DebugLastForwardedFunctionKeyHex { get; private set; } = "(none)";
+
+    /// <summary>Number of function keys forwarded by the panel-wide route, exposed for Debug MCP.</summary>
+    public int DebugForwardedFunctionKeyCount { get; private set; }
+
+    /// <summary>Plain text currently visible in the embedded CLI viewport for Debug MCP.</summary>
+    public string DebugVisibleText
+    {
+        get
+        {
+            var terminal = _model.Terminal;
+            var buffer = terminal.Buffer;
+            var firstRow = Math.Max(0, buffer.YDisp);
+            var lastRow = Math.Min(buffer.Length, firstRow + terminal.Rows);
+            var text = new StringBuilder();
+
+            for (var row = firstRow; row < lastRow; row++)
+            {
+                if (row > firstRow)
+                    text.Append('\n');
+                if (buffer.GetLine(row) is { } line)
+                    text.Append(line.TranslateToString(true));
+            }
+
+            return text.ToString().TrimEnd();
+        }
+    }
+
+    /// <summary>
+    /// Raises a function key from a header control so Debug MCP exercises the
+    /// same panel-wide route used when focus is outside the terminal surface.
+    /// </summary>
+    public bool DebugPressFunctionKeyFromHeader(int functionKeyNumber)
+    {
+        if (functionKeyNumber is < 1 or > 24)
+            return false;
+
+        var e = new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = (Key)((int)Key.F1 + functionKeyNumber - 1),
+        };
+        AiOptionsButton.RaiseEvent(e);
+        return e.Handled;
+    }
 
     /// <summary>Rendered AI header height exposed for Debug MCP layout verification.</summary>
     public double DebugHeaderHeight => AiHeader.Bounds.Height;
@@ -550,6 +605,32 @@ public partial class AgentCliPanelView : UserControl
 
         e.Handled = true;
         await SetCliClipboardTextAsync(text);
+    }
+
+    private void OnPanelPreviewKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Handled
+            || _vm?.HasEmbeddedSession != true
+            || !CliTerm.IsVisible)
+        {
+            return;
+        }
+
+        if (!TerminalFunctionKeySequence.TryEncode(
+                e.Key,
+                e.KeyModifiers,
+                out var functionKeyNumber,
+                out var sequence))
+        {
+            return;
+        }
+
+        e.Handled = true;
+        DebugForwardedFunctionKeyCount++;
+        DebugLastForwardedFunctionKey = $"F{functionKeyNumber}+{e.KeyModifiers}";
+        DebugLastForwardedFunctionKeyHex = Convert.ToHexString(Encoding.ASCII.GetBytes(sequence));
+        _model.Send(sequence);
+        FocusCliTerminal();
     }
 
     private async Task PasteCliFromClipboardAsync()
