@@ -55,7 +55,9 @@ public partial class MainWindowViewModel : ViewModelBase
     // Synthetic node showing the last-used connections at the top of the tree.
     private const int RecentMax = 10;
     private const string RecentSentinelPath = "<recent>";
+    private static readonly TimeSpan RecentRebuildDelay = TimeSpan.FromSeconds(1.5);
     private TreeNodeViewModel? _recentGroup;
+    private DispatcherTimer? _recentRebuildTimer;
 
     private sealed class ScriptExecutionContext
     {
@@ -537,9 +539,9 @@ public partial class MainWindowViewModel : ViewModelBase
     partial void OnSelectedNodeChanged(TreeNodeViewModel? value)
     {
         // Selecting a "Recent" connection is a one-click shortcut: launch it
-        // immediately, then clear the (now-stale) selection — RecordRecent
-        // rebuilds the group so the just-clicked VM instance is gone anyway, and
-        // clearing lets a subsequent click on the same entry re-fire this path.
+        // immediately, then clear the selection. Clearing is required so a
+        // subsequent click on the same entry re-fires this path (the Recent
+        // group rebuild is delayed, so the same VM instance often remains).
         if (value is { IsRecent: true, IsConnection: true, Connection: not null })
         {
             // Right-click on a Recent shadow flags this so the context menu can
@@ -886,6 +888,10 @@ public partial class MainWindowViewModel : ViewModelBase
         // rebuilds and restarts. Drop stale entries for folders that no longer exist.
         PruneMissingCollapsedFolders();
         var previousSelection = SelectedNode?.FullPath;
+
+        // Full rebuild already reflects the current Recent paths; drop any pending
+        // delayed refresh so it does not fire against a replaced tree.
+        _recentRebuildTimer?.Stop();
 
         Nodes.Clear();
         _recentGroup = null;
@@ -1436,9 +1442,13 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>
     /// Rebuilds the synthetic "Recent" group node from the current path list and
     /// swaps it into <see cref="Nodes"/> without touching the rest of the tree.
+    /// Cancels any pending delayed rebuild so callers that need an immediate
+    /// refresh (remove/clear/full reload) win over a later timer tick.
     /// </summary>
     private void RebuildRecentGroupInPlace()
     {
+        _recentRebuildTimer?.Stop();
+
         var newGroup = BuildRecentGroup();
         if (_recentGroup != null)
         {
@@ -1490,19 +1500,70 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Moves <paramref name="path"/> to the front of the most-recently-used list,
-    /// trims to <see cref="RecentMax"/>, and refreshes the synthetic group.
+    /// Moves <paramref name="path"/> to the front of the most-recently-used list
+    /// and trims to <see cref="RecentMax"/>. The settings list is updated
+    /// immediately; the synthetic Recent tree group is rebuilt after a short
+    /// delay so clicking a Recent item does not jump under the cursor.
     /// </summary>
     private void RecordRecent(string path)
     {
         var list = _settings.Settings.RecentConnectionPaths;
-        list.RemoveAll(p => PathEquals(p, path));
+        var existingIndex = -1;
+        for (var i = 0; i < list.Count; i++)
+        {
+            if (!PathEquals(list[i], path))
+                continue;
+            existingIndex = i;
+            break;
+        }
+
+        // Already most-recent: nothing to record or show.
+        if (existingIndex == 0)
+            return;
+
+        if (existingIndex >= 0)
+            list.RemoveAt(existingIndex);
+        else
+            list.RemoveAll(p => PathEquals(p, path));
+
         list.Insert(0, path);
         if (list.Count > RecentMax)
             list.RemoveRange(RecentMax, list.Count - RecentMax);
 
-        // Rebuild just the recent group in place so the user's tree selection
-        // (typically the just-launched node) survives untouched.
+        ScheduleRecentGroupRebuild();
+    }
+
+    /// <summary>
+    /// Debounces the Recent-group tree rebuild so rapid connects only refresh once,
+    /// after the user has finished clicking.
+    /// </summary>
+    private void ScheduleRecentGroupRebuild()
+    {
+        if (_recentRebuildTimer is null)
+        {
+            _recentRebuildTimer = new DispatcherTimer();
+            _recentRebuildTimer.Tick += (_, _) =>
+            {
+                _recentRebuildTimer!.Stop();
+                RebuildRecentGroupInPlace();
+            };
+        }
+
+        _recentRebuildTimer.Interval = RecentRebuildDelay;
+        _recentRebuildTimer.Stop();
+        _recentRebuildTimer.Start();
+    }
+
+    /// <summary>
+    /// Applies any pending Recent-group rebuild immediately. Used by tests and by
+    /// callers that need the tree to match settings without waiting for the delay.
+    /// </summary>
+    public void FlushPendingRecentRebuild()
+    {
+        if (_recentRebuildTimer is not { IsEnabled: true })
+            return;
+
+        _recentRebuildTimer.Stop();
         RebuildRecentGroupInPlace();
     }
 

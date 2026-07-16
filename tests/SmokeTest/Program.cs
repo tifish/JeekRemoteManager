@@ -785,14 +785,31 @@ try
         Username = "root",
         EncryptedPassword = PasswordProtector.Encrypt("autosave-password"),
     };
+    var autoSaveC = new Connection
+    {
+        Type = ConnectionType.Ssh,
+        Name = "autosave-c",
+        Host = "c.example",
+        Port = 22,
+        Username = "root",
+        EncryptedPassword = PasswordProtector.Encrypt("autosave-password"),
+    };
     var autoSaveAPath = vmStore.Save(autoSaveA, vmStore.RootPath);
-    _ = vmStore.Save(autoSaveB, vmStore.RootPath);
+    var autoSaveBPath = vmStore.Save(autoSaveB, vmStore.RootPath);
+    var autoSaveCPath = vmStore.Save(autoSaveC, vmStore.RootPath);
     var autoSaveAPasswordBeforeEdit = autoSaveA.EncryptedPassword;
 
+    vmSettings.Settings.RecentConnectionPaths.Clear();
     vmSettings.Settings.RecentConnectionPaths.Add(autoSaveAPath);
+    vmSettings.Settings.RecentConnectionPaths.Add(autoSaveBPath);
     vmSettings.Settings.RecentExpanded = true;
     var recentVm = new MainWindowViewModel(vmStore, new ConnectionLauncher(), vmSettings);
-    var recentNode = recentVm.Nodes.Single(n => n.IsRecent).Children.Single(n => n.FullPath == autoSaveAPath);
+    var recentChildrenBefore = recentVm.Nodes.Single(n => n.IsRecent).Children
+        .Select(n => n.FullPath)
+        .ToList();
+    Check(recentChildrenBefore.SequenceEqual(new[] { autoSaveAPath, autoSaveBPath }),
+          "Recent group initially lists paths most-recent first");
+    var recentNode = recentVm.Nodes.Single(n => n.IsRecent).Children.Single(n => n.FullPath == autoSaveBPath);
     string? recentLaunchPath = null;
     recentVm.OpenSshTerminalAsync = (_, sourcePath) =>
     {
@@ -803,8 +820,41 @@ try
     recentVm.SelectedNode = recentNode;
     recentVm.SuppressRecentAutoLaunch = false;
     await recentVm.ConnectCommand.ExecuteAsync(null);
-    Check(recentLaunchPath == autoSaveAPath, "Recent context-menu Connect launches the selected connection");
+    Check(recentLaunchPath == autoSaveBPath, "Recent context-menu Connect launches the selected connection");
     Check(recentVm.SelectedNode is null, "Recent context-menu Connect clears the stale shadow selection");
+    Check(vmSettings.Settings.RecentConnectionPaths.SequenceEqual(new[] { autoSaveBPath, autoSaveAPath }),
+          "Recording a recent connection updates the settings order immediately");
+    var recentChildrenAfterReorder = recentVm.Nodes.Single(n => n.IsRecent).Children
+        .Select(n => n.FullPath)
+        .ToList();
+    Check(recentChildrenAfterReorder.SequenceEqual(recentChildrenBefore),
+          "Recent tree UI does not jump immediately when reordering an already-listed connection");
+    recentVm.FlushPendingRecentRebuild();
+    var recentChildrenAfterFlush = recentVm.Nodes.Single(n => n.IsRecent).Children
+        .Select(n => n.FullPath)
+        .ToList();
+    Check(recentChildrenAfterFlush.SequenceEqual(new[] { autoSaveBPath, autoSaveAPath }),
+          "Flushing the delayed Recent rebuild applies the updated order");
+
+    // A brand-new recent entry is also delayed, then appears after flush.
+    var nodeC = recentVm.Nodes.Single(n => n.Name == "autosave-c");
+    recentLaunchPath = null;
+    recentVm.SelectedNode = nodeC;
+    await recentVm.ConnectCommand.ExecuteAsync(null);
+    Check(recentLaunchPath == autoSaveCPath, "Connecting a non-recent connection launches it");
+    Check(vmSettings.Settings.RecentConnectionPaths[0] == autoSaveCPath,
+          "A newly recorded connection is stored first in settings");
+    var recentChildrenBeforeNewFlush = recentVm.Nodes.Single(n => n.IsRecent).Children
+        .Select(n => n.FullPath)
+        .ToList();
+    Check(recentChildrenBeforeNewFlush.SequenceEqual(new[] { autoSaveBPath, autoSaveAPath }),
+          "Adding a new recent entry does not rebuild the Recent tree immediately");
+    recentVm.FlushPendingRecentRebuild();
+    var recentChildrenAfterAdd = recentVm.Nodes.Single(n => n.IsRecent).Children
+        .Select(n => n.FullPath)
+        .ToList();
+    Check(recentChildrenAfterAdd.SequenceEqual(new[] { autoSaveCPath, autoSaveBPath, autoSaveAPath }),
+          "Flushing after a new recent entry rebuilds the tree with the updated order");
 
     var vm = new MainWindowViewModel(vmStore, new ConnectionLauncher(), vmSettings);
     var nodeA = vm.Nodes.Single(n => n.Name == "autosave-a");
