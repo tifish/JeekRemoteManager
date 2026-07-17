@@ -31,6 +31,11 @@
         <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor13" Color="#D794D8" />
         <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor14" Color="#76D5E2" />
         <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor15" Color="#F0F4F8" />
+
+        <!-- Fluent default scaleX/Y(0.125) shrinks hit-testing with the visual.
+             Force identity; thin look is painted inside a full-size hit plate. -->
+        <TransformOperations x:Key="VerticalSmallScrollThumbScaleTransform">none</TransformOperations>
+        <TransformOperations x:Key="HorizontalSmallScrollThumbScaleTransform">none</TransformOperations>
     </Application.Resources>
 
     <TrayIcon.Icons>
@@ -49,6 +54,44 @@
         <StyleInclude Source="avares://SvcSystems.UI.Terminal/Styles/Colors.axaml" />
         <Style Selector="Window">
             <Setter Property="FontFamily" Value="Inter, Segoe UI" />
+        </Style>
+        <!-- Instant expand (default ShowDelay is 500ms). ScrollBar uses IsExpanded
+             property only — there is no :expanded pseudo-class. -->
+        <Style Selector="ScrollBar">
+            <Setter Property="ShowDelay" Value="0" />
+        </Style>
+        <!-- Full-size transparent hit plate; visual Border can be thinner without
+             shrinking the drag target (Windows-style overlay scrollbar). -->
+        <Style Selector="ScrollBar /template/ Thumb">
+            <Setter Property="RenderTransform" Value="none" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Panel Background="Transparent">
+                        <Border x:Name="thumbVisual"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="{TemplateBinding CornerRadius}" />
+                    </Panel>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <!-- Idle: thin strip (IsExpanded is a DirectProperty; use property selector). -->
+        <Style Selector="ScrollBar:vertical[IsExpanded=False] /template/ Thumb /template/ Border#thumbVisual">
+            <Setter Property="Width" Value="4" />
+            <Setter Property="HorizontalAlignment" Value="Right" />
+            <Setter Property="Margin" Value="0,0,1,0" />
+        </Style>
+        <Style Selector="ScrollBar:horizontal[IsExpanded=False] /template/ Thumb /template/ Border#thumbVisual">
+            <Setter Property="Height" Value="4" />
+            <Setter Property="VerticalAlignment" Value="Bottom" />
+            <Setter Property="Margin" Value="0,0,0,1" />
+        </Style>
+        <!-- Hover/expanded: full-size thumb paint. -->
+        <Style Selector="ScrollBar[IsExpanded=True] /template/ Thumb /template/ Border#thumbVisual">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="Width" Value="NaN" />
+            <Setter Property="Height" Value="NaN" />
+            <Setter Property="Margin" Value="0" />
         </Style>
         <!-- Color emoji icons: Inter (the default font) is monochrome-only,
              so route any TextBlock tagged with the "emoji" class through
