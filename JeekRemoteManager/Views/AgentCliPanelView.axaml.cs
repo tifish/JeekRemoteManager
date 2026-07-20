@@ -403,19 +403,36 @@ public partial class AgentCliPanelView : UserControl
             AttachLiveSession(session, clearDisplay: true);
         });
 
-    private void OnSessionStopped(bool replaced) =>
+    private void OnSessionStopped(bool replaced, string? exitDetail) =>
         Dispatcher.UIThread.Post(() =>
         {
             _resizeSettleTimer.Stop();
+            // Drain any packets still buffered for this generation before we unhook.
+            if (_liveSession is { } live)
+                DrainSessionOutput(live, _sessionFeedGeneration);
+            var hadLiveOutput = Interlocked.Read(ref _receivedPacketCount) > 0;
             UnhookSession();
             try
             {
                 _model.Feed("\u001b[?1049l\u001b[0m");
                 TerminalScrollbackReset.Reset(_model);
                 if (replaced)
+                {
                     _model.Feed("\u001b[2J\u001b[H");
+                }
                 else
+                {
+                    // Early-exit CLIs often die before DataReceived is wired; surface the
+                    // captured plain-text error so the user can see why start failed.
+                    if (!hadLiveOutput && !string.IsNullOrWhiteSpace(exitDetail))
+                    {
+                        var safe = exitDetail.Replace("\u001b", "", StringComparison.Ordinal);
+                        _model.Feed("\r\n\u001b[31m" + safe + "\u001b[0m\r\n");
+                    }
+
                     _model.Feed("\r\n\u001b[33m[session ended]\u001b[0m\r\n");
+                }
+
                 _model.EnsureCaretIsVisible();
                 RecordCursorRow();
                 RefreshLocalDisplay();

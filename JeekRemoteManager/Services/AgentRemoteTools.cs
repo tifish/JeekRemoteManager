@@ -201,16 +201,11 @@ public static class AgentCliCatalog
     private static IReadOnlyList<string> BuildCodexArguments(bool autoRun)
     {
         // --no-alt-screen: host scrollback/scrollbar (Codex default TUI uses alternate screen).
-        // MCP URL: workspace .codex/config.toml. Approval is the only optional runtime policy.
-        var mode = autoRun ? "approve" : "prompt";
-        var args = new List<string> { "--no-alt-screen" };
-        foreach (var name in AutoRunSafeToolNames)
-        {
-            args.Add("-c");
-            args.Add($"mcp_servers.jrm-remote.tools.{name}.approval_mode=\"{mode}\"");
-        }
-
-        return args;
+        // MCP URL + tool approval: workspace .codex/config.toml only.
+        // Do not pass `-c mcp_servers.jrm-remote...` here — Codex treats partial MCP server
+        // overrides as a new entry without url/command and fails with "invalid transport".
+        _ = autoRun; // Applied when rewriting .codex/config.toml (PrepareWorkspace / Ensure).
+        return ["--no-alt-screen"];
     }
 
     private static IReadOnlyList<string> BuildGrokArguments(bool autoRun)

@@ -334,6 +334,8 @@ AiCliDesktopLaunchFailed	Could not open the {0} desktop app (is it installed and
 AiCliDesktopUnsupported	Desktop mode only supports Claude and Codex (not {0}).	Desktop 模式仅支持 Claude 和 Codex（不支持 {0}）。
 AiCliExited	{0} exited (code {1}). Click Start to run again.	{0} 已退出（代码 {1}）。点击「启动」可再次运行。
 AiCliExitedNoCode	{0} exited. Click Start to run again.	{0} 已退出。点击「启动」可再次运行。
+AiCliExitedWithDetail	{0} exited (code {1}): {2}	{0} 已退出（代码 {1}）：{2}
+AiCliExitedWithDetailNoCode	{0} exited: {1}	{0} 已退出：{1}
 AiCliStopped	{0} stopped.	{0} 已停止。
 AiCliMcpUnavailable	Remote MCP tools are not available yet. Close and reopen the AI panel.	远程 MCP 工具尚未就绪，请关闭后重新打开 AI 面板。
 AiCliExternalHint	The agent CLI is running in Windows Terminal. Remote server tools are provided by JeekRemoteManager over MCP.	Agent CLI 正在 Windows Terminal 中运行。远程服务器工具由 JeekRemoteManager 通过 MCP 提供。

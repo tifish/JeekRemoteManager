@@ -1042,12 +1042,11 @@ public partial class TerminalView : UserControl
             },
             preferredRunMode: preferredRunMode,
             resolvePreferredRunMode: kind =>
-                (DataContext as MainWindowViewModel)?.GetAiRunModeForKind(kind) ?? AgentCliRunMode.Cli)
-        {
-            // Re-write AGENTS.md / CLAUDE.md + project MCP configs with the live endpoint
-            // so CLI and desktop agents read everything from the workspace (not argv).
-            PrepareWorkspace = mcpUrl => ResolveAgentCliWorkingDirectory(mcpUrl),
-        };
+                (DataContext as MainWindowViewModel)?.GetAiRunModeForKind(kind) ?? AgentCliRunMode.Cli);
+
+        // Rewrite AGENTS.md + project MCP configs (including Codex default_tools_approval_mode)
+        // from the live AutoRun toggle — never via `codex -c mcp_servers...` (invalid transport).
+        vm.PrepareWorkspace = mcpUrl => ResolveAgentCliWorkingDirectory(mcpUrl, vm.AutoRun);
 
         // Remember last-chosen provider and per-family run mode across tabs and runs.
         // Claude/Codex share AiRunMode; Grok uses AiGrokRunMode (no Desktop).
@@ -1071,8 +1070,11 @@ public partial class TerminalView : UserControl
     /// tab (session 2+ uses a sibling folder matching the tab title, e.g. <c>bwg (2)</c>).
     /// Rewrites AGENTS.md / CLAUDE.md (and project MCP configs when
     /// <paramref name="mcpEndpointUrl"/> is set) so agents need no command-line context.
+    /// <paramref name="mcpToolsAutoApprove"/> maps to Codex <c>default_tools_approval_mode</c>.
     /// </summary>
-    private string ResolveAgentCliWorkingDirectory(string? mcpEndpointUrl = null)
+    private string ResolveAgentCliWorkingDirectory(
+        string? mcpEndpointUrl = null,
+        bool? mcpToolsAutoApprove = null)
     {
         var mainVm = DataContext as MainWindowViewModel;
         var connectionsRoot = mainVm?.RootPath
@@ -1083,7 +1085,8 @@ public partial class TerminalView : UserControl
             _sourcePath,
             _connection,
             mcpEndpointUrl,
-            SessionNumber);
+            SessionNumber,
+            mcpToolsAutoApprove: mcpToolsAutoApprove ?? mainVm?.AiAutoRun ?? true);
     }
 
     private void EnsureAgentRemoteMcp()

@@ -660,9 +660,18 @@ try
           && !agentsMd.Contains("--append-system-prompt", StringComparison.Ordinal)
           && mcpJson.Contains(smokeMcpUrl, StringComparison.Ordinal)
           && codexToml.Contains(smokeMcpUrl, StringComparison.Ordinal)
+          && codexToml.Contains("default_tools_approval_mode = \"approve\"", StringComparison.Ordinal)
+          && !codexToml.Contains("transport =", StringComparison.Ordinal)
           && grokToml.Contains(smokeMcpUrl, StringComparison.Ordinal)
           && grokToml.Contains("transport = \"http\"", StringComparison.Ordinal),
           "AI workspace writes AGENTS.md (full) + CLAUDE.md include + project MCP configs");
+
+    AgentCliWorkspace.WriteProjectMcpConfigs(workspace, smokeMcpUrl, mcpToolsAutoApprove: false);
+    var codexTomlPrompt = File.ReadAllText(Path.Combine(workspace, ".codex", "config.toml"));
+    Check(codexTomlPrompt.Contains("default_tools_approval_mode = \"prompt\"", StringComparison.Ordinal)
+          && codexTomlPrompt.Contains(smokeMcpUrl, StringComparison.Ordinal),
+          "Codex project MCP config stores prompt approval mode without CLI -c overrides");
+    AgentCliWorkspace.WriteProjectMcpConfigs(workspace, smokeMcpUrl, mcpToolsAutoApprove: true);
 
     var connectionForWorkspace = new Connection
     {
@@ -702,14 +711,13 @@ try
           && claudeAutoArgs.Any(a => a.Contains("mcp__jrm-remote__terminal_status", StringComparison.Ordinal)
                                      && a.Contains("mcp__jrm-remote__terminal_run", StringComparison.Ordinal))
           && codexAutoArgs.Contains("--no-alt-screen")
-          && !codexAutoArgs.Any(a => a.Contains("mcp_servers.jrm-remote.url=", StringComparison.Ordinal))
-          && codexAutoArgs.Any(a => a.Contains("terminal_run.approval_mode=\"approve\"", StringComparison.Ordinal))
-          && codexAutoArgs.Any(a => a.Contains("terminal_status.approval_mode=\"approve\"", StringComparison.Ordinal))
-          && codexPromptArgs.Any(a => a.Contains("terminal_run.approval_mode=\"prompt\"", StringComparison.Ordinal))
+          && !codexAutoArgs.Any(a => a.Contains("mcp_servers.", StringComparison.Ordinal))
+          && !codexPromptArgs.Any(a => a.Contains("mcp_servers.", StringComparison.Ordinal))
+          && codexAutoArgs.SequenceEqual(codexPromptArgs)
           && grokAutoArgs.Contains("MCPTool(jrm-remote__terminal_run)")
           && grokAutoArgs.Contains("MCPTool(jrm-remote__terminal_status)")
           && grokAutoArgs.Contains("MCPTool(jrm-remote__terminal_run_danger)"),
-          "AI CLI args are runtime-only; MCP URL/context live in workspace; auto-run allows expanded jrm-remote tools");
+          "AI CLI args are runtime-only; MCP URL/context and Codex approval live in workspace");
 
     var desktopPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

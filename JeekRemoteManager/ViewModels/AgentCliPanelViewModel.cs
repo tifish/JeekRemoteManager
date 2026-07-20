@@ -165,8 +165,10 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     /// <summary>
     /// Raised when the embedded session ends. <paramref name="replaced"/> is true when a new
     /// CLI is about to start (provider switch / restart) so the view should not show "session ended".
+    /// <paramref name="exitDetail"/> is plain-text CLI output (e.g. config errors) when the process
+    /// died with a useful message; shown in the terminal and status bar.
     /// </summary>
-    public event Action<bool>? SessionStopped;
+    public event Action<bool, string?>? SessionStopped;
 
     partial void OnSelectedProviderChanged(AgentCliDescriptor value)
     {
@@ -555,8 +557,9 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
                 session.Exited += exitCode =>
                 {
                     // CLI closed itself (/exit, crash, …) — not StopInternal dispose.
-                    Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                        HandleCliProcessExited(session, external: null, exitCode));
+                    // Brief delay so ConPTY can flush the last error lines (config load
+                    // failures often print then exit within milliseconds).
+                    _ = FinalizeEmbeddedSessionExitAsync(session, exitCode, generation);
                 };
 
                 IsRunning = true;
@@ -568,7 +571,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             {
                 if (generation != Volatile.Read(ref _startGeneration))
                     return;
-                StatusText = L("AiCliStartFailed", ex.Message);
+                StatusText = L("AiCliStartFailed", FormatExceptionMessage(ex));
                 IsRunning = false;
                 NotifyLayoutFlags();
             }
@@ -601,6 +604,41 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     }
 
     /// <summary>
+    /// Waits briefly for ConPTY to deliver final error lines, then finishes exit handling
+    /// on the UI thread.
+    /// </summary>
+    private async Task FinalizeEmbeddedSessionExitAsync(
+        ConPtySession session,
+        int exitCode,
+        int generation)
+    {
+        try
+        {
+            if (exitCode != 0)
+                await Task.Delay(350).ConfigureAwait(false);
+        }
+        catch
+        {
+            // ignore
+        }
+
+        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (_disposed)
+                return;
+            // A newer StartAsync superseded this launch — only dispose if still current.
+            if (generation != Volatile.Read(ref _startGeneration)
+                && !ReferenceEquals(_session, session))
+            {
+                try { session.Dispose(); } catch { /* ignore */ }
+                return;
+            }
+
+            HandleCliProcessExited(session, external: null, exitCode);
+        });
+    }
+
+    /// <summary>
     /// CLI process ended on its own (or the external console closed). Clears session
     /// state, refreshes toolbar/status, and tells the view to update the terminal surface.
     /// </summary>
@@ -614,6 +652,11 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             return;
         if (external is not null && !ReferenceEquals(_externalProcess, external))
             return;
+
+        // Capture before dispose — early-exit CLIs often die before the UI attaches DataReceived.
+        var exitDetail = session is not null
+            ? SummarizeCliOutput(session.GetRecentOutputPlainText())
+            : null;
 
         if (session is not null)
         {
@@ -631,19 +674,75 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             return;
 
         IsRunning = false;
-        StatusText = exitCode is { } code
-            ? L("AiCliExited", SelectedProvider.Label, code)
-            : L("AiCliExitedNoCode", SelectedProvider.Label);
+        StatusText = FormatProcessExitStatus(SelectedProvider.Label, exitCode, exitDetail);
         NotifyLayoutFlags();
         InstallCommand.NotifyCanExecuteChanged();
-        SessionStopped?.Invoke(false);
+        SessionStopped?.Invoke(false, exitDetail);
+    }
+
+    private static string FormatProcessExitStatus(string label, int? exitCode, string? exitDetail)
+    {
+        if (!string.IsNullOrWhiteSpace(exitDetail))
+        {
+            return exitCode is { } code
+                ? L("AiCliExitedWithDetail", label, code, exitDetail)
+                : L("AiCliExitedWithDetailNoCode", label, exitDetail);
+        }
+
+        return exitCode is { } c
+            ? L("AiCliExited", label, c)
+            : L("AiCliExitedNoCode", label);
+    }
+
+    /// <summary>Collapse multi-line CLI output into a short status-bar detail.</summary>
+    private static string? SummarizeCliOutput(string? plain)
+    {
+        if (string.IsNullOrWhiteSpace(plain))
+            return null;
+
+        var lines = plain
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(static l => l.Length > 0 && !IsNoiseCliLine(l))
+            .ToList();
+        if (lines.Count == 0)
+            return null;
+
+        // Prefer the last non-noise lines (Codex/Claude print the real error last).
+        var take = Math.Min(4, lines.Count);
+        var summary = string.Join(" · ", lines.Skip(lines.Count - take));
+        if (summary.Length > 360)
+            summary = summary[..357] + "…";
+        return summary;
+    }
+
+    private static bool IsNoiseCliLine(string line)
+    {
+        // ConPTY / shells often emit blank-ish or cursor-only lines; skip pure noise.
+        if (line.All(static c => char.IsWhiteSpace(c) || c is '?' or '.'))
+            return true;
+        return false;
+    }
+
+    private static string FormatExceptionMessage(Exception ex)
+    {
+        var message = ex.Message?.Trim() ?? ex.GetType().Name;
+        if (ex.InnerException is { } inner
+            && !string.IsNullOrWhiteSpace(inner.Message)
+            && !message.Contains(inner.Message, StringComparison.Ordinal))
+        {
+            message = $"{message} ({inner.Message.Trim()})";
+        }
+
+        if (message.Length > 400)
+            message = message[..397] + "…";
+        return message;
     }
 
     private Task StopInternalAsync(bool userStopped, bool replaced)
     {
         // Tell the view to unhook before we kill the process (avoids late feed races).
         // replaced=true during provider switch / restart so the UI does not flash "session ended".
-        SessionStopped?.Invoke(replaced);
+        SessionStopped?.Invoke(replaced, null);
 
         var session = _session;
         _session = null;

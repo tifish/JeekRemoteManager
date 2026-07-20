@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
 
@@ -19,6 +20,8 @@ namespace JeekRemoteManager.Services;
 /// </summary>
 public sealed class ConPtySession : IDisposable
 {
+    private const int MaxRecentOutputBytes = 64 * 1024;
+
     private readonly IntPtr _pseudoConsole;
     private readonly SafeFileHandle _inputWrite;
     private readonly SafeFileHandle _outputRead;
@@ -26,6 +29,8 @@ public sealed class ConPtySession : IDisposable
     private readonly SafeFileHandle _job;
     private readonly FileStream _writer;
     private readonly object _writeGate = new();
+    private readonly object _recentOutputGate = new();
+    private readonly List<byte> _recentOutput = new(4096);
     private volatile bool _disposed;
     private int _exitRaised;
 
@@ -133,6 +138,64 @@ public sealed class ConPtySession : IDisposable
         ResizePseudoConsole(_pseudoConsole, size);
     }
 
+    /// <summary>
+    /// Plain-text snapshot of recent child output (ANSI stripped), for status bars
+    /// when a CLI dies before the UI terminal can show the stream.
+    /// </summary>
+    public string GetRecentOutputPlainText(int maxChars = 1200)
+    {
+        byte[] copy;
+        lock (_recentOutputGate)
+            copy = _recentOutput.ToArray();
+
+        if (copy.Length == 0 || maxChars <= 0)
+            return "";
+
+        var text = Encoding.UTF8.GetString(copy);
+        text = StripAnsi(text);
+        text = text.Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Trim();
+        if (text.Length == 0)
+            return "";
+
+        // Prefer the tail — startup failures print the useful line last.
+        if (text.Length > maxChars)
+            text = "…" + text[^(maxChars - 1)..];
+        return text;
+    }
+
+    private void RememberOutput(byte[] chunk)
+    {
+        if (chunk.Length == 0)
+            return;
+        lock (_recentOutputGate)
+        {
+            if (chunk.Length >= MaxRecentOutputBytes)
+            {
+                _recentOutput.Clear();
+                _recentOutput.AddRange(chunk.AsSpan(chunk.Length - MaxRecentOutputBytes).ToArray());
+                return;
+            }
+
+            var overflow = _recentOutput.Count + chunk.Length - MaxRecentOutputBytes;
+            if (overflow > 0)
+                _recentOutput.RemoveRange(0, Math.Min(overflow, _recentOutput.Count));
+            _recentOutput.AddRange(chunk);
+        }
+    }
+
+    private static string StripAnsi(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return text;
+        // CSI / OSC / simple ESC sequences emitted by CLIs and ConPTY.
+        text = Regex.Replace(text, "\u001b\\][^\\u0007\\u001b]*(?:\\u0007|\\u001b\\\\)", "");
+        text = Regex.Replace(text, "\u001b\\[[0-9;?]*[ -/]*[@-~]", "");
+        text = Regex.Replace(text, "\u001b.", "");
+        return text;
+    }
+
     private void StartReadLoop()
     {
         var thread = new Thread(() =>
@@ -148,7 +211,11 @@ public sealed class ConPtySession : IDisposable
                     var read = reader.Read(buffer, 0, buffer.Length);
                     if (read <= 0)
                         break;
-                    DataReceived?.Invoke(buffer.AsSpan(0, read).ToArray());
+                    var chunk = buffer.AsSpan(0, read).ToArray();
+                    // Always keep a ring buffer so early-exit errors are available even when
+                    // the UI has not subscribed to DataReceived yet.
+                    RememberOutput(chunk);
+                    DataReceived?.Invoke(chunk);
                 }
             }
             catch
