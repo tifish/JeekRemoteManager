@@ -56,8 +56,20 @@ public class AppSettings
     /// <summary>Main window height in device-independent pixels. Null = default size.</summary>
     public double? MainWindowHeight { get; set; }
 
+    /// <summary>Main window top-left X in physical pixels. Null = let the OS place it.</summary>
+    public int? MainWindowX { get; set; }
+
+    /// <summary>Main window top-left Y in physical pixels. Null = let the OS place it.</summary>
+    public int? MainWindowY { get; set; }
+
+    /// <summary>Whether the main window was maximized when the app last ran.</summary>
+    public bool MainWindowMaximized { get; set; }
+
     /// <summary>Width of the connection tree panel, in device-independent pixels.</summary>
     public double ConnectionPanelWidth { get; set; } = 306;
+
+    /// <summary>Whether the connection tree panel is collapsed to a toolbar strip.</summary>
+    public bool ConnectionPanelCollapsed { get; set; }
 
     /// <summary>Whether to silently check for updates a few seconds after launch.</summary>
     public bool CheckUpdateOnStartup { get; set; } = true;
@@ -123,9 +135,18 @@ public class AppSettings
 
     /// <summary>AI panel: whether potentially destructive remote commands bypass confirmation.</summary>
     public bool AiAutoApproveDangerousCommands { get; set; }
+
+    /// <summary>AI panel: hide the SSH terminal while the AI side panel is open.</summary>
+    public bool AiHideSshTerminal { get; set; }
+
+    /// <summary>Whether the AI panel was open when last toggled; new SSH tabs
+    /// and restarts open it automatically when true (global, not per-connection).</summary>
+    public bool AiPanelOpen { get; set; }
 }
 
-/// <summary>Settings that are bound to this Windows account and machine.</summary>
+/// <summary>Settings that are bound to this Windows account and machine.
+/// Window/panel layout and local executable paths live here — they depend on
+/// this machine's screens and installed programs, so they must not roam.</summary>
 public class MachineAppSettings
 {
     public StorageLocation StorageLocation { get; set; } = StorageLocation.UserDirectory;
@@ -139,8 +160,20 @@ public class MachineAppSettings
     /// <summary>Main window height in device-independent pixels. Null = default size.</summary>
     public double? MainWindowHeight { get; set; }
 
+    /// <summary>Main window top-left X in physical pixels. Null = let the OS place it.</summary>
+    public int? MainWindowX { get; set; }
+
+    /// <summary>Main window top-left Y in physical pixels. Null = let the OS place it.</summary>
+    public int? MainWindowY { get; set; }
+
+    /// <summary>Whether the main window was maximized when the app last ran.</summary>
+    public bool MainWindowMaximized { get; set; }
+
     /// <summary>Width of the connection tree panel, in device-independent pixels.</summary>
     public double ConnectionPanelWidth { get; set; } = 306;
+
+    /// <summary>Whether the connection tree panel is collapsed to a toolbar strip.</summary>
+    public bool ConnectionPanelCollapsed { get; set; }
 
     /// <summary>Recently-used connection file paths, most-recent first.</summary>
     public List<string> RecentConnectionPaths { get; set; } = new();
@@ -154,6 +187,33 @@ public class MachineAppSettings
     /// <summary>Absolute paths of folders the user has collapsed in the tree.</summary>
     public List<string> CollapsedFolderPaths { get; set; } = new();
 
+    /// <summary>Width of the in-terminal AI assistant panel, in device-independent pixels.</summary>
+    public double AiPanelWidth { get; set; } = 380;
+
+    /// <summary>Height of the in-terminal SFTP file browser panel, in device-independent pixels.</summary>
+    public double FileBrowserPanelHeight { get; set; } = 260;
+
+    /// <summary>Width of the in-terminal server monitor panel, in device-independent pixels.</summary>
+    public double MonitorPanelWidth { get; set; } = 260;
+
+    /// <summary>Editor executable used by the file browser's remote editing (F4).
+    /// A local program path, so machine-bound. Null/blank = system file association.</summary>
+    public string? FileBrowserEditorPath { get; set; }
+
+    /// <summary>
+    /// AI panel launch mode for Claude/Codex. Machine-bound: Windows Terminal and
+    /// the desktop protocol handlers may not exist on another machine.
+    /// </summary>
+    public AgentCliRunMode AiRunMode { get; set; } = AgentCliRunMode.Cli;
+
+    /// <summary>AI panel launch mode for Grok (CLI / Windows Terminal only).</summary>
+    public AgentCliRunMode AiGrokRunMode { get; set; } = AgentCliRunMode.Cli;
+
+    /// <summary>AI panel: hide the SSH terminal while the AI side panel is open.</summary>
+    public bool AiHideSshTerminal { get; set; }
+
+    /// <summary>Whether the AI panel was open when last toggled (global layout state).</summary>
+    public bool AiPanelOpen { get; set; }
 }
 
 /// <summary>Machine-independent preferences stored with the selected storage mode.</summary>
@@ -177,33 +237,8 @@ public class RoamingAppSettings
     /// <summary>Terminal font size in points, adjustable from the toolbar.</summary>
     public int TerminalFontSize { get; set; } = 14;
 
-    /// <summary>Width of the in-terminal AI assistant panel, in device-independent pixels.</summary>
-    public double AiPanelWidth { get; set; } = 380;
-
-    /// <summary>Height of the in-terminal SFTP file browser panel, in device-independent pixels.</summary>
-    public double FileBrowserPanelHeight { get; set; } = 260;
-
-    /// <summary>Width of the in-terminal server monitor panel, in device-independent pixels.</summary>
-    public double MonitorPanelWidth { get; set; } = 260;
-
-    /// <summary>Editor executable used by the file browser's remote editing (F4).
-    /// Null/blank = open with the system file association.</summary>
-    public string? FileBrowserEditorPath { get; set; }
-
     /// <summary>AI panel: last-used provider label ("Claude", "Codex", "Grok"). Null = first available.</summary>
     public string? AiProvider { get; set; }
-
-    /// <summary>
-    /// AI panel launch mode for Claude/Codex (CLI / Windows Terminal / Desktop).
-    /// Grok uses <see cref="AiGrokRunMode"/> so Desktop preferences are not overwritten.
-    /// </summary>
-    public AgentCliRunMode AiRunMode { get; set; } = AgentCliRunMode.Cli;
-
-    /// <summary>
-    /// AI panel launch mode for Grok (CLI / Windows Terminal only; Desktop is not supported).
-    /// Kept separate from <see cref="AiRunMode"/> because the option sets differ.
-    /// </summary>
-    public AgentCliRunMode AiGrokRunMode { get; set; } = AgentCliRunMode.Cli;
 
     /// <summary>AI panel: whether remote command tools run without the agent CLI asking first.</summary>
     public bool AiAutoRun { get; set; } = true;

@@ -329,7 +329,6 @@ try
         Name = "auto-panels",
         Host = "example.com",
         AutoOpenMonitorPanel = true,
-        AutoOpenAiPanel = true,
         AutoOpenFileBrowserPanel = true,
     };
     var autoPanelJson = JsonSerializer.Serialize(autoPanelConnection);
@@ -338,15 +337,18 @@ try
     var autoPanelRoundTrip = new Connection();
     autoPanelEditor.ApplyTo(autoPanelRoundTrip);
     Check(autoPanelEditor.AutoOpenMonitorPanel
-          && autoPanelEditor.AutoOpenAiPanel
           && autoPanelEditor.AutoOpenFileBrowserPanel
           && autoPanelRoundTrip.AutoOpenMonitorPanel
-          && autoPanelRoundTrip.AutoOpenAiPanel
           && autoPanelRoundTrip.AutoOpenFileBrowserPanel
           && autoPanelPersisted.AutoOpenMonitorPanel
-          && autoPanelPersisted.AutoOpenAiPanel
           && autoPanelPersisted.AutoOpenFileBrowserPanel,
           "SSH auto-open panel preferences round-trip through the editor and JSON");
+    // The AI panel moved to the global remembered AiPanelOpen setting; a legacy
+    // per-connection key must be ignored rather than break loading.
+    var legacyAiPanelConnection = JsonSerializer.Deserialize<Connection>(
+        """{"Type":0,"Name":"legacy","Host":"example.com","AutoOpenAiPanel":true}""")!;
+    Check(legacyAiPanelConnection.Name == "legacy" && legacyAiPanelConnection.AutoOpenMonitorPanel == false,
+          "Legacy AutoOpenAiPanel keys in connection files are ignored");
     using (var monitorSession = new ServerMonitorSession(
                () => null,
                Connection.DefaultTerminalType,
@@ -1375,17 +1377,28 @@ try
         MainWindowWidth = settingsWithRecent.MainWindowWidth,
         MainWindowHeight = settingsWithRecent.MainWindowHeight,
         ConnectionPanelWidth = settingsWithRecent.ConnectionPanelWidth,
+        AiRunMode = settingsWithRecent.AiRunMode,
+        AiGrokRunMode = settingsWithRecent.AiGrokRunMode,
     });
     Check(machineSettingsJson.Contains(nameof(MachineAppSettings.RecentConnectionPaths))
           && machineSettingsJson.Contains(nameof(MachineAppSettings.LastSelectedConnectionPath))
           && machineSettingsJson.Contains(nameof(MachineAppSettings.RecentExpanded))
           && machineSettingsJson.Contains(nameof(MachineAppSettings.MainWindowWidth))
           && machineSettingsJson.Contains(nameof(MachineAppSettings.MainWindowHeight))
+          && machineSettingsJson.Contains(nameof(MachineAppSettings.MainWindowMaximized))
+          && machineSettingsJson.Contains(nameof(MachineAppSettings.MainWindowX))
           && machineSettingsJson.Contains(nameof(MachineAppSettings.ConnectionPanelWidth))
-          && !machineSettingsJson.Contains("ConnectionPanelCollapsed")
+          && machineSettingsJson.Contains(nameof(MachineAppSettings.ConnectionPanelCollapsed))
+          && machineSettingsJson.Contains(nameof(MachineAppSettings.AiPanelWidth))
+          && machineSettingsJson.Contains(nameof(MachineAppSettings.FileBrowserPanelHeight))
+          && machineSettingsJson.Contains(nameof(MachineAppSettings.MonitorPanelWidth))
+          && machineSettingsJson.Contains(nameof(MachineAppSettings.AiRunMode))
+          && machineSettingsJson.Contains(nameof(MachineAppSettings.AiGrokRunMode))
+          && machineSettingsJson.Contains(nameof(MachineAppSettings.AiHideSshTerminal))
+          && machineSettingsJson.Contains(nameof(MachineAppSettings.AiPanelOpen))
           && !machineSettingsJson.Contains(nameof(RoamingAppSettings.Language))
           && !machineSettingsJson.Contains(nameof(RoamingAppSettings.Theme)),
-          "Machine settings persist local paths and window size only");
+          "Machine settings persist local paths, window layout, and machine-bound AI options");
     var roamingSettingsJson = JsonSerializer.Serialize(new RoamingAppSettings
     {
         Language = settingsWithRecent.Language,
@@ -1394,15 +1407,16 @@ try
         UpdateCheckIntervalHours = settingsWithRecent.UpdateCheckIntervalHours,
         AiAutoRun = settingsWithRecent.AiAutoRun,
         AiAutoApproveDangerousCommands = settingsWithRecent.AiAutoApproveDangerousCommands,
-        AiRunMode = settingsWithRecent.AiRunMode,
-        AiGrokRunMode = settingsWithRecent.AiGrokRunMode,
     });
     Check(roamingSettingsJson.Contains(nameof(RoamingAppSettings.Language))
           && roamingSettingsJson.Contains(nameof(RoamingAppSettings.Theme))
           && roamingSettingsJson.Contains(nameof(RoamingAppSettings.AiAutoRun))
           && roamingSettingsJson.Contains(nameof(RoamingAppSettings.AiAutoApproveDangerousCommands))
-          && roamingSettingsJson.Contains(nameof(RoamingAppSettings.AiRunMode))
-          && roamingSettingsJson.Contains(nameof(RoamingAppSettings.AiGrokRunMode))
+          && roamingSettingsJson.Contains(nameof(RoamingAppSettings.AiProvider))
+          && !roamingSettingsJson.Contains("AiRunMode")
+          && !roamingSettingsJson.Contains("AiGrokRunMode")
+          && !roamingSettingsJson.Contains("AiPanelWidth")
+          && !roamingSettingsJson.Contains("FileBrowserEditorPath")
           && !roamingSettingsJson.Contains(nameof(MachineAppSettings.RecentConnectionPaths))
           && !roamingSettingsJson.Contains(nameof(MachineAppSettings.MainWindowWidth)),
           "Roaming settings persist machine-independent preferences only");
@@ -1418,26 +1432,49 @@ try
     tempSettings.Settings.Language = "zh";
     tempSettings.Settings.AiAutoRun = false;
     tempSettings.Settings.AiAutoApproveDangerousCommands = true;
-    tempSettings.Settings.AiRunMode = AgentCliRunMode.Desktop;
-    tempSettings.Settings.AiGrokRunMode = AgentCliRunMode.WindowsTerminal;
     Check(!File.Exists(tempRoamingSettingsPath), "Settings changes stay in memory before flush");
     Check(tempSettings.SaveIfChanged()
           && File.Exists(tempRoamingSettingsPath)
           && !File.Exists(tempMachineSettingsPath),
-          "Changed roaming settings flush writes roaming settings.json");
+          "Changed roaming settings flush writes roaming settings.json only");
     var savedSettingsJson = File.ReadAllText(tempRoamingSettingsPath);
     Check(savedSettingsJson.Contains("\"Language\": \"zh\"")
           && savedSettingsJson.Contains("\"AiAutoRun\": false")
-          && savedSettingsJson.Contains("\"AiAutoApproveDangerousCommands\": true")
-          && savedSettingsJson.Contains("\"AiRunMode\": \"Desktop\"")
-          && savedSettingsJson.Contains("\"AiGrokRunMode\": \"WindowsTerminal\""),
+          && savedSettingsJson.Contains("\"AiAutoApproveDangerousCommands\": true"),
           "Changed roaming settings are serialized after flush");
+    // Machine-bound AI options (run modes, hide-SSH, panel-open) write the machine file.
+    tempSettings.Settings.AiRunMode = AgentCliRunMode.Desktop;
+    tempSettings.Settings.AiGrokRunMode = AgentCliRunMode.WindowsTerminal;
+    tempSettings.Settings.AiHideSshTerminal = true;
+    tempSettings.Settings.AiPanelOpen = true;
+    tempSettings.Settings.ConnectionPanelCollapsed = true;
+    tempSettings.Settings.MainWindowMaximized = true;
+    tempSettings.Settings.MainWindowX = 120;
+    tempSettings.Settings.MainWindowY = 45;
+    Check(tempSettings.SaveIfChanged() && File.Exists(tempMachineSettingsPath),
+          "Changed machine-bound AI/layout settings flush writes machine settings.json");
+    var savedMachineJson = File.ReadAllText(tempMachineSettingsPath);
+    Check(savedMachineJson.Contains("\"AiRunMode\": \"Desktop\"")
+          && savedMachineJson.Contains("\"AiGrokRunMode\": \"WindowsTerminal\"")
+          && savedMachineJson.Contains("\"AiHideSshTerminal\": true")
+          && savedMachineJson.Contains("\"AiPanelOpen\": true")
+          && savedMachineJson.Contains("\"ConnectionPanelCollapsed\": true")
+          && savedMachineJson.Contains("\"MainWindowMaximized\": true")
+          && savedMachineJson.Contains("\"MainWindowX\": 120")
+          && !File.ReadAllText(tempRoamingSettingsPath).Contains("AiRunMode"),
+          "Machine-bound AI/layout settings land in the machine file, not the roaming file");
     var reloadedAiSettings = new SettingsService(tempMachineSettingsPath, tempRoamingSettingsPath);
     Check(!reloadedAiSettings.Settings.AiAutoRun
           && reloadedAiSettings.Settings.AiAutoApproveDangerousCommands
           && reloadedAiSettings.Settings.AiRunMode == AgentCliRunMode.Desktop
-          && reloadedAiSettings.Settings.AiGrokRunMode == AgentCliRunMode.WindowsTerminal,
-          "AI command safety options and per-family run modes round-trip through roaming settings");
+          && reloadedAiSettings.Settings.AiGrokRunMode == AgentCliRunMode.WindowsTerminal
+          && reloadedAiSettings.Settings.AiHideSshTerminal
+          && reloadedAiSettings.Settings.AiPanelOpen
+          && reloadedAiSettings.Settings.ConnectionPanelCollapsed
+          && reloadedAiSettings.Settings.MainWindowMaximized
+          && reloadedAiSettings.Settings.MainWindowX == 120
+          && reloadedAiSettings.Settings.MainWindowY == 45,
+          "AI safety options, run modes, and window/panel layout state round-trip");
     File.SetLastWriteTimeUtc(tempRoamingSettingsPath, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
     var unchangedWriteTime = File.GetLastWriteTimeUtc(tempRoamingSettingsPath);
     Check(tempSettings.SaveIfChanged(), "Second unchanged settings flush succeeds");
@@ -1453,11 +1490,42 @@ try
           "AiGrokRunMode clamps Desktop to Cli without touching Claude/Codex AiRunMode");
     tempSettings.Settings.MainWindowWidth = 1200;
     Check(tempSettings.SaveIfChanged()
-          && File.Exists(tempMachineSettingsPath)
           && File.ReadAllText(tempMachineSettingsPath).Contains("\"MainWindowWidth\": 1200"),
           "Changed machine settings flush writes machine settings.json");
     Check(!File.ReadAllText(tempMachineSettingsPath).Contains("\"Language\""),
           "Machine settings.json does not include roaming preferences");
+    // One-time upgrade: layout / machine-bound keys still sitting in an old-format
+    // roaming file are adopted into the machine file on first load.
+    var legacyMachinePath = Path.Combine(root, "LegacyLocalConfig", "settings.json");
+    var legacyRoamingPath = Path.Combine(root, "LegacyRoamingConfig", "settings.json");
+    Directory.CreateDirectory(Path.GetDirectoryName(legacyRoamingPath)!);
+    File.WriteAllText(legacyRoamingPath,
+        """
+        {
+          "Language": "zh",
+          "AiPanelWidth": 555,
+          "FileBrowserPanelHeight": 333,
+          "MonitorPanelWidth": 222,
+          "FileBrowserEditorPath": "C:\\Tools\\editor.exe",
+          "AiRunMode": "WindowsTerminal",
+          "AiGrokRunMode": "WindowsTerminal"
+        }
+        """);
+    var migratedSettings = new SettingsService(legacyMachinePath, legacyRoamingPath);
+    Check(migratedSettings.Settings.AiPanelWidth == 555
+          && migratedSettings.Settings.FileBrowserPanelHeight == 333
+          && migratedSettings.Settings.MonitorPanelWidth == 222
+          && migratedSettings.Settings.FileBrowserEditorPath == "C:\\Tools\\editor.exe"
+          && migratedSettings.Settings.AiRunMode == AgentCliRunMode.WindowsTerminal
+          && migratedSettings.Settings.AiGrokRunMode == AgentCliRunMode.WindowsTerminal
+          && migratedSettings.Settings.Language == "zh",
+          "Legacy roaming layout settings are adopted on load");
+    Check(File.Exists(legacyMachinePath)
+          && File.ReadAllText(legacyMachinePath).Contains("\"AiPanelWidth\": 555"),
+          "Adopted legacy layout settings are written to the machine file immediately");
+    var remigratedSettings = new SettingsService(legacyMachinePath, legacyRoamingPath);
+    Check(remigratedSettings.Settings.AiPanelWidth == 555,
+          "Migration is idempotent once the machine file has the moved keys");
     Check(!File.ReadAllText(tempRoamingSettingsPath).Contains("\"MainWindowWidth\""),
           "Roaming settings.json does not include machine-local state");
 

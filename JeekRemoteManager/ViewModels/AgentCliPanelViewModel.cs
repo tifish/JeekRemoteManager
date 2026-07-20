@@ -57,6 +57,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         string? preferredProviderLabel = null,
         bool autoRun = true,
         bool autoApproveDangerousCommands = false,
+        bool hideSshTerminal = false,
         Action<bool, bool>? onSafetyOptionsChanged = null,
         Action<bool>? onHideSshTerminalChanged = null,
         AgentCliRunMode preferredRunMode = AgentCliRunMode.Cli,
@@ -69,6 +70,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         _resolvePreferredRunMode = resolvePreferredRunMode;
         _autoRun = autoRun;
         _autoApproveDangerousCommands = autoApproveDangerousCommands;
+        _hideSshTerminal = hideSshTerminal;
         Directory.CreateDirectory(_workingDirectory);
 
         foreach (var descriptor in AgentCliCatalog.Discover())

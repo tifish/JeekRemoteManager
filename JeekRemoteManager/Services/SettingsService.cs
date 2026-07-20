@@ -78,14 +78,104 @@ public class SettingsService
         var roamingSettings = LoadRoamingSettings(RoamingSettingsPath, fallbackRoamingSettings);
         NormalizeRoamingSettings(roamingSettings);
 
+        var preMigrationMachineSettings = Clone(machineSettings);
+        var migratedMachineSettings = TryAdoptLegacyRoamingLayoutSettings(
+            machineSettings, MachineSettingsPath, RoamingSettingsPath);
+        if (migratedMachineSettings is not null)
+        {
+            NormalizeMachineSettings(migratedMachineSettings);
+            machineSettings = migratedMachineSettings;
+        }
+
         Settings = MergeSettings(machineSettings, roamingSettings);
         NormalizeSettings(Settings);
 
-        _baseMachineSettings = ToMachineSettings(Settings);
+        // After a migration the baseline stays at the pre-migration disk state so
+        // the immediate save below writes the adopted values through the merge.
+        _baseMachineSettings = migratedMachineSettings is not null
+            ? preMigrationMachineSettings
+            : ToMachineSettings(Settings);
         _baseRoamingSettings = ToRoamingSettings(Settings);
         _lastSavedMachineJson = Serialize(_baseMachineSettings);
         _lastSavedRoamingPath = CurrentRoamingSettingsPath();
         _lastSavedRoamingJson = Serialize(_baseRoamingSettings);
+
+        if (migratedMachineSettings is not null)
+            SaveIfChanged();
+    }
+
+    /// <summary>
+    /// Machine-bound keys that historically lived in the roaming settings file
+    /// (panel layout sizes, editor path, AI run modes). Used once at startup to
+    /// carry existing values over to the machine-local file.
+    /// </summary>
+    private static readonly string[] LegacyRoamingLayoutKeys =
+    [
+        nameof(MachineAppSettings.AiPanelWidth),
+        nameof(MachineAppSettings.FileBrowserPanelHeight),
+        nameof(MachineAppSettings.MonitorPanelWidth),
+        nameof(MachineAppSettings.FileBrowserEditorPath),
+        nameof(MachineAppSettings.AiRunMode),
+        nameof(MachineAppSettings.AiGrokRunMode),
+        nameof(MachineAppSettings.AiHideSshTerminal),
+    ];
+
+    /// <summary>
+    /// One-time upgrade for settings that moved from the roaming file to the
+    /// machine-local file: any moved key the machine file does not define yet is
+    /// adopted from the roaming file, so users keep their existing values.
+    /// Returns the adopted settings, or null when nothing needed migrating.
+    /// </summary>
+    private static MachineAppSettings? TryAdoptLegacyRoamingLayoutSettings(
+        MachineAppSettings machineSettings,
+        string machineSettingsPath,
+        string roamingSettingsPath)
+    {
+        var roamingJson = TryReadJsonObject(roamingSettingsPath);
+        if (roamingJson is null)
+            return null;
+
+        var machineJson = TryReadJsonObject(machineSettingsPath);
+        if (JsonSerializer.SerializeToNode(machineSettings, JsonOptions) is not JsonObject machineNode)
+            return null;
+
+        var adopted = false;
+        foreach (var key in LegacyRoamingLayoutKeys)
+        {
+            if (machineJson?.ContainsKey(key) == true)
+                continue;
+            if (!roamingJson.TryGetPropertyValue(key, out var value) || value is null)
+                continue;
+            machineNode[key] = value.DeepClone();
+            adopted = true;
+        }
+
+        if (!adopted)
+            return null;
+
+        try
+        {
+            return machineNode.Deserialize<MachineAppSettings>(JsonOptions);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static JsonObject? TryReadJsonObject(string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+                return null;
+
+            return JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>Compatibility property for callers that report the settings path.</summary>
@@ -155,23 +245,29 @@ public class SettingsService
             CustomStoragePath = machineSettings.CustomStoragePath,
             MainWindowWidth = machineSettings.MainWindowWidth,
             MainWindowHeight = machineSettings.MainWindowHeight,
+            MainWindowX = machineSettings.MainWindowX,
+            MainWindowY = machineSettings.MainWindowY,
+            MainWindowMaximized = machineSettings.MainWindowMaximized,
             ConnectionPanelWidth = machineSettings.ConnectionPanelWidth,
+            ConnectionPanelCollapsed = machineSettings.ConnectionPanelCollapsed,
             RecentConnectionPaths = machineSettings.RecentConnectionPaths,
             LastSelectedConnectionPath = machineSettings.LastSelectedConnectionPath,
             RecentExpanded = machineSettings.RecentExpanded,
             CollapsedFolderPaths = machineSettings.CollapsedFolderPaths,
+            AiPanelWidth = machineSettings.AiPanelWidth,
+            FileBrowserPanelHeight = machineSettings.FileBrowserPanelHeight,
+            MonitorPanelWidth = machineSettings.MonitorPanelWidth,
+            FileBrowserEditorPath = machineSettings.FileBrowserEditorPath,
+            AiRunMode = machineSettings.AiRunMode,
+            AiGrokRunMode = machineSettings.AiGrokRunMode,
+            AiHideSshTerminal = machineSettings.AiHideSshTerminal,
+            AiPanelOpen = machineSettings.AiPanelOpen,
             Language = roamingSettings.Language,
             Theme = roamingSettings.Theme,
             CheckUpdateOnStartup = roamingSettings.CheckUpdateOnStartup,
             UpdateCheckIntervalHours = roamingSettings.UpdateCheckIntervalHours,
             TerminalFontSize = roamingSettings.TerminalFontSize,
-            AiPanelWidth = roamingSettings.AiPanelWidth,
-            FileBrowserPanelHeight = roamingSettings.FileBrowserPanelHeight,
-            MonitorPanelWidth = roamingSettings.MonitorPanelWidth,
-            FileBrowserEditorPath = roamingSettings.FileBrowserEditorPath,
             AiProvider = roamingSettings.AiProvider,
-            AiRunMode = roamingSettings.AiRunMode,
-            AiGrokRunMode = roamingSettings.AiGrokRunMode,
             AiAutoRun = roamingSettings.AiAutoRun,
             AiAutoApproveDangerousCommands = roamingSettings.AiAutoApproveDangerousCommands,
         };
@@ -184,11 +280,23 @@ public class SettingsService
             CustomStoragePath = settings.CustomStoragePath,
             MainWindowWidth = settings.MainWindowWidth,
             MainWindowHeight = settings.MainWindowHeight,
+            MainWindowX = settings.MainWindowX,
+            MainWindowY = settings.MainWindowY,
+            MainWindowMaximized = settings.MainWindowMaximized,
             ConnectionPanelWidth = settings.ConnectionPanelWidth,
+            ConnectionPanelCollapsed = settings.ConnectionPanelCollapsed,
             RecentConnectionPaths = settings.RecentConnectionPaths ?? new List<string>(),
             LastSelectedConnectionPath = settings.LastSelectedConnectionPath,
             RecentExpanded = settings.RecentExpanded,
             CollapsedFolderPaths = settings.CollapsedFolderPaths ?? new List<string>(),
+            AiPanelWidth = settings.AiPanelWidth,
+            FileBrowserPanelHeight = settings.FileBrowserPanelHeight,
+            MonitorPanelWidth = settings.MonitorPanelWidth,
+            FileBrowserEditorPath = settings.FileBrowserEditorPath,
+            AiRunMode = settings.AiRunMode,
+            AiGrokRunMode = settings.AiGrokRunMode,
+            AiHideSshTerminal = settings.AiHideSshTerminal,
+            AiPanelOpen = settings.AiPanelOpen,
         };
         NormalizeMachineSettings(machineSettings);
         return machineSettings;
@@ -203,13 +311,7 @@ public class SettingsService
             CheckUpdateOnStartup = settings.CheckUpdateOnStartup,
             UpdateCheckIntervalHours = settings.UpdateCheckIntervalHours,
             TerminalFontSize = settings.TerminalFontSize,
-            AiPanelWidth = settings.AiPanelWidth,
-            FileBrowserPanelHeight = settings.FileBrowserPanelHeight,
-            MonitorPanelWidth = settings.MonitorPanelWidth,
-            FileBrowserEditorPath = settings.FileBrowserEditorPath,
             AiProvider = settings.AiProvider,
-            AiRunMode = settings.AiRunMode,
-            AiGrokRunMode = settings.AiGrokRunMode,
             AiAutoRun = settings.AiAutoRun,
             AiAutoApproveDangerousCommands = settings.AiAutoApproveDangerousCommands,
         };
@@ -227,23 +329,29 @@ public class SettingsService
         settings.CustomStoragePath = normalized.CustomStoragePath;
         settings.MainWindowWidth = normalized.MainWindowWidth;
         settings.MainWindowHeight = normalized.MainWindowHeight;
+        settings.MainWindowX = normalized.MainWindowX;
+        settings.MainWindowY = normalized.MainWindowY;
+        settings.MainWindowMaximized = normalized.MainWindowMaximized;
         settings.ConnectionPanelWidth = normalized.ConnectionPanelWidth;
+        settings.ConnectionPanelCollapsed = normalized.ConnectionPanelCollapsed;
         settings.RecentConnectionPaths = normalized.RecentConnectionPaths;
         settings.LastSelectedConnectionPath = normalized.LastSelectedConnectionPath;
         settings.RecentExpanded = normalized.RecentExpanded;
         settings.CollapsedFolderPaths = normalized.CollapsedFolderPaths;
+        settings.AiPanelWidth = normalized.AiPanelWidth;
+        settings.FileBrowserPanelHeight = normalized.FileBrowserPanelHeight;
+        settings.MonitorPanelWidth = normalized.MonitorPanelWidth;
+        settings.FileBrowserEditorPath = normalized.FileBrowserEditorPath;
+        settings.AiRunMode = normalized.AiRunMode;
+        settings.AiGrokRunMode = normalized.AiGrokRunMode;
+        settings.AiHideSshTerminal = normalized.AiHideSshTerminal;
+        settings.AiPanelOpen = normalized.AiPanelOpen;
         settings.Language = normalized.Language;
         settings.Theme = normalized.Theme;
         settings.CheckUpdateOnStartup = normalized.CheckUpdateOnStartup;
         settings.UpdateCheckIntervalHours = normalized.UpdateCheckIntervalHours;
         settings.TerminalFontSize = normalized.TerminalFontSize;
-        settings.AiPanelWidth = normalized.AiPanelWidth;
-        settings.FileBrowserPanelHeight = normalized.FileBrowserPanelHeight;
-        settings.MonitorPanelWidth = normalized.MonitorPanelWidth;
-        settings.FileBrowserEditorPath = normalized.FileBrowserEditorPath;
         settings.AiProvider = normalized.AiProvider;
-        settings.AiRunMode = normalized.AiRunMode;
-        settings.AiGrokRunMode = normalized.AiGrokRunMode;
         settings.AiAutoRun = normalized.AiAutoRun;
         settings.AiAutoApproveDangerousCommands = normalized.AiAutoApproveDangerousCommands;
     }
@@ -265,20 +373,15 @@ public class SettingsService
             settings.MainWindowWidth = null;
         if (!IsValidWindowDimension(settings.MainWindowHeight))
             settings.MainWindowHeight = null;
+        // Position is only meaningful as a pair.
+        if (settings.MainWindowX is null || settings.MainWindowY is null)
+        {
+            settings.MainWindowX = null;
+            settings.MainWindowY = null;
+        }
         settings.ConnectionPanelWidth = double.IsFinite(settings.ConnectionPanelWidth)
             ? Math.Clamp(settings.ConnectionPanelWidth, 180, 600)
             : 306;
-    }
-
-    private static void NormalizeRoamingSettings(RoamingAppSettings settings)
-    {
-        if (string.IsNullOrWhiteSpace(settings.Language))
-            settings.Language = null;
-        if (string.IsNullOrWhiteSpace(settings.Theme))
-            settings.Theme = null;
-        if (settings.UpdateCheckIntervalHours < 0)
-            settings.UpdateCheckIntervalHours = 0;
-        settings.TerminalFontSize = Math.Clamp(settings.TerminalFontSize, 8, 36);
         settings.AiPanelWidth = double.IsFinite(settings.AiPanelWidth)
             ? Math.Clamp(settings.AiPanelWidth, 240, 1200)
             : 380;
@@ -290,13 +393,24 @@ public class SettingsService
             : 260;
         if (string.IsNullOrWhiteSpace(settings.FileBrowserEditorPath))
             settings.FileBrowserEditorPath = null;
-        if (string.IsNullOrWhiteSpace(settings.AiProvider))
-            settings.AiProvider = null;
         if (!Enum.IsDefined(settings.AiRunMode))
             settings.AiRunMode = AgentCliRunMode.Cli;
         // Grok has no Desktop protocol; never persist/restore Desktop for that slot.
         if (!Enum.IsDefined(settings.AiGrokRunMode) || settings.AiGrokRunMode == AgentCliRunMode.Desktop)
             settings.AiGrokRunMode = AgentCliRunMode.Cli;
+    }
+
+    private static void NormalizeRoamingSettings(RoamingAppSettings settings)
+    {
+        if (string.IsNullOrWhiteSpace(settings.Language))
+            settings.Language = null;
+        if (string.IsNullOrWhiteSpace(settings.Theme))
+            settings.Theme = null;
+        if (settings.UpdateCheckIntervalHours < 0)
+            settings.UpdateCheckIntervalHours = 0;
+        settings.TerminalFontSize = Math.Clamp(settings.TerminalFontSize, 8, 36);
+        if (string.IsNullOrWhiteSpace(settings.AiProvider))
+            settings.AiProvider = null;
     }
 
     private static StorageLocation NormalizeStorageLocation(StorageLocation location) =>

@@ -48,6 +48,19 @@ public partial class App : Application
             desktop.Exit += (_, _) => FlushSettingsState();
             if (desktop is IActivatableLifetime activatable)
                 activatable.Deactivated += (_, _) => FlushSettingsState();
+            // Best-effort last save when the process is about to die on an
+            // unhandled exception, so recent UI-state changes are not lost.
+            AppDomain.CurrentDomain.UnhandledException += (_, _) =>
+            {
+                try
+                {
+                    FlushSettingsState();
+                }
+                catch
+                {
+                    // The process is already crashing; never mask the original error.
+                }
+            };
 
             var settings = new SettingsService();
             DebugInstanceContext.SetConfigRoot(settings.ResolveConfigRoot());

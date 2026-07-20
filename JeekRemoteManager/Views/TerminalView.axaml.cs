@@ -720,6 +720,10 @@ public partial class TerminalView : UserControl
             PersistAiPanelWidth();
 
         AiPanelHost.IsVisible = show;
+        // The AI panel open state is a global preference (not per-connection):
+        // remember the last toggle so new tabs and restarts reopen it.
+        if (DataContext is MainWindowViewModel mainVm)
+            mainVm.AiPanelOpen = show;
         ApplyAiPanelLayout();
         PanelStateChanged?.Invoke(this, EventArgs.Empty);
 
@@ -1023,6 +1027,7 @@ public partial class TerminalView : UserControl
             preferred,
             autoRun: mainVm?.AiAutoRun ?? true,
             autoApproveDangerousCommands: mainVm?.AiAutoApproveDangerousCommands ?? false,
+            hideSshTerminal: mainVm?.AiHideSshTerminal ?? false,
             onSafetyOptionsChanged: (autoRun, autoApprove) =>
             {
                 if (DataContext is MainWindowViewModel ownerVm)
@@ -1033,8 +1038,10 @@ public partial class TerminalView : UserControl
                 if (_agentRemoteMcp is not null)
                     _agentRemoteMcp.AutoApproveDangerousCommands = autoApprove;
             },
-            onHideSshTerminalChanged: _ =>
+            onHideSshTerminalChanged: hide =>
             {
+                if (DataContext is MainWindowViewModel ownerVm)
+                    ownerVm.AiHideSshTerminal = hide;
                 PersistAiPanelWidth();
                 ApplyAiPanelLayout();
                 if (IsLoginManualInputPending)
@@ -2235,7 +2242,8 @@ public partial class TerminalView : UserControl
 
         if (connection.AutoOpenMonitorPanel && !IsMonitorPanelOpen)
             ToggleMonitorPanel();
-        if (connection.AutoOpenAiPanel && !IsAiPanelOpen)
+        // The AI panel follows the global remembered state instead of a per-connection option.
+        if ((DataContext as MainWindowViewModel)?.AiPanelOpen == true && !IsAiPanelOpen)
             ToggleAiPanel();
         if (connection.AutoOpenFileBrowserPanel && !IsFileBrowserPanelOpen)
             ToggleFileBrowserPanel();

@@ -82,9 +82,6 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     private bool _autoOpenMonitorPanel;
 
     [ObservableProperty]
-    private bool _autoOpenAiPanel;
-
-    [ObservableProperty]
     private bool _autoOpenFileBrowserPanel;
 
     public ObservableCollection<ConnectionScriptBindingViewModel> ScriptBindings { get; } = new();
@@ -213,7 +210,6 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             PrivateKeyPath = c.PrivateKeyPath,
             LoginCommands = c.LoginCommands,
             AutoOpenMonitorPanel = c.AutoOpenMonitorPanel,
-            AutoOpenAiPanel = c.AutoOpenAiPanel,
             AutoOpenFileBrowserPanel = c.AutoOpenFileBrowserPanel,
             WslDistro = c.WslDistro,
             WslStartDirectory = c.WslStartDirectory,
@@ -281,7 +277,6 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             : PasswordProtector.Encrypt(PrivateKeyPassphrase);
         c.LoginCommands = LoginCommands;
         c.AutoOpenMonitorPanel = AutoOpenMonitorPanel;
-        c.AutoOpenAiPanel = AutoOpenAiPanel;
         c.AutoOpenFileBrowserPanel = AutoOpenFileBrowserPanel;
         c.WslDistro = WslDistro.Trim();
         c.WslStartDirectory = WslStartDirectory.Trim();

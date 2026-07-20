@@ -422,6 +422,20 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Persisted collapsed state of the connection tree panel.</summary>
+    public bool ConnectionPanelCollapsed
+    {
+        get => _settings.Settings.ConnectionPanelCollapsed;
+        set
+        {
+            if (_settings.Settings.ConnectionPanelCollapsed == value)
+                return;
+
+            _settings.Settings.ConnectionPanelCollapsed = value;
+            _settings.SaveIfChanged();
+        }
+    }
+
     /// <summary>Editor executable for the file browser's remote editing (F4);
     /// null = system file association. Configured in the Settings dialog.</summary>
     public string? FileBrowserEditorPath => _settings.Settings.FileBrowserEditorPath;
@@ -510,6 +524,33 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Whether the AI panel hides the SSH terminal while open (shared across tabs).</summary>
+    public bool AiHideSshTerminal
+    {
+        get => _settings.Settings.AiHideSshTerminal;
+        set
+        {
+            if (_settings.Settings.AiHideSshTerminal == value)
+                return;
+            _settings.Settings.AiHideSshTerminal = value;
+            _settings.SaveIfChanged();
+        }
+    }
+
+    /// <summary>Global remembered AI panel open state: toggling it in any tab is
+    /// recorded here, and new SSH tabs open the panel automatically when true.</summary>
+    public bool AiPanelOpen
+    {
+        get => _settings.Settings.AiPanelOpen;
+        set
+        {
+            if (_settings.Settings.AiPanelOpen == value)
+                return;
+            _settings.Settings.AiPanelOpen = value;
+            _settings.SaveIfChanged();
+        }
+    }
+
     /// <summary>True when a terminal tab is the active right-pane tab. Drives the
     /// visibility of the terminal font-size toolbar buttons.</summary>
     [ObservableProperty]
@@ -568,6 +609,28 @@ public partial class MainWindowViewModel : ViewModelBase
 
         _settings.Settings.MainWindowWidth = roundedWidth;
         _settings.Settings.MainWindowHeight = roundedHeight;
+    }
+
+    /// <summary>Last saved main-window top-left corner, in physical pixels.</summary>
+    public bool TryGetSavedMainWindowPosition(out int x, out int y)
+    {
+        x = _settings.Settings.MainWindowX ?? 0;
+        y = _settings.Settings.MainWindowY ?? 0;
+        return _settings.Settings.MainWindowX is not null
+               && _settings.Settings.MainWindowY is not null;
+    }
+
+    public void SaveMainWindowPosition(int x, int y)
+    {
+        _settings.Settings.MainWindowX = x;
+        _settings.Settings.MainWindowY = y;
+    }
+
+    /// <summary>Whether the main window should restore maximized.</summary>
+    public bool MainWindowMaximized
+    {
+        get => _settings.Settings.MainWindowMaximized;
+        set => _settings.Settings.MainWindowMaximized = value;
     }
 
     private static bool IsValidWindowDimension(double value) =>

@@ -129,6 +129,7 @@ public partial class MainWindow : Window
             UpdateWindowTitle();
         };
         SizeChanged += OnWindowSizeChanged;
+        PositionChanged += OnWindowPositionChanged;
         CommandBar.LayoutUpdated += (_, _) => UpdateToolbarCompactMode();
         Opened += (_, _) =>
         {
@@ -275,7 +276,7 @@ public partial class MainWindow : Window
 
         _treePanelWidthRestored = true;
         _treePanelWidth = vm.ConnectionPanelWidth;
-        ApplyConnectionPanelState(collapsed: false);
+        ApplyConnectionPanelState(vm.ConnectionPanelCollapsed);
     }
 
     // ColumnDefinitions don't generate fields, so reach the tree column through the grid.
@@ -305,6 +306,9 @@ public partial class MainWindow : Window
         MainGrid.ColumnSpacing = collapsed ? 0 : 8;
         ToggleTreePanelIcon.Text = collapsed ? "\uE8A0" : "\uE89F"; // OpenPane / ClosePane
         ToggleTreePanelButton.Classes.Set("panel-on", !collapsed);
+
+        if (DataContext is MainWindowViewModel vm)
+            vm.ConnectionPanelCollapsed = collapsed;
     }
 
     private void PersistConnectionPanelWidth()
@@ -334,6 +338,20 @@ public partial class MainWindow : Window
             var size = ClampWindowSizeToCurrentScreen(width, height);
             Width = size.Width;
             Height = size.Height;
+
+            // Restore the last position only when a grabbable part of the title
+            // bar still lands on a live screen; otherwise keep CenterScreen so a
+            // window saved on a since-removed monitor stays reachable.
+            if (vm.TryGetSavedMainWindowPosition(out var x, out var y)
+                && IsPositionOnAnyScreen(x, y))
+            {
+                WindowStartupLocation = WindowStartupLocation.Manual;
+                Position = new PixelPoint(x, y);
+            }
+
+            // Set after normal bounds so un-maximizing returns to them.
+            if (vm.MainWindowMaximized)
+                WindowState = WindowState.Maximized;
         }
         finally
         {
@@ -343,6 +361,11 @@ public partial class MainWindow : Window
 
     private void EnsureWindowFitsCurrentScreen()
     {
+        // While maximized, Bounds is the full working area; clamping Width/Height
+        // to it would corrupt the remembered normal-state size.
+        if (WindowState != WindowState.Normal)
+            return;
+
         _ignoreWindowSizeChange = true;
         try
         {
@@ -367,6 +390,36 @@ public partial class MainWindow : Window
         ScheduleWindowSizeSave();
     }
 
+    private void OnWindowPositionChanged(object? sender, PixelPointEventArgs e)
+    {
+        if (!_canPersistWindowSize
+            || !_windowSizeRestored
+            || _ignoreWindowSizeChange
+            || WindowState != WindowState.Normal)
+            return;
+
+        ScheduleWindowSizeSave();
+    }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+
+        // Record maximize/restore transitions (minimize and fullscreen are
+        // transient states and never persisted).
+        if (change.Property != WindowStateProperty
+            || !_canPersistWindowSize
+            || !_windowSizeRestored
+            || _ignoreWindowSizeChange
+            || DataContext is not MainWindowViewModel vm)
+            return;
+
+        if (WindowState == WindowState.Maximized)
+            vm.MainWindowMaximized = true;
+        else if (WindowState == WindowState.Normal)
+            vm.MainWindowMaximized = false;
+    }
+
     private void ScheduleWindowSizeSave()
     {
         if (_windowSizeSaveTimer is null)
@@ -389,11 +442,31 @@ public partial class MainWindow : Window
 
         if (vm is null
             || !_canPersistWindowSize
-            || !_windowSizeRestored
-            || WindowState != WindowState.Normal)
+            || !_windowSizeRestored)
+            return;
+
+        if (WindowState is WindowState.Maximized or WindowState.Normal)
+            vm.MainWindowMaximized = WindowState == WindowState.Maximized;
+
+        if (WindowState != WindowState.Normal)
             return;
 
         vm.SaveMainWindowSize(Bounds.Width, Bounds.Height);
+        vm.SaveMainWindowPosition(Position.X, Position.Y);
+    }
+
+    /// <summary>True when a 160x48 physical-pixel strip at the window's top-left
+    /// corner intersects some screen's working area, i.e. the title bar stays grabbable.</summary>
+    private bool IsPositionOnAnyScreen(int x, int y)
+    {
+        var titleStrip = new PixelRect(x, y, 160, 48);
+        foreach (var screen in Screens.All)
+        {
+            if (screen.WorkingArea.Intersects(titleStrip))
+                return true;
+        }
+
+        return false;
     }
 
     private Size ClampWindowSizeToCurrentScreen(double width, double height)

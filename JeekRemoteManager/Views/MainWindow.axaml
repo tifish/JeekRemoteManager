@@ -1171,8 +1171,6 @@
                                                             Orientation="Horizontal" Spacing="18">
                                                     <CheckBox Content="{l:Localize ServerMonitor}"
                                                               IsChecked="{Binding AutoOpenMonitorPanel, Mode=TwoWay}" />
-                                                    <CheckBox Content="{l:Localize AiAssistantShort}"
-                                                              IsChecked="{Binding AutoOpenAiPanel, Mode=TwoWay}" />
                                                     <CheckBox Content="{l:Localize FileBrowser}"
                                                               IsChecked="{Binding AutoOpenFileBrowserPanel, Mode=TwoWay}" />
                                                 </StackPanel>
