@@ -174,7 +174,6 @@ public class SettingsService
             AiGrokRunMode = roamingSettings.AiGrokRunMode,
             AiAutoRun = roamingSettings.AiAutoRun,
             AiAutoApproveDangerousCommands = roamingSettings.AiAutoApproveDangerousCommands,
-            AiHideSshTerminal = roamingSettings.AiHideSshTerminal,
         };
 
     private static MachineAppSettings ToMachineSettings(AppSettings settings)
@@ -213,7 +212,6 @@ public class SettingsService
             AiGrokRunMode = settings.AiGrokRunMode,
             AiAutoRun = settings.AiAutoRun,
             AiAutoApproveDangerousCommands = settings.AiAutoApproveDangerousCommands,
-            AiHideSshTerminal = settings.AiHideSshTerminal,
         };
         NormalizeRoamingSettings(roamingSettings);
         return roamingSettings;
@@ -248,7 +246,6 @@ public class SettingsService
         settings.AiGrokRunMode = normalized.AiGrokRunMode;
         settings.AiAutoRun = normalized.AiAutoRun;
         settings.AiAutoApproveDangerousCommands = normalized.AiAutoApproveDangerousCommands;
-        settings.AiHideSshTerminal = normalized.AiHideSshTerminal;
     }
 
     private static void NormalizeMachineSettings(MachineAppSettings settings)

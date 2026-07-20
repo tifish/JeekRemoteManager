@@ -1358,7 +1358,6 @@ try
         Theme = "Dark",
         AiAutoRun = false,
         AiAutoApproveDangerousCommands = true,
-        AiHideSshTerminal = true,
         AiRunMode = AgentCliRunMode.Desktop,
         AiGrokRunMode = AgentCliRunMode.WindowsTerminal,
         RecentConnectionPaths = { Path.Combine(root, "Servers", "web01.json") },
@@ -1395,7 +1394,6 @@ try
         UpdateCheckIntervalHours = settingsWithRecent.UpdateCheckIntervalHours,
         AiAutoRun = settingsWithRecent.AiAutoRun,
         AiAutoApproveDangerousCommands = settingsWithRecent.AiAutoApproveDangerousCommands,
-        AiHideSshTerminal = settingsWithRecent.AiHideSshTerminal,
         AiRunMode = settingsWithRecent.AiRunMode,
         AiGrokRunMode = settingsWithRecent.AiGrokRunMode,
     });
@@ -1403,7 +1401,6 @@ try
           && roamingSettingsJson.Contains(nameof(RoamingAppSettings.Theme))
           && roamingSettingsJson.Contains(nameof(RoamingAppSettings.AiAutoRun))
           && roamingSettingsJson.Contains(nameof(RoamingAppSettings.AiAutoApproveDangerousCommands))
-          && roamingSettingsJson.Contains(nameof(RoamingAppSettings.AiHideSshTerminal))
           && roamingSettingsJson.Contains(nameof(RoamingAppSettings.AiRunMode))
           && roamingSettingsJson.Contains(nameof(RoamingAppSettings.AiGrokRunMode))
           && !roamingSettingsJson.Contains(nameof(MachineAppSettings.RecentConnectionPaths))
@@ -1421,7 +1418,6 @@ try
     tempSettings.Settings.Language = "zh";
     tempSettings.Settings.AiAutoRun = false;
     tempSettings.Settings.AiAutoApproveDangerousCommands = true;
-    tempSettings.Settings.AiHideSshTerminal = true;
     tempSettings.Settings.AiRunMode = AgentCliRunMode.Desktop;
     tempSettings.Settings.AiGrokRunMode = AgentCliRunMode.WindowsTerminal;
     Check(!File.Exists(tempRoamingSettingsPath), "Settings changes stay in memory before flush");
@@ -1433,17 +1429,15 @@ try
     Check(savedSettingsJson.Contains("\"Language\": \"zh\"")
           && savedSettingsJson.Contains("\"AiAutoRun\": false")
           && savedSettingsJson.Contains("\"AiAutoApproveDangerousCommands\": true")
-          && savedSettingsJson.Contains("\"AiHideSshTerminal\": true")
           && savedSettingsJson.Contains("\"AiRunMode\": \"Desktop\"")
           && savedSettingsJson.Contains("\"AiGrokRunMode\": \"WindowsTerminal\""),
           "Changed roaming settings are serialized after flush");
     var reloadedAiSettings = new SettingsService(tempMachineSettingsPath, tempRoamingSettingsPath);
     Check(!reloadedAiSettings.Settings.AiAutoRun
           && reloadedAiSettings.Settings.AiAutoApproveDangerousCommands
-          && reloadedAiSettings.Settings.AiHideSshTerminal
           && reloadedAiSettings.Settings.AiRunMode == AgentCliRunMode.Desktop
           && reloadedAiSettings.Settings.AiGrokRunMode == AgentCliRunMode.WindowsTerminal,
-          "AI command safety options, hide-SSH preference, and per-family run modes round-trip through roaming settings");
+          "AI command safety options and per-family run modes round-trip through roaming settings");
     File.SetLastWriteTimeUtc(tempRoamingSettingsPath, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
     var unchangedWriteTime = File.GetLastWriteTimeUtc(tempRoamingSettingsPath);
     Check(tempSettings.SaveIfChanged(), "Second unchanged settings flush succeeds");
