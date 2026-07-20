@@ -64,6 +64,16 @@ public partial class AgentCliPanelView : UserControl
     private long _feedBatchCount;
     private long _displayRefreshCount;
 
+    // Sticky host-scroll follow for Codex (--no-alt-screen). IsAtBottom alone is not
+    // enough: TerminalControlModel.Send always EnsureCaretIsVisible (mouse tracking
+    // moves / presses), and some VT updates also yank YDisp to YBase mid-stream.
+    private bool _followOutput = true;
+    private int _pinnedYDisp;
+    private int _lastObservedYDisp;
+    private bool _restoringPinnedScroll;
+    private bool _suppressFollowReattach;
+    private int _followReattachGate;
+
     public event EventHandler? CloseRequested;
 
     public AgentCliPanelView()
@@ -73,12 +83,23 @@ public partial class AgentCliPanelView : UserControl
         CliTerm.Model = _model;
         CliTerm.FontSize = _fontSize;
         TerminalTextInputMethodClient.Attach(CliTerm);
+        CliTerm.HostHistoryScrolled += NoteUserHostScroll;
         UpdateFontSizeLabel();
 
         _resizeSettleTimer.Tick += OnResizeSettleTick;
         _outputFrameTimer.Tick += OnOutputFrameTick;
 
-        _model.UserInput += (_, e) => _vm?.WriteToSession(e.Data.ToArray());
+        // Chain after TerminalControl.RefreshFromModel so forced bottom jumps can be undone
+        // before the next frame is shown.
+        var previousUpdateUi = _model.UpdateUI;
+        _model.UpdateUI = () =>
+        {
+            if (SyncFollowStateFromViewport())
+                _model.FullBufferUpdate();
+            previousUpdateUi?.Invoke();
+        };
+
+        _model.UserInput += OnModelUserInput;
         _model.SizeChanged += OnModelSizeChanged;
 
         // Function keys are CLI-level shortcuts. Route F1-F24 from the whole panel
@@ -112,6 +133,7 @@ public partial class AgentCliPanelView : UserControl
         $"canScroll={_model.CanScroll} mouseMode={_model.IsMouseModeActive} " +
         $"alt={_model.Terminal.IsAlternateBufferActive} " +
         $"yDisp={_model.ScrollOffset} yBase={_model.MaxScrollback} atBottom={_model.Terminal.Buffer.IsAtBottom} " +
+        $"follow={_followOutput} pin={_pinnedYDisp} " +
         $"packets={Interlocked.Read(ref _receivedPacketCount)} batches={Interlocked.Read(ref _feedBatchCount)} " +
         $"refreshes={Interlocked.Read(ref _displayRefreshCount)} pending={_sessionOutputBuffer.PendingPacketCount} " +
         $"fnKeys={DebugForwardedFunctionKeyCount} lastFn={DebugLastForwardedFunctionKey} " +
@@ -175,10 +197,13 @@ public partial class AgentCliPanelView : UserControl
     {
         var before = _model.ScrollOffset;
         var handled = CliTerm.ScrollHostHistory(new Vector(0, deltaY));
+        if (handled)
+            NoteUserHostScroll();
         return
             $"handled={handled} deltaY={deltaY:0.##} before={before} after={_model.ScrollOffset} " +
             $"max={_model.MaxScrollback} alt={_model.Terminal.IsAlternateBufferActive} " +
-            $"mouseMode={_model.IsMouseModeActive} atBottom={_model.Terminal.Buffer.IsAtBottom}";
+            $"mouseMode={_model.IsMouseModeActive} atBottom={_model.Terminal.Buffer.IsAtBottom} " +
+            $"follow={_followOutput} pin={_pinnedYDisp}";
     }
 
     private void OnCloseClick(object? sender, RoutedEventArgs e) =>
@@ -424,6 +449,10 @@ public partial class AgentCliPanelView : UserControl
             Interlocked.Exchange(ref _receivedPacketCount, 0);
             Interlocked.Exchange(ref _feedBatchCount, 0);
             Interlocked.Exchange(ref _displayRefreshCount, 0);
+            _followOutput = true;
+            _pinnedYDisp = 0;
+            _lastObservedYDisp = 0;
+            _suppressFollowReattach = false;
             try
             {
                 _model.Feed("\u001bc\u001b[?1049l\u001b[2J\u001b[H\u001b[0m");
@@ -513,12 +542,15 @@ public partial class AgentCliPanelView : UserControl
     /// Feed VT bytes without yanking the viewport back to the bottom when the user has
     /// scrolled up (TerminalControlModel.Feed always EnsureCaretIsVisible when it was at
     /// bottom at the start of the call — continuous Codex output then fights the scrollbar).
+    /// Uses sticky <see cref="_followOutput"/> so mouse-tracking Send() jumps and mid-feed
+    /// YDisp snaps cannot re-attach follow until the user returns to the bottom.
     /// </summary>
     private void FeedPreservingUserScroll(byte[] data)
     {
         var terminal = _model.Terminal;
-        var followBottom = terminal.Buffer.IsAtBottom;
-        var pinnedYDisp = terminal.Buffer.YDisp;
+        SyncFollowStateFromViewport();
+        var followBottom = _followOutput;
+        var pinnedYDisp = _pinnedYDisp;
 
         var text = _utf8Decoder.Decode(data);
         if (text.Length == 0)
@@ -531,13 +563,156 @@ public partial class AgentCliPanelView : UserControl
         terminal.Feed(utf8, utf8.Length);
 
         if (followBottom)
+        {
             _model.EnsureCaretIsVisible();
+            _pinnedYDisp = terminal.Buffer.YDisp;
+        }
         else
-            _model.ScrollToYDisp(pinnedYDisp);
+        {
+            ApplyPinnedScroll(pinnedYDisp);
+        }
 
         _model.UpdateDisplay();
         Interlocked.Increment(ref _displayRefreshCount);
         RecordCursorRow();
+    }
+
+    private void OnModelUserInput(object? sender, TerminalUserInputEventArgs e)
+    {
+        var data = e.Data.ToArray();
+
+        // Model.Send always EnsureCaretIsVisible before raising UserInput. Mouse-tracking
+        // sequences (Codex keeps mouse mode on) must not steal the host scroll position.
+        if (IsTerminalMouseTrackingSequence(data))
+        {
+            if (!_followOutput)
+            {
+                _suppressFollowReattach = true;
+                if (ApplyPinnedScroll(_pinnedYDisp))
+                    _model.UpdateDisplay();
+            }
+        }
+        else
+        {
+            // Keypress / paste: resume following live output.
+            _followOutput = true;
+            _pinnedYDisp = _model.ScrollOffset;
+            _lastObservedYDisp = _pinnedYDisp;
+            _suppressFollowReattach = false;
+        }
+
+        _vm?.WriteToSession(data);
+    }
+
+    /// <summary>
+    /// Keeps sticky follow in sync with host scrollbar / wheel changes.
+    /// Returns true when YDisp was rewritten so the caller can rebuild the viewport.
+    /// </summary>
+    private bool SyncFollowStateFromViewport()
+    {
+        if (_model.Terminal.IsAlternateBufferActive || _restoringPinnedScroll)
+            return false;
+
+        var yDisp = _model.Terminal.Buffer.YDisp;
+        var yBase = _model.Terminal.Buffer.YBase;
+        var atBottom = yDisp >= yBase;
+
+        if (!atBottom)
+        {
+            _followOutput = false;
+            _pinnedYDisp = yDisp;
+            _lastObservedYDisp = yDisp;
+            _suppressFollowReattach = false;
+            return false;
+        }
+
+        // At bottom. Intentional scrollbar/wheel return-to-bottom is accepted on a deferred
+        // gate so mouse-tracking Send (EnsureCaretIsVisible) can cancel it and restore pin.
+        if (!_followOutput)
+        {
+            if (_lastObservedYDisp < yBase && yDisp >= yBase)
+            {
+                var gate = ++_followReattachGate;
+                Dispatcher.UIThread.Post(
+                    () =>
+                    {
+                        if (gate != _followReattachGate)
+                            return;
+                        if (_suppressFollowReattach)
+                        {
+                            _suppressFollowReattach = false;
+                            if (ApplyPinnedScroll(_pinnedYDisp))
+                                _model.UpdateDisplay();
+                            return;
+                        }
+
+                        if (_model.Terminal.Buffer.IsAtBottom)
+                        {
+                            _followOutput = true;
+                            _pinnedYDisp = _model.Terminal.Buffer.YDisp;
+                            _lastObservedYDisp = _pinnedYDisp;
+                        }
+                    },
+                    DispatcherPriority.Input);
+            }
+
+            _lastObservedYDisp = yDisp;
+            return false;
+        }
+
+        _pinnedYDisp = yDisp;
+        _lastObservedYDisp = yDisp;
+        return false;
+    }
+
+    private void NoteUserHostScroll()
+    {
+        _followOutput = _model.Terminal.Buffer.IsAtBottom;
+        _pinnedYDisp = _model.ScrollOffset;
+        _lastObservedYDisp = _pinnedYDisp;
+        _suppressFollowReattach = false;
+    }
+
+    private bool ApplyPinnedScroll(int pinnedYDisp)
+    {
+        if (_model.Terminal.IsAlternateBufferActive)
+            return false;
+
+        var buffer = _model.Terminal.Buffer;
+        var target = Math.Clamp(pinnedYDisp, 0, Math.Max(buffer.YBase, 0));
+        if (buffer.YDisp == target)
+        {
+            _pinnedYDisp = target;
+            _lastObservedYDisp = target;
+            return false;
+        }
+
+        _restoringPinnedScroll = true;
+        try
+        {
+            buffer.ScrollToLine(target);
+            _pinnedYDisp = target;
+            _lastObservedYDisp = target;
+            return true;
+        }
+        finally
+        {
+            _restoringPinnedScroll = false;
+        }
+    }
+
+    private static bool IsTerminalMouseTrackingSequence(ReadOnlySpan<byte> data)
+    {
+        // SGR mouse: CSI < ... M/m  |  X10/UTF8 mouse: CSI M ...
+        if (data.Length >= 3 && data[0] == 0x1b && data[1] == '[')
+        {
+            if (data[2] == (byte)'<')
+                return true;
+            if (data[2] == (byte)'M')
+                return true;
+        }
+
+        return false;
     }
 
     private void UnhookSession()

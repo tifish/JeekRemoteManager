@@ -556,6 +556,23 @@ try
           && !resetScrollbackModel.CanScroll,
           "Terminal scrollback reset restores one initial-size viewport");
 
+    // TerminalControlModel.Send always EnsureCaretIsVisible — mouse tracking would yank
+    // Codex host scrollback to the bottom without sticky-follow compensation.
+    var sendYankModel = FeedScrollbackPrompt(10);
+    for (var i = 0; i < 20; i++)
+        sendYankModel.Feed($"hist {i}\r\n");
+    sendYankModel.ScrollToYDisp(2);
+    var sendYankPinned = sendYankModel.ScrollOffset;
+    Check(!sendYankModel.Terminal.Buffer.IsAtBottom && sendYankPinned == 2,
+          "Send-yank fixture starts scrolled up in host history");
+    sendYankModel.Send("\u001b[<0;1;1M");
+    Check(sendYankModel.Terminal.Buffer.IsAtBottom,
+          "TerminalControlModel.Send forces EnsureCaretIsVisible (mouse seq)");
+    sendYankModel.ScrollToYDisp(sendYankPinned);
+    Check(sendYankModel.ScrollOffset == sendYankPinned
+          && !sendYankModel.Terminal.Buffer.IsAtBottom,
+          "Pinned YDisp can restore host scroll after Send yank");
+
     // --- AI CLI workspace + dim color filter ---
     var connectionsRoot = Path.Combine(Path.GetTempPath(), "jrm-agent-ws-smoke", "Connections");
     Directory.CreateDirectory(Path.Combine(connectionsRoot, "vps"));

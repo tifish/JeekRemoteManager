@@ -1,3 +1,4 @@
+using System;
 using Avalonia;
 using Avalonia.Input;
 using SvcSystems.UI.Terminal;
@@ -11,6 +12,9 @@ namespace JeekRemoteManager.Views;
 /// </summary>
 public sealed class AgentTerminalControl : TerminalControl
 {
+    /// <summary>Raised after a successful host-history wheel scroll (Codex normal buffer).</summary>
+    public event Action? HostHistoryScrolled;
+
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
     {
         if (ScrollHostHistory(e.Delta))
@@ -36,6 +40,7 @@ public sealed class AgentTerminalControl : TerminalControl
         }
 
         Model.HandlePointerWheel(delta);
+        HostHistoryScrolled?.Invoke();
         return true;
     }
 }
