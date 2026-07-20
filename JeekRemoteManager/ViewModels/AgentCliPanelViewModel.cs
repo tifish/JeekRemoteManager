@@ -29,6 +29,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     private readonly Func<AgentRemoteMcpServer?> _getMcpServer;
     private readonly Action<bool>? _onHideSshTerminalChanged;
     private readonly Action<bool, bool>? _onSafetyOptionsChanged;
+    private readonly Func<AgentCliKind, AgentCliRunMode>? _resolvePreferredRunMode;
     private readonly SemaphoreSlim _startGate = new(1, 1);
     private ConPtySession? _session;
     private Process? _externalProcess;
@@ -58,12 +59,14 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         bool autoApproveDangerousCommands = false,
         Action<bool, bool>? onSafetyOptionsChanged = null,
         Action<bool>? onHideSshTerminalChanged = null,
-        AgentCliRunMode preferredRunMode = AgentCliRunMode.Cli)
+        AgentCliRunMode preferredRunMode = AgentCliRunMode.Cli,
+        Func<AgentCliKind, AgentCliRunMode>? resolvePreferredRunMode = null)
     {
         _workingDirectory = workingDirectory;
         _getMcpServer = getMcpServer;
         _onHideSshTerminalChanged = onHideSshTerminalChanged;
         _onSafetyOptionsChanged = onSafetyOptionsChanged;
+        _resolvePreferredRunMode = resolvePreferredRunMode;
         _autoRun = autoRun;
         _autoApproveDangerousCommands = autoApproveDangerousCommands;
         Directory.CreateDirectory(_workingDirectory);
@@ -71,37 +74,32 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         foreach (var descriptor in AgentCliCatalog.Discover())
             Providers.Add(descriptor);
 
-        RunModeOptions =
-        [
-            new AgentCliRunModeOption(AgentCliRunMode.Cli, "CLI"),
-            new AgentCliRunModeOption(AgentCliRunMode.WindowsTerminal, "Windows Terminal"),
-            new AgentCliRunModeOption(AgentCliRunMode.Desktop, "Desktop"),
-        ];
-        _selectedRunModeOption = RunModeOptions.FirstOrDefault(o => o.Mode == preferredRunMode)
-            ?? RunModeOptions[0];
-
         _selectedProvider = Providers.FirstOrDefault(p =>
                 p.Label.Equals(preferredProviderLabel, StringComparison.OrdinalIgnoreCase) && p.IsAvailable)
             ?? Providers.FirstOrDefault(p => p.IsAvailable)
             ?? Providers[0];
 
-        // Silent adjust only — do not fire property changers / StartAsync during construction.
-        if (_selectedRunModeOption.Mode == AgentCliRunMode.Desktop
+        SyncRunModeOptions(AgentCliCatalog.SupportsDesktop(_selectedProvider.Kind));
+
+        // Prefer the slot for this provider (Grok vs Claude/Codex). Desktop is clamped away
+        // for agents without a protocol so Grok keeps its own CLI/WT preference.
+        var initialMode = preferredRunMode;
+        if (initialMode == AgentCliRunMode.Desktop
             && !AgentCliCatalog.SupportsDesktop(_selectedProvider.Kind))
-        {
-            _selectedProvider = Providers.FirstOrDefault(p =>
-                    AgentCliCatalog.SupportsDesktop(p.Kind) && p.IsAvailable)
-                ?? Providers.FirstOrDefault(p => AgentCliCatalog.SupportsDesktop(p.Kind))
-                ?? _selectedProvider;
-        }
+            initialMode = AgentCliRunMode.Cli;
+        _selectedRunModeOption = RunModeOptions.FirstOrDefault(o => o.Mode == initialMode)
+            ?? RunModeOptions[0];
 
         RefreshStatusFromProvider();
     }
 
     public ObservableCollection<AgentCliDescriptor> Providers { get; } = [];
 
-    /// <summary>Fixed list of the three explicit launch modes.</summary>
-    public IReadOnlyList<AgentCliRunModeOption> RunModeOptions { get; }
+    /// <summary>
+    /// Launch modes for the current provider. Desktop is omitted for agents without a
+    /// desktop protocol (currently Grok).
+    /// </summary>
+    public ObservableCollection<AgentCliRunModeOption> RunModeOptions { get; } = [];
 
     [ObservableProperty]
     private AgentCliDescriptor _selectedProvider;
@@ -110,7 +108,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     private AgentCliRunModeOption _selectedRunModeOption;
 
     /// <summary>Current launch mode (CLI / Windows Terminal / Desktop).</summary>
-    public AgentCliRunMode RunMode => SelectedRunModeOption.Mode;
+    public AgentCliRunMode RunMode => SelectedRunModeOption?.Mode ?? AgentCliRunMode.Cli;
 
     [ObservableProperty]
     private string _statusText = "";
@@ -172,11 +170,39 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
     partial void OnSelectedProviderChanged(AgentCliDescriptor value)
     {
-        // Desktop cannot host Grok — fall back to CLI for unsupported providers.
-        if (RunMode == AgentCliRunMode.Desktop && !AgentCliCatalog.SupportsDesktop(value.Kind))
+        var supportsDesktop = AgentCliCatalog.SupportsDesktop(value.Kind);
+        var preferred = _resolvePreferredRunMode?.Invoke(value.Kind) ?? RunMode;
+        if (!supportsDesktop && preferred == AgentCliRunMode.Desktop)
+            preferred = AgentCliRunMode.Cli;
+
+        // Leaving Desktop for a non-desktop agent: change mode first so removing Desktop is safe.
+        if (RunMode == AgentCliRunMode.Desktop && !supportsDesktop)
         {
-            SelectedRunModeOption = RunModeOptions.First(o => o.Mode == AgentCliRunMode.Cli);
+            var interim = RunModeOptions.FirstOrDefault(o => o.Mode == preferred)
+                ?? RunModeOptions.First(o => o.Mode == AgentCliRunMode.Cli);
+            SelectedRunModeOption = interim;
+            SyncRunModeOptions(includeDesktop: false);
+            return; // StartAsync already requested via run-mode change.
+        }
+
+        // Rebuild options for the new provider, then restore that family's stored mode
+        // (e.g. Grok CLI/WT → Claude Desktop).
+        SyncRunModeOptions(supportsDesktop);
+
+        var target = RunModeOptions.FirstOrDefault(o => o.Mode == preferred)
+            ?? RunModeOptions[0];
+        if (RunMode != target.Mode)
+        {
+            SelectedRunModeOption = target;
             return;
+        }
+
+        // Same mode: keep SelectedRunModeOption pointing at an item still in the list.
+        if (RunModeOptions.FirstOrDefault(o => o.Mode == RunMode) is { } match
+            && !ReferenceEquals(match, SelectedRunModeOption))
+        {
+            _selectedRunModeOption = match;
+            OnPropertyChanged(nameof(SelectedRunModeOption));
         }
 
         NotifyLayoutFlags();
@@ -191,7 +217,6 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     partial void OnSelectedRunModeOptionChanged(AgentCliRunModeOption value)
     {
         OnPropertyChanged(nameof(RunMode));
-        EnsureProviderCompatibleWithRunMode();
         NotifyLayoutFlags();
         InstallCommand.NotifyCanExecuteChanged();
         RefreshStatusFromProvider();
@@ -227,21 +252,22 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     }
 
     /// <summary>
-    /// Desktop mode only supports Claude/Codex. If the current provider cannot run there,
-    /// switch to the first desktop-capable provider (prefer installed).
+    /// Keeps the run-mode picker in sync: CLI + Windows Terminal always; Desktop only when the
+    /// selected agent has a registered desktop protocol (Claude/Codex, not Grok).
     /// </summary>
-    private void EnsureProviderCompatibleWithRunMode()
+    private void SyncRunModeOptions(bool includeDesktop)
     {
-        if (RunMode != AgentCliRunMode.Desktop)
-            return;
-        if (AgentCliCatalog.SupportsDesktop(SelectedProvider.Kind))
-            return;
+        if (RunModeOptions.Count == 0)
+        {
+            RunModeOptions.Add(new AgentCliRunModeOption(AgentCliRunMode.Cli, "CLI"));
+            RunModeOptions.Add(new AgentCliRunModeOption(AgentCliRunMode.WindowsTerminal, "Windows Terminal"));
+        }
 
-        var preferred = Providers.FirstOrDefault(p =>
-                AgentCliCatalog.SupportsDesktop(p.Kind) && p.IsAvailable)
-            ?? Providers.FirstOrDefault(p => AgentCliCatalog.SupportsDesktop(p.Kind));
-        if (preferred is not null && !ReferenceEquals(preferred, SelectedProvider))
-            SelectedProvider = preferred;
+        var desktop = RunModeOptions.FirstOrDefault(o => o.Mode == AgentCliRunMode.Desktop);
+        if (includeDesktop && desktop is null)
+            RunModeOptions.Add(new AgentCliRunModeOption(AgentCliRunMode.Desktop, "Desktop"));
+        else if (!includeDesktop && desktop is not null)
+            RunModeOptions.Remove(desktop);
     }
 
     private bool CanStartSelectedProvider() =>
@@ -392,7 +418,6 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         SelectedProvider = Providers.FirstOrDefault(p => p.Kind == preferKind)
             ?? Providers.FirstOrDefault(p => p.IsAvailable)
             ?? Providers[0];
-        EnsureProviderCompatibleWithRunMode();
         NotifyLayoutFlags();
     }
 

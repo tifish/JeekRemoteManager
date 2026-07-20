@@ -1351,6 +1351,7 @@ try
         AiAutoRun = false,
         AiAutoApproveDangerousCommands = true,
         AiRunMode = AgentCliRunMode.Desktop,
+        AiGrokRunMode = AgentCliRunMode.WindowsTerminal,
         RecentConnectionPaths = { Path.Combine(root, "Servers", "web01.json") },
         LastSelectedConnectionPath = Path.Combine(root, "Servers", "web01.json"),
         RecentExpanded = false,
@@ -1386,12 +1387,14 @@ try
         AiAutoRun = settingsWithRecent.AiAutoRun,
         AiAutoApproveDangerousCommands = settingsWithRecent.AiAutoApproveDangerousCommands,
         AiRunMode = settingsWithRecent.AiRunMode,
+        AiGrokRunMode = settingsWithRecent.AiGrokRunMode,
     });
     Check(roamingSettingsJson.Contains(nameof(RoamingAppSettings.Language))
           && roamingSettingsJson.Contains(nameof(RoamingAppSettings.Theme))
           && roamingSettingsJson.Contains(nameof(RoamingAppSettings.AiAutoRun))
           && roamingSettingsJson.Contains(nameof(RoamingAppSettings.AiAutoApproveDangerousCommands))
           && roamingSettingsJson.Contains(nameof(RoamingAppSettings.AiRunMode))
+          && roamingSettingsJson.Contains(nameof(RoamingAppSettings.AiGrokRunMode))
           && !roamingSettingsJson.Contains(nameof(MachineAppSettings.RecentConnectionPaths))
           && !roamingSettingsJson.Contains(nameof(MachineAppSettings.MainWindowWidth)),
           "Roaming settings persist machine-independent preferences only");
@@ -1407,7 +1410,8 @@ try
     tempSettings.Settings.Language = "zh";
     tempSettings.Settings.AiAutoRun = false;
     tempSettings.Settings.AiAutoApproveDangerousCommands = true;
-    tempSettings.Settings.AiRunMode = AgentCliRunMode.WindowsTerminal;
+    tempSettings.Settings.AiRunMode = AgentCliRunMode.Desktop;
+    tempSettings.Settings.AiGrokRunMode = AgentCliRunMode.WindowsTerminal;
     Check(!File.Exists(tempRoamingSettingsPath), "Settings changes stay in memory before flush");
     Check(tempSettings.SaveIfChanged()
           && File.Exists(tempRoamingSettingsPath)
@@ -1417,19 +1421,28 @@ try
     Check(savedSettingsJson.Contains("\"Language\": \"zh\"")
           && savedSettingsJson.Contains("\"AiAutoRun\": false")
           && savedSettingsJson.Contains("\"AiAutoApproveDangerousCommands\": true")
-          && savedSettingsJson.Contains("\"AiRunMode\": \"WindowsTerminal\""),
+          && savedSettingsJson.Contains("\"AiRunMode\": \"Desktop\"")
+          && savedSettingsJson.Contains("\"AiGrokRunMode\": \"WindowsTerminal\""),
           "Changed roaming settings are serialized after flush");
     var reloadedAiSettings = new SettingsService(tempMachineSettingsPath, tempRoamingSettingsPath);
     Check(!reloadedAiSettings.Settings.AiAutoRun
           && reloadedAiSettings.Settings.AiAutoApproveDangerousCommands
-          && reloadedAiSettings.Settings.AiRunMode == AgentCliRunMode.WindowsTerminal,
-          "AI command safety options and run mode round-trip through roaming settings");
+          && reloadedAiSettings.Settings.AiRunMode == AgentCliRunMode.Desktop
+          && reloadedAiSettings.Settings.AiGrokRunMode == AgentCliRunMode.WindowsTerminal,
+          "AI command safety options and per-family run modes round-trip through roaming settings");
     File.SetLastWriteTimeUtc(tempRoamingSettingsPath, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
     var unchangedWriteTime = File.GetLastWriteTimeUtc(tempRoamingSettingsPath);
     Check(tempSettings.SaveIfChanged(), "Second unchanged settings flush succeeds");
     Check(File.GetLastWriteTimeUtc(tempRoamingSettingsPath) == unchangedWriteTime
           && File.ReadAllText(tempRoamingSettingsPath) == savedSettingsJson,
           "Unchanged roaming settings flush does not rewrite the existing file");
+    // Grok must never keep Desktop even if a stale value is written.
+    tempSettings.Settings.AiGrokRunMode = AgentCliRunMode.Desktop;
+    Check(tempSettings.SaveIfChanged(), "Grok Desktop normalization flush succeeds");
+    var reloadedGrokClamp = new SettingsService(tempMachineSettingsPath, tempRoamingSettingsPath);
+    Check(reloadedGrokClamp.Settings.AiGrokRunMode == AgentCliRunMode.Cli
+          && reloadedGrokClamp.Settings.AiRunMode == AgentCliRunMode.Desktop,
+          "AiGrokRunMode clamps Desktop to Cli without touching Claude/Codex AiRunMode");
     tempSettings.Settings.MainWindowWidth = 1200;
     Check(tempSettings.SaveIfChanged()
           && File.Exists(tempMachineSettingsPath)

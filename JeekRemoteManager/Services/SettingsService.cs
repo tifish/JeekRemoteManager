@@ -171,6 +171,7 @@ public class SettingsService
             FileBrowserEditorPath = roamingSettings.FileBrowserEditorPath,
             AiProvider = roamingSettings.AiProvider,
             AiRunMode = roamingSettings.AiRunMode,
+            AiGrokRunMode = roamingSettings.AiGrokRunMode,
             AiAutoRun = roamingSettings.AiAutoRun,
             AiAutoApproveDangerousCommands = roamingSettings.AiAutoApproveDangerousCommands,
         };
@@ -208,6 +209,7 @@ public class SettingsService
             FileBrowserEditorPath = settings.FileBrowserEditorPath,
             AiProvider = settings.AiProvider,
             AiRunMode = settings.AiRunMode,
+            AiGrokRunMode = settings.AiGrokRunMode,
             AiAutoRun = settings.AiAutoRun,
             AiAutoApproveDangerousCommands = settings.AiAutoApproveDangerousCommands,
         };
@@ -241,6 +243,7 @@ public class SettingsService
         settings.FileBrowserEditorPath = normalized.FileBrowserEditorPath;
         settings.AiProvider = normalized.AiProvider;
         settings.AiRunMode = normalized.AiRunMode;
+        settings.AiGrokRunMode = normalized.AiGrokRunMode;
         settings.AiAutoRun = normalized.AiAutoRun;
         settings.AiAutoApproveDangerousCommands = normalized.AiAutoApproveDangerousCommands;
     }
@@ -291,6 +294,9 @@ public class SettingsService
             settings.AiProvider = null;
         if (!Enum.IsDefined(settings.AiRunMode))
             settings.AiRunMode = AgentCliRunMode.Cli;
+        // Grok has no Desktop protocol; never persist/restore Desktop for that slot.
+        if (!Enum.IsDefined(settings.AiGrokRunMode) || settings.AiGrokRunMode == AgentCliRunMode.Desktop)
+            settings.AiGrokRunMode = AgentCliRunMode.Cli;
     }
 
     private static StorageLocation NormalizeStorageLocation(StorageLocation location) =>

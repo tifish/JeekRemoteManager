@@ -437,7 +437,10 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    /// <summary>How the AI panel launches the agent (CLI / Windows Terminal / Desktop).</summary>
+    /// <summary>
+    /// Launch mode for Claude/Codex (CLI / Windows Terminal / Desktop).
+    /// Grok uses <see cref="AiGrokRunMode"/> so the two option sets do not overwrite each other.
+    /// </summary>
     public AgentCliRunMode AiRunMode
     {
         get => _settings.Settings.AiRunMode;
@@ -448,6 +451,36 @@ public partial class MainWindowViewModel : ViewModelBase
             _settings.Settings.AiRunMode = value;
             _settings.SaveIfChanged();
         }
+    }
+
+    /// <summary>
+    /// Launch mode for Grok (CLI / Windows Terminal only).
+    /// Kept separate from <see cref="AiRunMode"/> because Grok has no Desktop option.
+    /// </summary>
+    public AgentCliRunMode AiGrokRunMode
+    {
+        get => _settings.Settings.AiGrokRunMode;
+        set
+        {
+            var normalized = value == AgentCliRunMode.Desktop ? AgentCliRunMode.Cli : value;
+            if (_settings.Settings.AiGrokRunMode == normalized)
+                return;
+            _settings.Settings.AiGrokRunMode = normalized;
+            _settings.SaveIfChanged();
+        }
+    }
+
+    /// <summary>Returns the stored launch mode for the given agent kind.</summary>
+    public AgentCliRunMode GetAiRunModeForKind(AgentCliKind kind) =>
+        kind == AgentCliKind.Grok ? AiGrokRunMode : AiRunMode;
+
+    /// <summary>Persists the launch mode for the given agent kind into the correct settings slot.</summary>
+    public void SetAiRunModeForKind(AgentCliKind kind, AgentCliRunMode mode)
+    {
+        if (kind == AgentCliKind.Grok)
+            AiGrokRunMode = mode;
+        else
+            AiRunMode = mode;
     }
 
     /// <summary>Whether the selected agent CLI may invoke JRM remote command tools without

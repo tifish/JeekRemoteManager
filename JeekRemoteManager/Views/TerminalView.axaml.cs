@@ -1010,6 +1010,13 @@ public partial class TerminalView : UserControl
 
         var preferred = (DataContext as MainWindowViewModel)?.AiProvider;
         var mainVm = DataContext as MainWindowViewModel;
+        // Resolve initial run mode from the slot that matches the preferred provider
+        // (Grok vs Claude/Codex), before the panel may fall back to another available agent.
+        var preferredRunMode = mainVm is null
+            ? AgentCliRunMode.Cli
+            : preferred?.Equals("Grok", StringComparison.OrdinalIgnoreCase) == true
+                ? mainVm.GetAiRunModeForKind(AgentCliKind.Grok)
+                : mainVm.AiRunMode;
         var vm = new AgentCliPanelViewModel(
             workingDir,
             () => _agentRemoteMcp,
@@ -1033,14 +1040,17 @@ public partial class TerminalView : UserControl
                 if (IsLoginManualInputPending)
                     FocusTerminal();
             },
-            preferredRunMode: mainVm?.AiRunMode ?? AgentCliRunMode.Cli)
+            preferredRunMode: preferredRunMode,
+            resolvePreferredRunMode: kind =>
+                (DataContext as MainWindowViewModel)?.GetAiRunModeForKind(kind) ?? AgentCliRunMode.Cli)
         {
             // Re-write AGENTS.md / CLAUDE.md + project MCP configs with the live endpoint
             // so CLI and desktop agents read everything from the workspace (not argv).
             PrepareWorkspace = mcpUrl => ResolveAgentCliWorkingDirectory(mcpUrl),
         };
 
-        // Remember last-chosen provider and run mode across tabs and runs.
+        // Remember last-chosen provider and per-family run mode across tabs and runs.
+        // Claude/Codex share AiRunMode; Grok uses AiGrokRunMode (no Desktop).
         vm.PropertyChanged += (_, e) =>
         {
             if (DataContext is not MainWindowViewModel ownerVm)
@@ -1049,7 +1059,7 @@ public partial class TerminalView : UserControl
                 ownerVm.AiProvider = vm.SelectedProvider.Label;
             else if (e.PropertyName is nameof(AgentCliPanelViewModel.SelectedRunModeOption)
                      or nameof(AgentCliPanelViewModel.RunMode))
-                ownerVm.AiRunMode = vm.RunMode;
+                ownerVm.SetAiRunModeForKind(vm.SelectedProvider.Kind, vm.RunMode);
         };
 
         AiPanel.DataContext = vm;

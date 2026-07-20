@@ -106,8 +106,17 @@ public class AppSettings
     /// <summary>AI panel: last-used provider label ("Claude", "Codex", "Grok"). Null = first available.</summary>
     public string? AiProvider { get; set; }
 
-    /// <summary>AI panel: how the selected agent is launched (CLI / Windows Terminal / Desktop).</summary>
+    /// <summary>
+    /// AI panel launch mode for Claude/Codex (CLI / Windows Terminal / Desktop).
+    /// Grok uses <see cref="AiGrokRunMode"/> so Desktop preferences are not overwritten.
+    /// </summary>
     public AgentCliRunMode AiRunMode { get; set; } = AgentCliRunMode.Cli;
+
+    /// <summary>
+    /// AI panel launch mode for Grok (CLI / Windows Terminal only; Desktop is not supported).
+    /// Kept separate from <see cref="AiRunMode"/> because the option sets differ.
+    /// </summary>
+    public AgentCliRunMode AiGrokRunMode { get; set; } = AgentCliRunMode.Cli;
 
     /// <summary>AI panel: whether remote command tools run without the agent CLI asking first.</summary>
     public bool AiAutoRun { get; set; } = true;
@@ -184,8 +193,17 @@ public class RoamingAppSettings
     /// <summary>AI panel: last-used provider label ("Claude", "Codex", "Grok"). Null = first available.</summary>
     public string? AiProvider { get; set; }
 
-    /// <summary>AI panel: how the selected agent is launched (CLI / Windows Terminal / Desktop).</summary>
+    /// <summary>
+    /// AI panel launch mode for Claude/Codex (CLI / Windows Terminal / Desktop).
+    /// Grok uses <see cref="AiGrokRunMode"/> so Desktop preferences are not overwritten.
+    /// </summary>
     public AgentCliRunMode AiRunMode { get; set; } = AgentCliRunMode.Cli;
+
+    /// <summary>
+    /// AI panel launch mode for Grok (CLI / Windows Terminal only; Desktop is not supported).
+    /// Kept separate from <see cref="AiRunMode"/> because the option sets differ.
+    /// </summary>
+    public AgentCliRunMode AiGrokRunMode { get; set; } = AgentCliRunMode.Cli;
 
     /// <summary>AI panel: whether remote command tools run without the agent CLI asking first.</summary>
     public bool AiAutoRun { get; set; } = true;
