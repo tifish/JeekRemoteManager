@@ -74,6 +74,8 @@
     <PackageReference Include="SSH.NET" Version="2025.1.0" />
     <PackageReference Include="SshNet.Agent" Version="2024.2.0.1" />
     <PackageReference Include="SvcSystems.UI.Terminal" Version="1.0.1" />
+    <!-- Override transitive 1.0.14: IL/DL used absolute ScrollBottom without YBase. -->
+    <PackageReference Include="XTerm.NET" Version="1.0.15" />
     <PackageReference Include="nulastudio.NetBeauty" Version="2.1.5" />
   </ItemGroup>
 

@@ -101,6 +101,16 @@
         "resolved": "10.0.10",
         "contentHash": "BKt0SQgq2lq3ESE68jkeLwv95ypANrPDtkTOIFGcnhg2aRUeUUBDrQlkVDZctrg1WenVcvn5P5XZnuYI7q6rFQ=="
       },
+      "XTerm.NET": {
+        "type": "Direct",
+        "requested": "[1.0.15, )",
+        "resolved": "1.0.15",
+        "contentHash": "hauWTnFFXs0wF3x5SufXzwwprt5AUvywbdHwEYfN09M0/sTfhCJxNpJdGzvtwNK1+tkrhKC82Bt3/0ugFFhHMg==",
+        "dependencies": {
+          "Unicode.net": "2.0.0",
+          "Wcwidth": "3.0.0"
+        }
+      },
       "Avalonia.Angle.Windows.Natives": {
         "type": "Transitive",
         "resolved": "2.1.27548.20260419",
@@ -328,15 +338,6 @@
         "type": "Transitive",
         "resolved": "3.0.0",
         "contentHash": "w9m/v7PuW8qhlpFKboa+otS5PdRpCxQ0cCT/qkD+gih0FKtqoZECkgwnRprX6+aA75hz3pXvpPGQByx0wszHyw=="
-      },
-      "XTerm.NET": {
-        "type": "Transitive",
-        "resolved": "1.0.14",
-        "contentHash": "/XXOwCqHJhMMU08csRoj8IpDvpedryN6SUj4kv2JfzIGCW+uheJR8iADt4x7BsDhH6kiSLpZT4Kgllzy234Ygw==",
-        "dependencies": {
-          "Unicode.net": "2.0.0",
-          "Wcwidth": "3.0.0"
-        }
       },
       "ZLogger": {
         "type": "Transitive",

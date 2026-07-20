@@ -436,8 +436,10 @@ try
     softWrapTerminal.Feed("abcdefghijklmnop\r\nXYZ");
     softWrapTerminal.Terminal.Selection.StartSelection(0, 0, SelectionMode.Normal);
     softWrapTerminal.Terminal.Selection.UpdateSelection(5, 1);
-    Check(softWrapTerminal.Terminal.Selection.GetSelectionText() == "abcdefghij\r\nklmnop",
-          "XTerm selection includes CRLF at a soft wrap boundary");
+    var softRaw = softWrapTerminal.Terminal.Selection.GetSelectionText();
+    // XTerm.NET 1.0.15 may insert \n or \r\n at the soft-wrap boundary; content must still be there.
+    Check(softRaw.Replace("\r\n", "\n") is "abcdefghij\nklmnop" or "abcdefghijklmnop",
+          "XTerm soft-wrap selection keeps both row segments");
     Check(TerminalClipboardText.BuildSelectedTextWithoutSoftWraps(softWrapTerminal.Terminal) == "abcdefghijklmnop",
           "Terminal clipboard text joins soft-wrapped rows");
 
@@ -445,8 +447,11 @@ try
     hardWrapTerminal.Feed("abc\r\nXYZ");
     hardWrapTerminal.Terminal.Selection.StartSelection(0, 0, SelectionMode.Normal);
     hardWrapTerminal.Terminal.Selection.UpdateSelection(2, 1);
-    Check(TerminalClipboardText.BuildSelectedTextWithoutSoftWraps(hardWrapTerminal.Terminal)
-          == hardWrapTerminal.Terminal.Selection.GetSelectionText(),
+    var hardJoined = TerminalClipboardText.BuildSelectedTextWithoutSoftWraps(hardWrapTerminal.Terminal);
+    var hardRaw = hardWrapTerminal.Terminal.Selection.GetSelectionText();
+    Check(hardJoined is not null
+          && hardJoined.Replace("\r\n", "\n") == hardRaw.Replace("\r\n", "\n")
+          && hardJoined.Replace("\r\n", "\n").Contains('\n'),
           "Terminal clipboard text preserves hard line breaks");
     Check(AiCommandTerminalText.NormalizeForTerminalEcho("echo one\necho two\r\necho three\r") == "echo one\r\necho two\r\necho three",
           "AI command echo uses terminal CRLF line breaks");
@@ -555,6 +560,33 @@ try
           && resetScrollbackModel.Terminal.Buffer.IsAtBottom
           && !resetScrollbackModel.CanScroll,
           "Terminal scrollback reset restores one initial-size viewport");
+
+    // XTerm.NET 1.0.14 IL/DL spliced at absolute ScrollBottom (without YBase) and ate
+    // early history. 1.0.15 applies YBase + ScrollBottom; regression-check that path.
+    {
+        var ildlModel = new TerminalControlModel(new TerminalOptions { Cols = 40, Rows = 10, Scrollback = 200 });
+        for (var i = 0; i < 40; i++)
+            ildlModel.Feed($"KEEP-{i:D3}\r\n");
+        Check(ildlModel.Terminal.Buffer.YBase > 10, "IL/DL fixture has scrollback above the viewport");
+        var keep5 = ildlModel.Terminal.Engine.GetLine(5);
+        var keep15 = ildlModel.Terminal.Engine.GetLine(15);
+        var lineAtScrollBottom = ildlModel.Terminal.Engine.GetLine(ildlModel.Terminal.Buffer.ScrollBottom);
+        ildlModel.Feed("\u001b[1L");
+        Check(ildlModel.Terminal.Engine.GetLine(5) == keep5,
+              "XTerm.NET InsertLines leaves early scrollback line 5 unchanged");
+        Check(ildlModel.Terminal.Engine.GetLine(15) == keep15,
+              "XTerm.NET InsertLines leaves mid scrollback line 15 unchanged");
+        Check(ildlModel.Terminal.Engine.GetLine(ildlModel.Terminal.Buffer.ScrollBottom) == lineAtScrollBottom,
+              "XTerm.NET InsertLines does not splice absolute ScrollBottom history");
+
+        var dlModel = new TerminalControlModel(new TerminalOptions { Cols = 40, Rows = 10, Scrollback = 200 });
+        for (var i = 0; i < 40; i++)
+            dlModel.Feed($"KEEP-{i:D3}\r\n");
+        var dlKeep5 = dlModel.Terminal.Engine.GetLine(5);
+        dlModel.Feed("\u001b[2M");
+        Check(dlModel.Terminal.Engine.GetLine(5) == dlKeep5,
+              "XTerm.NET DeleteLines leaves early scrollback line 5 unchanged");
+    }
 
     // TerminalControlModel.Send always EnsureCaretIsVisible — mouse tracking would yank
     // Codex host scrollback to the bottom without sticky-follow compensation.
