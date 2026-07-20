@@ -7,11 +7,13 @@ using JeekRemoteManager.Models;
 namespace JeekRemoteManager.Services;
 
 /// <summary>
-/// Resolves a durable per-connection working directory for agent CLIs, keyed by the
-/// connection's path under the Connections tree (e.g. <c>vps/bwg</c>). Hosts
-/// <c>AGENTS.md</c> (full context), a thin <c>CLAUDE.md</c> that includes it, and
-/// project MCP configs so Claude, Codex, and Grok (CLI or desktop) pick up the same
-/// remote-server context without command-line prompts or flags.
+/// Resolves a durable per-tab working directory for agent CLIs, keyed by the
+/// connection's path under the Connections tree (e.g. <c>vps/bwg</c>) and, when
+/// multiple terminal tabs share that connection, the same suffix as the tab header
+/// (<c>vps/bwg (2)</c>). Hosts <c>AGENTS.md</c> (full context), a thin
+/// <c>CLAUDE.md</c> that includes it, and project MCP configs so Claude, Codex, and
+/// Grok (CLI or desktop) pick up the same remote-server context without command-line
+/// prompts or flags — while duplicated tabs stay isolated from each other.
 /// </summary>
 public static class AgentCliWorkspace
 {
@@ -29,9 +31,47 @@ public static class AgentCliWorkspace
 
     /// <summary>
     /// Relative path matching the connection tree, without the <c>.json</c> extension
-    /// (e.g. <c>vps/bwg</c>). Falls back to the connection name when no file path is known.
+    /// (e.g. <c>vps/bwg</c>). Extra terminal tabs on the same connection use the same
+    /// leaf suffix as the tab header: <c>vps/bwg (2)</c>, <c>vps/bwg (3)</c>, …
+    /// Falls back to the connection name when no file path is known.
     /// </summary>
     public static string ResolveRelativePath(
+        string connectionsRoot,
+        string? sourcePath,
+        Connection? connection,
+        int sessionNumber = 1)
+    {
+        var baseRelative = ResolveConnectionRelativePath(connectionsRoot, sourcePath, connection);
+        return AppendSessionSegment(baseRelative, sessionNumber);
+    }
+
+    /// <summary>
+    /// Absolute workspace under <see cref="RootPath"/>/&lt;tree-relative-path&gt;.
+    /// Creates the directory, refreshes <c>AGENTS.md</c> (and a <c>CLAUDE.md</c> include),
+    /// and when <paramref name="mcpEndpointUrl"/> is set, writes project MCP configs that
+    /// desktop and CLI agents load from the working directory (no command-line MCP/system flags).
+    /// <paramref name="sessionNumber"/> ≥ 2 isolates duplicated (or otherwise parallel) tabs.
+    /// </summary>
+    public static string Ensure(
+        string connectionsRoot,
+        string? sourcePath,
+        Connection? connection,
+        string? mcpEndpointUrl = null,
+        int sessionNumber = 1)
+    {
+        var relative = ResolveRelativePath(connectionsRoot, sourcePath, connection, sessionNumber);
+        var absolute = Path.GetFullPath(Path.Combine(
+            RootPath,
+            relative.Replace('/', Path.DirectorySeparatorChar)));
+
+        Directory.CreateDirectory(absolute);
+        WriteAgentDocs(absolute, relative, connection, sourcePath, mcpEndpointUrl, sessionNumber);
+        if (!string.IsNullOrWhiteSpace(mcpEndpointUrl))
+            WriteProjectMcpConfigs(absolute, mcpEndpointUrl.Trim());
+        return absolute;
+    }
+
+    private static string ResolveConnectionRelativePath(
         string connectionsRoot,
         string? sourcePath,
         Connection? connection)
@@ -74,27 +114,27 @@ public static class AgentCliWorkspace
     }
 
     /// <summary>
-    /// Absolute workspace under <see cref="RootPath"/>/&lt;tree-relative-path&gt;.
-    /// Creates the directory, refreshes <c>AGENTS.md</c> (and a <c>CLAUDE.md</c> include),
-    /// and when <paramref name="mcpEndpointUrl"/> is set, writes project MCP configs that
-    /// desktop and CLI agents load from the working directory (no command-line MCP/system flags).
+    /// Session 1 keeps the connection path alone (stable default). Session 2+ renames the
+    /// leaf folder to match the tab header: <c>name (N)</c> as a sibling, not a subdirectory.
     /// </summary>
-    public static string Ensure(
-        string connectionsRoot,
-        string? sourcePath,
-        Connection? connection,
-        string? mcpEndpointUrl = null)
+    public static string AppendSessionSegment(string connectionRelativePath, int sessionNumber)
     {
-        var relative = ResolveRelativePath(connectionsRoot, sourcePath, connection);
-        var absolute = Path.GetFullPath(Path.Combine(
-            RootPath,
-            relative.Replace('/', Path.DirectorySeparatorChar)));
+        var basePath = string.IsNullOrWhiteSpace(connectionRelativePath)
+            ? "unknown"
+            : connectionRelativePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (sessionNumber <= 1)
+            return basePath;
 
-        Directory.CreateDirectory(absolute);
-        WriteAgentDocs(absolute, relative, connection, sourcePath, mcpEndpointUrl);
-        if (!string.IsNullOrWhiteSpace(mcpEndpointUrl))
-            WriteProjectMcpConfigs(absolute, mcpEndpointUrl.Trim());
-        return absolute;
+        var parent = Path.GetDirectoryName(basePath);
+        var leaf = Path.GetFileName(basePath);
+        if (string.IsNullOrEmpty(leaf))
+            leaf = "unknown";
+
+        // Same text as the tab chrome: "Name" + " (2)" beside it → folder "Name (2)".
+        var leafWithSession = SanitizeSegment($"{leaf} ({sessionNumber})");
+        return string.IsNullOrEmpty(parent)
+            ? leafWithSession
+            : Path.Combine(parent, leafWithSession);
     }
 
     private static void WriteAgentDocs(
@@ -102,9 +142,10 @@ public static class AgentCliWorkspace
         string relativePath,
         Connection? connection,
         string? sourcePath,
-        string? mcpEndpointUrl)
+        string? mcpEndpointUrl,
+        int sessionNumber)
     {
-        var body = BuildAgentDocBody(relativePath, connection, sourcePath, mcpEndpointUrl);
+        var body = BuildAgentDocBody(relativePath, connection, sourcePath, mcpEndpointUrl, sessionNumber);
         // Full context lives in AGENTS.md (Codex/Grok/shared). Claude reads CLAUDE.md which
         // only includes AGENTS.md so we do not maintain two copies.
         var utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
@@ -166,7 +207,8 @@ public static class AgentCliWorkspace
         string relativePath,
         Connection? connection,
         string? sourcePath,
-        string? mcpEndpointUrl)
+        string? mcpEndpointUrl,
+        int sessionNumber)
     {
         var name = connection?.Name?.Trim();
         if (string.IsNullOrEmpty(name))
@@ -189,8 +231,8 @@ public static class AgentCliWorkspace
         sb.AppendLine("# JeekRemoteManager agent workspace");
         sb.AppendLine();
         sb.AppendLine("This directory is the **local** working directory for the agent CLI (or desktop");
-        sb.AppendLine("app) attached to one JeekRemoteManager connection tab. It is **not** the remote");
-        sb.AppendLine("server filesystem.");
+        sb.AppendLine("app) attached to **one** JeekRemoteManager terminal tab. It is **not** the remote");
+        sb.AppendLine("server filesystem. Other tabs on the same connection use separate workspace folders.");
         sb.AppendLine();
         sb.AppendLine("All operational context for this connection lives in this file (`AGENTS.md`).");
         sb.AppendLine("`CLAUDE.md` only includes it (`@AGENTS.md`). Do **not** expect system prompts or");
@@ -200,14 +242,15 @@ public static class AgentCliWorkspace
         sb.AppendLine("## Primary goal");
         sb.AppendLine();
         sb.AppendLine("You are assisting the user **inside JeekRemoteManager** to operate a remote server");
-        sb.AppendLine($"(connection path: `{relativePath.Replace('\\', '/')}`, display name: **{name}**).");
+        sb.AppendLine($"(workspace path: `{relativePath.Replace('\\', '/')}`, display name: **{name}**).");
         sb.AppendLine("Almost all useful work happens on that remote session, not on this Windows machine.");
         sb.AppendLine();
         sb.AppendLine("## Connection");
         sb.AppendLine();
         sb.AppendLine($"- **Type:** {kind}");
         sb.AppendLine($"- **Target:** {target}");
-        sb.AppendLine($"- **Tree path:** `{relativePath.Replace('\\', '/')}`");
+        sb.AppendLine($"- **Workspace path:** `{relativePath.Replace('\\', '/')}`");
+        sb.AppendLine($"- **Terminal tab session:** {Math.Max(1, sessionNumber)}");
         if (!string.IsNullOrWhiteSpace(sourcePath))
             sb.AppendLine($"- **Connection file:** `{sourcePath}`");
         if (!string.IsNullOrEmpty(notes))

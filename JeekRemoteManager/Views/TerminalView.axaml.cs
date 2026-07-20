@@ -49,6 +49,11 @@ public partial class TerminalView : UserControl
     private SharedSshClient? _pendingSharedClient;
     private ITerminalChannel? _channel;
     private string? _sourcePath;
+    /// <summary>
+    /// 1-based tab session among open terminals on this connection (matches the tab header
+    /// suffix). Session 2+ gets its own AI agent workspace named like the tab: <c>…/name (N)</c>.
+    /// </summary>
+    private int _sessionNumber = 1;
     private TaskCompletionSource<bool>? _connected;
     private readonly SemaphoreSlim _scriptLock = new(1, 1);
     private readonly object _shellWriteGate = new();
@@ -173,6 +178,16 @@ public partial class TerminalView : UserControl
     public string? AgentRemoteMcpUrl => _agentRemoteMcp?.EndpointUrl;
 
     public string? SourcePath => _sourcePath;
+
+    /// <summary>
+    /// 1-based parallel-tab index for this connection (header shows nothing for 1, "(2)" for 2…).
+    /// Assigned when the tab is created; used to isolate AI agent workspaces.
+    /// </summary>
+    public int SessionNumber
+    {
+        get => _sessionNumber;
+        set => _sessionNumber = value < 1 ? 1 : value;
+    }
 
     public bool CanReuseSession => !_disposed && (_connectInProgress || IsConnected);
 
@@ -1043,7 +1058,8 @@ public partial class TerminalView : UserControl
 
     /// <summary>
     /// %LOCALAPPDATA%\JeekRemoteManager\AgentWorkspaces\&lt;tree-relative-path&gt; for this
-    /// tab's connection. Rewrites AGENTS.md / CLAUDE.md (and project MCP configs when
+    /// tab (session 2+ uses a sibling folder matching the tab title, e.g. <c>bwg (2)</c>).
+    /// Rewrites AGENTS.md / CLAUDE.md (and project MCP configs when
     /// <paramref name="mcpEndpointUrl"/> is set) so agents need no command-line context.
     /// </summary>
     private string ResolveAgentCliWorkingDirectory(string? mcpEndpointUrl = null)
@@ -1052,7 +1068,12 @@ public partial class TerminalView : UserControl
         var connectionsRoot = mainVm?.RootPath
             ?? SettingsService.ResolveConnectionsRoot(StorageLocation.UserDirectory);
 
-        return AgentCliWorkspace.Ensure(connectionsRoot, _sourcePath, _connection, mcpEndpointUrl);
+        return AgentCliWorkspace.Ensure(
+            connectionsRoot,
+            _sourcePath,
+            _connection,
+            mcpEndpointUrl,
+            SessionNumber);
     }
 
     private void EnsureAgentRemoteMcp()

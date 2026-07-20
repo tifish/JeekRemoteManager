@@ -845,6 +845,7 @@ internal static class DebugMcpServer
                 var ai = terminal.AiViewModel;
                 sb.AppendLine($"--- terminal tab[{index}] selected={selected} connected={terminal.IsTerminalConnected} ---");
                 sb.AppendLine($"source={terminal.SourcePath}");
+                sb.AppendLine($"sessionNumber={terminal.SessionNumber}");
                 sb.AppendLine(
                     $"aiCommand exec={terminal.AiCommandExecutionCount} complete={terminal.AiCommandCompletionCount} "
                     + $"running={terminal.IsAiCommandRunning} lockAvailable={terminal.IsCommandLockAvailable} "

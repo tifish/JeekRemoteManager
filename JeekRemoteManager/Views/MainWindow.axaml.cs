@@ -526,7 +526,7 @@ public partial class MainWindow : Window
     private (TerminalView View, TabItem Tab) CreateTerminalTab(Connection connection, string? sourcePath, bool select = true)
     {
         var sessionNumber = NextTerminalSessionNumber(connection, sourcePath);
-        var view = new TerminalView();
+        var view = new TerminalView { SessionNumber = sessionNumber };
         view.PanelStateChanged += (_, _) => UpdateTerminalPanelToggleStates();
         var tab = new TabItem
         {

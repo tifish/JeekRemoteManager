@@ -656,12 +656,38 @@ try
           && agentsMd.Contains("edge VPS", StringComparison.Ordinal)
           && agentsMd.Contains(smokeMcpUrl, StringComparison.Ordinal)
           && agentsMd.Contains(".mcp.json", StringComparison.Ordinal)
+          && agentsMd.Contains("**Terminal tab session:** 1", StringComparison.Ordinal)
           && !agentsMd.Contains("--append-system-prompt", StringComparison.Ordinal)
           && mcpJson.Contains(smokeMcpUrl, StringComparison.Ordinal)
           && codexToml.Contains(smokeMcpUrl, StringComparison.Ordinal)
           && grokToml.Contains(smokeMcpUrl, StringComparison.Ordinal)
           && grokToml.Contains("transport = \"http\"", StringComparison.Ordinal),
           "AI workspace writes AGENTS.md (full) + CLAUDE.md include + project MCP configs");
+
+    var connectionForWorkspace = new Connection
+    {
+        Name = "bwg",
+        Type = ConnectionType.Ssh,
+        Host = "1.2.3.4",
+        Port = 22,
+        Username = "root",
+        Notes = "edge VPS",
+    };
+    var relativeSession2 = AgentCliWorkspace.ResolveRelativePath(
+        connectionsRoot, bwgFile, connectionForWorkspace, sessionNumber: 2);
+    var workspaceSession2 = AgentCliWorkspace.Ensure(
+        connectionsRoot, bwgFile, connectionForWorkspace, smokeMcpUrl, sessionNumber: 2);
+    var agentsMdSession2 = File.ReadAllText(Path.Combine(workspaceSession2, "AGENTS.md"));
+    Check(relativeSession2.Replace('\\', '/') == "vps/bwg (2)"
+          && workspaceSession2.Replace('\\', '/').EndsWith(
+              "AgentWorkspaces/vps/bwg (2)", StringComparison.OrdinalIgnoreCase)
+          && !string.Equals(
+              Path.GetFullPath(workspace),
+              Path.GetFullPath(workspaceSession2),
+              StringComparison.OrdinalIgnoreCase)
+          && agentsMdSession2.Contains("**Terminal tab session:** 2", StringComparison.Ordinal)
+          && agentsMdSession2.Contains(smokeMcpUrl, StringComparison.Ordinal),
+          "Duplicated tabs get a sibling AI workspace matching the tab header name");
 
     var claudeAutoArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Claude, autoRun: true);
     var claudePromptArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Claude, autoRun: false);
