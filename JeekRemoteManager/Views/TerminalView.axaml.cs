@@ -1023,6 +1023,7 @@ public partial class TerminalView : UserControl
             preferred,
             autoRun: mainVm?.AiAutoRun ?? true,
             autoApproveDangerousCommands: mainVm?.AiAutoApproveDangerousCommands ?? false,
+            hideSshTerminal: mainVm?.AiHideSshTerminal ?? false,
             onSafetyOptionsChanged: (autoRun, autoApprove) =>
             {
                 if (DataContext is MainWindowViewModel ownerVm)
@@ -1033,8 +1034,10 @@ public partial class TerminalView : UserControl
                 if (_agentRemoteMcp is not null)
                     _agentRemoteMcp.AutoApproveDangerousCommands = autoApprove;
             },
-            onHideSshTerminalChanged: _ =>
+            onHideSshTerminalChanged: hide =>
             {
+                if (DataContext is MainWindowViewModel ownerVm)
+                    ownerVm.AiHideSshTerminal = hide;
                 PersistAiPanelWidth();
                 ApplyAiPanelLayout();
                 if (IsLoginManualInputPending)

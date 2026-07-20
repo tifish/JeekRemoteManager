@@ -510,6 +510,19 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Whether the AI panel should hide the SSH terminal (shared across tabs).</summary>
+    public bool AiHideSshTerminal
+    {
+        get => _settings.Settings.AiHideSshTerminal;
+        set
+        {
+            if (_settings.Settings.AiHideSshTerminal == value)
+                return;
+            _settings.Settings.AiHideSshTerminal = value;
+            _settings.SaveIfChanged();
+        }
+    }
+
     /// <summary>True when a terminal tab is the active right-pane tab. Drives the
     /// visibility of the terminal font-size toolbar buttons.</summary>
     [ObservableProperty]

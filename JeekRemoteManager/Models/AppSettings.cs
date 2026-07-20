@@ -123,6 +123,9 @@ public class AppSettings
 
     /// <summary>AI panel: whether potentially destructive remote commands bypass confirmation.</summary>
     public bool AiAutoApproveDangerousCommands { get; set; }
+
+    /// <summary>AI panel: hide the SSH terminal while the AI side panel is open.</summary>
+    public bool AiHideSshTerminal { get; set; }
 }
 
 /// <summary>Settings that are bound to this Windows account and machine.</summary>
@@ -210,6 +213,9 @@ public class RoamingAppSettings
 
     /// <summary>AI panel: whether potentially destructive remote commands bypass confirmation.</summary>
     public bool AiAutoApproveDangerousCommands { get; set; }
+
+    /// <summary>AI panel: hide the SSH terminal while the AI side panel is open.</summary>
+    public bool AiHideSshTerminal { get; set; }
 }
 
 /// <summary>Outcome of the Settings dialog. <see cref="Language"/> and <see cref="Theme"/>
