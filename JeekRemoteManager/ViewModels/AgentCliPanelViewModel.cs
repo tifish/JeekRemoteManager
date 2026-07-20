@@ -7,14 +7,21 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
 
 namespace JeekRemoteManager.ViewModels;
 
+/// <summary>One selectable AI panel launch mode (CLI / Windows Terminal / Desktop).</summary>
+public sealed record AgentCliRunModeOption(AgentCliRunMode Mode, string Label)
+{
+    public override string ToString() => Label;
+}
+
 /// <summary>
-/// Drives the AI side panel after the headless-chat rewrite: pick a local agent CLI,
-/// host it in-app (ConPTY) or open it in Windows Terminal, and keep the per-tab MCP
-/// endpoint available for remote tools.
+/// Drives the AI side panel after the headless-chat rewrite: pick a local agent,
+/// host it in-app (ConPTY), open it in Windows Terminal, or launch Claude/Codex
+/// desktop via registered protocol, and keep the per-tab MCP endpoint available.
 /// </summary>
 public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDisposable
 {
@@ -25,6 +32,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     private readonly SemaphoreSlim _startGate = new(1, 1);
     private ConPtySession? _session;
     private Process? _externalProcess;
+    private bool _desktopSessionActive;
     private bool _disposed;
     /// <summary>Bumped on every start/stop request so superseded launches dispose their process.</summary>
     private int _startGeneration;
@@ -49,7 +57,8 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         bool autoRun = true,
         bool autoApproveDangerousCommands = false,
         Action<bool, bool>? onSafetyOptionsChanged = null,
-        Action<bool>? onHideSshTerminalChanged = null)
+        Action<bool>? onHideSshTerminalChanged = null,
+        AgentCliRunMode preferredRunMode = AgentCliRunMode.Cli)
     {
         _workingDirectory = workingDirectory;
         _getMcpServer = getMcpServer;
@@ -62,26 +71,52 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         foreach (var descriptor in AgentCliCatalog.Discover())
             Providers.Add(descriptor);
 
+        RunModeOptions =
+        [
+            new AgentCliRunModeOption(AgentCliRunMode.Cli, "CLI"),
+            new AgentCliRunModeOption(AgentCliRunMode.WindowsTerminal, "Windows Terminal"),
+            new AgentCliRunModeOption(AgentCliRunMode.Desktop, "Desktop"),
+        ];
+        _selectedRunModeOption = RunModeOptions.FirstOrDefault(o => o.Mode == preferredRunMode)
+            ?? RunModeOptions[0];
+
         _selectedProvider = Providers.FirstOrDefault(p =>
                 p.Label.Equals(preferredProviderLabel, StringComparison.OrdinalIgnoreCase) && p.IsAvailable)
             ?? Providers.FirstOrDefault(p => p.IsAvailable)
             ?? Providers[0];
+
+        // Silent adjust only — do not fire property changers / StartAsync during construction.
+        if (_selectedRunModeOption.Mode == AgentCliRunMode.Desktop
+            && !AgentCliCatalog.SupportsDesktop(_selectedProvider.Kind))
+        {
+            _selectedProvider = Providers.FirstOrDefault(p =>
+                    AgentCliCatalog.SupportsDesktop(p.Kind) && p.IsAvailable)
+                ?? Providers.FirstOrDefault(p => AgentCliCatalog.SupportsDesktop(p.Kind))
+                ?? _selectedProvider;
+        }
+
         RefreshStatusFromProvider();
     }
 
     public ObservableCollection<AgentCliDescriptor> Providers { get; } = [];
 
+    /// <summary>Fixed list of the three explicit launch modes.</summary>
+    public IReadOnlyList<AgentCliRunModeOption> RunModeOptions { get; }
+
     [ObservableProperty]
     private AgentCliDescriptor _selectedProvider;
+
+    [ObservableProperty]
+    private AgentCliRunModeOption _selectedRunModeOption;
+
+    /// <summary>Current launch mode (CLI / Windows Terminal / Desktop).</summary>
+    public AgentCliRunMode RunMode => SelectedRunModeOption.Mode;
 
     [ObservableProperty]
     private string _statusText = "";
 
     [ObservableProperty]
     private bool _isRunning;
-
-    [ObservableProperty]
-    private bool _useWindowsTerminal;
 
     [ObservableProperty]
     private bool _hideSshTerminal;
@@ -100,21 +135,31 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     [NotifyCanExecuteChangedFor(nameof(InstallCommand))]
     private bool _isInstalling;
 
-    /// <summary>True when the selected CLI is missing and we should show the install panel.</summary>
+    /// <summary>True when the selected CLI is missing and we should show the install panel.
+    /// Desktop mode does not require a local CLI binary (protocol launch).</summary>
     public bool ShowInstallPrompt =>
-        !IsRunning && !SelectedProvider.IsAvailable;
+        !IsRunning
+        && !IsInstalling
+        && RunMode != AgentCliRunMode.Desktop
+        && !SelectedProvider.IsAvailable;
 
-    /// <summary>Start is only for installed, idle CLIs (install uses its own button).</summary>
+    /// <summary>Start is only for installed, idle CLIs (or Desktop Claude/Codex).</summary>
     public bool ShowStartButton =>
-        !IsRunning && !IsInstalling && SelectedProvider.IsAvailable;
+        !IsRunning && !IsInstalling && CanStartSelectedProvider();
 
-    /// <summary>Embedded ConPTY surface (hidden while the install prompt is up).</summary>
+    /// <summary>Embedded ConPTY surface (CLI mode only; hidden while the install prompt is up).</summary>
     public bool ShowEmbeddedTerminal =>
-        !ShowInstallPrompt && !UseWindowsTerminal;
+        !ShowInstallPrompt && RunMode == AgentCliRunMode.Cli;
 
-    /// <summary>Placeholder when the CLI was launched in Windows Terminal.</summary>
+    /// <summary>Placeholder when the agent runs outside the side panel (WT or Desktop).</summary>
     public bool ShowExternalHint =>
-        !ShowInstallPrompt && UseWindowsTerminal;
+        !ShowInstallPrompt && RunMode != AgentCliRunMode.Cli;
+
+    /// <summary>Localized hint for the external (WT / Desktop) surface.</summary>
+    public string ExternalHintText =>
+        RunMode == AgentCliRunMode.Desktop
+            ? L("AiCliDesktopHint")
+            : L("AiCliExternalHint");
 
     /// <summary>Raised when the embedded ConPTY session should be wired to a terminal control.</summary>
     public event Action<ConPtySession>? SessionStarted;
@@ -127,12 +172,30 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
     partial void OnSelectedProviderChanged(AgentCliDescriptor value)
     {
+        // Desktop cannot host Grok — fall back to CLI for unsupported providers.
+        if (RunMode == AgentCliRunMode.Desktop && !AgentCliCatalog.SupportsDesktop(value.Kind))
+        {
+            SelectedRunModeOption = RunModeOptions.First(o => o.Mode == AgentCliRunMode.Cli);
+            return;
+        }
+
         NotifyLayoutFlags();
         InstallCommand.NotifyCanExecuteChanged();
         RefreshStatusFromProvider();
         // Always launch the newly selected agent. Fire-and-forget is OK: StartAsync is
         // serialized and generation-gated so rapid ComboBox changes only keep the last one.
-        if (!_disposed && !IsInstalling && value.IsAvailable)
+        if (!_disposed && !IsInstalling && CanStartSelectedProvider())
+            _ = StartAsync();
+    }
+
+    partial void OnSelectedRunModeOptionChanged(AgentCliRunModeOption value)
+    {
+        OnPropertyChanged(nameof(RunMode));
+        EnsureProviderCompatibleWithRunMode();
+        NotifyLayoutFlags();
+        InstallCommand.NotifyCanExecuteChanged();
+        RefreshStatusFromProvider();
+        if (!_disposed && !IsInstalling && CanStartSelectedProvider())
             _ = StartAsync();
     }
 
@@ -154,30 +217,60 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     partial void OnAutoApproveDangerousCommandsChanged(bool value) =>
         _onSafetyOptionsChanged?.Invoke(AutoRun, value);
 
-    partial void OnUseWindowsTerminalChanged(bool value)
-    {
-        NotifyLayoutFlags();
-        if (IsRunning)
-            _ = RestartAsync();
-    }
-
     private void NotifyLayoutFlags()
     {
         OnPropertyChanged(nameof(ShowInstallPrompt));
         OnPropertyChanged(nameof(ShowStartButton));
         OnPropertyChanged(nameof(ShowEmbeddedTerminal));
         OnPropertyChanged(nameof(ShowExternalHint));
+        OnPropertyChanged(nameof(ExternalHintText));
     }
+
+    /// <summary>
+    /// Desktop mode only supports Claude/Codex. If the current provider cannot run there,
+    /// switch to the first desktop-capable provider (prefer installed).
+    /// </summary>
+    private void EnsureProviderCompatibleWithRunMode()
+    {
+        if (RunMode != AgentCliRunMode.Desktop)
+            return;
+        if (AgentCliCatalog.SupportsDesktop(SelectedProvider.Kind))
+            return;
+
+        var preferred = Providers.FirstOrDefault(p =>
+                AgentCliCatalog.SupportsDesktop(p.Kind) && p.IsAvailable)
+            ?? Providers.FirstOrDefault(p => AgentCliCatalog.SupportsDesktop(p.Kind));
+        if (preferred is not null && !ReferenceEquals(preferred, SelectedProvider))
+            SelectedProvider = preferred;
+    }
+
+    private bool CanStartSelectedProvider() =>
+        RunMode == AgentCliRunMode.Desktop
+            ? AgentCliCatalog.SupportsDesktop(SelectedProvider.Kind)
+            : SelectedProvider.IsAvailable;
 
     private void RefreshStatusFromProvider()
     {
         if (IsInstalling)
             return;
 
-        if (SelectedProvider.IsAvailable)
+        if (RunMode == AgentCliRunMode.Desktop
+            && !AgentCliCatalog.SupportsDesktop(SelectedProvider.Kind))
+        {
+            StatusText = L("AiCliDesktopUnsupported", SelectedProvider.Label);
+            return;
+        }
+
+        if (RunMode == AgentCliRunMode.Desktop
+            || SelectedProvider.IsAvailable)
         {
             StatusText = IsRunning
-                ? L("AiCliRunning", SelectedProvider.Label)
+                ? RunMode switch
+                {
+                    AgentCliRunMode.WindowsTerminal => L("AiCliRunningExternal", SelectedProvider.Label),
+                    AgentCliRunMode.Desktop => L("AiCliRunningDesktop", SelectedProvider.Label),
+                    _ => L("AiCliRunning", SelectedProvider.Label),
+                }
                 : L("AiCliReady", SelectedProvider.Label);
             return;
         }
@@ -199,9 +292,9 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         if (_disposed || IsInstalling)
             return Task.CompletedTask;
         // Already have a live session for the current selection — do not bounce it.
-        if (IsRunning && (_session is not null || _externalProcess is not null))
+        if (IsRunning && (_session is not null || _externalProcess is not null || _desktopSessionActive))
             return Task.CompletedTask;
-        if (!SelectedProvider.IsAvailable)
+        if (!CanStartSelectedProvider())
         {
             RefreshStatusFromProvider();
             return Task.CompletedTask;
@@ -221,7 +314,10 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     public ConPtySession? EmbeddedSession => _session;
 
     private bool CanInstall() =>
-        !IsInstalling && !IsRunning && !SelectedProvider.IsAvailable;
+        !IsInstalling
+        && !IsRunning
+        && RunMode != AgentCliRunMode.Desktop
+        && !SelectedProvider.IsAvailable;
 
     [RelayCommand(CanExecute = nameof(CanInstall))]
     private async Task InstallAsync()
@@ -280,7 +376,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             IsInstalling = false;
             NotifyLayoutFlags();
             InstallCommand.NotifyCanExecuteChanged();
-            if (SelectedProvider.IsAvailable && !IsRunning)
+            if (CanStartSelectedProvider() && !IsRunning)
                 RefreshStatusFromProvider();
         }
     }
@@ -296,6 +392,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         SelectedProvider = Providers.FirstOrDefault(p => p.Kind == preferKind)
             ?? Providers.FirstOrDefault(p => p.IsAvailable)
             ?? Providers[0];
+        EnsureProviderCompatibleWithRunMode();
         NotifyLayoutFlags();
     }
 
@@ -308,6 +405,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         // Capture selection at request time; a later ComboBox change bumps generation.
         var generation = Interlocked.Increment(ref _startGeneration);
         var provider = SelectedProvider;
+        var runMode = RunMode;
 
         await _startGate.WaitAsync().ConfigureAwait(true);
         try
@@ -321,9 +419,20 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             if (_disposed || generation != Volatile.Read(ref _startGeneration))
                 return;
 
-            // Prefer the latest SelectedProvider if the user switched while we waited on the gate.
+            // Prefer the latest selection if the user switched while we waited on the gate.
             provider = SelectedProvider;
-            if (!provider.IsAvailable || provider.ExecutablePath is null)
+            runMode = RunMode;
+
+            if (runMode == AgentCliRunMode.Desktop)
+            {
+                if (!AgentCliCatalog.SupportsDesktop(provider.Kind))
+                {
+                    StatusText = L("AiCliDesktopUnsupported", provider.Label);
+                    NotifyLayoutFlags();
+                    return;
+                }
+            }
+            else if (!provider.IsAvailable || provider.ExecutablePath is null)
             {
                 StatusText = provider.InstallHint;
                 NotifyLayoutFlags();
@@ -343,15 +452,50 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
                 // Refresh AGENTS.md / CLAUDE.md + project MCP configs with the live endpoint
                 // before the CLI (or a desktop app opening this folder) loads them.
                 try { PrepareWorkspace?.Invoke(mcpUrl); }
-                catch { /* best-effort; still launch the CLI */ }
+                catch { /* best-effort; still launch the agent */ }
 
                 Directory.CreateDirectory(_workingDirectory);
-                var exePath = provider.ExecutablePath;
+
+                if (runMode == AgentCliRunMode.Desktop)
+                {
+                    if (!TryStartDesktopApp(provider.Kind))
+                    {
+                        if (generation != Volatile.Read(ref _startGeneration))
+                            return;
+                        StatusText = L("AiCliStartFailed", L("AiCliDesktopLaunchFailed", provider.Label));
+                        IsRunning = false;
+                        NotifyLayoutFlags();
+                        return;
+                    }
+
+                    if (_disposed || generation != Volatile.Read(ref _startGeneration))
+                    {
+                        await StopInternalAsync(userStopped: false, replaced: true).ConfigureAwait(true);
+                        return;
+                    }
+
+                    IsRunning = true;
+                    StatusText = L("AiCliRunningDesktop", provider.Label);
+                    NotifyLayoutFlags();
+                    return;
+                }
+
+                var exePath = provider.ExecutablePath!;
                 // Runtime flags only (auto-approve tools / scrollback). Server context is in AGENTS.md.
                 var args = AgentCliCatalog.BuildInteractiveArguments(provider.Kind, AutoRun);
 
-                if (UseWindowsTerminal && TryStartWindowsTerminal(exePath, args))
+                if (runMode == AgentCliRunMode.WindowsTerminal)
                 {
+                    if (!TryStartWindowsTerminal(exePath, args))
+                    {
+                        if (generation != Volatile.Read(ref _startGeneration))
+                            return;
+                        StatusText = L("AiCliStartFailed", L("AiCliWindowsTerminalMissing"));
+                        IsRunning = false;
+                        NotifyLayoutFlags();
+                        return;
+                    }
+
                     if (_disposed || generation != Volatile.Read(ref _startGeneration))
                     {
                         // Superseded while wt was starting — tear down the external process.
@@ -458,7 +602,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             try { external.Dispose(); } catch { /* ignore */ }
         }
 
-        if (!IsRunning && _session is null && _externalProcess is null)
+        if (!IsRunning && _session is null && _externalProcess is null && !_desktopSessionActive)
             return;
 
         IsRunning = false;
@@ -500,10 +644,39 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             try { external.Dispose(); } catch { /* ignore */ }
         }
 
+        // Desktop apps are not owned by this process; only clear our launch marker.
+        _desktopSessionActive = false;
+
         IsRunning = false;
         if (userStopped)
             StatusText = L("AiCliStopped", SelectedProvider.Label);
         return Task.CompletedTask;
+    }
+
+    private bool TryStartDesktopApp(AgentCliKind kind)
+    {
+        var uri = AgentCliCatalog.BuildDesktopProtocolUri(kind, _workingDirectory);
+        if (uri is null)
+            return false;
+
+        try
+        {
+            // Registered protocol (claude:// / codex://). ShellExecute hands off to the
+            // desktop app; the returned process (if any) is not the agent and exits quickly.
+            var psi = new ProcessStartInfo
+            {
+                FileName = uri,
+                UseShellExecute = true,
+            };
+            Process.Start(psi);
+            _desktopSessionActive = true;
+            return true;
+        }
+        catch
+        {
+            _desktopSessionActive = false;
+            return false;
+        }
     }
 
     private bool TryStartWindowsTerminal(string exePath, IReadOnlyList<string> args)

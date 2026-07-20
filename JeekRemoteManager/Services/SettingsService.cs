@@ -170,6 +170,7 @@ public class SettingsService
             MonitorPanelWidth = roamingSettings.MonitorPanelWidth,
             FileBrowserEditorPath = roamingSettings.FileBrowserEditorPath,
             AiProvider = roamingSettings.AiProvider,
+            AiRunMode = roamingSettings.AiRunMode,
             AiAutoRun = roamingSettings.AiAutoRun,
             AiAutoApproveDangerousCommands = roamingSettings.AiAutoApproveDangerousCommands,
         };
@@ -206,6 +207,7 @@ public class SettingsService
             MonitorPanelWidth = settings.MonitorPanelWidth,
             FileBrowserEditorPath = settings.FileBrowserEditorPath,
             AiProvider = settings.AiProvider,
+            AiRunMode = settings.AiRunMode,
             AiAutoRun = settings.AiAutoRun,
             AiAutoApproveDangerousCommands = settings.AiAutoApproveDangerousCommands,
         };
@@ -238,6 +240,7 @@ public class SettingsService
         settings.MonitorPanelWidth = normalized.MonitorPanelWidth;
         settings.FileBrowserEditorPath = normalized.FileBrowserEditorPath;
         settings.AiProvider = normalized.AiProvider;
+        settings.AiRunMode = normalized.AiRunMode;
         settings.AiAutoRun = normalized.AiAutoRun;
         settings.AiAutoApproveDangerousCommands = normalized.AiAutoApproveDangerousCommands;
     }
@@ -286,6 +289,8 @@ public class SettingsService
             settings.FileBrowserEditorPath = null;
         if (string.IsNullOrWhiteSpace(settings.AiProvider))
             settings.AiProvider = null;
+        if (!Enum.IsDefined(settings.AiRunMode))
+            settings.AiRunMode = AgentCliRunMode.Cli;
     }
 
     private static StorageLocation NormalizeStorageLocation(StorageLocation location) =>

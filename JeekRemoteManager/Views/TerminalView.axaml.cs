@@ -1017,20 +1017,24 @@ public partial class TerminalView : UserControl
                 ApplyAiPanelLayout();
                 if (IsLoginManualInputPending)
                     FocusTerminal();
-            })
+            },
+            preferredRunMode: mainVm?.AiRunMode ?? AgentCliRunMode.Cli)
         {
             // Re-write AGENTS.md / CLAUDE.md + project MCP configs with the live endpoint
             // so CLI and desktop agents read everything from the workspace (not argv).
             PrepareWorkspace = mcpUrl => ResolveAgentCliWorkingDirectory(mcpUrl),
         };
 
-        // Remember last-chosen provider across tabs and runs.
+        // Remember last-chosen provider and run mode across tabs and runs.
         vm.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName != nameof(AgentCliPanelViewModel.SelectedProvider))
+            if (DataContext is not MainWindowViewModel ownerVm)
                 return;
-            if (DataContext is MainWindowViewModel mainVm)
-                mainVm.AiProvider = vm.SelectedProvider.Label;
+            if (e.PropertyName == nameof(AgentCliPanelViewModel.SelectedProvider))
+                ownerVm.AiProvider = vm.SelectedProvider.Label;
+            else if (e.PropertyName is nameof(AgentCliPanelViewModel.SelectedRunModeOption)
+                     or nameof(AgentCliPanelViewModel.RunMode))
+                ownerVm.AiRunMode = vm.RunMode;
         };
 
         AiPanel.DataContext = vm;

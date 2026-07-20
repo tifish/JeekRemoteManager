@@ -13,7 +13,7 @@
 - SFTP 远程文件浏览器
 - 支持 WSL：可打开本地 WSL 发行版的终端并浏览其文件
 - 远程脚本：定义带参数的可复用脚本，在连接上一键执行
-- 集成 AI Agent CLI（侧栏 ConPTY 或 Windows Terminal 启动 Claude / Codex / Grok Build；通过 MCP 操作当前 SSH/WSL 终端）
+- 集成 AI Agent，三种运行模式可选其一：CLI（侧栏 ConPTY，默认）、Windows Terminal、Desktop（仅 Claude/Codex 协议启动）；通过 MCP 操作当前 SSH/WSL 终端
 - 从 FinalShell、SecureCRT、Xshell 导入连接
 - 使用主密钥加密保存密码
 - 一键向远程主机安装 SSH 公钥

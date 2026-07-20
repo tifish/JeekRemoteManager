@@ -12,14 +12,15 @@
                 BorderBrush="{DynamicResource BorderBrushSoft}"
                 BorderThickness="0,0,0,1"
                 Background="{DynamicResource ChromeSurfaceBrush}">
-            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
+            <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="6">
                 <ComboBox Grid.Column="0"
                           Classes="header-option"
                           MinWidth="92"
                           MaxWidth="120"
                           MinHeight="28"
                           ItemsSource="{Binding Providers}"
-                          SelectedItem="{Binding SelectedProvider}">
+                          SelectedItem="{Binding SelectedProvider}"
+                          ToolTip.Tip="{l:Localize AiProvider}">
                     <ComboBox.ItemTemplate>
                         <DataTemplate>
                             <TextBlock Text="{Binding Label}" />
@@ -27,7 +28,22 @@
                     </ComboBox.ItemTemplate>
                 </ComboBox>
 
-                <TextBlock Grid.Column="1"
+                <ComboBox Grid.Column="1"
+                          Classes="header-option"
+                          MinWidth="108"
+                          MaxWidth="150"
+                          MinHeight="28"
+                          ItemsSource="{Binding RunModeOptions}"
+                          SelectedItem="{Binding SelectedRunModeOption}"
+                          ToolTip.Tip="{l:Localize AiCliRunMode}">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Label}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+
+                <TextBlock Grid.Column="2"
                            VerticalAlignment="Center"
                            Text="{Binding StatusText}"
                            TextTrimming="CharacterEllipsis"
@@ -36,7 +52,7 @@
                            Foreground="{DynamicResource TextMutedBrush}"
                            ToolTip.Tip="{Binding StatusText}" />
 
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
+                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
                     <Button Classes="toolbar icon-button"
                             Command="{Binding StartCommand}"
                             IsVisible="{Binding ShowStartButton}"
@@ -100,9 +116,6 @@
                                           IsEnabled="{Binding AutoRun}"
                                           ToolTip.Tip="{l:Localize AiAutoApproveHint}" />
                                 <Separator />
-                                <MenuItem Header="{l:Localize AiCliUseWindowsTerminal}"
-                                          ToggleType="CheckBox"
-                                          IsChecked="{Binding UseWindowsTerminal, Mode=TwoWay}" />
                                 <MenuItem Header="{l:Localize AiHideSshTerminal}"
                                           ToggleType="CheckBox"
                                           IsChecked="{Binding HideSshTerminal, Mode=TwoWay}"
@@ -171,7 +184,7 @@
                     IsVisible="{Binding ShowExternalHint}"
                     VerticalAlignment="Center"
                     HorizontalAlignment="Center">
-                <TextBlock Text="{l:Localize AiCliExternalHint}"
+                <TextBlock Text="{Binding ExternalHintText}"
                            TextWrapping="Wrap"
                            HorizontalAlignment="Center"
                            Foreground="{DynamicResource TextMutedBrush}" />

@@ -437,6 +437,19 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>How the AI panel launches the agent (CLI / Windows Terminal / Desktop).</summary>
+    public AgentCliRunMode AiRunMode
+    {
+        get => _settings.Settings.AiRunMode;
+        set
+        {
+            if (_settings.Settings.AiRunMode == value)
+                return;
+            _settings.Settings.AiRunMode = value;
+            _settings.SaveIfChanged();
+        }
+    }
+
     /// <summary>Whether the selected agent CLI may invoke JRM remote command tools without
     /// its own per-call permission prompt.</summary>
     public bool AiAutoRun

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -147,6 +148,42 @@ public static class AgentCliCatalog
             AgentCliKind.Grok => BuildGrokArguments(autoRun),
             _ => Array.Empty<string>(),
         };
+
+    /// <summary>
+    /// Desktop protocol launch is only implemented for Claude Code and Codex desktop apps.
+    /// Grok has no registered workspace protocol here.
+    /// </summary>
+    public static bool SupportsDesktop(AgentCliKind kind) =>
+        kind is AgentCliKind.Claude or AgentCliKind.Codex;
+
+    /// <summary>
+    /// Builds the registered-protocol URI that opens the workspace in the desktop app.
+    /// Claude: <c>claude://code/new?folder=...</c>; Codex: <c>codex://threads/new?path=...</c>.
+    /// Returns null when the kind has no desktop protocol.
+    /// </summary>
+    public static string? BuildDesktopProtocolUri(AgentCliKind kind, string workspacePath)
+    {
+        if (string.IsNullOrWhiteSpace(workspacePath))
+            return null;
+
+        string absolute;
+        try
+        {
+            absolute = Path.GetFullPath(workspacePath);
+        }
+        catch
+        {
+            return null;
+        }
+
+        var encoded = Uri.EscapeDataString(absolute);
+        return kind switch
+        {
+            AgentCliKind.Claude => $"claude://code/new?folder={encoded}",
+            AgentCliKind.Codex => $"codex://threads/new?path={encoded}",
+            _ => null,
+        };
+    }
 
     private static IReadOnlyList<string> BuildClaudeArguments(bool autoRun)
     {

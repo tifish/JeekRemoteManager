@@ -15,6 +15,24 @@ public enum StorageLocation
     CustomDirectory,
 }
 
+/// <summary>
+/// How the AI panel launches the selected agent.
+/// <see cref="Cli"/> embeds ConPTY in the side panel (default);
+/// <see cref="WindowsTerminal"/> opens the CLI in Windows Terminal;
+/// <see cref="Desktop"/> opens Claude/Codex via registered protocol handlers.
+/// </summary>
+public enum AgentCliRunMode
+{
+    /// <summary>In-app ConPTY side panel (default).</summary>
+    Cli = 0,
+
+    /// <summary>Launch the agent CLI inside Windows Terminal.</summary>
+    WindowsTerminal = 1,
+
+    /// <summary>Open Claude/Codex desktop via protocol URI (not Grok).</summary>
+    Desktop = 2,
+}
+
 /// <summary>In-memory view of all persisted application settings.</summary>
 public class AppSettings
 {
@@ -87,6 +105,9 @@ public class AppSettings
 
     /// <summary>AI panel: last-used provider label ("Claude", "Codex", "Grok"). Null = first available.</summary>
     public string? AiProvider { get; set; }
+
+    /// <summary>AI panel: how the selected agent is launched (CLI / Windows Terminal / Desktop).</summary>
+    public AgentCliRunMode AiRunMode { get; set; } = AgentCliRunMode.Cli;
 
     /// <summary>AI panel: whether remote command tools run without the agent CLI asking first.</summary>
     public bool AiAutoRun { get; set; } = true;
@@ -162,6 +183,9 @@ public class RoamingAppSettings
 
     /// <summary>AI panel: last-used provider label ("Claude", "Codex", "Grok"). Null = first available.</summary>
     public string? AiProvider { get; set; }
+
+    /// <summary>AI panel: how the selected agent is launched (CLI / Windows Terminal / Desktop).</summary>
+    public AgentCliRunMode AiRunMode { get; set; } = AgentCliRunMode.Cli;
 
     /// <summary>AI panel: whether remote command tools run without the agent CLI asking first.</summary>
     public bool AiAutoRun { get; set; } = true;

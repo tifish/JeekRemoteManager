@@ -685,6 +685,26 @@ try
           && grokAutoArgs.Contains("MCPTool(jrm-remote__terminal_run_danger)"),
           "AI CLI args are runtime-only; MCP URL/context live in workspace; auto-run allows expanded jrm-remote tools");
 
+    var desktopPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "JeekRemoteManager",
+        "AgentWorkspaces",
+        "vps",
+        "bwg");
+    var claudeDesktopUri = AgentCliCatalog.BuildDesktopProtocolUri(AgentCliKind.Claude, desktopPath);
+    var codexDesktopUri = AgentCliCatalog.BuildDesktopProtocolUri(AgentCliKind.Codex, desktopPath);
+    var grokDesktopUri = AgentCliCatalog.BuildDesktopProtocolUri(AgentCliKind.Grok, desktopPath);
+    var encodedDesktopPath = Uri.EscapeDataString(Path.GetFullPath(desktopPath));
+    Check(AgentCliCatalog.SupportsDesktop(AgentCliKind.Claude)
+          && AgentCliCatalog.SupportsDesktop(AgentCliKind.Codex)
+          && !AgentCliCatalog.SupportsDesktop(AgentCliKind.Grok)
+          && claudeDesktopUri == $"claude://code/new?folder={encodedDesktopPath}"
+          && codexDesktopUri == $"codex://threads/new?path={encodedDesktopPath}"
+          && grokDesktopUri is null
+          && claudeDesktopUri.Contains("folder=", StringComparison.Ordinal)
+          && codexDesktopUri.Contains("path=", StringComparison.Ordinal),
+          "Desktop mode protocol URIs cover Claude/Codex only");
+
     await using (var safetyServer = new AgentRemoteMcpServer(new SmokeAgentRemoteTools()))
     {
         Check(safetyServer.RequiresDangerConfirmation("rm -rf /tmp/jrm-smoke", false)
@@ -1304,6 +1324,7 @@ try
         Theme = "Dark",
         AiAutoRun = false,
         AiAutoApproveDangerousCommands = true,
+        AiRunMode = AgentCliRunMode.Desktop,
         RecentConnectionPaths = { Path.Combine(root, "Servers", "web01.json") },
         LastSelectedConnectionPath = Path.Combine(root, "Servers", "web01.json"),
         RecentExpanded = false,
@@ -1338,11 +1359,13 @@ try
         UpdateCheckIntervalHours = settingsWithRecent.UpdateCheckIntervalHours,
         AiAutoRun = settingsWithRecent.AiAutoRun,
         AiAutoApproveDangerousCommands = settingsWithRecent.AiAutoApproveDangerousCommands,
+        AiRunMode = settingsWithRecent.AiRunMode,
     });
     Check(roamingSettingsJson.Contains(nameof(RoamingAppSettings.Language))
           && roamingSettingsJson.Contains(nameof(RoamingAppSettings.Theme))
           && roamingSettingsJson.Contains(nameof(RoamingAppSettings.AiAutoRun))
           && roamingSettingsJson.Contains(nameof(RoamingAppSettings.AiAutoApproveDangerousCommands))
+          && roamingSettingsJson.Contains(nameof(RoamingAppSettings.AiRunMode))
           && !roamingSettingsJson.Contains(nameof(MachineAppSettings.RecentConnectionPaths))
           && !roamingSettingsJson.Contains(nameof(MachineAppSettings.MainWindowWidth)),
           "Roaming settings persist machine-independent preferences only");
@@ -1358,6 +1381,7 @@ try
     tempSettings.Settings.Language = "zh";
     tempSettings.Settings.AiAutoRun = false;
     tempSettings.Settings.AiAutoApproveDangerousCommands = true;
+    tempSettings.Settings.AiRunMode = AgentCliRunMode.WindowsTerminal;
     Check(!File.Exists(tempRoamingSettingsPath), "Settings changes stay in memory before flush");
     Check(tempSettings.SaveIfChanged()
           && File.Exists(tempRoamingSettingsPath)
@@ -1366,12 +1390,14 @@ try
     var savedSettingsJson = File.ReadAllText(tempRoamingSettingsPath);
     Check(savedSettingsJson.Contains("\"Language\": \"zh\"")
           && savedSettingsJson.Contains("\"AiAutoRun\": false")
-          && savedSettingsJson.Contains("\"AiAutoApproveDangerousCommands\": true"),
+          && savedSettingsJson.Contains("\"AiAutoApproveDangerousCommands\": true")
+          && savedSettingsJson.Contains("\"AiRunMode\": \"WindowsTerminal\""),
           "Changed roaming settings are serialized after flush");
     var reloadedAiSettings = new SettingsService(tempMachineSettingsPath, tempRoamingSettingsPath);
     Check(!reloadedAiSettings.Settings.AiAutoRun
-          && reloadedAiSettings.Settings.AiAutoApproveDangerousCommands,
-          "AI command safety options round-trip through roaming settings");
+          && reloadedAiSettings.Settings.AiAutoApproveDangerousCommands
+          && reloadedAiSettings.Settings.AiRunMode == AgentCliRunMode.WindowsTerminal,
+          "AI command safety options and run mode round-trip through roaming settings");
     File.SetLastWriteTimeUtc(tempRoamingSettingsPath, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
     var unchangedWriteTime = File.GetLastWriteTimeUtc(tempRoamingSettingsPath);
     Check(tempSettings.SaveIfChanged(), "Second unchanged settings flush succeeds");

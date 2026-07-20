@@ -858,7 +858,7 @@ internal static class DebugMcpServer
                     sb.AppendLine(
                         $"cliProvider={ai.SelectedProvider.Label} available={ai.SelectedProvider.IsAvailable} "
                         + $"running={ai.IsRunning} embedded={ai.HasEmbeddedSession} "
-                        + $"useWindowsTerminal={ai.UseWindowsTerminal} hideSshTerminal={ai.HideSshTerminal} "
+                        + $"runMode={ai.RunMode} hideSshTerminal={ai.HideSshTerminal} "
                         + $"installing={ai.IsInstalling} autoRun={ai.AutoRun} "
                         + $"autoApprove={ai.AutoApproveDangerousCommands}");
                     sb.AppendLine(
