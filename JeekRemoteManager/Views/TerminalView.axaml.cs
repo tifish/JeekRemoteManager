@@ -564,6 +564,13 @@ public partial class TerminalView : UserControl
     public bool DebugPressAiFunctionKeyFromHeader(int functionKeyNumber) =>
         _aiViewModel is not null && AiPanel.DebugPressFunctionKeyFromHeader(functionKeyNumber);
 
+    /// <summary>Raises the real Ctrl+C route on the AI CLI terminal for Debug MCP.</summary>
+    public string? DebugPressAiCtrlC(bool selectVisibleText) =>
+        _aiViewModel is null ? null : AiPanel.DebugPressCtrlCOnCli(selectVisibleText);
+
+    /// <summary>Direct AI panel access for self-contained Debug MCP checks.</summary>
+    internal AgentCliPanelView DebugAiPanel => AiPanel;
+
     /// <summary>Rendered AI header height exposed for Debug MCP layout verification.</summary>
     public double? DebugAiHeaderHeight =>
         _aiViewModel is null ? null : AiPanel.DebugHeaderHeight;

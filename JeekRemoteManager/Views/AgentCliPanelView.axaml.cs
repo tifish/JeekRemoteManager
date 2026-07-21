@@ -54,6 +54,7 @@ public partial class AgentCliPanelView : UserControl
     private ConPtySession? _liveSession;
     private Action<byte[]>? _liveSessionDataHandler;
     private AgentCliPanelViewModel? _vm;
+    private string? _pendingCliKeyboardCopyText;
     private double _fontSize = 14;
     private int _lastSentCols;
     private int _lastSentRows;
@@ -107,6 +108,7 @@ public partial class AgentCliPanelView : UserControl
         AddHandler(InputElement.KeyDownEvent, OnPanelPreviewKeyDown, RoutingStrategies.Tunnel);
         CliTerm.ContextRequested += OnCliContextRequested;
         CliTerm.AddHandler(InputElement.KeyDownEvent, OnCliPreviewKeyDown, RoutingStrategies.Tunnel);
+        CliTerm.AddHandler(InputElement.KeyUpEvent, OnCliPreviewKeyUp, RoutingStrategies.Tunnel);
         TerminalHost.SizeChanged += (_, _) =>
             Dispatcher.UIThread.Post(SyncViewportToConPty, DispatcherPriority.Render);
         SizeChanged += (_, _) =>
@@ -191,6 +193,57 @@ public partial class AgentCliPanelView : UserControl
 
     /// <summary>Rendered AI header height exposed for Debug MCP layout verification.</summary>
     public double DebugHeaderHeight => AiHeader.Bounds.Height;
+
+    /// <summary>Text captured by the last Ctrl+C copy on the CLI terminal, for Debug MCP.</summary>
+    public string? DebugLastCliCopiedText { get; private set; }
+
+    /// <summary>Hex of the last user-input bytes raised by the CLI terminal, for Debug MCP.</summary>
+    public string DebugLastCliUserInputHex { get; private set; } = "(none)";
+
+    /// <summary>Feeds text straight into the CLI terminal buffer for Debug MCP tests.</summary>
+    internal void DebugFeedCliText(string text) => _model.Feed(text);
+
+    /// <summary>
+    /// Raises the real Ctrl+C key route on the CLI terminal so Debug MCP can verify
+    /// copy-vs-interrupt behavior. With <paramref name="selectVisibleText"/> the first
+    /// visible line is selected first (Ctrl+C should copy and be handled); without it
+    /// the gesture should fall through so the embedded CLI receives the interrupt.
+    /// </summary>
+    public string DebugPressCtrlCOnCli(bool selectVisibleText)
+    {
+        if (selectVisibleText)
+        {
+            var buffer = _model.Terminal.Buffer;
+            _model.Terminal.Selection.StartSelection(0, buffer.YDisp, XTerm.Selection.SelectionMode.Normal);
+            _model.Terminal.Selection.UpdateSelection(Math.Max(1, _model.Terminal.Cols - 1), buffer.YDisp);
+        }
+        else
+        {
+            _model.ClearSelection();
+        }
+
+        DebugLastCliCopiedText = null;
+        DebugLastCliUserInputHex = "(none)";
+
+        RaiseCliKey(InputElement.KeyDownEvent, Key.LeftCtrl, KeyModifiers.Control);
+        var copyEvent = RaiseCliKey(InputElement.KeyDownEvent, Key.C, KeyModifiers.Control);
+        RaiseCliKey(InputElement.KeyUpEvent, Key.LeftCtrl, KeyModifiers.None);
+
+        return $"handled={copyEvent.Handled} copiedText={DebugLastCliCopiedText ?? "(none)"} " +
+               $"userInputHex={DebugLastCliUserInputHex}";
+    }
+
+    private KeyEventArgs RaiseCliKey(RoutedEvent<KeyEventArgs> routedEvent, Key key, KeyModifiers modifiers)
+    {
+        var e = new KeyEventArgs
+        {
+            RoutedEvent = routedEvent,
+            Key = key,
+            KeyModifiers = modifiers,
+        };
+        CliTerm.RaiseEvent(e);
+        return e;
+    }
 
     /// <summary>Exercises Codex host-history wheel routing through Debug MCP.</summary>
     public string DebugScrollHostWheel(double deltaY)
@@ -618,6 +671,7 @@ public partial class AgentCliPanelView : UserControl
             _suppressFollowReattach = false;
         }
 
+        DebugLastCliUserInputHex = Convert.ToHexString(data);
         _vm?.WriteToSession(data);
     }
 
@@ -774,9 +828,15 @@ public partial class AgentCliPanelView : UserControl
 
     private async void OnCliPreviewKeyDown(object? sender, KeyEventArgs e)
     {
+        // The terminal clears the selection when a modifier key reaches it, so
+        // capture the selected text while it still exists (same as TerminalView).
+        if (CliTerm.HasSelection && IsCliCopyGestureKey(e.Key))
+            _pendingCliKeyboardCopyText = GetCliSelectionText(CliTerm.SelectedText);
+
         if (IsCliPasteGesture(e))
         {
             e.Handled = true;
+            _pendingCliKeyboardCopyText = null;
             await PasteCliFromClipboardAsync();
             return;
         }
@@ -784,12 +844,26 @@ public partial class AgentCliPanelView : UserControl
         if (!IsCliCopyGesture(e))
             return;
 
-        var text = GetCliSelectionText(CliTerm.SelectedText);
+        // Ctrl+C never reaches the embedded CLI — an accidental interrupt could
+        // kill it. It copies when text is selected and is swallowed otherwise.
+        e.Handled = true;
+
+        var text = CliTerm.HasSelection
+            ? GetCliSelectionText(CliTerm.SelectedText)
+            : _pendingCliKeyboardCopyText;
         if (string.IsNullOrEmpty(text))
             return;
 
-        e.Handled = true;
+        _pendingCliKeyboardCopyText = null;
+        DebugLastCliCopiedText = text;
+        _model.ClearSelection();
         await SetCliClipboardTextAsync(text);
+    }
+
+    private void OnCliPreviewKeyUp(object? sender, KeyEventArgs e)
+    {
+        if (e.Key is Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift)
+            _pendingCliKeyboardCopyText = null;
     }
 
     private void OnPanelPreviewKeyDown(object? sender, KeyEventArgs e)
@@ -854,5 +928,8 @@ public partial class AgentCliPanelView : UserControl
     private static bool IsCliCopyGesture(KeyEventArgs e) =>
         e.Key == Key.C
         && e.KeyModifiers.HasFlag(KeyModifiers.Control)
-        && e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+        && !e.KeyModifiers.HasFlag(KeyModifiers.Alt);
+
+    private static bool IsCliCopyGestureKey(Key key) =>
+        key is Key.C or Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift;
 }

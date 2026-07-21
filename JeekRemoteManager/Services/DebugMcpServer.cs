@@ -414,6 +414,7 @@ internal static class DebugMcpServer
                 "read_logs" => ReadLogs(args),
                 "ai_runtime_snapshot" => await AiRuntimeSnapshotAsync(),
                 "terminal_tab_focus_check" => await TerminalTabFocusCheckAsync(),
+                "ai_cli_ctrl_c_check" => await AiCliCtrlCCheckAsync(),
                 _ => throw new InvalidOperationException($"Unknown tool: {name}"),
             };
         }
@@ -969,6 +970,73 @@ internal static class DebugMcpServer
                         tabs.Items.Remove(secondTab);
                     firstView?.Close();
                     secondView?.Close();
+                    return true;
+                });
+            }
+        }
+    }
+
+    private static async Task<JsonObject> AiCliCtrlCCheckAsync()
+    {
+        TabControl? tabs = null;
+        object? originalSelection = null;
+        TabItem? probeTab = null;
+        TerminalView? probeView = null;
+
+        try
+        {
+            await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main)
+                    throw new InvalidOperationException("MainWindow is not available.");
+
+                tabs = main.FindControl<TabControl>("RightTabs")
+                       ?? throw new InvalidOperationException("RightTabs not found.");
+                originalSelection = tabs.SelectedItem;
+                probeView = new TerminalView();
+                probeView.DebugPrepareLoadedFocusCompetitor();
+                probeTab = new TabItem { Header = "Ctrl+C probe", Content = probeView };
+                tabs.Items.Add(probeTab);
+                tabs.SelectedItem = probeTab;
+                return true;
+            });
+
+            await Task.Delay(75);
+
+            var (withSelection, withoutSelection) = await OnUiAsync(() =>
+            {
+                var panel = probeView!.DebugAiPanel;
+                panel.DebugFeedCliText("jrm-ctrl-c-probe");
+                return (panel.DebugPressCtrlCOnCli(selectVisibleText: true),
+                        panel.DebugPressCtrlCOnCli(selectVisibleText: false));
+            });
+
+            // The terminal marks handled key events itself, so the outcome is judged
+            // by what was copied and what reached the CLI input stream: Ctrl+C must
+            // never send bytes (0x03 would interrupt the CLI), selection or not.
+            var passed = withSelection.Contains("copiedText=jrm-ctrl-c-probe", StringComparison.Ordinal)
+                         && withSelection.Contains("userInputHex=(none)", StringComparison.Ordinal)
+                         && withoutSelection.Contains("copiedText=(none)", StringComparison.Ordinal)
+                         && withoutSelection.Contains("userInputHex=(none)", StringComparison.Ordinal);
+            return ToolText(
+                $"{(passed ? "PASS" : "FAIL")}: AI CLI Ctrl+C copies the selection and never reaches the CLI.\n"
+                + $"withSelection: {withSelection}\nwithoutSelection: {withoutSelection}",
+                isError: !passed);
+        }
+        finally
+        {
+            if (tabs is not null)
+            {
+                await OnUiAsync(() =>
+                {
+                    if (originalSelection is not null && tabs.Items.Contains(originalSelection))
+                        tabs.SelectedItem = originalSelection;
+                    else if (tabs.Items.Count > 0)
+                        tabs.SelectedIndex = 0;
+
+                    if (probeTab is not null)
+                        tabs.Items.Remove(probeTab);
+                    probeView?.Close();
                     return true;
                 });
             }

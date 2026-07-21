@@ -47,6 +47,9 @@ public static class DebugMcpContract
             new()),
         Tool("terminal_tab_focus_check",
             "Temporarily creates two terminal tabs and verifies that each restores its own in-memory focused control after switching.",
+            new()),
+        Tool("ai_cli_ctrl_c_check",
+            "Temporarily creates a terminal tab and verifies AI CLI Ctrl+C: copies when text is selected and never sends 0x03 to the CLI.",
             new()));
 
     public static JsonObject InitializeResult(string name, string title, string version, string? requestedVersion)
