@@ -35,6 +35,10 @@ internal static class Program
         StartActivationListener();
         SetCurrentProcessExplicitAppUserModelID(DebugInstanceContext.AppUserModelId);
 
+        // Dev/agent shells export NO_COLOR=1; embedded CLIs inherit this process's
+        // environment and would render without colors.
+        Environment.SetEnvironmentVariable("NO_COLOR", null);
+
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
         {
             if (e.ExceptionObject is Exception ex)
