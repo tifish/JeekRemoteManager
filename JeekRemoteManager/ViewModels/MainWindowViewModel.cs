@@ -2994,6 +2994,23 @@ public partial class MainWindowViewModel : ViewModelBase
     // wakes from its long sleep and picks up the new cadence immediately.
     private CancellationTokenSource _updateIntervalChanged = new();
 
+    // Guards against overlapping downloads when the periodic silent check and
+    // the manual menu command race each other. Only touched on the UI thread.
+    private bool _updateDownloadInProgress;
+
+    private static string FormatUpdateDownloadProgress(UpdateDownloadProgress p)
+    {
+        var speed = $"{p.BytesPerSecond / (1024 * 1024):0.0} MB/s";
+        if (p.TotalBytes is > 0)
+        {
+            var percent = Math.Min(100, (int)(p.ReceivedBytes * 100 / p.TotalBytes.Value));
+            return $"{percent}% ({FileBrowserViewModel.FormatSize(p.ReceivedBytes)} / " +
+                   $"{FileBrowserViewModel.FormatSize(p.TotalBytes.Value)}, {speed})";
+        }
+
+        return $"{FileBrowserViewModel.FormatSize(p.ReceivedBytes)}, {speed}";
+    }
+
     /// <summary>
     /// Background task driving auto-updates: an optional silent check shortly
     /// after launch (per <see cref="AppSettings.CheckUpdateOnStartup"/>) and an
@@ -3102,7 +3119,7 @@ public partial class MainWindowViewModel : ViewModelBase
         switch (outcome)
         {
             case UpdateCheckOutcome.Available:
-                if (ConfirmAsync is null)
+                if (ConfirmAsync is null || _updateDownloadInProgress)
                     return;
                 var ok = await ConfirmAsync(
                     L("DialogUpdateAvailableTitle"),
@@ -3115,10 +3132,43 @@ public partial class MainWindowViewModel : ViewModelBase
                     return;
                 }
 
+                // Download and stage the package while the app stays fully
+                // usable; a failed download just leaves a status message.
+                string? stagedDir;
+                _updateDownloadInProgress = true;
+                try
+                {
+                    var progress = new Progress<UpdateDownloadProgress>(p =>
+                        StatusMessage = L("StatusDownloadingUpdate", FormatUpdateDownloadProgress(p)));
+                    StatusMessage = L("StatusDownloadingUpdate", "");
+                    stagedDir = await AutoUpdateService.DownloadAndStageAsync(progress: progress);
+                }
+                finally
+                {
+                    _updateDownloadInProgress = false;
+                }
+
+                if (stagedDir is null)
+                {
+                    StatusMessage = L("StatusUpdateDownloadFailed", AutoUpdateService.FailureReason ?? "");
+                    return;
+                }
+
+                // The download may have taken a while; re-confirm before the
+                // restart so we never tear down live sessions unannounced.
+                var restart = await ConfirmAsync(
+                    L("DialogUpdateReadyTitle"),
+                    L("DialogUpdateReadyMessage"));
+                if (!restart)
+                {
+                    StatusMessage = L("StatusUpdatePostponed");
+                    return;
+                }
+
                 FlushPendingAutoSave();
                 FlushSettings();
 
-                if (!AutoUpdateService.LaunchUpdate())
+                if (!AutoUpdateService.LaunchInstall(stagedDir))
                 {
                     StatusMessage = L("StatusUpdateLauncherFail");
                     return;

@@ -1595,31 +1595,31 @@ try
         : "";
     Check(autoUpdateScript.Contains("$preserveNames = @(\"Config\", \"Connections\", \"Scripts\", \"AutoUpdate.ps1\")"),
           "Auto-update preserves Config and legacy top-level user data");
-    Check(autoUpdateScript.Contains("Download-FileWithProgress")
-          && autoUpdateScript.Contains("Write-Progress -Activity $activity")
-          && autoUpdateScript.Contains("MB/s"),
-          "Auto-update reports download progress and speed");
-    Check(!autoUpdateScript.Contains("Write-Host \"      $status\""),
-          "Auto-update does not print periodic status lines while the progress bar is active");
-    Check(autoUpdateScript.Contains("Download failed from this mirror")
-          && autoUpdateScript.Contains("Trying next mirror")
-          && autoUpdateScript.Contains("Download failed from all mirrors"),
-          "Auto-update retries alternate mirrors before failing");
-    Check(autoUpdateScript.Contains("No download data received for $IdleTimeoutSeconds seconds"),
-          "Auto-update abandons stalled mirror downloads");
-    Check(autoUpdateScript.Contains("$minimumDownloadSpeedBytesPerSecond = 512KB")
-          && autoUpdateScript.Contains("$slowDownloadWindowSeconds = 10")
-          && autoUpdateScript.Contains("Download speed stayed below $minimumSpeed/s")
-          && autoUpdateScript.Contains("$i -lt $downloadUrls.Count - 1"),
-          "Auto-update switches mirrors after sustained low download speed");
+    Check(!autoUpdateScript.Contains("HttpClient")
+          && !autoUpdateScript.Contains("Download-FileWithProgress"),
+          "Auto-update script no longer downloads; the app stages the package before launching it");
+    Check(autoUpdateScript.Contains("Staged update package is missing $appName.exe")
+          && autoUpdateScript.Contains("WaitForExit"),
+          "Auto-update script validates the staged package and waits for the app to exit");
+    Check(autoUpdateScript.Contains("Best effort: bring the app back even if the install failed."),
+          "Auto-update script restarts the app even when the install fails");
     var autoUpdateServicePath = Path.Combine(FindRepoRoot(), "JeekRemoteManager", "Services", "AutoUpdateService.cs");
     var autoUpdateService = File.Exists(autoUpdateServicePath)
         ? File.ReadAllText(autoUpdateServicePath)
         : "";
+    Check(autoUpdateService.Contains("DownloadAndStageAsync")
+          && autoUpdateService.Contains("ZipFile.ExtractToDirectory")
+          && autoUpdateService.Contains("LaunchInstall"),
+          "App downloads, extracts, and verifies the package before handing off to the installer script");
+    Check(autoUpdateService.Contains("No download data received"),
+          "In-app downloader abandons stalled mirror downloads");
+    Check(autoUpdateService.Contains("MinimumDownloadBytesPerSecond = 512 * 1024")
+          && autoUpdateService.Contains("Download speed stayed below")
+          && autoUpdateService.Contains("i < mirrors.Length - 1 ? MinimumDownloadBytesPerSecond : 0"),
+          "In-app downloader switches mirrors after sustained low download speed");
     Check(autoUpdateService.Contains("DownloadUrls")
-          && autoUpdateService.Contains("BuildDownloadUrls")
-          && autoUpdateService.Contains(".Concat(DownloadUrls)"),
-          "Auto-update passes mirror fallback URLs to the updater");
+          && autoUpdateService.Contains("BuildDownloadUrls"),
+          "In-app downloader keeps mirror fallback URLs");
     var runtimeBbrDir = Path.Combine(FindRepoRoot(), "bin", "Data", "Scripts", "BBR");
     Check(!Directory.Exists(runtimeBbrDir),
           "Standalone BBR script suite is removed");

@@ -415,6 +415,7 @@ internal static class DebugMcpServer
                 "ai_runtime_snapshot" => await AiRuntimeSnapshotAsync(),
                 "terminal_tab_focus_check" => await TerminalTabFocusCheckAsync(),
                 "ai_cli_ctrl_c_check" => await AiCliCtrlCCheckAsync(),
+                "auto_update_stage_check" => await AutoUpdateStageCheckAsync(args),
                 _ => throw new InvalidOperationException($"Unknown tool: {name}"),
             };
         }
@@ -1041,6 +1042,63 @@ internal static class DebugMcpServer
                 });
             }
         }
+    }
+
+    private static async Task<JsonObject> AutoUpdateStageCheckAsync(JsonObject args)
+    {
+        // Exercises the in-app update pipeline (download -> extract -> verify)
+        // against the real release URL. Runs off the UI thread; the staging
+        // folder is instance-isolated in Debug builds, so parallel worktree
+        // instances don't collide.
+        var url = args["url"]?.GetValue<string>();
+        var keep = args["keep"]?.GetValue<bool>() ?? false;
+        IReadOnlyList<string> urls = string.IsNullOrWhiteSpace(url)
+            ? AutoUpdateService.GetDefaultDownloadUrls()
+            : [url];
+
+        UpdateDownloadProgress? last = null;
+        var progress = new SynchronousProgress<UpdateDownloadProgress>(p => Volatile.Write(ref last, p));
+
+        var stopwatch = Stopwatch.StartNew();
+        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+        var stagedDir = await AutoUpdateService.DownloadAndStageAsync(urls, progress, cts.Token);
+        stopwatch.Stop();
+
+        if (stagedDir is null)
+        {
+            return ToolText(
+                $"FAIL: download/stage failed after {stopwatch.Elapsed.TotalSeconds:0}s: {AutoUpdateService.FailureReason}",
+                isError: true);
+        }
+
+        var exePath = Path.Combine(stagedDir, "JeekRemoteManager.exe");
+        var exeSize = File.Exists(exePath) ? new FileInfo(exePath).Length : 0;
+        var fileCount = Directory.EnumerateFileSystemEntries(stagedDir, "*", SearchOption.AllDirectories).Count();
+        var report =
+            $"PASS: staged at {stagedDir}\n"
+            + $"Files: {fileCount}, JeekRemoteManager.exe: {exeSize} bytes\n"
+            + $"Downloaded {Volatile.Read(ref last)?.ReceivedBytes ?? 0} bytes in {stopwatch.Elapsed.TotalSeconds:0.0}s "
+            + $"(mirror {(Volatile.Read(ref last)?.MirrorIndex ?? 0) + 1}/{urls.Count})";
+
+        if (!keep)
+        {
+            try
+            {
+                Directory.Delete(Path.GetDirectoryName(stagedDir)!, recursive: true);
+                report += "\nStaged folder cleaned up.";
+            }
+            catch (Exception ex)
+            {
+                report += $"\nCleanup failed: {ex.Message}";
+            }
+        }
+
+        return ToolText(report);
+    }
+
+    private sealed class SynchronousProgress<T>(Action<T> handler) : IProgress<T>
+    {
+        public void Report(T value) => handler(value);
     }
 
     #endregion

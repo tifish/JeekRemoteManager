@@ -114,6 +114,8 @@ StatusUpToDate	You're up to date (build {0}).	已是最新版本（构建 {0}）
 StatusUpdateFailed	Update check failed: {0}	检查更新失败：{0}
 StatusUpdatePostponed	Update postponed.	更新已推迟。
 StatusUpdateLauncherFail	Could not launch updater.	无法启动更新程序。
+StatusDownloadingUpdate	Downloading update… {0}	正在下载更新… {0}
+StatusUpdateDownloadFailed	Update download failed: {0}	下载更新失败：{0}
 StatusImported	Imported {0} connection(s) into {1} new folder(s). Skipped {2}. Passwords cannot be decrypted from FinalShell — fill them in via the editor.	已导入 {0} 个连接到 {1} 个新文件夹中。已跳过 {2} 个。FinalShell 的密码无法解密 —— 请在编辑器中手动填写。
 StatusImportedConnections	Imported {0} connection(s) into {1} new folder(s). Skipped {2}.	已导入 {0} 个连接到 {1} 个新文件夹中。已跳过 {2} 个。
 StatusImportedPasswords	Recovered {0} password(s); enter any remaining passwords in the editor.	已恢复 {0} 个密码；其余请在编辑器中手动填写。
@@ -141,7 +143,9 @@ DialogDeleteMultiplePrompt	Delete {0} selected items?	删除选中的 {0} 项？
 DialogRenameTitle	Rename	重命名
 DialogRenamePrompt	New name:	新名称：
 DialogUpdateAvailableTitle	Update available	发现新版本
-DialogUpdateAvailableMessage	A newer build is available (current {0}, latest {1}).\n\nDownload and install now? The app will close and relaunch.	发现新版本（当前 {0}，最新 {1}）。\n\n是否立即下载并安装？应用将关闭并重启。
+DialogUpdateAvailableMessage	A newer build is available (current {0}, latest {1}).\n\nDownload it in the background now? You can keep working; you'll be asked again before the app restarts.	发现新版本（当前 {0}，最新 {1}）。\n\n是否在后台下载更新？下载期间可继续使用，应用重启前会再次确认。
+DialogUpdateReadyTitle	Update ready	更新就绪
+DialogUpdateReadyMessage	The update has been downloaded. Restart now to install it?	更新已下载完成。是否立即重启并安装？
 DialogMoveConfigTitle	Move Config data	移动 Config 数据
 DialogMoveConfigMessage	Move existing Config data to the new location?\n\nFrom: {0}\nTo: {1}\n\nChoose No to only change the setting and leave files in their current location.	是否将现有 Config 数据移动到新位置？\n\n源：{0}\n目标：{1}\n\n选择“否”将只修改设置，文件仍保留在当前位置。
 DialogSettingsTitle	Settings	设置

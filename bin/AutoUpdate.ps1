@@ -1,21 +1,17 @@
 $ErrorActionPreference = "Stop"
 $appName = "JeekRemoteManager"
-$minimumDownloadSpeedBytesPerSecond = 512KB
-$slowDownloadWindowSeconds = 10
+
+# The app has already downloaded, extracted, and verified the update package
+# into a staging folder before launching this script. All that remains here is
+# the short critical window: wait for the app to exit, swap the files, restart.
 
 if ($args.Count -eq 0) {
     Exit 1
 }
 
-$downloadUrls = @($args | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
-if ($downloadUrls.Count -eq 0) {
-    Exit 1
-}
-
+$stageDir = $args[0]
 $installDir = $PSScriptRoot
-$packPath = Join-Path $env:TEMP "$appName-update.zip"
-$stageRoot = Join-Path $env:TEMP "$appName-update"
-$stageDir = Join-Path $stageRoot "package"
+$exePath = Join-Path $installDir "$appName.exe"
 
 $Host.UI.RawUI.WindowTitle = "$appName Updater"
 
@@ -27,199 +23,19 @@ Write-Host "Please keep this window open. The app will restart automatically"
 Write-Host "when the update is finished."
 Write-Host ""
 
-Add-Type -AssemblyName System.Net.Http
-
-function Format-ByteSize {
-    param([long]$Bytes)
-
-    if ($Bytes -ge 1GB) {
-        return "{0:N1} GB" -f ($Bytes / 1GB)
-    }
-
-    if ($Bytes -ge 1MB) {
-        return "{0:N1} MB" -f ($Bytes / 1MB)
-    }
-
-    if ($Bytes -ge 1KB) {
-        return "{0:N1} KB" -f ($Bytes / 1KB)
-    }
-
-    return "$Bytes B"
-}
-
-function Download-FileWithProgress {
-    param(
-        [Parameter(Mandatory = $true)][string]$Url,
-        [Parameter(Mandatory = $true)][string]$Destination,
-        [int]$IdleTimeoutSeconds = 30,
-        [long]$MinimumBytesPerSecond = 0,
-        [int]$SlowSpeedWindowSeconds = 10
-    )
-
-    $client = $null
-    $response = $null
-    $stream = $null
-    $file = $null
-    $activity = "Downloading update package"
-
-    try {
-        $client = [System.Net.Http.HttpClient]::new()
-        $client.Timeout = [TimeSpan]::FromSeconds(30)
-        $client.DefaultRequestHeaders.UserAgent.ParseAdd("$appName-Updater/1.0")
-
-        $response = $client.GetAsync(
-            $Url,
-            [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
-        if (-not $response.IsSuccessStatusCode) {
-            throw "HTTP $([int]$response.StatusCode) $($response.ReasonPhrase)"
-        }
-
-        $totalBytes = $response.Content.Headers.ContentLength
-        $stream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
-        $file = [System.IO.File]::Open(
-            $Destination,
-            [System.IO.FileMode]::Create,
-            [System.IO.FileAccess]::Write,
-            [System.IO.FileShare]::None)
-
-        $buffer = New-Object byte[] (1024 * 1024)
-        [long]$received = 0
-        $sw = [Diagnostics.Stopwatch]::StartNew()
-        [long]$windowReceived = 0
-        $speedWindow = [Diagnostics.Stopwatch]::StartNew()
-
-        while ($true) {
-            $readTask = $stream.ReadAsync($buffer, 0, $buffer.Length)
-            if (-not $readTask.Wait($IdleTimeoutSeconds * 1000)) {
-                throw "No download data received for $IdleTimeoutSeconds seconds."
-            }
-
-            $read = $readTask.GetAwaiter().GetResult()
-            if ($read -le 0) {
-                break
-            }
-
-            $file.Write($buffer, 0, $read)
-            $received += $read
-            $windowReceived += $read
-
-            if ($MinimumBytesPerSecond -gt 0 -and
-                $speedWindow.Elapsed.TotalSeconds -ge $SlowSpeedWindowSeconds) {
-                $windowBytesPerSecond = $windowReceived / $speedWindow.Elapsed.TotalSeconds
-                if ($windowBytesPerSecond -lt $MinimumBytesPerSecond) {
-                    $actualSpeed = Format-ByteSize ([long]$windowBytesPerSecond)
-                    $minimumSpeed = Format-ByteSize $MinimumBytesPerSecond
-                    throw "Download speed stayed below $minimumSpeed/s for $SlowSpeedWindowSeconds seconds (current: $actualSpeed/s)."
-                }
-
-                $windowReceived = 0
-                $speedWindow.Restart()
-            }
-
-            $elapsedSeconds = [Math]::Max($sw.Elapsed.TotalSeconds, 0.1)
-            $speed = $received / 1MB / $elapsedSeconds
-            $receivedText = Format-ByteSize $received
-
-            if ($totalBytes -and $totalBytes -gt 0) {
-                $percent = [Math]::Min(100, [Math]::Floor(($received * 100.0) / $totalBytes))
-                $totalText = Format-ByteSize $totalBytes
-                $status = "{0}% ({1} / {2}, {3:N1} MB/s)" -f $percent, $receivedText, $totalText, $speed
-                Write-Progress -Activity $activity -Status $status -PercentComplete $percent
-            } else {
-                $status = "{0} downloaded, {1:N1} MB/s" -f $receivedText, $speed
-                Write-Progress -Activity $activity -Status $status -PercentComplete 0
-            }
-        }
-
-        $file.Flush()
-        if ($totalBytes -and $totalBytes -gt 0 -and $received -lt $totalBytes) {
-            throw "Download ended early: $(Format-ByteSize $received) of $(Format-ByteSize $totalBytes)."
-        }
-
-        Write-Progress -Activity $activity -Completed
-        Write-Host "      Downloaded $(Format-ByteSize $received) in $([Math]::Max(1, [int]$sw.Elapsed.TotalSeconds))s."
-    } finally {
-        Write-Progress -Activity $activity -Completed
-        if ($file -ne $null) {
-            $file.Dispose()
-        }
-        if ($stream -ne $null) {
-            $stream.Dispose()
-        }
-        if ($response -ne $null) {
-            $response.Dispose()
-        }
-        if ($client -ne $null) {
-            $client.Dispose()
-        }
-    }
-}
-
 try {
-    Write-Host "[1/5] Waiting for $appName to exit..."
+    if (-not (Test-Path -LiteralPath (Join-Path $stageDir "$appName.exe"))) {
+        throw "Staged update package is missing $appName.exe: $stageDir"
+    }
+
+    Write-Host "[1/3] Waiting for $appName to exit..."
     Get-Process -Name $appName -ErrorAction SilentlyContinue | ForEach-Object {
         try {
             $_.WaitForExit()
         } catch {}
     }
 
-    Write-Host "[2/5] Preparing temporary folders..."
-    Remove-Item -Recurse -Force -LiteralPath $stageRoot -ErrorAction SilentlyContinue
-    Remove-Item -Force -LiteralPath $packPath -ErrorAction SilentlyContinue
-    New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
-
-    Write-Host "[3/5] Downloading update package..."
-    $downloaded = $false
-    for ($i = 0; $i -lt $downloadUrls.Count; $i++) {
-        $downloadUrl = $downloadUrls[$i]
-        Write-Host "      Mirror $($i + 1)/$($downloadUrls.Count): $downloadUrl"
-        Remove-Item -Force -LiteralPath $packPath -ErrorAction SilentlyContinue
-
-        try {
-            $minimumSpeed = if ($i -lt $downloadUrls.Count - 1) {
-                $minimumDownloadSpeedBytesPerSecond
-            } else {
-                0
-            }
-            Download-FileWithProgress `
-                -Url $downloadUrl `
-                -Destination $packPath `
-                -MinimumBytesPerSecond $minimumSpeed `
-                -SlowSpeedWindowSeconds $slowDownloadWindowSeconds
-            $downloaded = $true
-            break
-        } catch {
-            Write-Host "      Download failed from this mirror: $($_.Exception.Message)" -ForegroundColor Yellow
-            Remove-Item -Force -LiteralPath $packPath -ErrorAction SilentlyContinue
-
-            if ($i -lt $downloadUrls.Count - 1) {
-                Write-Host "      Trying next mirror..."
-            }
-        }
-    }
-
-    if (-not $downloaded) {
-        Write-Host "Download failed from all mirrors." -ForegroundColor Red
-        Start-Sleep -Seconds 5
-        Exit 1
-    }
-
-    if (-not (Test-Path -LiteralPath $packPath)) {
-        Write-Host "Download failed." -ForegroundColor Red
-        Start-Sleep -Seconds 5
-        Exit 1
-    }
-
-    Write-Host "[4/5] Extracting and installing files..."
-    Expand-Archive -Path $packPath -DestinationPath $stageDir -Force
-
-    $stagedExe = Join-Path $stageDir "$appName.exe"
-    if (-not (Test-Path -LiteralPath $stagedExe)) {
-        Write-Host "Update package is missing $appName.exe." -ForegroundColor Red
-        Start-Sleep -Seconds 5
-        Exit 1
-    }
-
+    Write-Host "[2/3] Installing files..."
     # Preserve portable user data, legacy top-level user data, and the updater itself.
     $preserveNames = @("Config", "Connections", "Scripts", "AutoUpdate.ps1")
     Get-ChildItem -LiteralPath $installDir -Force -ErrorAction SilentlyContinue |
@@ -228,11 +44,15 @@ try {
 
     Copy-Item -Path (Join-Path $stageDir "*") -Destination $installDir -Recurse -Force
 
-    Remove-Item -Recurse -Force -LiteralPath $stageRoot -ErrorAction SilentlyContinue
-    Remove-Item -Force -LiteralPath $packPath -ErrorAction SilentlyContinue
+    # Remove the staging folder the app created (...\JeekRemoteManager-update\package).
+    $stageRoot = Split-Path -Parent $stageDir
+    if ((Split-Path -Leaf $stageRoot) -eq "$appName-update") {
+        Remove-Item -Recurse -Force -LiteralPath $stageRoot -ErrorAction SilentlyContinue
+    } else {
+        Remove-Item -Recurse -Force -LiteralPath $stageDir -ErrorAction SilentlyContinue
+    }
 
-    Write-Host "[5/5] Restarting $appName..."
-    $exePath = Join-Path $installDir "$appName.exe"
+    Write-Host "[3/3] Restarting $appName..."
     if (Test-Path -LiteralPath $exePath) {
         Start-Process -FilePath $exePath
     }
@@ -243,6 +63,10 @@ try {
 catch {
     Write-Host ""
     Write-Host "Update failed: $($_.Exception.Message)" -ForegroundColor Red
+    # Best effort: bring the app back even if the install failed.
+    if (Test-Path -LiteralPath $exePath) {
+        Start-Process -FilePath $exePath
+    }
     Start-Sleep -Seconds 5
     Exit 1
 }

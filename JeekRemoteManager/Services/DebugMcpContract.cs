@@ -50,7 +50,14 @@ public static class DebugMcpContract
             new()),
         Tool("ai_cli_ctrl_c_check",
             "Temporarily creates a terminal tab and verifies AI CLI Ctrl+C: copies when text is selected and never sends 0x03 to the CLI.",
-            new()));
+            new()),
+        Tool("auto_update_stage_check",
+            "Runs the in-app update downloader end-to-end (real network): downloads the release package, extracts and verifies it in the staging folder, then cleans up.",
+            new()
+            {
+                ["url"] = Prop("string", "Optional package URL override (default: latest release via all mirrors)."),
+                ["keep"] = Prop("boolean", "Keep the staged folder instead of cleaning it up (default false)."),
+            }));
 
     public static JsonObject InitializeResult(string name, string title, string version, string? requestedVersion)
     {
