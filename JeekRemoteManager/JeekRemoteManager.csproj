@@ -13,6 +13,8 @@
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <RootNamespace>JeekRemoteManager</RootNamespace>
     <AssemblyName>JeekRemoteManager</AssemblyName>
+    <!-- Dev builds are always 0.0.0.0; CI overrides with /p:Version=<commit count>. -->
+    <Version>0.0.0.0</Version>
     <OutDir>..\bin</OutDir>
     <PlatformTarget>x64</PlatformTarget>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
