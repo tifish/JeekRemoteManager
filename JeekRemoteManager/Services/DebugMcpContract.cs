@@ -20,12 +20,12 @@ public static class DebugMcpContract
     public const string SupportedProtocolVersion = "2025-06-18";
     public static readonly string[] KnownProtocolVersions = ["2024-11-05", "2025-03-26", SupportedProtocolVersion];
 
-    private const string PathHelp =
+    public const string PathHelp =
         "Paths start from a root: App (the Application), Desktop (the desktop lifetime), " +
         "MainWindow, or MainVm (MainWindow.DataContext). Segments: '.Member' reads a property or field " +
         "(non-public included), '[0]' indexes a list, '[\"key\"]' indexes a dictionary, and " +
         "'#Name' finds a named control in the visual tree below the current object. " +
-        "Examples: MainVm.Nodes[0].Name, MainWindow.#ConnectionTree.SelectedItem";
+        "Examples: MainVm.Nodes[0].Name, MainWindow.#Tree.SelectedItem";
 
     public static JsonArray BuildToolList() => new(
         Tool("describe", "Overview of the running app: instance, windows, roots, path syntax, and log file. Start here.", new()),
