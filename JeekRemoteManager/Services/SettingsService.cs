@@ -3,13 +3,15 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization;
 using JeekRemoteManager.Models;
+using JeekTools;
 
 namespace JeekRemoteManager.Services;
 
 /// <summary>
-/// Loads and saves app settings split by roaming behavior.
+/// Loads and saves app settings split by roaming behavior, on top of the
+/// generic <see cref="SettingsStorage"/> path scheme and
+/// <see cref="JsonSettingsFile"/> merge/write machinery from JeekTools.
 ///
 /// Machine-local state always lives under %LOCALAPPDATA%\JeekRemoteManager\Config.
 /// Roaming preferences live in the active storage Config folder, alongside
@@ -17,30 +19,10 @@ namespace JeekRemoteManager.Services;
 /// </summary>
 public class SettingsService
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        Converters = { new JsonStringEnumConverter() },
-    };
-
-    private static string ProgramDir => AppContext.BaseDirectory;
-
-    private static string LocalDir => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "JeekRemoteManager");
-
-    private static string LocalConfigDir => Path.Combine(LocalDir, "Config");
-
-    private static string RoamingDir => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "JeekRemoteManager");
-
-    private static string RoamingConfigDir => Path.Combine(RoamingDir, "Config");
-
-    private static string ProgramConfigDir => Path.Combine(ProgramDir, "Config");
+    private static readonly SettingsStorage Storage = new("JeekRemoteManager");
 
     /// <summary>The machine-local settings file.</summary>
-    public static string DefaultMachineSettingsPath => Path.Combine(LocalConfigDir, "settings.json");
+    public static string DefaultMachineSettingsPath => Storage.MachineSettingsPath;
 
     /// <summary>Compatibility alias for the machine-local settings file.</summary>
     public static string DefaultSettingsPath => DefaultMachineSettingsPath;
@@ -49,7 +31,7 @@ public class SettingsService
     public static string DefaultRoamingSettingsPath => ResolveSettingsPath(StorageLocation.UserDirectory);
 
     /// <summary>True when startup will use the executable directory for roaming data.</summary>
-    public static bool IsPortable => ProgramConfigRootExists();
+    public static bool IsPortable => Storage.IsPortable;
 
     private string _lastSavedMachineJson;
     private string _lastSavedRoamingJson;
@@ -74,11 +56,11 @@ public class SettingsService
 
         _roamingSettingsPathOverride = roamingSettingsPath;
         RoamingSettingsPath = roamingSettingsPath
-            ?? ResolveSettingsPath(ResolveEffectiveStorageLocation(machineSettings.StorageLocation), machineSettings.CustomStoragePath);
+            ?? ResolveSettingsPath(Storage.ResolveEffectiveLocation(machineSettings.StorageLocation), machineSettings.CustomStoragePath);
         var roamingSettings = LoadRoamingSettings(RoamingSettingsPath, fallbackRoamingSettings);
         NormalizeRoamingSettings(roamingSettings);
 
-        var preMigrationMachineSettings = Clone(machineSettings);
+        var preMigrationMachineSettings = JsonSettingsFile.Clone(machineSettings);
         var migratedMachineSettings = TryAdoptLegacyRoamingLayoutSettings(
             machineSettings, MachineSettingsPath, RoamingSettingsPath);
         if (migratedMachineSettings is not null)
@@ -96,9 +78,9 @@ public class SettingsService
             ? preMigrationMachineSettings
             : ToMachineSettings(Settings);
         _baseRoamingSettings = ToRoamingSettings(Settings);
-        _lastSavedMachineJson = Serialize(_baseMachineSettings);
+        _lastSavedMachineJson = JsonSettingsFile.Serialize(_baseMachineSettings);
         _lastSavedRoamingPath = CurrentRoamingSettingsPath();
-        _lastSavedRoamingJson = Serialize(_baseRoamingSettings);
+        _lastSavedRoamingJson = JsonSettingsFile.Serialize(_baseRoamingSettings);
 
         if (migratedMachineSettings is not null)
             SaveIfChanged();
@@ -136,7 +118,7 @@ public class SettingsService
             return null;
 
         var machineJson = TryReadJsonObject(machineSettingsPath);
-        if (JsonSerializer.SerializeToNode(machineSettings, JsonOptions) is not JsonObject machineNode)
+        if (JsonSerializer.SerializeToNode(machineSettings, JsonSettingsFile.JsonOptions) is not JsonObject machineNode)
             return null;
 
         var adopted = false;
@@ -155,7 +137,7 @@ public class SettingsService
 
         try
         {
-            return machineNode.Deserialize<MachineAppSettings>(JsonOptions);
+            return machineNode.Deserialize<MachineAppSettings>(JsonSettingsFile.JsonOptions);
         }
         catch
         {
@@ -190,19 +172,11 @@ public class SettingsService
     public long LastWriteTick { get; private set; }
 
     public StorageLocation CurrentStorageLocation =>
-        ResolveEffectiveStorageLocation(Settings.StorageLocation);
-
-    private static string StorageBaseDirFor(StorageLocation location, string? customPath) => location switch
-    {
-        StorageLocation.ProgramDirectory => ProgramConfigDir,
-        StorageLocation.CustomDirectory when !string.IsNullOrWhiteSpace(customPath) =>
-            Path.Combine(customPath!, "Config"),
-        _ => RoamingConfigDir,
-    };
+        Storage.ResolveEffectiveLocation(Settings.StorageLocation);
 
     private static AppSettings LoadAppSettings(string path, out bool loaded)
     {
-        loaded = TryLoadSettingsFile(path, out AppSettings settings);
+        loaded = JsonSettingsFile.TryLoad(path, out AppSettings settings);
         return loaded ? settings : new AppSettings();
     }
 
@@ -210,31 +184,10 @@ public class SettingsService
         string path,
         RoamingAppSettings fallback)
     {
-        if (TryLoadSettingsFile(path, out RoamingAppSettings roamingSettings))
+        if (JsonSettingsFile.TryLoad(path, out RoamingAppSettings roamingSettings))
             return roamingSettings;
 
         return fallback;
-    }
-
-    private static bool TryLoadSettingsFile<T>(string path, out T settings)
-        where T : new()
-    {
-        settings = new T();
-
-        try
-        {
-            if (!File.Exists(path))
-                return false;
-
-            settings = JsonSerializer.Deserialize<T>(
-                File.ReadAllText(path),
-                JsonOptions) ?? new T();
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
     }
 
     private static AppSettings MergeSettings(
@@ -358,12 +311,12 @@ public class SettingsService
 
     private static void NormalizeMachineSettings(MachineAppSettings settings)
     {
-        settings.StorageLocation = NormalizeStorageLocation(settings.StorageLocation);
+        settings.StorageLocation = Storage.NormalizeLocation(settings.StorageLocation);
         if (string.IsNullOrWhiteSpace(settings.CustomStoragePath))
             settings.CustomStoragePath = null;
         if (settings.StorageLocation == StorageLocation.CustomDirectory && settings.CustomStoragePath is null)
             settings.StorageLocation = StorageLocation.UserDirectory;
-        if (settings.StorageLocation == StorageLocation.ProgramDirectory && !ProgramConfigRootExists())
+        if (settings.StorageLocation == StorageLocation.ProgramDirectory && !Storage.ProgramConfigRootExists())
             settings.StorageLocation = StorageLocation.UserDirectory;
         settings.RecentConnectionPaths ??= new List<string>();
         settings.CollapsedFolderPaths ??= new List<string>();
@@ -413,37 +366,8 @@ public class SettingsService
             settings.AiProvider = null;
     }
 
-    private static StorageLocation NormalizeStorageLocation(StorageLocation location) =>
-        Enum.IsDefined(location) ? location : StorageLocation.UserDirectory;
-
-    private static StorageLocation ResolveEffectiveStorageLocation(StorageLocation location)
-    {
-        if (ProgramConfigRootExists())
-            return StorageLocation.ProgramDirectory;
-
-        var normalized = NormalizeStorageLocation(location);
-        return normalized == StorageLocation.ProgramDirectory
-            ? StorageLocation.UserDirectory
-            : normalized;
-    }
-
     private static bool IsValidWindowDimension(double? value) =>
         value is { } number && double.IsFinite(number) && number > 0;
-
-    private static bool ProgramConfigRootExists()
-    {
-        try
-        {
-            return Directory.Exists(ProgramConfigDir);
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static string Serialize<T>(T settings) =>
-        JsonSerializer.Serialize(settings, JsonOptions);
 
     private void Touch() => LastWriteTick = Environment.TickCount64;
 
@@ -465,7 +389,7 @@ public class SettingsService
         RoamingSettingsPath = CurrentRoamingSettingsPath();
         _lastSavedRoamingPath = RoamingSettingsPath;
         _baseRoamingSettings = ToRoamingSettings(Settings);
-        _lastSavedRoamingJson = Serialize(_baseRoamingSettings);
+        _lastSavedRoamingJson = JsonSettingsFile.Serialize(_baseRoamingSettings);
     }
 
     /// <summary>Persists changed settings to their machine-local and roaming files.</summary>
@@ -475,9 +399,9 @@ public class SettingsService
 
         var localMachine = ToMachineSettings(Settings);
         var localRoaming = ToRoamingSettings(Settings);
-        var machineJson = Serialize(localMachine);
+        var machineJson = JsonSettingsFile.Serialize(localMachine);
         var roamingPath = CurrentRoamingSettingsPath();
-        var roamingJson = Serialize(localRoaming);
+        var roamingJson = JsonSettingsFile.Serialize(localRoaming);
 
         var saved = true;
         var mergedMachine = localMachine;
@@ -485,14 +409,14 @@ public class SettingsService
 
         if (!string.Equals(machineJson, _lastSavedMachineJson, StringComparison.Ordinal))
         {
-            var machineSaved = TryMergeAndWrite<MachineAppSettings>(
+            var machineSaved = JsonSettingsFile.TryMergeAndWrite<MachineAppSettings>(
                 MachineSettingsPath, _baseMachineSettings, localMachine,
                 NormalizeMachineSettings, forceAllLocal: false, out mergedMachine);
             saved &= machineSaved;
             if (machineSaved)
             {
                 _baseMachineSettings = mergedMachine;
-                _lastSavedMachineJson = Serialize(mergedMachine);
+                _lastSavedMachineJson = JsonSettingsFile.Serialize(mergedMachine);
             }
         }
 
@@ -500,7 +424,7 @@ public class SettingsService
             roamingPath, _lastSavedRoamingPath, StringComparison.OrdinalIgnoreCase);
         if (roamingPathChanged || !string.Equals(roamingJson, _lastSavedRoamingJson, StringComparison.Ordinal))
         {
-            var roamingSaved = TryMergeAndWrite<RoamingAppSettings>(
+            var roamingSaved = JsonSettingsFile.TryMergeAndWrite<RoamingAppSettings>(
                 roamingPath, _baseRoamingSettings, localRoaming,
                 NormalizeRoamingSettings,
                 forceAllLocal: roamingPathChanged && !File.Exists(roamingPath),
@@ -511,7 +435,7 @@ public class SettingsService
                 RoamingSettingsPath = roamingPath;
                 _lastSavedRoamingPath = roamingPath;
                 _baseRoamingSettings = mergedRoaming;
-                _lastSavedRoamingJson = Serialize(mergedRoaming);
+                _lastSavedRoamingJson = JsonSettingsFile.Serialize(mergedRoaming);
             }
         }
 
@@ -523,53 +447,6 @@ public class SettingsService
         }
         return saved;
     }
-
-    private static bool TryMergeAndWrite<T>(
-        string path,
-        T baseline,
-        T local,
-        Action<T> normalize,
-        bool forceAllLocal,
-        out T merged)
-        where T : class, new()
-    {
-        merged = local;
-        try
-        {
-            using var lease = SharedDataFile.Acquire(path);
-            var latest = TryLoadSettingsFile(path, out T disk) ? disk : Clone(baseline);
-            normalize(latest);
-
-            if (forceAllLocal)
-            {
-                merged = Clone(local);
-            }
-            else
-            {
-                var baselineNode = JsonSerializer.SerializeToNode(baseline, JsonOptions) as JsonObject ?? new();
-                var localNode = JsonSerializer.SerializeToNode(local, JsonOptions) as JsonObject ?? new();
-                var resultNode = JsonSerializer.SerializeToNode(latest, JsonOptions) as JsonObject ?? new();
-                foreach (var property in localNode)
-                {
-                    baselineNode.TryGetPropertyValue(property.Key, out var baselineValue);
-                    if (!JsonNode.DeepEquals(property.Value, baselineValue))
-                        resultNode[property.Key] = property.Value?.DeepClone();
-                }
-                merged = resultNode.Deserialize<T>(JsonOptions) ?? new T();
-            }
-
-            normalize(merged);
-            SharedDataFile.WriteAllTextAtomic(path, Serialize(merged));
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static T Clone<T>(T value) where T : class, new() =>
-        JsonSerializer.Deserialize<T>(Serialize(value), JsonOptions) ?? new T();
 
     /// <summary>Resolves the active Config folder for roaming settings and user data.</summary>
     public string ResolveConfigRoot() =>
@@ -585,136 +462,36 @@ public class SettingsService
 
     /// <summary>Resolves the app-bundled script-suite root folder.</summary>
     public static string ResolveBuiltInScriptsRoot() =>
-        Path.Combine(ProgramDir, "Data", "Scripts");
+        Path.Combine(Storage.ProgramDir, "Data", "Scripts");
 
     /// <summary>Resolves the Config folder for a given storage location.</summary>
     public static string ResolveConfigRoot(StorageLocation location, string? customPath = null) =>
-        StorageBaseDirFor(location, customPath);
+        Storage.ResolveConfigRoot(location, customPath);
 
     /// <summary>Resolves settings.json under the Config folder for a given storage location.</summary>
     public static string ResolveSettingsPath(StorageLocation location, string? customPath = null) =>
-        Path.Combine(ResolveConfigRoot(location, customPath), "settings.json");
+        Storage.ResolveSettingsPath(location, customPath);
 
     /// <summary>Resolves the connections root folder for a given storage location.
     /// <paramref name="customPath"/> is the base directory used when
     /// <paramref name="location"/> is <see cref="StorageLocation.CustomDirectory"/>.</summary>
     public static string ResolveConnectionsRoot(StorageLocation location, string? customPath = null) =>
-        Path.Combine(StorageBaseDirFor(location, customPath), "Connections");
+        Path.Combine(Storage.ResolveConfigRoot(location, customPath), "Connections");
 
     /// <summary>Resolves the script-suite root folder for a given storage location.
     /// <paramref name="customPath"/> is the base directory used when
     /// <paramref name="location"/> is <see cref="StorageLocation.CustomDirectory"/>.</summary>
     public static string ResolveScriptsRoot(StorageLocation location, string? customPath = null) =>
-        Path.Combine(StorageBaseDirFor(location, customPath), "Scripts");
+        Path.Combine(Storage.ResolveConfigRoot(location, customPath), "Scripts");
 
     /// <summary>
     /// Moves the whole roaming Config folder to a new root. Existing destination
     /// files with the same relative paths are replaced by the current Config.
     /// </summary>
-    public static void MoveConfigRoot(string sourceRoot, string destRoot)
-    {
-        var source = NormalizeDirectoryPath(sourceRoot);
-        var dest = NormalizeDirectoryPath(destRoot);
-        using var lease = SharedDataFile.AcquireMany(source, dest);
-        if (string.Equals(source, dest, StringComparison.OrdinalIgnoreCase))
-            return;
-
-        if (IsSameOrInside(source, dest) || IsSameOrInside(dest, source))
-            throw new InvalidOperationException("Config cannot be moved into itself or a nested folder.");
-
-        if (!Directory.Exists(source))
-        {
-            Directory.CreateDirectory(dest);
-            return;
-        }
-
-        var destParent = Path.GetDirectoryName(dest);
-        if (!string.IsNullOrEmpty(destParent))
-            Directory.CreateDirectory(destParent);
-
-        if (!Directory.Exists(dest) && TryRenameDirectory(source, dest))
-            return;
-
-        MoveDirectoryContents(source, dest);
-        Directory.Delete(source, recursive: true);
-    }
+    public static void MoveConfigRoot(string sourceRoot, string destRoot) =>
+        SettingsStorage.MoveConfigRoot(sourceRoot, destRoot);
 
     /// <summary>Deletes the executable-side Config folder after leaving portable mode.</summary>
-    public static bool TryDeleteProgramConfig(out string? error)
-    {
-        error = null;
-        try
-        {
-            var configRoot = Path.GetFullPath(ProgramConfigDir).TrimEnd(Path.DirectorySeparatorChar);
-            var programRoot = Path.GetFullPath(ProgramDir).TrimEnd(Path.DirectorySeparatorChar);
-            if (!configRoot.StartsWith(programRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-            {
-                error = "Program Config path is outside the executable directory.";
-                return false;
-            }
-
-            if (Directory.Exists(configRoot))
-                Directory.Delete(configRoot, recursive: true);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            error = ex.Message;
-            return false;
-        }
-    }
-
-    private static string NormalizeDirectoryPath(string path) =>
-        Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-
-    private static bool IsSameOrInside(string folder, string candidate)
-    {
-        if (string.Equals(folder, candidate, StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        return candidate.StartsWith(folder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static void MoveDirectoryContents(string sourceDir, string destDir)
-    {
-        Directory.CreateDirectory(destDir);
-
-        foreach (var file in Directory.GetFiles(sourceDir))
-        {
-            var target = Path.Combine(destDir, Path.GetFileName(file));
-            if (File.Exists(target))
-                File.Delete(target);
-            File.Move(file, target);
-        }
-
-        foreach (var dir in Directory.GetDirectories(sourceDir))
-        {
-            var target = Path.Combine(destDir, Path.GetFileName(dir.TrimEnd(
-                Path.DirectorySeparatorChar,
-                Path.AltDirectorySeparatorChar)));
-            if (!Directory.Exists(target) && TryRenameDirectory(dir, target))
-                continue;
-
-            MoveDirectoryContents(dir, target);
-            Directory.Delete(dir, recursive: true);
-        }
-    }
-
-    /// <summary>
-    /// Attempts a fast same-volume directory rename. Returns <c>false</c> when the
-    /// move crosses drives (<see cref="Directory.Move"/> cannot move across
-    /// volumes), so the caller falls back to a recursive copy+delete.
-    /// </summary>
-    private static bool TryRenameDirectory(string source, string dest)
-    {
-        try
-        {
-            Directory.Move(source, dest);
-            return true;
-        }
-        catch (IOException)
-        {
-            return false;
-        }
-    }
+    public static bool TryDeleteProgramConfig(out string? error) =>
+        Storage.TryDeleteProgramConfig(out error);
 }

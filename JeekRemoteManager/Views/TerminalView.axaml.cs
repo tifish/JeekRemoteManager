@@ -18,6 +18,7 @@ using JeekRemoteManager.Services;
 using JeekRemoteManager.ViewModels;
 using Renci.SshNet;
 using SvcSystems.UI.Terminal;
+using JeekTools;
 
 namespace JeekRemoteManager.Views;
 

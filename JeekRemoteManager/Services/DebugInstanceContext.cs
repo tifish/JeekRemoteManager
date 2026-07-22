@@ -56,7 +56,7 @@ public static class DebugInstanceContext
     public static string DiscoveryPath => Path.Combine(AppContext.BaseDirectory, "debug-mcp.json");
 
     private static string _mcpUrl = "";
-    private static string _configRoot = SettingsService.ResolveConfigRoot(Models.StorageLocation.UserDirectory);
+    private static string _configRoot = SettingsService.ResolveConfigRoot(JeekTools.StorageLocation.UserDirectory);
 
     static DebugInstanceContext()
     {

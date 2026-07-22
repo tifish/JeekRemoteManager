@@ -1,19 +1,7 @@
 using System.Collections.Generic;
+using JeekTools;
 
 namespace JeekRemoteManager.Models;
-
-/// <summary>Where the roaming Config folder is stored.</summary>
-public enum StorageLocation
-{
-    /// <summary>Under %APPDATA%\JeekRemoteManager\Config (roaming, per-user).</summary>
-    UserDirectory,
-
-    /// <summary>Under a "Config" folder next to the executable (portable).</summary>
-    ProgramDirectory,
-
-    /// <summary>Under a "Config" folder beneath a user-chosen base directory.</summary>
-    CustomDirectory,
-}
 
 /// <summary>
 /// How the AI panel launches the selected agent.

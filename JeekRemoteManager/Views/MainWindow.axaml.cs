@@ -16,6 +16,7 @@ using Jeek.Avalonia.Localization;
 using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
 using JeekRemoteManager.ViewModels;
+using JeekTools;
 
 namespace JeekRemoteManager.Views;
 
