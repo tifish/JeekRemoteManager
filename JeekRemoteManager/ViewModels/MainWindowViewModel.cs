@@ -13,6 +13,7 @@ using CommunityToolkit.Mvvm.Input;
 using Jeek.Avalonia.Localization;
 using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
+using JeekTools;
 
 namespace JeekRemoteManager.ViewModels;
 
