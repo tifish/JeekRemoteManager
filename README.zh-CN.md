@@ -18,3 +18,19 @@
 - 使用主密钥加密保存密码
 - 一键向远程主机安装 SSH 公钥
 - 自动更新
+
+## 安装
+
+在 PowerShell 中运行:
+
+```powershell
+irm https://raw.githubusercontent.com/tifish/JeekRemoteManager/main/install.ps1 | iex
+```
+
+中国大陆可使用镜像地址:
+
+```powershell
+irm https://ghfast.top/https://raw.githubusercontent.com/tifish/JeekRemoteManager/main/install.ps1 | iex
+```
+
+程序会安装到 `%LOCALAPPDATA%\Programs\JeekRemoteManager` 并创建开始菜单快捷方式。不写注册表;卸载时退出程序后删除安装目录和快捷方式即可。

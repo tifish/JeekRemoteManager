@@ -18,3 +18,19 @@ Built with .NET 10 and Avalonia. Windows only.
 - Passwords encrypted with a master key
 - One-click public key installation to remote hosts
 - Auto update
+
+## Installation
+
+Run in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/tifish/JeekRemoteManager/main/install.ps1 | iex
+```
+
+If GitHub is hard to reach (e.g. in mainland China), use the mirror:
+
+```powershell
+irm https://ghfast.top/https://raw.githubusercontent.com/tifish/JeekRemoteManager/main/install.ps1 | iex
+```
+
+The app is installed to `%LOCALAPPDATA%\Programs\JeekRemoteManager` with a Start Menu shortcut. No registry entries are written; to uninstall, quit the app and delete the install directory and the shortcut.
