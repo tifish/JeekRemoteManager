@@ -1200,6 +1200,7 @@ public partial class MainWindowViewModel : ViewModelBase
             if (_settings.Settings.RecentExpanded == group.IsExpanded)
                 return;
             _settings.Settings.RecentExpanded = group.IsExpanded;
+            _settings.SaveIfChanged();
         };
 
         return group;
@@ -1526,6 +1527,7 @@ public partial class MainWindowViewModel : ViewModelBase
         if (list.Count == before)
             return;
 
+        _settings.SaveIfChanged();
         RebuildRecentGroupInPlace();
         SelectedNode = null;
         StatusMessage = shadows.Count == 1
@@ -1541,6 +1543,7 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
 
         list.Clear();
+        _settings.SaveIfChanged();
         RebuildRecentGroupInPlace();
         if (SelectedNode is { IsRecent: true })
             SelectedNode = null;
@@ -1640,6 +1643,9 @@ public partial class MainWindowViewModel : ViewModelBase
         if (list.Count > RecentMax)
             list.RemoveRange(RecentMax, list.Count - RecentMax);
 
+        // Persist immediately; waiting for window close loses the list when the
+        // process is killed or the OS shuts down.
+        _settings.SaveIfChanged();
         ScheduleRecentGroupRebuild();
     }
 

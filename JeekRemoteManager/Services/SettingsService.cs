@@ -74,9 +74,12 @@ public class SettingsService
 
         // After a migration the baseline stays at the pre-migration disk state so
         // the immediate save below writes the adopted values through the merge.
+        // The baseline is cloned so it never shares List instances with Settings:
+        // in-place mutations (e.g. the Recent list) must diff against it, and an
+        // aliased baseline would mutate along and make every change look unchanged.
         _baseMachineSettings = migratedMachineSettings is not null
             ? preMigrationMachineSettings
-            : ToMachineSettings(Settings);
+            : JsonSettingsFile.Clone(ToMachineSettings(Settings));
         _baseRoamingSettings = ToRoamingSettings(Settings);
         _lastSavedMachineJson = JsonSettingsFile.Serialize(_baseMachineSettings);
         _lastSavedRoamingPath = CurrentRoamingSettingsPath();
@@ -415,7 +418,9 @@ public class SettingsService
             saved &= machineSaved;
             if (machineSaved)
             {
-                _baseMachineSettings = mergedMachine;
+                // Clone: Settings is rebuilt from mergedMachine below and would
+                // otherwise share its List instances with this baseline.
+                _baseMachineSettings = JsonSettingsFile.Clone(mergedMachine);
                 _lastSavedMachineJson = JsonSettingsFile.Serialize(mergedMachine);
             }
         }
