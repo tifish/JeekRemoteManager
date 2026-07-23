@@ -7,6 +7,7 @@ using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
 using JeekRemoteManager.ViewModels;
 using JeekRemoteManager.Views;
+using JeekTools;
 using SvcSystems.UI.Terminal;
 using XTerm.Selection;
 
@@ -1603,7 +1604,7 @@ try
           "Auto-update script validates the staged package and waits for the app to exit");
     Check(autoUpdateScript.Contains("Best effort: bring the app back even if the install failed."),
           "Auto-update script restarts the app even when the install fails");
-    var autoUpdateServicePath = Path.Combine(FindRepoRoot(), "JeekRemoteManager", "Services", "AutoUpdateService.cs");
+    var autoUpdateServicePath = Path.Combine(FindRepoRoot(), "JeekTools.NET", "AutoUpdater.cs");
     var autoUpdateService = File.Exists(autoUpdateServicePath)
         ? File.ReadAllText(autoUpdateServicePath)
         : "";
