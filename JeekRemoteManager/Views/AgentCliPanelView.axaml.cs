@@ -320,7 +320,6 @@ public partial class AgentCliPanelView : UserControl
     private void OnModelSizeChanged(object? sender, TerminalSizeChangedEventArgs e)
     {
         RepairBufferAfterResize(e.Rows);
-        ApplyConPtyResizeNow(e.Cols, e.Rows);
         ScheduleResizeSettle();
     }
 
@@ -329,12 +328,20 @@ public partial class AgentCliPanelView : UserControl
         if (_vm is null || !_vm.HasEmbeddedSession)
             return;
 
-        var (cols, rows) = ReadViewportSize();
+        var (_, rows) = ReadViewportSize();
         RepairBufferAfterResize(rows);
-        ApplyConPtyResizeNow(cols, rows);
         ScheduleResizeSettle();
     }
 
+    /// <summary>
+    /// Sends a size to ConPTY. Intermediate sizes during a drag must NOT be sent here:
+    /// conhost replies to every resize with a full-screen repaint composed for that
+    /// size, and those bytes arrive after the local model has already moved to a newer
+    /// size — rows then re-wrap and each repaint scrolls a screenful of stale lines
+    /// into scrollback ("split screen" during Codex streaming). Callers debounce via
+    /// <see cref="ScheduleResizeSettle"/> so only the settled size reaches ConPTY;
+    /// the sole immediate call is the initial sizing in AttachLiveSession.
+    /// </summary>
     private void ApplyConPtyResizeNow(int cols, int rows)
     {
         if (_vm is null || !_vm.HasEmbeddedSession)

@@ -93,6 +93,7 @@ internal static class DebugMcpServer
         host.AddTool("ai_cli_ctrl_c_check", _ => AiCliCtrlCCheckAsync());
         host.AddTool("agent_cli_locate_check", AgentCliLocateCheckAsync);
         host.AddTool("auto_update_stage_check", AutoUpdateStageCheckAsync);
+        host.AddTool("ai_render_probe", AiRenderProbeAsync);
         return host;
     }
 
@@ -575,6 +576,82 @@ internal static class DebugMcpServer
                     probeView?.Close();
                     return true;
                 });
+            }
+        }
+    }
+
+    private static TerminalView? _renderProbeView;
+    private static TabItem? _renderProbeTab;
+
+    /// <summary>
+    /// Persistent AI panel probe for terminal-rendering bugs: "open" adds a local
+    /// terminal tab with the AI panel started (embedded CLI, no SSH connection),
+    /// "status" reports feed/scroll state plus the visible viewport text, and
+    /// "close" removes the tab. The tab stays open across calls so long-running
+    /// CLI sessions can be inspected with get_value / screenshot between calls.
+    /// </summary>
+    private static async Task<JsonObject> AiRenderProbeAsync(JsonObject args)
+    {
+        var action = args["action"]?.GetValue<string>() ?? "status";
+        switch (action)
+        {
+            case "open":
+            {
+                var text = await OnUiAsync(() =>
+                {
+                    if (Desktop?.MainWindow is not Views.MainWindow main)
+                        throw new InvalidOperationException("MainWindow is not available.");
+                    if (_renderProbeView is not null)
+                        return "already open";
+
+                    var tabs = main.FindControl<TabControl>("RightTabs")
+                               ?? throw new InvalidOperationException("RightTabs not found.");
+                    _renderProbeView = new TerminalView();
+                    _renderProbeTab = new TabItem { Header = "AI render probe", Content = _renderProbeView };
+                    tabs.Items.Add(_renderProbeTab);
+                    tabs.SelectedItem = _renderProbeTab;
+                    return "opened";
+                });
+                if (text == "opened")
+                {
+                    // Let the tab load before opening the AI panel (auto-starts the CLI).
+                    await Task.Delay(200);
+                    await OnUiAsync(() =>
+                    {
+                        _renderProbeView!.ToggleAiPanel();
+                        return true;
+                    });
+                }
+
+                return ToolText(text);
+            }
+
+            case "close":
+                return ToolText(await OnUiAsync(() =>
+                {
+                    if (Desktop?.MainWindow is not Views.MainWindow main || _renderProbeView is null)
+                        return "not open";
+                    var tabs = main.FindControl<TabControl>("RightTabs");
+                    if (tabs is not null && _renderProbeTab is not null)
+                        tabs.Items.Remove(_renderProbeTab);
+                    _renderProbeView.Close();
+                    _renderProbeView = null;
+                    _renderProbeTab = null;
+                    return "closed";
+                }));
+
+            default:
+            {
+                return ToolText(await OnUiAsync(() =>
+                {
+                    if (_renderProbeView is null)
+                        return "not open";
+                    var panel = _renderProbeView.DebugAiPanel;
+                    var vm = _renderProbeView.AiViewModel;
+                    return $"provider={vm?.SelectedProvider.Label} running={vm?.IsRunning} "
+                           + $"status={vm?.StatusText}\ncapture={vm?.CaptureFilePath ?? "(off)"}\n"
+                           + $"stats: {panel.DebugOutputStats}\n--- visible ---\n{panel.DebugVisibleText}";
+                }));
             }
         }
     }

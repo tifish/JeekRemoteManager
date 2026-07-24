@@ -37,6 +37,11 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     private bool _disposed;
     /// <summary>Bumped on every start/stop request so superseded launches dispose their process.</summary>
     private int _startGeneration;
+    private readonly object _captureGate = new();
+    private FileStream? _captureStream;
+
+    /// <summary>Raw VT capture file of the current embedded session (Debug MCP diagnostics), if enabled.</summary>
+    public string? CaptureFilePath { get; private set; }
 
     /// <summary>Optional callback from the view: current terminal viewport in character cells.</summary>
     public Func<(int Cols, int Rows)>? GetViewportSize { get; set; }
@@ -556,6 +561,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
                 }
 
                 _session = session;
+                StartRawCaptureIfEnabled(session);
                 session.Exited += exitCode =>
                 {
                     // CLI closed itself (/exit, crash, …) — not StopInternal dispose.
@@ -862,7 +868,75 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     }
 
     /// <summary>Resizes the active embedded ConPTY when the host terminal control changes size.</summary>
-    public void ResizeSession(int cols, int rows) => _session?.Resize(cols, rows);
+    public void ResizeSession(int cols, int rows)
+    {
+        _session?.Resize(cols, rows);
+        RecordCaptureResize(cols, rows);
+    }
+
+    /// <summary>
+    /// When JRM_AI_CAPTURE_DIR is set, records the raw ConPTY byte stream of the
+    /// embedded session plus a ".resizes" sidecar (byteOffset:COLSxROWS per line) so
+    /// rendering bugs can be replayed offline against the terminal emulator.
+    /// </summary>
+    private void StartRawCaptureIfEnabled(ConPtySession session)
+    {
+        var dir = Environment.GetEnvironmentVariable("JRM_AI_CAPTURE_DIR");
+        if (string.IsNullOrWhiteSpace(dir))
+            return;
+
+        try
+        {
+            Directory.CreateDirectory(dir);
+            var path = Path.Combine(dir, $"ai-{Environment.ProcessId}-{DateTime.Now:HHmmss-fff}.bin");
+            var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
+            lock (_captureGate)
+            {
+                _captureStream?.Dispose();
+                _captureStream = stream;
+                CaptureFilePath = path;
+            }
+
+            session.DataReceived += data =>
+            {
+                lock (_captureGate)
+                {
+                    if (_captureStream != stream)
+                        return;
+                    try
+                    {
+                        stream.Write(data, 0, data.Length);
+                        stream.Flush();
+                    }
+                    catch
+                    {
+                        // capture is best-effort diagnostics
+                    }
+                }
+            };
+        }
+        catch
+        {
+            // capture is best-effort diagnostics
+        }
+    }
+
+    private void RecordCaptureResize(int cols, int rows)
+    {
+        lock (_captureGate)
+        {
+            if (_captureStream is not { } stream || CaptureFilePath is not { } path)
+                return;
+            try
+            {
+                File.AppendAllText(path + ".resizes", $"{stream.Length}:{cols}x{rows}\n");
+            }
+            catch
+            {
+                // capture is best-effort diagnostics
+            }
+        }
+    }
 
     /// <summary>Writes user keystrokes into the embedded ConPTY.</summary>
     public void WriteToSession(byte[] data) => _session?.Write(data);

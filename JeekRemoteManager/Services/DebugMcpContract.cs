@@ -54,6 +54,9 @@ public static class DebugMcpContract
         Tool("agent_cli_locate_check",
             "Report the resolved executable paths for the agent CLIs (claude/codex/grok); optionally resolve one path through the locator's link resolution.",
             new() { ["path"] = Prop("string", "Optional file path to run through ResolveRealPath.") }),
+        Tool("ai_render_probe",
+            "Persistent AI-panel rendering probe: action 'open' adds a local terminal tab with the embedded agent CLI started, 'status' reports feed/scroll state plus visible viewport text, 'close' removes the tab.",
+            new() { ["action"] = Prop("string", "open | status | close (default status).") }),
         Tool("auto_update_stage_check",
             "Runs the in-app update downloader end-to-end (real network): downloads the release package, extracts and verifies it in the staging folder, then cleans up.",
             new()
