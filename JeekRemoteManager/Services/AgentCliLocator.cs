@@ -65,12 +65,19 @@ public static class AgentCliLocator
     /// relative to its own path — launched through the junction that directory does not
     /// exist and sandboxed commands fail with "program not found".
     /// </summary>
-    private static string ResolveRealPath(string path)
+    internal static string ResolveRealPath(string path)
     {
         try
         {
             if (new FileInfo(path).ResolveLinkTarget(returnFinalTarget: true) is { } fileTarget)
-                return fileTarget.FullName;
+            {
+                // Keep argv[0]-dispatch shims (e.g. mise's codex.exe → mise.exe) unresolved:
+                // the target binary picks its behavior from the invoked file name, so
+                // launching the resolved path directly loses the tool identity.
+                return string.Equals(fileTarget.Name, Path.GetFileName(path), StringComparison.OrdinalIgnoreCase)
+                    ? fileTarget.FullName
+                    : path;
+            }
 
             // The file itself is not a link; resolve the nearest ancestor directory that is.
             var suffix = Path.GetFileName(path);

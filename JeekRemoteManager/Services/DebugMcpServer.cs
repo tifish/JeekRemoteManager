@@ -91,6 +91,7 @@ internal static class DebugMcpServer
         host.AddTool("ai_runtime_snapshot", _ => AiRuntimeSnapshotAsync());
         host.AddTool("terminal_tab_focus_check", _ => TerminalTabFocusCheckAsync());
         host.AddTool("ai_cli_ctrl_c_check", _ => AiCliCtrlCCheckAsync());
+        host.AddTool("agent_cli_locate_check", AgentCliLocateCheckAsync);
         host.AddTool("auto_update_stage_check", AutoUpdateStageCheckAsync);
         return host;
     }
@@ -576,6 +577,17 @@ internal static class DebugMcpServer
                 });
             }
         }
+    }
+
+    private static Task<JsonObject> AgentCliLocateCheckAsync(JsonObject args)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"claude: {AgentCliLocator.FindClaude() ?? "(not found)"}");
+        sb.AppendLine($"codex: {AgentCliLocator.FindCodex() ?? "(not found)"}");
+        sb.AppendLine($"grok: {AgentCliLocator.FindGrok() ?? "(not found)"}");
+        if (args["path"]?.GetValue<string>() is { Length: > 0 } path)
+            sb.AppendLine($"resolve: {path} -> {AgentCliLocator.ResolveRealPath(path)}");
+        return Task.FromResult(ToolText(sb.ToString().TrimEnd()));
     }
 
     private static async Task<JsonObject> AutoUpdateStageCheckAsync(JsonObject args)

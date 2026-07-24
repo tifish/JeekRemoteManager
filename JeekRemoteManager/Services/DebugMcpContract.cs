@@ -51,6 +51,9 @@ public static class DebugMcpContract
         Tool("ai_cli_ctrl_c_check",
             "Temporarily creates a terminal tab and verifies AI CLI Ctrl+C: copies when text is selected and never sends 0x03 to the CLI.",
             new()),
+        Tool("agent_cli_locate_check",
+            "Report the resolved executable paths for the agent CLIs (claude/codex/grok); optionally resolve one path through the locator's link resolution.",
+            new() { ["path"] = Prop("string", "Optional file path to run through ResolveRealPath.") }),
         Tool("auto_update_stage_check",
             "Runs the in-app update downloader end-to-end (real network): downloads the release package, extracts and verifies it in the staging folder, then cleans up.",
             new()
