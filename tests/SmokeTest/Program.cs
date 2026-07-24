@@ -2480,11 +2480,6 @@ sealed class SmokeAgentRemoteTools : IAgentRemoteTools
         Task.FromResult($"[scrollback lines=0 requested={lines}]");
     public Task<string> SendKeysAsync(string text, CancellationToken cancellationToken = default) =>
         Task.FromResult($"[keys sent bytes={text.Length}]");
-    public Task<string> AskUserAsync(
-        string prompt,
-        IReadOnlyList<string>? options,
-        CancellationToken cancellationToken = default) =>
-        Task.FromResult("[answer] smoke");
     public Task<string> GetMonitorSnapshotAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult("[monitor unavailable]");
 }

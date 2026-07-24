@@ -327,7 +327,6 @@ public static class AgentCliWorkspace
         sb.AppendLine("| `terminal_reconnect` | Rebuild SSH/WSL when the channel is unhealthy |");
         sb.AppendLine("| `terminal_scrollback` | Read last N lines of the live terminal buffer |");
         sb.AppendLine("| `terminal_send_keys` | Raw keys to the shell (pagers/prompts); does not capture output |");
-        sb.AppendLine("| `ask_user` | Ask the user a question (optional multi-choice) in the app UI |");
         sb.AppendLine("| `monitor_snapshot` | CPU/mem/load/disk snapshot when the monitor panel has data |");
         sb.AppendLine("| `file_upload` / `file_download` | Transfer via the interactive shell (ZMODEM on SSH; works through bastion) |");
         sb.AppendLine();

@@ -68,12 +68,6 @@ public interface IAgentRemoteTools
     /// </summary>
     Task<string> SendKeysAsync(string text, CancellationToken cancellationToken = default);
 
-    /// <summary>Asks the user a free-form or multi-choice question in the UI.</summary>
-    Task<string> AskUserAsync(
-        string prompt,
-        IReadOnlyList<string>? options,
-        CancellationToken cancellationToken = default);
-
     /// <summary>Latest server-monitor panel snapshot when available.</summary>
     Task<string> GetMonitorSnapshotAsync(CancellationToken cancellationToken = default);
 }
@@ -119,7 +113,6 @@ public static class AgentCliCatalog
         "terminal_send_keys",
         "connection_info",
         "monitor_snapshot",
-        "ask_user",
         "file_upload",
         "file_download",
     ];

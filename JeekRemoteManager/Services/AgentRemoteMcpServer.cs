@@ -306,21 +306,6 @@ public sealed class AgentRemoteMcpServer : IAsyncDisposable
                 "Does not acquire the command lock. Prefer terminal_run for normal commands.",
                 Prop("text", "string", "Text to send. Use \\n for Enter; Ctrl-C is better via terminal_interrupt."),
                 ["text"]),
-            Tool("ask_user",
-                "Ask the user a question in a JeekRemoteManager dialog. " +
-                "Use for decisions that need human input (not for shell output).",
-                MergeProps(
-                    Prop("prompt", "string", "Question to show the user."),
-                    new JsonObject
-                    {
-                        ["options"] = new JsonObject
-                        {
-                            ["type"] = "array",
-                            ["items"] = new JsonObject { ["type"] = "string" },
-                            ["description"] = "Optional choices (2–8). When set, user picks one button.",
-                        },
-                    }),
-                ["prompt"]),
             Tool("monitor_snapshot",
                 "Latest server-monitor panel readings (CPU/mem/load/disks) when the monitor " +
                 "has data for this tab. Read-only; may report that the panel has no samples yet.",
@@ -380,7 +365,6 @@ public sealed class AgentRemoteMcpServer : IAsyncDisposable
                 .ConfigureAwait(false),
             "terminal_scrollback" => await _tools.GetScrollbackAsync(ReadLinesArg(args)).ConfigureAwait(false),
             "terminal_send_keys" => await SendKeysToolAsync(args).ConfigureAwait(false),
-            "ask_user" => await AskUserToolAsync(args).ConfigureAwait(false),
             "monitor_snapshot" => await _tools.GetMonitorSnapshotAsync().ConfigureAwait(false),
             "file_upload" => await TransferToolAsync(args, isUpload: true).ConfigureAwait(false),
             "file_download" => await TransferToolAsync(args, isUpload: false).ConfigureAwait(false),
@@ -431,30 +415,6 @@ public sealed class AgentRemoteMcpServer : IAsyncDisposable
         if (text.Length > 4096)
             return "[error] text is too long (max 4096 characters)";
         return await _tools.SendKeysAsync(text).ConfigureAwait(false);
-    }
-
-    private async Task<string> AskUserToolAsync(JsonObject args)
-    {
-        var prompt = args["prompt"]?.GetValue<string>()?.Trim();
-        if (string.IsNullOrEmpty(prompt))
-            return "[error] prompt is required";
-
-        List<string>? options = null;
-        if (args["options"] is JsonArray optionsNode)
-        {
-            options = new List<string>();
-            foreach (var item in optionsNode)
-            {
-                var option = item?.GetValue<string>()?.Trim();
-                if (!string.IsNullOrEmpty(option))
-                    options.Add(option);
-            }
-
-            if (options.Count is < 2 or > 8)
-                return "[error] options must contain 2–8 non-empty choices when provided";
-        }
-
-        return await _tools.AskUserAsync(prompt, options).ConfigureAwait(false);
     }
 
     private static int ReadLinesArg(JsonObject args)
