@@ -106,6 +106,10 @@ public sealed class ServerMonitorSession : IDisposable
     private SharedSshClient? _held;
     private ShellStream? _shell;
     private InteractiveShellPayloadMonitor? _activePayloadMonitor;
+    // Fed only while the duplicated login sequence runs, so "#select" can match the
+    // bastion menu that is on screen.
+    private readonly LoginMenuOutputCapture _loginCapture = new();
+    private volatile bool _loginCaptureActive;
     private long _lastShellDataTicks;
     private Exception? _shellFailure;
     private long _sampleCount;
@@ -291,11 +295,31 @@ public sealed class ServerMonitorSession : IDisposable
     private async Task RunDuplicatedLoginCommandsAsync(CancellationToken cancellationToken)
     {
         var lines = LoginCommandSequence.Select(_loginCommands, isDuplicatedSession: true);
-        long mustBeAfterTicks = 0;
+        if (lines.Length == 0)
+            return;
 
+        long mustBeAfterTicks = 0;
+        _loginCapture.Reset();
+        _loginCaptureActive = true;
+        try
+        {
+            await RunLoginLinesAsync(lines, mustBeAfterTicks, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _loginCaptureActive = false;
+            _loginCapture.Reset();
+        }
+    }
+
+    private async Task RunLoginLinesAsync(
+        string[] lines,
+        long mustBeAfterTicks,
+        CancellationToken cancellationToken)
+    {
         // Wait for the initial prompt/menu before typing the first selection.
-        if (lines.Length > 0)
-            await WaitForShellQuietAsync(mustBeAfterTicks, cancellationToken).ConfigureAwait(false);
+        await WaitForShellQuietAsync(mustBeAfterTicks, cancellationToken).ConfigureAwait(false);
+        string? pageKey = null;
 
         foreach (var line in lines)
         {
@@ -303,9 +327,46 @@ public sealed class ServerMonitorSession : IDisposable
                 throw new InvalidOperationException(
                     "The server monitor cannot complete a duplicated login sequence containing #input.");
 
+            if (LoginCommandSequence.TryGetMenuPageKey(line) is { } keySpec)
+            {
+                if (!LoginKeySequence.TryParse(keySpec, out var parsedKey, out var keyError))
+                    throw new InvalidOperationException(
+                        $"The server monitor cannot use the login paging key \"{keySpec}\": {keyError}");
+
+                pageKey = parsedKey;
+                continue;
+            }
+
             ThrowIfShellFailed();
+
+            var text = line;
+            if (LoginCommandSequence.TryGetMenuSelectKeyword(line) is { } keyword)
+            {
+                // The menu is on screen (the previous step waited for output to go quiet);
+                // match it by name so a renumbered menu can't send this shell elsewhere.
+                var selection = await LoginMenuPager.SelectAsync(
+                    keyword,
+                    pageKey,
+                    _loginCapture.Snapshot,
+                    async () =>
+                    {
+                        ThrowIfShellFailed();
+                        mustBeAfterTicks = Environment.TickCount64;
+                        _loginCapture.Reset();
+                        WriteToShell(pageKey!);
+                        await WaitForShellQuietAsync(mustBeAfterTicks, cancellationToken).ConfigureAwait(false);
+                        return true;
+                    }).ConfigureAwait(false);
+                if (!selection.Success)
+                    throw new InvalidOperationException(
+                        $"The server monitor could not select a login menu entry: {selection.Failure}");
+
+                text = selection.Choice!;
+            }
+
             mustBeAfterTicks = Environment.TickCount64;
-            WriteToShell(line + "\r");
+            _loginCapture.Reset();
+            WriteToShell(text + "\r");
             await WaitForShellQuietAsync(mustBeAfterTicks, cancellationToken).ConfigureAwait(false);
         }
     }
@@ -334,6 +395,8 @@ public sealed class ServerMonitorSession : IDisposable
     private void OnShellData(object? sender, ShellDataEventArgs e)
     {
         Interlocked.Exchange(ref _lastShellDataTicks, Environment.TickCount64);
+        if (_loginCaptureActive)
+            _loginCapture.Append(e.Data);
         Volatile.Read(ref _activePayloadMonitor)?.Append(e.Data);
     }
 

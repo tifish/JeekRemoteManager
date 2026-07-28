@@ -79,6 +79,10 @@ public partial class TerminalView : UserControl
     // Set while a "#input" login-command directive is waiting for the user to
     // type something (e.g. a 2FA code) and press Enter; completed from HandleUserInput.
     private TaskCompletionSource? _loginManualInputTcs;
+    // Captures the output produced since the last login command so a "#select" directive
+    // can match the bastion menu on screen; only fed while a login sequence is running.
+    private readonly LoginMenuOutputCapture _loginOutputCapture = new();
+    private volatile bool _loginCaptureActive;
     private bool _isDuplicatedSession;
     private bool _connectInProgress;
     private bool _shellClosed;
@@ -1903,6 +1907,38 @@ public partial class TerminalView : UserControl
     }
 
     /// <summary>
+    /// Debug-only: drives this tab from a local ConPTY shell instead of a remote host, so
+    /// the login-command sequence (including the "#select" menu matcher) can be verified
+    /// end-to-end without a bastion. Takes the same path as a WSL tab from AttachChannel on.
+    /// </summary>
+    public async Task DebugStartLocalShellAsync(
+        Connection connection,
+        string exePath,
+        IReadOnlyList<string> arguments)
+    {
+        _connection = connection;
+        _isDuplicatedSession = false;
+        var generation = Interlocked.Increment(ref _connectionGeneration);
+        _connected = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _shellClosed = false;
+        _utf8Decoder.Reset();
+        _connectInProgress = true;
+
+        var cols = (uint)Math.Max(20, _model.Terminal.Cols);
+        var rows = (uint)Math.Max(5, _model.Terminal.Rows);
+        var session = await Task.Run(() =>
+            ConPtySession.Start(exePath, arguments, (int)cols, (int)rows));
+
+        if (_disposed || generation != _connectionGeneration)
+        {
+            session.Dispose();
+            return;
+        }
+
+        AttachChannel(new LocalConPtyTerminalChannel(session), generation, (cols, rows));
+    }
+
+    /// <summary>
     /// Opens the shell channel on <paramref name="client"/> and wires it to the
     /// terminal. Returns false without taking ownership when the channel cannot be
     /// opened or the attempt is stale — the caller still owns releasing the client.
@@ -2125,6 +2161,9 @@ public partial class TerminalView : UserControl
     /// quiet, so bastion menus, sudo prompts, etc. are on screen before their
     /// answer is typed. A line consisting of "#input" pauses the sequence until
     /// the user types something manually (e.g. a 2FA code) and presses Enter.
+    /// A "#select &lt;name&gt;" line types the number of the menu entry matching that
+    /// name, so bastion menus keep working when their numbering shifts; a preceding
+    /// "#pagekey &lt;key&gt;" line lets it page through a menu longer than one screen.
     /// In a duplicated tab, a "#duplicate" line skips all commands before it.
     /// Runs on every shell open, including reconnects.
     /// </summary>
@@ -2134,76 +2173,155 @@ public partial class TerminalView : UserControl
         if (lines.Length == 0)
             return;
 
+        _loginOutputCapture.Reset();
+        _loginCaptureActive = true;
+
         _ = Task.Run(async () =>
         {
-            // Output older than this tick doesn't count as the response to the
-            // previous command; the PTY echoes every typed line, so waiting for
-            // newer data never stalls on a command with no output of its own.
-            long mustBeAfterTicks = 0;
-            const int quietMs = 500;
-            const int timeoutMs = 30000;
-
-            foreach (var line in lines)
+            try
             {
-                if (LoginCommandSequence.IsManualInputDirective(line))
-                {
-                    var manualInput = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                    Interlocked.Exchange(ref _loginManualInputTcs, manualInput)?.TrySetCanceled();
-                    RefreshLoginManualInputLayout(generation);
-                    try
-                    {
-                        // No timeout: fetching a 2FA code can take as long as it takes.
-                        while (!manualInput.Task.IsCompleted)
-                        {
-                            if (_disposed || _shellClosed || generation != _connectionGeneration)
-                                return;
-                            await Task.Delay(50);
-                        }
-                    }
-                    finally
-                    {
-                        Interlocked.CompareExchange(ref _loginManualInputTcs, null, manualInput);
-                        RefreshLoginManualInputLayout(generation);
-                    }
-
-                    // The next command must wait for output produced after the
-                    // user's Enter, not for what was already on screen.
-                    mustBeAfterTicks = Environment.TickCount64;
-                    continue;
-                }
-
-                var startedAt = Environment.TickCount64;
-                while (true)
-                {
-                    if (_disposed || _shellClosed || generation != _connectionGeneration)
-                        return;
-
-                    var lastData = Interlocked.Read(ref _lastShellDataTicks);
-                    var now = Environment.TickCount64;
-                    // ">=" not ">": on a low-latency link the echo can land in the
-                    // same TickCount64 tick as the send that provoked it.
-                    if (lastData != 0 && lastData >= mustBeAfterTicks && now - lastData >= quietMs)
-                        break;
-                    // Don't stall forever on a server that prints nothing.
-                    if (now - startedAt >= timeoutMs)
-                        break;
-                    await Task.Delay(50);
-                }
-
-                // Stamp before the write so an echo arriving in the same tick counts.
-                mustBeAfterTicks = Environment.TickCount64;
-                try
-                {
-                    WriteToShell(line + "\r");
-                }
-                catch
-                {
-                    // A closed/broken stream is reported via Closed/ErrorOccurred.
-                    return;
-                }
+                await RunLoginCommandsAsync(lines, generation);
+            }
+            finally
+            {
+                _loginCaptureActive = false;
+                _loginOutputCapture.Reset();
             }
         });
     }
+
+    private async Task RunLoginCommandsAsync(string[] lines, int generation)
+    {
+        // Output older than this tick doesn't count as the response to the
+        // previous command; the PTY echoes every typed line, so waiting for
+        // newer data never stalls on a command with no output of its own.
+        long mustBeAfterTicks = 0;
+        const int quietMs = 500;
+        const int timeoutMs = 30000;
+        // Set by "#pagekey"; long menus are paged with it until the wanted entry shows up.
+        string? pageKey = null;
+
+        // Waits for the remote to answer the previous key and then go quiet. False means
+        // the session went away — the caller must stop typing into it.
+        async Task<bool> WaitForOutputQuietAsync()
+        {
+            var startedAt = Environment.TickCount64;
+            while (true)
+            {
+                if (_disposed || _shellClosed || generation != _connectionGeneration)
+                    return false;
+
+                var lastData = Interlocked.Read(ref _lastShellDataTicks);
+                var now = Environment.TickCount64;
+                // ">=" not ">": on a low-latency link the echo can land in the
+                // same TickCount64 tick as the send that provoked it.
+                if (lastData != 0 && lastData >= mustBeAfterTicks && now - lastData >= quietMs)
+                    return true;
+                // Don't stall forever on a server that prints nothing.
+                if (now - startedAt >= timeoutMs)
+                    return true;
+                await Task.Delay(50);
+            }
+        }
+
+        foreach (var line in lines)
+        {
+            if (LoginCommandSequence.IsManualInputDirective(line))
+            {
+                var manualInput = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                Interlocked.Exchange(ref _loginManualInputTcs, manualInput)?.TrySetCanceled();
+                RefreshLoginManualInputLayout(generation);
+                try
+                {
+                    // No timeout: fetching a 2FA code can take as long as it takes.
+                    while (!manualInput.Task.IsCompleted)
+                    {
+                        if (_disposed || _shellClosed || generation != _connectionGeneration)
+                            return;
+                        await Task.Delay(50);
+                    }
+                }
+                finally
+                {
+                    Interlocked.CompareExchange(ref _loginManualInputTcs, null, manualInput);
+                    RefreshLoginManualInputLayout(generation);
+                }
+
+                // The next command must wait for output produced after the
+                // user's Enter, not for what was already on screen.
+                mustBeAfterTicks = Environment.TickCount64;
+                _loginOutputCapture.Reset();
+                continue;
+            }
+
+            if (LoginCommandSequence.TryGetMenuPageKey(line) is { } keySpec)
+            {
+                if (!LoginKeySequence.TryParse(keySpec, out var parsedKey, out var keyError))
+                {
+                    ReportLoginMenuFailure($"{LoginCommandSequence.MenuPageKeyDirective} {keySpec}: {keyError}");
+                    return;
+                }
+
+                pageKey = parsedKey;
+                continue;
+            }
+
+            if (!await WaitForOutputQuietAsync())
+                return;
+
+            var text = line;
+            if (LoginCommandSequence.TryGetMenuSelectKeyword(line) is { } keyword)
+            {
+                // The menu is on screen now that output went quiet; match it by name,
+                // pressing the paging key for as long as new entries keep arriving.
+                var selection = await LoginMenuPager.SelectAsync(
+                    keyword,
+                    pageKey,
+                    _loginOutputCapture.Snapshot,
+                    async () =>
+                    {
+                        mustBeAfterTicks = Environment.TickCount64;
+                        _loginOutputCapture.Reset();
+                        try
+                        {
+                            WriteToShell(pageKey!);
+                        }
+                        catch
+                        {
+                            return false;
+                        }
+
+                        return await WaitForOutputQuietAsync();
+                    });
+                if (!selection.Success)
+                {
+                    // Stop rather than type a number that could reach the wrong machine;
+                    // the user takes over at the menu that is already on screen.
+                    ReportLoginMenuFailure(selection.Failure ?? "menu selection failed");
+                    return;
+                }
+
+                text = selection.Choice!;
+            }
+
+            // Stamp before the write so an echo arriving in the same tick counts.
+            mustBeAfterTicks = Environment.TickCount64;
+            _loginOutputCapture.Reset();
+            try
+            {
+                WriteToShell(text + "\r");
+            }
+            catch
+            {
+                // A closed/broken stream is reported via Closed/ErrorOccurred.
+                return;
+            }
+        }
+    }
+
+    /// <summary>Writes a local notice into the terminal view; nothing is sent to the remote.</summary>
+    private void ReportLoginMenuFailure(string message) =>
+        FeedBytesDirect(Encoding.UTF8.GetBytes($"\r\n[JeekRemoteManager] {message}\r\n"));
 
     private void RefreshLoginManualInputLayout(int generation) =>
         Dispatcher.UIThread.Post(() =>
@@ -2224,6 +2342,9 @@ public partial class TerminalView : UserControl
             return;
 
         Interlocked.Exchange(ref _lastShellDataTicks, Environment.TickCount64);
+
+        if (_loginCaptureActive)
+            _loginOutputCapture.Append(data);
 
         if (_activeZmodemQueue is { } zmodemQueue)
         {

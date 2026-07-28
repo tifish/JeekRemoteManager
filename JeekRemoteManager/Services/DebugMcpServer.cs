@@ -92,6 +92,8 @@ internal static class DebugMcpServer
         host.AddTool("terminal_tab_focus_check", _ => TerminalTabFocusCheckAsync());
         host.AddTool("ai_cli_ctrl_c_check", _ => AiCliCtrlCCheckAsync());
         host.AddTool("agent_cli_locate_check", AgentCliLocateCheckAsync);
+        host.AddTool("login_menu_select_check", LoginMenuSelectCheckAsync);
+        host.AddTool("login_menu_select_probe", LoginMenuSelectProbeAsync);
         host.AddTool("auto_update_stage_check", AutoUpdateStageCheckAsync);
         host.AddTool("ai_render_probe", AiRenderProbeAsync);
         return host;
@@ -664,6 +666,146 @@ internal static class DebugMcpServer
         sb.AppendLine($"grok: {AgentCliLocator.FindGrok() ?? "(not found)"}");
         if (args["path"]?.GetValue<string>() is { Length: > 0 } path)
             sb.AppendLine($"resolve: {path} -> {AgentCliLocator.ResolveRealPath(path)}");
+        return Task.FromResult(ToolText(sb.ToString().TrimEnd()));
+    }
+
+    private static TerminalView? _menuProbeView;
+    private static TabItem? _menuProbeTab;
+
+    // A local cmd.exe shell stands in for the bastion: one command prints the whole
+    // menu, then "#select" must type the number of the named entry (3 here).
+    private const string MenuProbeLoginCommands =
+        "echo    1: 10.11.13.128   ai-lab-10.11.13.128"
+        + "& echo    3: 10.11.13.42    mecha-linux-build-10.11.13.42"
+        + "& echo    8: 10.11.66.134   test-box-66.134"
+        + "& echo Please select a target:\n"
+        + "#select mecha-linux-build";
+
+    // The paged scenario stands in for a bastion menu that needs Ctrl-F to page:
+    // the wanted entry is only on page 2, so "#select" must press the key first.
+    private const string MenuProbePagedLoginCommands =
+        "#pagekey Ctrl-F\n#select oa-test";
+
+    private const string MenuProbePagerScript = """
+        $page1 = "  35: 120.92.154.189   ksc-cm-prd-it-server01`n  36: 120.92.154.86    ksc-cm-prd-it-server02`n  37: 172.18.251.142   mcp-server`n-- 51 records total. Ctrl-F: next page --"
+        $page2 = "  38: 120.92.138.81    oa-120.92.138.81`n  39: 172.18.251.107   oa-test-172.18.251.107`n-- 51 records total. Ctrl-F: next page --"
+        $page = 1
+        $typed = ''
+        Write-Host $page1
+        while ($true) {
+            $key = [Console]::ReadKey($true)
+            if ([int]$key.KeyChar -eq 6) {
+                if ($page -lt 2) { $page++ }
+                if ($page -eq 1) { Write-Host $page1 } else { Write-Host $page2 }
+                continue
+            }
+            if ($key.Key -eq 'Enter') {
+                Write-Host "SELECTED=$typed"
+                $typed = ''
+                continue
+            }
+            $typed += $key.KeyChar
+        }
+        """;
+
+    private static (string ExePath, IReadOnlyList<string> Arguments, string LoginCommands) BuildMenuProbeShell(
+        string scenario)
+    {
+        if (scenario != "paged")
+            return (Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe", [], MenuProbeLoginCommands);
+
+        var scriptPath = Path.Combine(DebugInstanceContext.Info.RuntimeTempRoot, "login-menu-pager.ps1");
+        Directory.CreateDirectory(Path.GetDirectoryName(scriptPath)!);
+        File.WriteAllText(scriptPath, MenuProbePagerScript);
+        return (
+            "powershell.exe",
+            ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
+            MenuProbePagedLoginCommands);
+    }
+
+    /// <summary>
+    /// End-to-end probe for the "#select &lt;name&gt;" login directive without a bastion:
+    /// "open" adds a terminal tab attached to a local cmd.exe shell whose login commands
+    /// print a numbered menu and then select an entry by name, "status" returns the
+    /// scrollback (the typed number is visible in it), and "close" removes the tab.
+    /// </summary>
+    private static async Task<JsonObject> LoginMenuSelectProbeAsync(JsonObject args)
+    {
+        var action = args["action"]?.GetValue<string>() ?? "status";
+        switch (action)
+        {
+            case "open":
+            {
+                var view = await OnUiAsync(() =>
+                {
+                    if (Desktop?.MainWindow is not Views.MainWindow main)
+                        throw new InvalidOperationException("MainWindow is not available.");
+                    if (_menuProbeView is not null)
+                        return null;
+
+                    var tabs = main.FindControl<TabControl>("RightTabs")
+                               ?? throw new InvalidOperationException("RightTabs not found.");
+                    _menuProbeView = new TerminalView();
+                    _menuProbeTab = new TabItem { Header = "Login menu probe", Content = _menuProbeView };
+                    tabs.Items.Add(_menuProbeTab);
+                    tabs.SelectedItem = _menuProbeTab;
+                    return _menuProbeView;
+                });
+                if (view is null)
+                    return ToolText("already open");
+
+                var shell = BuildMenuProbeShell(args["scenario"]?.GetValue<string>() ?? "single");
+                var loginCommands = args["login_commands"]?.GetValue<string>() is { Length: > 0 } custom
+                    ? custom
+                    : shell.LoginCommands;
+                // Let the tab lay out so the terminal has a real size before the PTY starts.
+                await Task.Delay(200);
+                await OnUiAsync(() => view.DebugStartLocalShellAsync(
+                    new Models.Connection { Name = "login menu probe", LoginCommands = loginCommands },
+                    shell.ExePath,
+                    shell.Arguments));
+                return ToolText("opened");
+            }
+
+            case "close":
+                return ToolText(await OnUiAsync(() =>
+                {
+                    if (Desktop?.MainWindow is not Views.MainWindow main || _menuProbeView is null)
+                        return "not open";
+                    var tabs = main.FindControl<TabControl>("RightTabs");
+                    if (tabs is not null && _menuProbeTab is not null)
+                        tabs.Items.Remove(_menuProbeTab);
+                    _menuProbeView.Close();
+                    _menuProbeView = null;
+                    _menuProbeTab = null;
+                    return "closed";
+                }));
+
+            default:
+            {
+                return ToolText(await OnUiAsync(() =>
+                    _menuProbeView is null
+                        ? "not open"
+                        : "--- visible ---\n" + _menuProbeView.DebugVisibleTerminalText));
+            }
+        }
+    }
+
+    private static Task<JsonObject> LoginMenuSelectCheckAsync(JsonObject args)
+    {
+        var menu = args["menu"]?.GetValue<string>() ?? "";
+        var name = args["name"]?.GetValue<string>() ?? "";
+        var keyword = LoginCommandSequence.TryGetMenuSelectKeyword(name) ?? name;
+
+        var sb = new StringBuilder();
+        sb.AppendLine("entries:");
+        foreach (var entry in LoginMenuSelection.ParseEntries(menu))
+            sb.AppendLine($"  {entry.Choice} -> {entry.Label}");
+
+        var result = LoginMenuSelection.Resolve(menu, keyword);
+        sb.AppendLine(result.Success
+            ? $"match: {keyword} -> types \"{result.Choice}\" ({result.MatchedLabel})"
+            : $"no match: {result.Failure}");
         return Task.FromResult(ToolText(sb.ToString().TrimEnd()));
     }
 

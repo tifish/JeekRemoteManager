@@ -309,6 +309,103 @@ try
           "Duplicated sessions without a marker preserve existing login-command behavior");
     Check(LoginCommandSequence.IsManualInputDirective("  #INPUT  "),
           "Manual-input login directive remains case-insensitive");
+
+    // --- Bastion menu selection by name ---
+    const string assetMenu = """
+        已选择：全部资产
+        目标资产列表
+        序号: IP 地址                                  名称(说明) *
+           1: 10.11.177.209                            10.11.177.209(机甲文件服务器)
+           2: 10.11.13.128                             AI创新部-10.11.13.128
+           3: 10.11.13.42                              机甲-linux构建-10.11.13.42
+           7: 10.11.66.133                             内网测试机（66.133）
+           8: 10.11.66.134                             内网测试机（66.134）
+        请选择目标资产：
+        """;
+    Check(LoginCommandSequence.TryGetMenuSelectKeyword("  #SELECT  机甲-linux构建  ") == "机甲-linux构建",
+          "Menu-select directive is case-insensitive and trims the machine name");
+    Check(LoginCommandSequence.TryGetMenuSelectKeyword("#selective-command") is null,
+          "A command merely starting with #select is not a menu-select directive");
+    Check(LoginMenuSelection.Resolve(assetMenu, "机甲-linux构建").Choice == "3",
+          "A partial machine name selects the matching menu number");
+    Check(LoginMenuSelection.Resolve(assetMenu, "10.11.66.134").Choice == "8",
+          "An IP address selects the matching menu number");
+    Check(LoginMenuSelection.Resolve(assetMenu, "内网测试机（66.133）").Choice == "7",
+          "A full name column matches exactly even when a shorter name is a prefix of others");
+    Check(LoginMenuSelection.Resolve(assetMenu, "内网测试机").Failure?.Contains("matches 2") == true,
+          "An ambiguous name stops the sequence instead of guessing a machine");
+    Check(LoginMenuSelection.Resolve(assetMenu, "不存在的机器").Failure is { Length: > 0 },
+          "A name that is not on the menu stops the sequence");
+    // The category menu is answered first, so both menus can sit in the captured output.
+    const string categoryMenu = """
+        资产分类列表
+        序号: 资产分类
+           0: 全部资产
+           1: MechaSvr构建机
+           2: 杂务构建机
+        请选择资产分类：
+        """;
+    Check(LoginMenuSelection.Resolve(categoryMenu + "\n0\n" + assetMenu, "AI创新部").Choice == "2",
+          "Only the menu currently on screen is matched, not an earlier one");
+    Check(LoginMenuSelection.Resolve(
+              "\u001b[32m   4: 10.11.160.86    \u001b[0m解限机-港湾文件服务器(10.11.63.51)\r\n请选择目标资产：",
+              "解限机-港湾文件服务器").Choice == "4",
+          "Colored menu output is matched after ANSI sequences are stripped");
+
+    // --- Paged bastion menus ---
+    Check(LoginCommandSequence.TryGetMenuPageKey("  #PAGEKEY  Ctrl-F ") == "Ctrl-F",
+          "Paging-key directive is case-insensitive and trims the key spec");
+    Check(LoginKeySequence.TryParse("Ctrl-F", out var ctrlF, out _) && ctrlF == "\u0006",
+          "Ctrl-F parses to the control byte a terminal sends");
+    Check(LoginKeySequence.TryParse("^n", out var ctrlN, out _) && ctrlN == "\u000e",
+          "Caret notation parses like Ctrl+letter");
+    Check(LoginKeySequence.TryParse("PageDown", out var pageDown, out _) && pageDown == "\u001b[6~",
+          "Named paging keys parse to their escape sequence");
+    Check(LoginKeySequence.TryParse("n\\r", out var letterEnter, out _) && letterEnter == "n\r",
+          "Escapes let a paging key add Enter");
+    Check(!LoginKeySequence.TryParse("Ctrl-Shift-F", out _, out var keyError) && keyError.Length > 0,
+          "An unknown paging key is reported instead of being typed blindly");
+
+    const string pagedMenuPage1 = """
+          35: 120.92.154.189                           ksc-cm-prd-it-server01
+          36: 120.92.154.86                            ksc-cm-prd-it-server02
+          37: 172.18.251.142                           MCP服务器
+        -- 共 51 条记录。Ctrl-F：下一页 --
+        """;
+    const string pagedMenuPage2 = """
+          38: 120.92.138.81                            OA-120.92.138.81
+          39: 172.18.251.107                           OA测试-172.18.251.107
+        -- 共 51 条记录。Ctrl-F：下一页 --
+        """;
+    Check(LoginMenuSelection.Resolve(pagedMenuPage1, "MCP服务器").Choice == "37",
+          "The paging footer is not mistaken for a menu entry");
+
+    var pagesShown = 0;
+    var pagedPick = await LoginMenuPager.SelectAsync(
+        "OA测试",
+        "",
+        () => pagesShown == 0 ? pagedMenuPage1 : pagedMenuPage2,
+        () => { pagesShown++; return Task.FromResult(true); });
+    Check(pagedPick.Choice == "39" && pagesShown == 1,
+          "A name on the next page is found after one paging keypress");
+
+    var repeatedPages = 0;
+    var exhausted = await LoginMenuPager.SelectAsync(
+        "不存在的机器",
+        "",
+        () => pagedMenuPage1,
+        () => { repeatedPages++; return Task.FromResult(true); });
+    Check(!exhausted.Success && repeatedPages == 1 && exhausted.Failure?.Contains("page(s)") == true,
+          "Paging stops once a page repeats instead of looping forever");
+
+    var pagedAmbiguous = await LoginMenuPager.SelectAsync(
+        "ksc-cm-prd-it-server",
+        "",
+        () => pagedMenuPage1,
+        () => Task.FromResult(true));
+    Check(pagedAmbiguous.Ambiguous,
+          "An ambiguous page stops the walk instead of paging past the matches");
+
     Check(TerminalView.ShouldHideSshTerminal(
               aiPanelVisible: true,
               hideSshTerminalRequested: true,

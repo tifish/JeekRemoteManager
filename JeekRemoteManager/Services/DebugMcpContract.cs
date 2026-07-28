@@ -54,6 +54,21 @@ public static class DebugMcpContract
         Tool("agent_cli_locate_check",
             "Report the resolved executable paths for the agent CLIs (claude/codex/grok); optionally resolve one path through the locator's link resolution.",
             new() { ["path"] = Prop("string", "Optional file path to run through ResolveRealPath.") }),
+        Tool("login_menu_select_check",
+            "Run the login-command \"#select <name>\" matcher against menu text: reports the parsed menu entries and which number the name would type.",
+            new()
+            {
+                ["menu"] = Prop("string", "Menu text as the remote printed it (ANSI sequences allowed)."),
+                ["name"] = Prop("string", "Machine name or IP to match, as written after #select."),
+            }, ["menu", "name"]),
+        Tool("login_menu_select_probe",
+            "End-to-end check of the \"#select <name>\" login directive: 'open' adds a terminal tab on a local cmd.exe shell that prints a numbered menu and selects an entry by name, 'status' returns the scrollback, 'close' removes the tab.",
+            new()
+            {
+                ["action"] = Prop("string", "open | status | close (default status)."),
+                ["scenario"] = Prop("string", "single (one-screen menu, default) | paged (menu that needs Ctrl-F to reach the wanted entry)."),
+                ["login_commands"] = Prop("string", "Optional login-command text overriding the scenario's script."),
+            }),
         Tool("ai_render_probe",
             "Persistent AI-panel rendering probe: action 'open' adds a local terminal tab with the embedded agent CLI started, 'status' reports feed/scroll state plus visible viewport text, 'close' removes the tab.",
             new() { ["action"] = Prop("string", "open | status | close (default status).") }),
