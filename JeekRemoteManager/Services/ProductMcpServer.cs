@@ -10,6 +10,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
+using Jeek.Avalonia.Localization;
 using JeekTools;
 using JeekRemoteManager.Models;
 using JeekRemoteManager.ViewModels;
@@ -74,6 +75,9 @@ internal static class ProductMcpServer
         host.AddTool("connection_list", ConnectionListAsync);
         host.AddTool("connection_get", ConnectionGetAsync);
         host.AddTool("connection_create", ConnectionCreateAsync);
+        host.AddTool("connection_update", ConnectionUpdateAsync);
+        host.AddTool("connection_move", ConnectionMoveAsync);
+        host.AddTool("connection_delete", ConnectionDeleteAsync);
         host.AddTool("connection_set_password", ConnectionSetPasswordAsync);
 
         host.AddTool("session_list", _ => SessionListAsync());
@@ -218,14 +222,9 @@ internal static class ProductMcpServer
             ConnectionId = Guid.NewGuid().ToString(),
             Type = type,
             Name = name,
-            Host = args["host"]?.GetValue<string>()?.Trim() ?? "",
-            Port = args["port"]?.GetValue<int>() ?? Connection.DefaultPort(type),
-            Username = args["username"]?.GetValue<string>()?.Trim() ?? "",
-            PrivateKeyPath = args["private_key_path"]?.GetValue<string>()?.Trim() ?? "",
-            LoginCommands = args["login_commands"]?.GetValue<string>() ?? "",
-            WslDistro = args["wsl_distro"]?.GetValue<string>()?.Trim() ?? "",
-            Notes = args["notes"]?.GetValue<string>() ?? "",
+            Port = Connection.DefaultPort(type),
         };
+        ApplyEditableFields(connection, args);
 
         var report = await OnUiAsync(() =>
         {
@@ -250,6 +249,128 @@ internal static class ProductMcpServer
         }).ConfigureAwait(false);
 
         return ToolText(report.ToJsonString(PrettyOptions));
+    }
+
+    private static async Task<JsonObject> ConnectionUpdateAsync(JsonObject args)
+    {
+        var path = NormalizeTreePath(McpHost.RequiredString(args, "connection"));
+        var report = await OnUiAsync(() =>
+        {
+            var (connection, _, filePath) = LoadConnection(path);
+            ApplyEditableFields(connection, args);
+
+            // Save into the same folder; a changed name renames the file and drops the old one.
+            var store = new ConnectionStore(MainVm.RootPath);
+            var folder = Path.GetDirectoryName(filePath) ?? MainVm.RootPath;
+            var savedPath = store.Save(connection, folder, previousFilePath: filePath);
+            MainVm.ReloadTreeFromDisk(savedPath);
+
+            var described = DescribeConnection(connection, ToTreePath(MainVm.RootPath, savedPath), full: true);
+            described["updated"] = true;
+            return described;
+        }).ConfigureAwait(false);
+
+        return ToolText(report.ToJsonString(PrettyOptions));
+    }
+
+    private static async Task<JsonObject> ConnectionMoveAsync(JsonObject args)
+    {
+        var path = NormalizeTreePath(McpHost.RequiredString(args, "connection"));
+        var folder = NormalizeTreePath(McpHost.RequiredString(args, "folder"));
+
+        var report = await OnUiAsync(() =>
+        {
+            var (connection, _, filePath) = LoadConnection(path);
+            var root = MainVm.RootPath;
+            var targetFolder = folder.Length == 0
+                ? root
+                : Path.Combine(root, folder.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(targetFolder);
+
+            var movedPath = new ConnectionStore(root).MoveFileInto(filePath, targetFolder);
+            MainVm.ReloadTreeFromDisk(movedPath);
+
+            var described = DescribeConnection(connection, ToTreePath(root, movedPath), full: false);
+            described["moved"] = true;
+            return described;
+        }).ConfigureAwait(false);
+
+        return ToolText(report.ToJsonString(PrettyOptions));
+    }
+
+    /// <summary>
+    /// Deleting a saved connection is the user's data, so it is always confirmed in the
+    /// JeekRemoteManager window — an agent cannot remove one on its own.
+    /// </summary>
+    private static async Task<JsonObject> ConnectionDeleteAsync(JsonObject args)
+    {
+        var path = NormalizeTreePath(McpHost.RequiredString(args, "connection"));
+        var (treePath, filePath, name) = await OnUiAsync(() =>
+        {
+            var (connection, resolved, file) = LoadConnection(path);
+            return (resolved, file, connection.Name);
+        }).ConfigureAwait(false);
+
+        var confirmTask = await OnUiAsync(() =>
+        {
+            MainWindow.ActivateMainWindow();
+            return MainVm.ConfirmAsync?.Invoke(
+                       Localizer.Get("DialogDeleteTitle"),
+                       string.Format(Localizer.Get("DialogDeleteConnectionPrompt"), name))
+                   ?? Task.FromResult(false);
+        }).ConfigureAwait(false);
+
+        if (!await confirmTask.ConfigureAwait(false))
+        {
+            return ToolText(
+                $"The user declined deleting '{treePath}' in the JeekRemoteManager window.",
+                isError: true);
+        }
+
+        await OnUiAsync(() =>
+        {
+            new ConnectionStore(MainVm.RootPath).DeleteFile(filePath);
+            MainVm.ReloadTreeFromDisk();
+            return true;
+        }).ConfigureAwait(false);
+
+        return ToolText(new JsonObject
+        {
+            ["status"] = "deleted",
+            ["connection"] = treePath,
+        }.ToJsonString(PrettyOptions));
+    }
+
+    /// <summary>
+    /// The only fields an agent may write, shared by create and update. Credentials are not
+    /// here on purpose — they go through <c>connection_set_password</c>.
+    /// </summary>
+    private static void ApplyEditableFields(Connection connection, JsonObject args)
+    {
+        if (args["name"]?.GetValue<string>() is { } name && name.Trim().Length > 0)
+            connection.Name = name.Trim();
+        if (args["host"]?.GetValue<string>() is { } host)
+            connection.Host = host.Trim();
+        if (args["port"] is { } port)
+            connection.Port = port.GetValue<int>();
+        if (args["username"]?.GetValue<string>() is { } username)
+            connection.Username = username.Trim();
+        if (args["private_key_path"]?.GetValue<string>() is { } keyPath)
+            connection.PrivateKeyPath = keyPath.Trim();
+        if (args["terminal_type"]?.GetValue<string>() is { } terminalType && terminalType.Trim().Length > 0)
+            connection.TerminalType = terminalType.Trim();
+        if (args["login_commands"]?.GetValue<string>() is { } loginCommands)
+            connection.LoginCommands = loginCommands;
+        if (args["wsl_distro"]?.GetValue<string>() is { } distro)
+            connection.WslDistro = distro.Trim();
+        if (args["wsl_start_directory"]?.GetValue<string>() is { } startDirectory)
+            connection.WslStartDirectory = startDirectory.Trim();
+        if (args["notes"]?.GetValue<string>() is { } notes)
+            connection.Notes = notes;
+        if (args["auto_open_monitor_panel"] is { } monitorPanel)
+            connection.AutoOpenMonitorPanel = monitorPanel.GetValue<bool>();
+        if (args["auto_open_file_browser_panel"] is { } fileBrowserPanel)
+            connection.AutoOpenFileBrowserPanel = fileBrowserPanel.GetValue<bool>();
     }
 
     /// <summary>

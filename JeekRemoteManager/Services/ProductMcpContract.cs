@@ -43,21 +43,30 @@ public static class ProductMcpContract
         Tool("connection_create",
             "Create a saved connection. Set its password afterwards with connection_set_password — "
             + "this tool takes no secrets.",
+            CreateFields(),
+            ["name"]),
+
+        Tool("connection_update",
+            "Change fields of a saved connection. Only the fields you pass are touched; a new "
+            + "'name' renames it. Credentials are not settable here — use connection_set_password.",
+            EditableFields(new()
+            {
+                ["connection"] = Prop("string", "Connection tree path to update."),
+            }),
+            ["connection"]),
+        Tool("connection_move",
+            "Move a connection to another folder of the tree. The folder is created if missing.",
             new()
             {
-                ["name"] = Prop("string", "Display name; also the file name."),
-                ["folder"] = Prop("string", "Destination folder in the tree; empty = root."),
-                ["type"] = Prop("string", "ssh (default), wsl, or rdp."),
-                ["host"] = Prop("string", "Host name or IP (SSH/RDP)."),
-                ["port"] = Prop("integer", "TCP port; defaults to 22 (SSH) or 3389 (RDP)."),
-                ["username"] = Prop("string", "Login user (SSH/RDP)."),
-                ["private_key_path"] = Prop("string", "Optional private key file for SSH."),
-                ["login_commands"] = Prop("string", "Commands typed after login, one per line; supports #select / #pagekey / #duplicate."),
-                ["wsl_distro"] = Prop("string", "WSL distribution name; empty = default distribution."),
-                ["notes"] = Prop("string", "Free-form note."),
-                ["open"] = Prop("boolean", "Open a session immediately after creating (default false)."),
+                ["connection"] = Prop("string", "Connection tree path to move."),
+                ["folder"] = Prop("string", "Destination folder, e.g. 'vps/asia'; empty = root."),
             },
-            ["name"]),
+            ["connection", "folder"]),
+        Tool("connection_delete",
+            "Delete a saved connection. Always asks the user to confirm in the JeekRemoteManager "
+            + "window first; returns an error if they decline. Open terminal tabs are left alone.",
+            new() { ["connection"] = Prop("string", "Connection tree path to delete.") },
+            ["connection"]),
 
         // --- Credentials (write-only) ---
         Tool("connection_set_password",
@@ -155,6 +164,39 @@ public static class ProductMcpContract
         Tool("monitor_snapshot",
             "CPU / memory / load / disk snapshot when the session's monitor panel has samples.",
             SessionArgs()));
+
+    /// <summary>
+    /// The fields create and update both accept, kept in one place so the two cannot drift.
+    /// Credentials are deliberately absent — they only go through connection_set_password.
+    /// </summary>
+    private static JsonObject EditableFields(JsonObject leading)
+    {
+        leading["name"] = Prop("string", "Display name; also the file name on disk.");
+        leading["host"] = Prop("string", "Host name or IP (SSH/RDP).");
+        leading["port"] = Prop("integer", "TCP port; defaults to 22 (SSH) or 3389 (RDP).");
+        leading["username"] = Prop("string", "Login user (SSH/RDP).");
+        leading["private_key_path"] = Prop("string", "Private key file for SSH.");
+        leading["terminal_type"] = Prop("string", "TERM sent on login; default xterm-256color.");
+        leading["login_commands"] = Prop("string",
+            "Commands typed after login, one per line; supports #select / #pagekey / #duplicate.");
+        leading["wsl_distro"] = Prop("string", "WSL distribution name; empty = default distribution.");
+        leading["wsl_start_directory"] = Prop("string", "Start directory inside WSL; empty = home.");
+        leading["notes"] = Prop("string", "Free-form note.");
+        leading["auto_open_monitor_panel"] = Prop("boolean", "Open the server monitor after login.");
+        leading["auto_open_file_browser_panel"] = Prop("boolean", "Open the file browser after login.");
+        return leading;
+    }
+
+    private static JsonObject CreateFields()
+    {
+        var properties = EditableFields(new JsonObject
+        {
+            ["folder"] = Prop("string", "Destination folder in the tree; empty = root."),
+            ["type"] = Prop("string", "ssh (default), wsl, or rdp."),
+        });
+        properties["open"] = Prop("boolean", "Open a session immediately after creating (default false).");
+        return properties;
+    }
 
     /// <summary>Every in-session tool takes the same addressing arguments.</summary>
     private static JsonObject SessionArgs(JsonObject? extra = null)

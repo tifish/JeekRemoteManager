@@ -792,6 +792,34 @@ internal static class DebugMcpServer
                 !afterSecret.Contains("EncryptedPassword", StringComparison.OrdinalIgnoreCase)
                 && !afterSecret.Contains("jrm1", StringComparison.OrdinalIgnoreCase));
 
+            var updated = ExtractToolText(await session.CallAsync(ToolCall(20, "connection_update", new JsonObject
+            {
+                ["connection"] = connection,
+                ["host"] = "10.0.0.9",
+                ["notes"] = "updated by probe",
+            })).ConfigureAwait(false));
+            Check("connection_update writes only the fields it was given",
+                updated.Contains("\"host\": \"10.0.0.9\"", StringComparison.Ordinal)
+                && updated.Contains("updated by probe", StringComparison.Ordinal)
+                && updated.Contains("\"username\": \"selftest\"", StringComparison.Ordinal));
+            Check("connection_update keeps the stored password", updated.Contains("\"hasPassword\": true", StringComparison.Ordinal));
+
+            var moved = ExtractToolText(await session.CallAsync(ToolCall(21, "connection_move", new JsonObject
+            {
+                ["connection"] = connection,
+                ["folder"] = folder + "/nested",
+            })).ConfigureAwait(false));
+            Check("connection_move relocates it in the tree",
+                moved.Contains($"\"connection\": \"{folder}/nested/probe\"", StringComparison.Ordinal));
+
+            var movedBack = ExtractToolText(await session.CallAsync(ToolCall(22, "connection_move", new JsonObject
+            {
+                ["connection"] = folder + "/nested/probe",
+                ["folder"] = folder,
+            })).ConfigureAwait(false));
+            Check("connection_move accepts the new path afterwards",
+                movedBack.Contains($"\"connection\": \"{connection}\"", StringComparison.Ordinal));
+
             var noSession = ExtractToolText(await session.CallAsync(ToolCall(7, "terminal_run", new JsonObject
             {
                 ["session"] = "nope/none",
