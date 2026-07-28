@@ -80,6 +80,12 @@ internal static class ProductMcpServer
         host.AddTool("connection_delete", ConnectionDeleteAsync);
         host.AddTool("connection_set_password", ConnectionSetPasswordAsync);
 
+        host.AddTool("folder_create", FolderCreateAsync);
+        host.AddTool("folder_delete", FolderDeleteAsync);
+
+        host.AddTool("script_list", _ => ScriptListAsync());
+        host.AddTool("script_run", ScriptRunAsync);
+
         host.AddTool("session_list", _ => SessionListAsync());
         host.AddTool("session_open", SessionOpenAsync);
         host.AddTool("session_close", args => SessionCommandAsync(args, close: true));
@@ -311,16 +317,9 @@ internal static class ProductMcpServer
             return (resolved, file, connection.Name);
         }).ConfigureAwait(false);
 
-        var confirmTask = await OnUiAsync(() =>
-        {
-            MainWindow.ActivateMainWindow();
-            return MainVm.ConfirmAsync?.Invoke(
-                       Localizer.Get("DialogDeleteTitle"),
-                       string.Format(Localizer.Get("DialogDeleteConnectionPrompt"), name))
-                   ?? Task.FromResult(false);
-        }).ConfigureAwait(false);
-
-        if (!await confirmTask.ConfigureAwait(false))
+        if (!await ConfirmInWindowAsync(
+                Localizer.Get("DialogDeleteTitle"),
+                string.Format(Localizer.Get("DialogDeleteConnectionPrompt"), name)).ConfigureAwait(false))
         {
             return ToolText(
                 $"The user declined deleting '{treePath}' in the JeekRemoteManager window.",
@@ -520,6 +519,209 @@ internal static class ProductMcpServer
 
     #endregion
 
+    #region Folders
+
+    private static async Task<JsonObject> FolderCreateAsync(JsonObject args)
+    {
+        var folder = NormalizeTreePath(McpHost.RequiredString(args, "folder"));
+        if (folder.Length == 0)
+            return ToolText("'folder' must name a folder below the tree root.", isError: true);
+
+        var created = await OnUiAsync(() =>
+        {
+            var root = MainVm.RootPath;
+            var path = Path.Combine(root, folder.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(path);
+            MainVm.ReloadTreeFromDisk(path);
+            return ToTreePath(root, path);
+        }).ConfigureAwait(false);
+
+        return ToolText(new JsonObject { ["status"] = "created", ["folder"] = created }.ToJsonString(PrettyOptions));
+    }
+
+    /// <summary>
+    /// Deletes a folder and everything under it, so it always goes through the same GUI
+    /// confirmation as deleting a connection.
+    /// </summary>
+    private static async Task<JsonObject> FolderDeleteAsync(JsonObject args)
+    {
+        var folder = NormalizeTreePath(McpHost.RequiredString(args, "folder"));
+        if (folder.Length == 0)
+            return ToolText("Refusing to delete the tree root.", isError: true);
+
+        var path = await OnUiAsync(() =>
+        {
+            var full = Path.Combine(MainVm.RootPath, folder.Replace('/', Path.DirectorySeparatorChar));
+            if (!Directory.Exists(full))
+                throw new InvalidOperationException($"No folder at '{folder}'.");
+            return full;
+        }).ConfigureAwait(false);
+
+        if (!await ConfirmInWindowAsync(
+                Localizer.Get("DialogDeleteTitle"),
+                string.Format(Localizer.Get("DialogDeleteFolderPrompt"), folder)).ConfigureAwait(false))
+        {
+            return ToolText(
+                $"The user declined deleting '{folder}' in the JeekRemoteManager window.",
+                isError: true);
+        }
+
+        await OnUiAsync(() =>
+        {
+            new ConnectionStore(MainVm.RootPath).DeleteFolder(path);
+            MainVm.ReloadTreeFromDisk();
+            return true;
+        }).ConfigureAwait(false);
+
+        return ToolText(new JsonObject { ["status"] = "deleted", ["folder"] = folder }.ToJsonString(PrettyOptions));
+    }
+
+    /// <summary>Brings the window forward and awaits the app's own confirmation dialog.</summary>
+    private static async Task<bool> ConfirmInWindowAsync(string title, string message)
+    {
+        var confirm = await OnUiAsync(() =>
+        {
+            MainWindow.ActivateMainWindow();
+            return MainVm.ConfirmAsync?.Invoke(title, message) ?? Task.FromResult(false);
+        }).ConfigureAwait(false);
+
+        return await confirm.ConfigureAwait(false);
+    }
+
+    #endregion
+
+    #region Scripts
+
+    private static async Task<JsonObject> ScriptListAsync()
+    {
+        var suites = await OnUiAsync(() => MainVm.ScriptSuites
+            .Select(suite => new JsonObject
+            {
+                ["suite"] = suite.Name,
+                ["source"] = suite.Source.ToString(),
+                ["scripts"] = new JsonArray(suite.Scripts
+                    .Select(JsonNode (script) => new JsonObject
+                    {
+                        ["script"] = script.Name,
+                        ["title"] = script.DisplayName,
+                    })
+                    .ToArray()),
+                // Parameter shapes only. Stored values are never returned: a Secret parameter
+                // holds a master-password-encrypted blob, and this surface is write-only.
+                ["parameters"] = new JsonArray(suite.Parameters
+                    .Select(JsonNode (parameter) => new JsonObject
+                    {
+                        ["name"] = parameter.Name,
+                        ["type"] = parameter.Type.ToString(),
+                        ["default"] = parameter.Type == RemoteScriptParameterType.Secret
+                            ? ""
+                            : parameter.DefaultValue,
+                        ["options"] = new JsonArray(parameter.EnumOptions.Select(JsonNode (o) => o).ToArray()),
+                    })
+                    .ToArray()),
+                ["errors"] = new JsonArray(suite.Errors.Select(JsonNode (e) => e).ToArray()),
+            })
+            .ToList()).ConfigureAwait(false);
+
+        var result = new JsonObject
+        {
+            ["count"] = suites.Count,
+            ["suites"] = new JsonArray(suites.Cast<JsonNode>().ToArray()),
+        };
+        return ToolText(result.ToJsonString(PrettyOptions));
+    }
+
+    /// <summary>
+    /// Runs one script of a suite on an open session. Parameter values come from the
+    /// connection's saved binding, with anything passed in <c>params</c> layered on top for
+    /// this run only — including secrets, which are accepted but never read back.
+    /// </summary>
+    private static async Task<JsonObject> ScriptRunAsync(JsonObject args)
+    {
+        var suiteName = McpHost.RequiredString(args, "suite");
+        var scriptName = McpHost.RequiredString(args, "script");
+        var overrides = args["params"] as JsonObject;
+
+        // Resolve the script before the session: a wrong suite name should be reported as
+        // such, not masked by "no session is open".
+        var (suite, scriptFile) = await OnUiAsync(() =>
+        {
+            var found = MainVm.ScriptSuites.FirstOrDefault(s =>
+                            string.Equals(s.Name, suiteName, StringComparison.OrdinalIgnoreCase))
+                        ?? throw new InvalidOperationException(
+                            $"No script suite '{suiteName}'. Call script_list.");
+
+            var file = found.Scripts.FirstOrDefault(s =>
+                           string.Equals(s.Name, scriptName, StringComparison.OrdinalIgnoreCase)
+                           || string.Equals(s.DisplayName, scriptName, StringComparison.OrdinalIgnoreCase))
+                       ?? throw new InvalidOperationException(
+                           $"Suite '{found.Name}' has no script '{scriptName}'. Call script_list.");
+
+            return (found, file);
+        }).ConfigureAwait(false);
+
+        var view = await ResolveSessionViewAsync(args).ConfigureAwait(false);
+        var binding = await OnUiAsync(() => BuildScriptBinding(suite, view.Connection, overrides))
+            .ConfigureAwait(false);
+
+        if (await OnUiAsync(() => view.IsScriptRunning).ConfigureAwait(false))
+            return ToolText("This session is already running a script; wait for it to finish.", isError: true);
+
+        var result = await view.RunScriptAsync(suite, scriptFile, binding).ConfigureAwait(false);
+
+        // The run streams into the session's terminal; hand back the tail so the agent can
+        // read what happened without a second round trip.
+        var tail = await view.AgentRemoteTools.GetScrollbackAsync(200).ConfigureAwait(false);
+        return ToolText(new JsonObject
+        {
+            ["suite"] = suite.Name,
+            ["script"] = scriptFile.Name,
+            ["exitCode"] = result.ExitCode,
+            ["seconds"] = Math.Round((result.FinishedAt - result.StartedAt).TotalSeconds, 1),
+            ["terminalTail"] = tail,
+        }.ToJsonString(PrettyOptions));
+    }
+
+    /// <summary>
+    /// Saved binding for this suite (secrets decrypted for the run) with the caller's
+    /// overrides layered on top. Nothing is written back to the connection.
+    /// </summary>
+    private static ConnectionScriptBinding BuildScriptBinding(
+        RemoteScriptSuite suite,
+        Connection? connection,
+        JsonObject? overrides)
+    {
+        var saved = connection?.ScriptBindings.FirstOrDefault(b => string.Equals(
+            RemoteScriptSuiteNames.NormalizeBindingName(b.Name),
+            RemoteScriptSuiteNames.NormalizeBindingName(suite.Name),
+            StringComparison.OrdinalIgnoreCase));
+
+        var binding = saved is null
+            ? new ConnectionScriptBinding { Name = suite.Name }
+            : RemoteScriptLauncher.UnprotectSecretValues(suite, RemoteScriptLauncher.CloneBinding(saved));
+
+        if (overrides is null)
+            return binding;
+
+        foreach (var (name, value) in overrides)
+        {
+            var text = value?.ToString() ?? "";
+            if (binding.Params.FirstOrDefault(p =>
+                    string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)) is { } existing)
+            {
+                existing.Value = text;
+            }
+            else
+            {
+                binding.Params.Add(new ConnectionScriptParameterValue { Name = name, Value = text });
+            }
+        }
+
+        return binding;
+    }
+
+    #endregion
+
     #region Sessions
 
     private static async Task<JsonObject> SessionListAsync()
@@ -602,8 +804,11 @@ internal static class ProductMcpServer
         return ToolText(report);
     }
 
+    private static async Task<IAgentRemoteTools> ResolveToolsAsync(JsonObject args) =>
+        (await ResolveSessionViewAsync(args).ConfigureAwait(false)).AgentRemoteTools;
+
     /// <summary>Resolves the session an in-session tool addresses, by id or by connection path.</summary>
-    private static async Task<IAgentRemoteTools> ResolveToolsAsync(JsonObject args)
+    private static async Task<TerminalView> ResolveSessionViewAsync(JsonObject args)
     {
         var id = args["session"]?.GetValue<string>();
         var connection = NormalizeTreePath(args["connection"]?.GetValue<string>());
@@ -617,7 +822,7 @@ internal static class ProductMcpServer
             if (!string.IsNullOrWhiteSpace(id))
             {
                 return sessions.FirstOrDefault(s => s.SessionId == id) is { View: not null } match
-                    ? match.View.AgentRemoteTools
+                    ? match.View
                     : throw new InvalidOperationException($"No open session '{id}'. Call session_list.");
             }
 
@@ -634,11 +839,11 @@ internal static class ProductMcpServer
                         $"'{connection}' has no open session. Call session_open first.");
                 }
 
-                return byConnection[0].View.AgentRemoteTools;
+                return byConnection[0].View;
             }
 
             if (sessions.Count == 1)
-                return sessions[0].View.AgentRemoteTools;
+                return sessions[0].View;
 
             throw new InvalidOperationException(
                 $"{sessions.Count} sessions are open; pass 'session' or 'connection'. Call session_list.");

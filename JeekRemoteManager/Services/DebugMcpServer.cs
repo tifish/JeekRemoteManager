@@ -749,6 +749,8 @@ internal static class DebugMcpServer
 
         try
         {
+            var connectionsRoot = await OnUiAsync(() =>
+                (Desktop?.MainWindow?.DataContext as ViewModels.MainWindowViewModel)?.RootPath ?? "");
             await using var session = await OpenPipeSessionAsync(pipeName).ConfigureAwait(false);
 
             var initialize = await session.CallAsync(
@@ -819,6 +821,37 @@ internal static class DebugMcpServer
             })).ConfigureAwait(false));
             Check("connection_move accepts the new path afterwards",
                 movedBack.Contains($"\"connection\": \"{connection}\"", StringComparison.Ordinal));
+
+            var folderCreated = ExtractToolText(await session.CallAsync(ToolCall(23, "folder_create", new JsonObject
+            {
+                ["folder"] = folder + "/made-by-probe",
+            })).ConfigureAwait(false));
+            Check("folder_create adds a tree folder",
+                folderCreated.Contains("\"status\": \"created\"", StringComparison.Ordinal)
+                && Directory.Exists(Path.Combine(
+                    connectionsRoot, folder, "made-by-probe")));
+
+            var scripts = ExtractToolText(await session.CallAsync(ToolCall(24, "script_list", new JsonObject()))
+                .ConfigureAwait(false));
+            var scriptsNode = JsonNode.Parse(scripts);
+            var suites = scriptsNode?["suites"] as JsonArray ?? [];
+            Check("script_list returns suites with their scripts and parameters",
+                suites.Count > 0
+                && suites.Any(suite => suite?["scripts"] is JsonArray { Count: > 0 })
+                && suites.All(suite => suite?["suite"] is not null && suite["parameters"] is JsonArray));
+            Check("script_list returns no stored parameter values",
+                suites.All(suite => (suite?["parameters"] as JsonArray ?? [])
+                    .All(parameter => parameter?["type"]?.GetValue<string>() != "Secret"
+                                      || (parameter["default"]?.GetValue<string>() ?? "").Length == 0)));
+
+            var badSuite = ExtractToolText(await session.CallAsync(ToolCall(25, "script_run", new JsonObject
+            {
+                ["connection"] = connection,
+                ["suite"] = "no-such-suite",
+                ["script"] = "nope",
+            })).ConfigureAwait(false));
+            Check("script_run rejects an unknown suite and points at script_list",
+                badSuite.Contains("script_list", StringComparison.Ordinal));
 
             var noSession = ExtractToolText(await session.CallAsync(ToolCall(7, "terminal_run", new JsonObject
             {

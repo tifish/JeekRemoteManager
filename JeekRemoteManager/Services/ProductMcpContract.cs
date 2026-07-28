@@ -83,6 +83,40 @@ public static class ProductMcpContract
             },
             ["connection"]),
 
+        // --- Tree folders ---
+        Tool("folder_create",
+            "Create a folder in the connection tree, including any missing parents.",
+            new() { ["folder"] = Prop("string", "Folder path, e.g. 'vps/asia'.") },
+            ["folder"]),
+        Tool("folder_delete",
+            "Delete a folder and everything inside it. Always asks the user to confirm in the "
+            + "JeekRemoteManager window first; returns an error if they decline.",
+            new() { ["folder"] = Prop("string", "Folder path to delete.") },
+            ["folder"]),
+
+        // --- Reusable server scripts ---
+        Tool("script_list",
+            "Reusable server scripts, grouped into suites: the scripts each suite contains and the "
+            + "parameters it declares (name, type, default, enum options). Values stored for a "
+            + "connection are never returned, and Secret parameters report no default.",
+            new()),
+        Tool("script_run",
+            "Run one script of a suite on an open session. Parameter values come from that "
+            + "connection's saved binding; anything in 'params' overrides them for this run only "
+            + "and is not saved. The script runs in the session's shell, so its output also "
+            + "appears in the terminal.",
+            SessionArgs(new()
+            {
+                ["suite"] = Prop("string", "Suite name from script_list."),
+                ["script"] = Prop("string", "Script name (or its display title) inside that suite."),
+                ["params"] = new JsonObject
+                {
+                    ["type"] = "object",
+                    ["description"] = "Parameter overrides as name/value pairs, for this run only.",
+                },
+            }),
+            ["suite", "script"]),
+
         // --- Session lifecycle (GUI actions) ---
         Tool("session_list",
             "Terminal tabs currently open, with their session id, connection, and live state. " + SessionHelp,
