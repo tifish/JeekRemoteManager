@@ -52,6 +52,35 @@ public static class KnownHostsStore
         }
     }
 
+    /// <summary>Every trusted host, keyed by <c>host:port</c>, with its SHA256 fingerprint.</summary>
+    public static IReadOnlyDictionary<string, string> All()
+    {
+        lock (Gate)
+        {
+            using var lease = SharedDataFile.Acquire(FilePath);
+            return new Dictionary<string, string>(Load(), StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>
+    /// Drops a stored fingerprint, the equivalent of <c>ssh-keygen -R</c>: the next connection
+    /// to that host is treated as new instead of failing the mismatch check. Returns false
+    /// when nothing was stored for it.
+    /// </summary>
+    public static bool Forget(string host, int port)
+    {
+        lock (Gate)
+        {
+            using var lease = SharedDataFile.Acquire(FilePath);
+            var map = Load();
+            if (!map.Remove(Key(host, port)))
+                return false;
+
+            Save(map);
+            return true;
+        }
+    }
+
     /// <summary>Records a host's SHA256 fingerprint as trusted.</summary>
     public static void Trust(string host, int port, string fingerprintSha256)
     {

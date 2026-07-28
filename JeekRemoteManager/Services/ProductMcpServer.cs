@@ -82,6 +82,11 @@ internal static class ProductMcpServer
 
         host.AddTool("folder_create", FolderCreateAsync);
         host.AddTool("folder_delete", FolderDeleteAsync);
+        host.AddTool("folder_move", FolderMoveAsync);
+
+        host.AddTool("connections_import", ConnectionsImportAsync);
+        host.AddTool("known_hosts_list", _ => KnownHostsListAsync());
+        host.AddTool("known_hosts_forget", KnownHostsForgetAsync);
 
         host.AddTool("script_list", _ => ScriptListAsync());
         host.AddTool("script_run", ScriptRunAsync);
@@ -578,6 +583,151 @@ internal static class ProductMcpServer
         return ToolText(new JsonObject { ["status"] = "deleted", ["folder"] = folder }.ToJsonString(PrettyOptions));
     }
 
+    /// <summary>Moves a folder under another parent, or renames it in place.</summary>
+    private static async Task<JsonObject> FolderMoveAsync(JsonObject args)
+    {
+        var folder = NormalizeTreePath(McpHost.RequiredString(args, "folder"));
+        if (folder.Length == 0)
+            return ToolText("Refusing to move the tree root.", isError: true);
+
+        var parent = args["parent"]?.GetValue<string>() is { } value ? NormalizeTreePath(value) : null;
+        var newName = args["name"]?.GetValue<string>()?.Trim();
+        if (parent is null && string.IsNullOrEmpty(newName))
+            return ToolText("Pass 'parent' to move the folder, 'name' to rename it, or both.", isError: true);
+
+        var moved = await OnUiAsync(() =>
+        {
+            var root = MainVm.RootPath;
+            var store = new ConnectionStore(root);
+            var path = Path.Combine(root, folder.Replace('/', Path.DirectorySeparatorChar));
+            if (!Directory.Exists(path))
+                throw new InvalidOperationException($"No folder at '{folder}'.");
+
+            if (parent is not null)
+            {
+                var targetParent = parent.Length == 0
+                    ? root
+                    : Path.Combine(root, parent.Replace('/', Path.DirectorySeparatorChar));
+                if (ConnectionStore.IsSameOrInside(path, targetParent))
+                    throw new InvalidOperationException("A folder cannot be moved inside itself.");
+
+                Directory.CreateDirectory(targetParent);
+                path = store.MoveFolderInto(path, targetParent);
+            }
+
+            if (!string.IsNullOrEmpty(newName))
+                path = store.RenameFolder(path, newName);
+
+            MainVm.ReloadTreeFromDisk(path);
+            return ToTreePath(root, path);
+        }).ConfigureAwait(false);
+
+        return ToolText(new JsonObject { ["status"] = "moved", ["folder"] = moved }.ToJsonString(PrettyOptions));
+    }
+
+    #endregion
+
+    #region Import and host keys
+
+    /// <summary>
+    /// Bulk-imports connections from another SSH client. Existing connections are left alone;
+    /// the importer skips duplicates rather than overwriting them.
+    /// </summary>
+    private static async Task<JsonObject> ConnectionsImportAsync(JsonObject args)
+    {
+        var source = McpHost.RequiredString(args, "source").Trim().ToLowerInvariant();
+        var path = McpHost.RequiredString(args, "path").Trim();
+        if (!Directory.Exists(path))
+            return ToolText($"No folder at '{path}'.", isError: true);
+
+        var report = await OnUiAsync(() =>
+        {
+            var store = new ConnectionStore(MainVm.RootPath);
+            var result = new JsonObject { ["source"] = source, ["path"] = path };
+            switch (source)
+            {
+                case "xshell":
+                {
+                    var imported = new XshellImporter(store).Import(path);
+                    result["imported"] = imported.Imported;
+                    result["skipped"] = imported.Skipped;
+                    result["folders"] = imported.Folders;
+                    result["passwordsImported"] = imported.PasswordsImported;
+                    break;
+                }
+
+                case "securecrt":
+                {
+                    var imported = new SecureCrtImporter(store).Import(path);
+                    result["imported"] = imported.Imported;
+                    result["skipped"] = imported.Skipped;
+                    result["folders"] = imported.Folders;
+                    result["passwordsImported"] = imported.PasswordsImported;
+                    break;
+                }
+
+                case "finalshell":
+                {
+                    var imported = new FinalShellImporter(store).Import(path);
+                    result["imported"] = imported.Imported;
+                    result["skipped"] = imported.Skipped;
+                    result["folders"] = imported.Folders;
+                    // FinalShell passwords cannot be decrypted; the user fills them in later.
+                    result["passwordsImported"] = 0;
+                    break;
+                }
+
+                default:
+                    throw new InvalidOperationException(
+                        $"Unknown source '{source}'. Use xshell, securecrt, or finalshell.");
+            }
+
+            MainVm.ReloadTreeFromDisk();
+            return result;
+        }).ConfigureAwait(false);
+
+        return ToolText(report.ToJsonString(PrettyOptions));
+    }
+
+    private static async Task<JsonObject> KnownHostsListAsync()
+    {
+        var hosts = await Task.Run(() => KnownHostsStore.All()
+            .OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(JsonNode (entry) => new JsonObject
+            {
+                ["host"] = entry.Key,
+                ["fingerprint"] = entry.Value,
+            })
+            .ToArray()).ConfigureAwait(false);
+
+        return ToolText(new JsonObject
+        {
+            ["count"] = hosts.Length,
+            ["hosts"] = new JsonArray(hosts),
+        }.ToJsonString(PrettyOptions));
+    }
+
+    /// <summary>
+    /// Drops a stored host fingerprint, the equivalent of <c>ssh-keygen -R</c> — what you need
+    /// after a server is rebuilt and its key legitimately changed.
+    /// </summary>
+    private static async Task<JsonObject> KnownHostsForgetAsync(JsonObject args)
+    {
+        var host = McpHost.RequiredString(args, "host").Trim();
+        var port = args["port"]?.GetValue<int>() ?? 22;
+
+        var forgotten = await Task.Run(() => KnownHostsStore.Forget(host, port)).ConfigureAwait(false);
+        return ToolText(new JsonObject
+        {
+            ["status"] = forgotten ? "forgotten" : "not_stored",
+            ["host"] = $"{host}:{port}",
+        }.ToJsonString(PrettyOptions));
+    }
+
+    #endregion
+
+    #region Scripts
+
     /// <summary>Brings the window forward and awaits the app's own confirmation dialog.</summary>
     private static async Task<bool> ConfirmInWindowAsync(string title, string message)
     {
@@ -590,9 +740,6 @@ internal static class ProductMcpServer
         return await confirm.ConfigureAwait(false);
     }
 
-    #endregion
-
-    #region Scripts
 
     private static async Task<JsonObject> ScriptListAsync()
     {

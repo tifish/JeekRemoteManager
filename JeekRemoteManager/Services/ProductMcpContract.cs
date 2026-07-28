@@ -94,6 +94,41 @@ public static class ProductMcpContract
             new() { ["folder"] = Prop("string", "Folder path to delete.") },
             ["folder"]),
 
+        Tool("folder_move",
+            "Move a folder under another parent, rename it, or both.",
+            new()
+            {
+                ["folder"] = Prop("string", "Folder path to move."),
+                ["parent"] = Prop("string", "New parent folder; empty string = tree root."),
+                ["name"] = Prop("string", "New folder name."),
+            },
+            ["folder"]),
+
+        // --- Migration and host keys ---
+        Tool("connections_import",
+            "Bulk-import connections from another SSH client. Existing connections are left "
+            + "alone — duplicates are skipped, not overwritten. FinalShell passwords cannot be "
+            + "decrypted and must be filled in afterwards.",
+            new()
+            {
+                ["source"] = Prop("string", "xshell, securecrt, or finalshell."),
+                ["path"] = Prop("string", "That client's sessions folder on this machine."),
+            },
+            ["source", "path"]),
+        Tool("known_hosts_list",
+            "Trusted SSH host-key fingerprints, keyed by host:port.",
+            new()),
+        Tool("known_hosts_forget",
+            "Drop a stored host fingerprint — the equivalent of ssh-keygen -R, for when a server "
+            + "was rebuilt and its key legitimately changed. The next connection is then treated "
+            + "as first contact instead of failing the mismatch check.",
+            new()
+            {
+                ["host"] = Prop("string", "Host name or IP as saved on the connection."),
+                ["port"] = Prop("integer", "TCP port; default 22."),
+            },
+            ["host"]),
+
         // --- Reusable server scripts ---
         Tool("script_list",
             "Reusable server scripts, grouped into suites: the scripts each suite contains and the "

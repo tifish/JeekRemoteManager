@@ -874,6 +874,37 @@ internal static class DebugMcpServer
             Check("public_key_install rejects a missing key file",
                 keyMissing.Contains("No public key file", StringComparison.Ordinal));
 
+            var folderMoved = ExtractToolText(await session.CallAsync(ToolCall(28, "folder_move", new JsonObject
+            {
+                ["folder"] = folder + "/made-by-probe",
+                ["name"] = "renamed-by-probe",
+            })).ConfigureAwait(false));
+            Check("folder_move renames a folder in place",
+                folderMoved.Contains("renamed-by-probe", StringComparison.Ordinal)
+                && Directory.Exists(Path.Combine(connectionsRoot, folder, "renamed-by-probe")));
+
+            var importBadSource = ExtractToolText(await session.CallAsync(ToolCall(29, "connections_import", new JsonObject
+            {
+                ["source"] = "putty",
+                ["path"] = connectionsRoot,
+            })).ConfigureAwait(false));
+            Check("connections_import names the sources it supports",
+                importBadSource.Contains("xshell", StringComparison.Ordinal)
+                && importBadSource.Contains("finalshell", StringComparison.Ordinal));
+
+            var hosts = ExtractToolText(await session.CallAsync(ToolCall(30, "known_hosts_list", new JsonObject()))
+                .ConfigureAwait(false));
+            Check("known_hosts_list returns the trusted fingerprints",
+                JsonNode.Parse(hosts)?["hosts"] is JsonArray);
+
+            var forget = ExtractToolText(await session.CallAsync(ToolCall(31, "known_hosts_forget", new JsonObject
+            {
+                ["host"] = "no-such-host.invalid",
+                ["port"] = 22,
+            })).ConfigureAwait(false));
+            Check("known_hosts_forget reports an unknown host instead of failing",
+                forget.Contains("not_stored", StringComparison.Ordinal));
+
             var noSession = ExtractToolText(await session.CallAsync(ToolCall(7, "terminal_run", new JsonObject
             {
                 ["session"] = "nope/none",
