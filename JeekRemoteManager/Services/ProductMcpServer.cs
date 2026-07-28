@@ -85,6 +85,8 @@ internal static class ProductMcpServer
 
         host.AddTool("script_list", _ => ScriptListAsync());
         host.AddTool("script_run", ScriptRunAsync);
+        host.AddTool("script_run_batch", ScriptRunBatchAsync);
+        host.AddTool("public_key_install", PublicKeyInstallAsync);
 
         host.AddTool("session_list", _ => SessionListAsync());
         host.AddTool("session_open", SessionOpenAsync);
@@ -644,21 +646,7 @@ internal static class ProductMcpServer
 
         // Resolve the script before the session: a wrong suite name should be reported as
         // such, not masked by "no session is open".
-        var (suite, scriptFile) = await OnUiAsync(() =>
-        {
-            var found = MainVm.ScriptSuites.FirstOrDefault(s =>
-                            string.Equals(s.Name, suiteName, StringComparison.OrdinalIgnoreCase))
-                        ?? throw new InvalidOperationException(
-                            $"No script suite '{suiteName}'. Call script_list.");
-
-            var file = found.Scripts.FirstOrDefault(s =>
-                           string.Equals(s.Name, scriptName, StringComparison.OrdinalIgnoreCase)
-                           || string.Equals(s.DisplayName, scriptName, StringComparison.OrdinalIgnoreCase))
-                       ?? throw new InvalidOperationException(
-                           $"Suite '{found.Name}' has no script '{scriptName}'. Call script_list.");
-
-            return (found, file);
-        }).ConfigureAwait(false);
+        var (suite, scriptFile) = await ResolveScriptAsync(suiteName, scriptName).ConfigureAwait(false);
 
         var view = await ResolveSessionViewAsync(args).ConfigureAwait(false);
         var binding = await OnUiAsync(() => BuildScriptBinding(suite, view.Connection, overrides))
@@ -679,6 +667,140 @@ internal static class ProductMcpServer
             ["exitCode"] = result.ExitCode,
             ["seconds"] = Math.Round((result.FinishedAt - result.StartedAt).TotalSeconds, 1),
             ["terminalTail"] = tail,
+        }.ToJsonString(PrettyOptions));
+    }
+
+    /// <summary>
+    /// Runs one script across several connections — the "apply this to all of them" case.
+    /// Sessions are opened as needed, each connection keeps its own saved parameter binding,
+    /// and one failure does not stop the rest.
+    /// </summary>
+    private static async Task<JsonObject> ScriptRunBatchAsync(JsonObject args)
+    {
+        var suiteName = McpHost.RequiredString(args, "suite");
+        var scriptName = McpHost.RequiredString(args, "script");
+        var overrides = args["params"] as JsonObject;
+        var openMissing = args["open_missing"]?.GetValue<bool>() ?? true;
+        var sequential = args["sequential"]?.GetValue<bool>() ?? false;
+
+        var connections = (args["connections"] as JsonArray)?
+            .Select(node => NormalizeTreePath(node?.GetValue<string>()))
+            .Where(path => path.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? [];
+        if (connections.Count == 0)
+            return ToolText("'connections' must list at least one connection tree path.", isError: true);
+
+        var (suite, scriptFile) = await ResolveScriptAsync(suiteName, scriptName).ConfigureAwait(false);
+
+        async Task<JsonObject> RunOneAsync(string path)
+        {
+            var entry = new JsonObject { ["connection"] = path };
+            try
+            {
+                var view = await ResolveOrOpenSessionAsync(path, openMissing).ConfigureAwait(false);
+                var binding = await OnUiAsync(() => BuildScriptBinding(suite, view.Connection, overrides))
+                    .ConfigureAwait(false);
+                var result = await view.RunScriptAsync(suite, scriptFile, binding).ConfigureAwait(false);
+
+                entry["status"] = result.ExitCode == 0 ? "ok" : "failed";
+                entry["exitCode"] = result.ExitCode;
+                entry["seconds"] = Math.Round((result.FinishedAt - result.StartedAt).TotalSeconds, 1);
+            }
+            catch (Exception ex)
+            {
+                entry["status"] = "error";
+                entry["error"] = ex.Message;
+            }
+
+            return entry;
+        }
+
+        var results = new List<JsonObject>(connections.Count);
+        if (sequential)
+        {
+            foreach (var path in connections)
+                results.Add(await RunOneAsync(path).ConfigureAwait(false));
+        }
+        else
+        {
+            // Each session owns its own shell and script lock, so the default is all at once.
+            results.AddRange(await Task.WhenAll(connections.Select(RunOneAsync)).ConfigureAwait(false));
+        }
+
+        return ToolText(new JsonObject
+        {
+            ["suite"] = suite.Name,
+            ["script"] = scriptFile.Name,
+            ["succeeded"] = results.Count(r => r["status"]?.GetValue<string>() == "ok"),
+            ["total"] = results.Count,
+            ["results"] = new JsonArray(results.Cast<JsonNode>().ToArray()),
+        }.ToJsonString(PrettyOptions));
+    }
+
+    private static Task<(RemoteScriptSuite Suite, RemoteScriptFile Script)> ResolveScriptAsync(
+        string suiteName,
+        string scriptName) =>
+        OnUiAsync(() =>
+        {
+            var found = MainVm.ScriptSuites.FirstOrDefault(s =>
+                            string.Equals(s.Name, suiteName, StringComparison.OrdinalIgnoreCase))
+                        ?? throw new InvalidOperationException(
+                            $"No script suite '{suiteName}'. Call script_list.");
+
+            var file = found.Scripts.FirstOrDefault(s =>
+                           string.Equals(s.Name, scriptName, StringComparison.OrdinalIgnoreCase)
+                           || string.Equals(s.DisplayName, scriptName, StringComparison.OrdinalIgnoreCase))
+                       ?? throw new InvalidOperationException(
+                           $"Suite '{found.Name}' has no script '{scriptName}'. Call script_list.");
+
+            return (found, file);
+        });
+
+    /// <summary>Existing session for a connection, opening one when allowed.</summary>
+    private static async Task<TerminalView> ResolveOrOpenSessionAsync(string connectionPath, bool openMissing)
+    {
+        var existing = await OnUiAsync(() => MainWindow.EnumerateTerminalSessions()
+            .FirstOrDefault(s => s.SessionId == connectionPath
+                                 || s.SessionId.StartsWith(connectionPath + " (", StringComparison.OrdinalIgnoreCase))
+            .View).ConfigureAwait(false);
+        if (existing is not null)
+            return existing;
+
+        if (!openMissing)
+            throw new InvalidOperationException($"'{connectionPath}' has no open session.");
+
+        return await OnUiAsync(() =>
+        {
+            var (connection, _, filePath) = LoadConnection(connectionPath);
+            var sessionId = MainWindow.OpenTerminalSession(connection, filePath, duplicate: false, activate: false);
+            return MainWindow.EnumerateTerminalSessions().First(s => s.SessionId == sessionId).View;
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Installs a local public key into the session's remote account. Idempotent: an
+    /// already-present key is reported, not duplicated.
+    /// </summary>
+    private static async Task<JsonObject> PublicKeyInstallAsync(JsonObject args)
+    {
+        var keyPath = args["public_key_path"]?.GetValue<string>();
+        var keyText = args["public_key"]?.GetValue<string>();
+        if (string.IsNullOrWhiteSpace(keyText))
+        {
+            if (string.IsNullOrWhiteSpace(keyPath))
+                return ToolText("Pass either 'public_key' or 'public_key_path'.", isError: true);
+            if (!File.Exists(keyPath))
+                return ToolText($"No public key file at '{keyPath}'.", isError: true);
+            keyText = await File.ReadAllTextAsync(keyPath).ConfigureAwait(false);
+        }
+
+        var view = await ResolveSessionViewAsync(args).ConfigureAwait(false);
+        var result = await view.InstallPublicKeyAsync(keyText).ConfigureAwait(false);
+        return ToolText(new JsonObject
+        {
+            ["status"] = result.AlreadyPresent ? "already_present" : "installed",
+            ["output"] = result.Output,
         }.ToJsonString(PrettyOptions));
     }
 

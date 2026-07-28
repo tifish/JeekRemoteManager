@@ -853,6 +853,27 @@ internal static class DebugMcpServer
             Check("script_run rejects an unknown suite and points at script_list",
                 badSuite.Contains("script_list", StringComparison.Ordinal));
 
+            var batch = ExtractToolText(await session.CallAsync(ToolCall(26, "script_run_batch", new JsonObject
+            {
+                ["connections"] = new JsonArray(connection, "nope/missing"),
+                ["suite"] = "Demo",
+                ["script"] = "print-all.sh",
+                ["open_missing"] = false,
+            })).ConfigureAwait(false));
+            Check("script_run_batch reports one result per connection",
+                JsonNode.Parse(batch)?["results"] is JsonArray { Count: 2 });
+            Check("script_run_batch keeps going after a failed connection",
+                batch.Contains("\"total\": 2", StringComparison.Ordinal)
+                && batch.Contains("has no open session", StringComparison.Ordinal));
+
+            var keyMissing = ExtractToolText(await session.CallAsync(ToolCall(27, "public_key_install", new JsonObject
+            {
+                ["connection"] = connection,
+                ["public_key_path"] = "Z:\no-such-key.pub",
+            })).ConfigureAwait(false));
+            Check("public_key_install rejects a missing key file",
+                keyMissing.Contains("No public key file", StringComparison.Ordinal));
+
             var noSession = ExtractToolText(await session.CallAsync(ToolCall(7, "terminal_run", new JsonObject
             {
                 ["session"] = "nope/none",

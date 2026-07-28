@@ -117,6 +117,37 @@ public static class ProductMcpContract
             }),
             ["suite", "script"]),
 
+        Tool("script_run_batch",
+            "Run one script across several connections — the 'apply this to all of them' case. "
+            + "Sessions are opened as needed, each connection keeps its own saved parameter "
+            + "binding, and one failure does not stop the rest. Returns a per-connection result.",
+            new()
+            {
+                ["connections"] = new JsonObject
+                {
+                    ["type"] = "array",
+                    ["description"] = "Connection tree paths to run on.",
+                },
+                ["suite"] = Prop("string", "Suite name from script_list."),
+                ["script"] = Prop("string", "Script name (or its display title) inside that suite."),
+                ["params"] = new JsonObject
+                {
+                    ["type"] = "object",
+                    ["description"] = "Parameter overrides applied to every connection, for this run only.",
+                },
+                ["open_missing"] = Prop("boolean", "Open a session for connections that have none (default true)."),
+                ["sequential"] = Prop("boolean", "Run one connection at a time instead of all at once (default false)."),
+            },
+            ["connections", "suite", "script"]),
+        Tool("public_key_install",
+            "Append a local SSH public key to the session account's authorized_keys. Idempotent: "
+            + "an already-present key is reported rather than duplicated.",
+            SessionArgs(new()
+            {
+                ["public_key"] = Prop("string", "The key text itself (ssh-ed25519 …)."),
+                ["public_key_path"] = Prop("string", "Or a local .pub file to read it from."),
+            })),
+
         // --- Session lifecycle (GUI actions) ---
         Tool("session_list",
             "Terminal tabs currently open, with their session id, connection, and live state. " + SessionHelp,
