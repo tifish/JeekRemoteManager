@@ -55,6 +55,14 @@ public static class DebugInstanceContext
 
     public static string DiscoveryPath => Path.Combine(AppContext.BaseDirectory, "debug-mcp.json");
 
+    /// <summary>Named pipe for the Debug MCP surface (object graph, probes).</summary>
+    public static string DebugMcpPipeName { get; } =
+        McpPipeNames.Debug(IsDebugBuild ? InstanceId : null);
+
+    /// <summary>Named pipe for the product MCP surface shipped to end users.</summary>
+    public static string ProductMcpPipeName { get; } =
+        McpPipeNames.Product(IsDebugBuild ? InstanceId : null);
+
     private static string _mcpUrl = "";
     private static string _configRoot = SettingsService.ResolveConfigRoot(JeekTools.StorageLocation.UserDirectory);
 
@@ -86,9 +94,10 @@ public static class DebugInstanceContext
         ? $"{title} [Debug: {InstanceLabel}]"
         : title;
 
+    /// <summary>Shared with the JrmMcp adapter through <see cref="McpPipeNames"/> so both
+    /// sides derive the same instance id from the same executable folder.</summary>
     public static string CreateInstanceId(string executableDirectory) =>
-        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
-            NormalizePath(executableDirectory))))[..12].ToLowerInvariant();
+        McpPipeNames.InstanceId(executableDirectory);
 
     public static bool IsCurrentExecutable(string? executablePath)
     {

@@ -7,7 +7,9 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Jeek.Avalonia.Localization;
 using JeekRemoteManager.Services;
 using JeekRemoteManager.ViewModels;
 using SvcSystems.UI.Terminal;
@@ -257,6 +259,39 @@ public partial class AgentCliPanelView : UserControl
             $"max={_model.MaxScrollback} alt={_model.Terminal.IsAlternateBufferActive} " +
             $"mouseMode={_model.IsMouseModeActive} atBottom={_model.Terminal.Buffer.IsAtBottom} " +
             $"follow={_followOutput} pin={_pinnedYDisp}";
+    }
+
+    /// <summary>
+    /// Asks for a local project folder and writes this connection's reference block plus MCP
+    /// entry into it, so agents started there can drive the connection. A one-shot write:
+    /// the entry launches the local adapter, so there is nothing to keep in sync afterwards.
+    /// </summary>
+    private void OnWriteToProjectClick(object? sender, RoutedEventArgs e) =>
+        _ = PickProjectFolderAsync("AiLinkProjectTitle", path => _vm?.WriteToProject(path));
+
+    /// <summary>Takes this connection back out of a project folder the user picks.</summary>
+    private void OnRemoveFromProjectClick(object? sender, RoutedEventArgs e) =>
+        _ = PickProjectFolderAsync("AiUnlinkProjectTitle", path => _vm?.RemoveFromProject(path));
+
+    private async Task PickProjectFolderAsync(string titleKey, Action<string> action)
+    {
+        if (_vm is null || TopLevel.GetTopLevel(this) is not { } topLevel)
+            return;
+
+        try
+        {
+            var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            {
+                Title = Localizer.Get(titleKey),
+                AllowMultiple = false,
+            });
+            if (folders.Count > 0 && folders[0].TryGetLocalPath() is { Length: > 0 } path)
+                action(path);
+        }
+        catch (Exception ex)
+        {
+            _vm.StatusText = string.Format(Localizer.Get("AiLinkProjectFailed"), ex.Message);
+        }
     }
 
     private void OnCloseClick(object? sender, RoutedEventArgs e) =>

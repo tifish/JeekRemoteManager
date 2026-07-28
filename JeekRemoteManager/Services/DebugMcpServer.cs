@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Pipes;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
@@ -22,13 +23,15 @@ using ZLogger;
 namespace JeekRemoteManager.Services;
 
 /// <summary>
-/// App-specific configuration over the generic <see cref="DebugMcpHost"/> in
+/// App-specific configuration over the generic <see cref="McpHost"/> in
 /// JeekTools: object-graph roots (App/Desktop/MainWindow/MainVm), '#Name'
 /// visual-tree lookup, the Avalonia tools (visual_tree, screenshot), the app
 /// probe tools, and the instance discovery file. Compiled into all
 /// configurations so Debug and Release behave identically, but the listener
-/// only starts in Debug builds. Registered for agents through the repo MCP
-/// bridge (port overridable via JRM_MCP_PORT).
+/// only starts in Debug builds. Agents reach it through <c>bin\JrmMcp.exe
+/// --surface debug</c>, which forwards stdio to this instance's named pipe —
+/// the pipe name carries the worktree's instance id, so parallel Debug builds
+/// never answer for each other and there is no port to collide over.
 /// </summary>
 internal static class DebugMcpServer
 {
@@ -55,35 +58,43 @@ internal static class DebugMcpServer
                 $"'#{name}' requires a Visual; {target.GetType().Name} is not one."),
     });
 
-    private static readonly DebugMcpHost Host = CreateHost();
+    private static readonly McpHost Host = CreateHost();
 
-    public static void Start() => Host.Start();
+    public static void Start()
+    {
+        Host.Start();
+        OnEndpointChanged();
+    }
 
-    public static void Stop() => Host.Stop();
+    public static void Stop()
+    {
+        Host.Stop();
+        OnEndpointChanged();
+    }
 
     public static void RefreshDiscovery()
     {
-        if (Host.Url.Length > 0)
+        if (Host.PipeName.Length > 0)
             WriteDiscovery();
     }
 
-    private static DebugMcpHost CreateHost()
+    private static McpHost CreateHost()
     {
-        var host = new DebugMcpHost(new DebugMcpHostOptions
+        var host = new McpHost(new McpHostOptions
         {
             ServerName = "jeek-remote-manager-debug",
             ServerTitle = "JeekRemoteManager Debug Server",
             Graph = Graph,
             GetVersion = () => $"{AutoUpdateService.GetLocalCommitCount()}",
             Enabled = ListeningEnabled,
-            DefaultPort = 8737,
-            PortEnvironmentVariable = "JRM_MCP_PORT",
-            PortMutexPrefix = "JeekRemoteManager.DebugMcp.Port.",
+            // Named pipe only: no port to collide over between worktree instances, and
+            // nothing for the JRM_MCP_PORT workaround to disambiguate any more.
+            PipeName = DebugInstanceContext.DebugMcpPipeName,
+            DefaultPort = 0,
             UiInvoker = func => Dispatcher.UIThread.InvokeAsync(func).GetTask()
                 .WaitAsync(TimeSpan.FromSeconds(15)),
             Describe = BuildDescribeText,
             ToolListProvider = DebugMcpContract.BuildToolList,
-            UrlChanged = OnUrlChanged,
         });
 
         host.AddTool("visual_tree", VisualTreeAsync);
@@ -96,23 +107,27 @@ internal static class DebugMcpServer
         host.AddTool("login_menu_select_probe", LoginMenuSelectProbeAsync);
         host.AddTool("auto_update_stage_check", AutoUpdateStageCheckAsync);
         host.AddTool("ai_render_probe", AiRenderProbeAsync);
+        host.AddTool("agent_project_link_check", AgentProjectLinkCheckAsync);
+        host.AddTool("mcp_transport_check", _ => McpTransportCheckAsync());
+        host.AddTool("product_mcp_check", _ => ProductMcpCheckAsync());
         return host;
     }
 
     private static Task<T> OnUiAsync<T>(Func<T> func) => Host.OnUiAsync(func);
 
     private static JsonObject ToolText(string text, bool isError = false) =>
-        DebugMcpHost.ToolText(text, isError);
+        McpHost.ToolText(text, isError);
 
     #region Discovery
 
-    private static void OnUrlChanged(string url)
+    private static void OnEndpointChanged()
     {
-        DebugInstanceContext.SetMcpUrl(url);
-        if (url.Length > 0)
+        var endpoint = Host.PipeName.Length > 0 ? $@"\\.\pipe\{Host.PipeName}" : Host.Url;
+        DebugInstanceContext.SetMcpUrl(endpoint);
+        if (endpoint.Length > 0)
         {
             WriteDiscovery();
-            Log.ZLogInformation($"Debug MCP server listening on {url} for {DebugInstanceContext.InstanceLabel}");
+            Log.ZLogInformation($"Debug MCP listening on {endpoint} for {DebugInstanceContext.InstanceLabel}");
         }
         else
         {
@@ -128,6 +143,7 @@ internal static class DebugMcpServer
             var discovery = new DebugMcpDiscovery
             {
                 Url = Host.Url,
+                PipeName = Host.PipeName,
                 ProcessId = Environment.ProcessId,
                 ExecutablePath = Environment.ProcessPath ?? "",
                 InstanceId = info.InstanceId,
@@ -408,10 +424,10 @@ internal static class DebugMcpServer
                         + $"loginInputPending={terminal.IsLoginManualInputPending}");
                     sb.AppendLine($"status={ai.StatusText}");
                     sb.AppendLine($"workspace={ai.WorkingDirectory}");
-                    sb.AppendLine($"mcpUrl={terminal.AgentRemoteMcpUrl ?? "(none)"}");
+                    sb.AppendLine($"mcpPipe={ProductMcpServer.PipeName}");
                     sb.AppendLine(
-                        "dangerProbe=" + (terminal.AgentRemoteMcp?.RequiresDangerConfirmation(
-                            "rm -rf /tmp/jrm-debug-probe", dangerTagged: false).ToString() ?? "(n/a)"));
+                        "dangerProbe="
+                        + DangerousCommandDetector.IsDangerous("rm -rf /tmp/jrm-debug-probe"));
                     // Session attach state (TabControl unload/reload wiring).
                     sb.AppendLine($"outputStats={terminal.DebugAiOutputStats ?? "(n/a)"}");
                     sb.AppendLine($"headerHeight={terminal.DebugAiHeaderHeight?.ToString("0.#") ?? "(n/a)"}");
@@ -654,6 +670,452 @@ internal static class DebugMcpServer
                            + $"status={vm?.StatusText}\ncapture={vm?.CaptureFilePath ?? "(off)"}\n"
                            + $"stats: {panel.DebugOutputStats}\n--- visible ---\n{panel.DebugVisibleText}";
                 }));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifies the named-pipe transport from inside the app by connecting to its own pipe
+    /// as an ordinary MCP client and running a handshake plus tools/list. Confirms the ACL
+    /// lets this account in, the framing round-trips, and a second concurrent session is
+    /// accepted while this one is open.
+    /// </summary>
+    private static async Task<JsonObject> McpTransportCheckAsync()
+    {
+        var pipeName = Host.PipeName;
+        if (pipeName.Length == 0)
+            return ToolText("FAIL: the pipe transport is not running (PipeName is empty).", isError: true);
+
+        var report = new StringBuilder();
+        report.AppendLine($"pipe: \\\\.\\pipe\\{pipeName}");
+        report.AppendLine($"http: {(Host.Url.Length == 0 ? "(off)" : Host.Url)}");
+
+        try
+        {
+            await using var first = await OpenPipeSessionAsync(pipeName).ConfigureAwait(false);
+            var initialize = await first.CallAsync(
+                """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}""")
+                .ConfigureAwait(false);
+            var toolList = await first.CallAsync("""{"jsonrpc":"2.0","id":2,"method":"tools/list"}""")
+                .ConfigureAwait(false);
+
+            // A second client must be served while the first session is still open.
+            await using var second = await OpenPipeSessionAsync(pipeName).ConfigureAwait(false);
+            var ping = await second.CallAsync("""{"jsonrpc":"2.0","id":3,"method":"ping"}""").ConfigureAwait(false);
+
+            var toolCount = JsonNode.Parse(toolList)?["result"]?["tools"] is JsonArray tools ? tools.Count : 0;
+            var handshake = initialize.Contains("\"protocolVersion\"", StringComparison.Ordinal);
+            var concurrent = ping.Contains("\"id\":3", StringComparison.Ordinal);
+
+            report.AppendLine($"initialize: {(handshake ? "ok" : "FAIL")}");
+            report.AppendLine($"tools/list: {toolCount} tools");
+            report.AppendLine($"concurrent session: {(concurrent ? "ok" : "FAIL")}");
+
+            var passed = handshake && toolCount > 0 && concurrent;
+            return ToolText($"{(passed ? "PASS" : "FAIL")}: MCP pipe transport\n{report.ToString().TrimEnd()}",
+                isError: !passed);
+        }
+        catch (Exception ex)
+        {
+            return ToolText($"FAIL: MCP pipe transport threw {ex.GetType().Name}: {ex.Message}\n{report}",
+                isError: true);
+        }
+    }
+
+    /// <summary>
+    /// Drives the product MCP surface end to end over its own pipe, exactly as a user's agent
+    /// would: create a connection, confirm passwords are write-only, set one, and check that
+    /// in-session tools refuse clearly when nothing is open. Cleans up the connection it made.
+    /// </summary>
+    private static async Task<JsonObject> ProductMcpCheckAsync()
+    {
+        const string folder = "_mcp_selftest";
+        const string connection = folder + "/probe";
+        const string secret = "jrm-selftest-secret-2f4a";
+
+        var pipeName = ProductMcpServer.PipeName;
+        if (pipeName.Length == 0)
+            return ToolText("FAIL: the product MCP server is not listening.", isError: true);
+
+        var report = new StringBuilder();
+        var failures = new List<string>();
+
+        void Check(string name, bool ok)
+        {
+            report.AppendLine($"{(ok ? "ok  " : "FAIL")}: {name}");
+            if (!ok)
+                failures.Add(name);
+        }
+
+        try
+        {
+            await using var session = await OpenPipeSessionAsync(pipeName).ConfigureAwait(false);
+
+            var initialize = await session.CallAsync(
+                """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}""")
+                .ConfigureAwait(false);
+            Check("initialize", initialize.Contains("\"jeek-remote-manager\"", StringComparison.Ordinal));
+
+            var toolList = await session.CallAsync("""{"jsonrpc":"2.0","id":2,"method":"tools/list"}""")
+                .ConfigureAwait(false);
+            var toolCount = JsonNode.Parse(toolList)?["result"]?["tools"] is JsonArray tools ? tools.Count : 0;
+            Check("tools/list advertises the connection surface", toolCount >= 18);
+            Check("debug tools stay off the product surface", !toolList.Contains("\"get_value\"", StringComparison.Ordinal));
+
+            var created = ExtractToolText(await session.CallAsync(ToolCall(3, "connection_create", new JsonObject
+            {
+                ["name"] = "probe",
+                ["folder"] = folder,
+                ["type"] = "ssh",
+                ["host"] = "127.0.0.1",
+                ["username"] = "selftest",
+                ["notes"] = "debug probe",
+            })).ConfigureAwait(false));
+            Check("connection_create writes the connection", created.Contains("\"created\": true", StringComparison.Ordinal));
+
+            var beforeSecret = await CallConnectionGetAsync(session, 4, connection).ConfigureAwait(false);
+            Check("new connection has no password", beforeSecret.Contains("\"hasPassword\": false", StringComparison.Ordinal));
+
+            var stored = ExtractToolText(await session.CallAsync(ToolCall(5, "connection_set_password", new JsonObject
+            {
+                ["connection"] = connection,
+                ["mode"] = "value",
+                ["value"] = secret,
+            })).ConfigureAwait(false));
+            Check("connection_set_password stores the value", stored.Contains("\"status\": \"saved\"", StringComparison.Ordinal));
+            Check("set_password never echoes the secret", !stored.Contains(secret, StringComparison.Ordinal));
+
+            var afterSecret = await CallConnectionGetAsync(session, 6, connection).ConfigureAwait(false);
+            Check("connection_get reports hasPassword", afterSecret.Contains("\"hasPassword\": true", StringComparison.Ordinal));
+            Check("connection_get never returns the secret", !afterSecret.Contains(secret, StringComparison.Ordinal));
+            Check("connection_get never returns the encrypted blob",
+                !afterSecret.Contains("EncryptedPassword", StringComparison.OrdinalIgnoreCase)
+                && !afterSecret.Contains("jrm1", StringComparison.OrdinalIgnoreCase));
+
+            var noSession = ExtractToolText(await session.CallAsync(ToolCall(7, "terminal_run", new JsonObject
+            {
+                ["session"] = "nope/none",
+                ["command"] = "echo hi",
+            })).ConfigureAwait(false));
+            Check("in-session tools refuse clearly without a session",
+                noSession.Contains("session_list", StringComparison.Ordinal)
+                || noSession.Contains("session_open", StringComparison.Ordinal));
+
+            var prompt = ExtractToolText(await session.CallAsync(ToolCall(8, "connection_set_password", new JsonObject
+            {
+                ["connection"] = connection,
+                ["mode"] = "prompt",
+            })).ConfigureAwait(false));
+            Check("prompt mode hands the secret entry to the GUI",
+                prompt.Contains("awaiting_user", StringComparison.Ordinal));
+
+            // Session lifecycle against 127.0.0.1, which has no sshd here: the tab opens and
+            // stays un-live, which is exactly the addressing path we need to exercise without
+            // touching one of the user's real servers.
+            var opened = ExtractToolText(await session.CallAsync(ToolCall(9, "session_open", new JsonObject
+            {
+                ["connection"] = connection,
+                ["activate"] = false,
+                ["wait_seconds"] = 2,
+            })).ConfigureAwait(false));
+            Check("session_open returns the tree-path session id",
+                opened.Contains($"\"session\": \"{connection}\"", StringComparison.Ordinal));
+            Check("session_open reports a status", opened.Contains("\"status\"", StringComparison.Ordinal));
+
+            var listed = ExtractToolText(await session.CallAsync(ToolCall(10, "session_list", new JsonObject()))
+                .ConfigureAwait(false));
+            Check("session_list shows the new session", listed.Contains(connection, StringComparison.Ordinal));
+
+            var status = ExtractToolText(await session.CallAsync(ToolCall(11, "terminal_status", new JsonObject
+            {
+                ["session"] = connection,
+            })).ConfigureAwait(false));
+            Check("in-session tools resolve by session id", status.Length > 0
+                && !status.Contains("No open session", StringComparison.Ordinal));
+
+            var byConnection = ExtractToolText(await session.CallAsync(ToolCall(12, "terminal_status", new JsonObject
+            {
+                ["connection"] = connection,
+            })).ConfigureAwait(false));
+            Check("in-session tools resolve by connection path",
+                !byConnection.Contains("has no open session", StringComparison.Ordinal));
+
+            var closed = ExtractToolText(await session.CallAsync(ToolCall(13, "session_close", new JsonObject
+            {
+                ["session"] = connection,
+            })).ConfigureAwait(false));
+            Check("session_close closes the tab", closed.Contains("Closed session", StringComparison.Ordinal));
+
+            var afterClose = ExtractToolText(await session.CallAsync(ToolCall(14, "session_list", new JsonObject()))
+                .ConfigureAwait(false));
+            Check("session_list drops the closed session", !afterClose.Contains(connection, StringComparison.Ordinal));
+
+            var passed = failures.Count == 0;
+            return ToolText($"{(passed ? "PASS" : "FAIL")}: product MCP surface\n{report.ToString().TrimEnd()}",
+                isError: !passed);
+        }
+        catch (Exception ex)
+        {
+            return ToolText($"FAIL: product MCP surface threw {ex.GetType().Name}: {ex.Message}\n{report}",
+                isError: true);
+        }
+        finally
+        {
+            await CleanupSelfTestConnectionAsync(folder).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<string> CallConnectionGetAsync(PipeProbeSession session, int id, string connection) =>
+        ExtractToolText(await session
+            .CallAsync(ToolCall(id, "connection_get", new JsonObject { ["connection"] = connection }))
+            .ConfigureAwait(false));
+
+    /// <summary>
+    /// Unwraps a tools/call reply to the text an agent would read. Assertions must run on
+    /// this, not the raw line, where every quote of the payload is backslash-escaped.
+    /// </summary>
+    private static string ExtractToolText(string rawResponse)
+    {
+        if (JsonNode.Parse(rawResponse)?["result"]?["content"] is not JsonArray content)
+            return rawResponse;
+
+        return string.Join(
+            "\n",
+            content.Select(item => item?["text"]?.GetValue<string>()).Where(text => text is not null));
+    }
+
+    /// <summary>Builds one JSON-RPC tools/call line for the probe sessions.</summary>
+    private static string ToolCall(int id, string name, JsonObject arguments) =>
+        new JsonObject
+        {
+            ["jsonrpc"] = "2.0",
+            ["id"] = id,
+            ["method"] = "tools/call",
+            ["params"] = new JsonObject { ["name"] = name, ["arguments"] = arguments },
+        }.ToJsonString();
+
+    private static async Task CleanupSelfTestConnectionAsync(string folder)
+    {
+        try
+        {
+            await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main
+                    || main.DataContext is not ViewModels.MainWindowViewModel vm)
+                {
+                    return false;
+                }
+
+                var path = Path.Combine(vm.RootPath, folder);
+                if (Directory.Exists(path))
+                    Directory.Delete(path, recursive: true);
+                vm.ReloadTreeFromDisk();
+                return true;
+            });
+        }
+        catch (Exception ex)
+        {
+            Log.ZLogWarning($"Could not clean up the product MCP self-test connection: {ex.Message}");
+        }
+    }
+
+    private static async Task<PipeProbeSession> OpenPipeSessionAsync(string pipeName)
+    {
+        var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await pipe.ConnectAsync(3000).ConfigureAwait(false);
+        return new PipeProbeSession(pipe);
+    }
+
+    /// <summary>One client-side pipe session used by <c>mcp_transport_check</c>.</summary>
+    private sealed class PipeProbeSession : IAsyncDisposable
+    {
+        private static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false);
+
+        private readonly NamedPipeClientStream _pipe;
+        private readonly StreamReader _reader;
+        private readonly StreamWriter _writer;
+
+        public PipeProbeSession(NamedPipeClientStream pipe)
+        {
+            _pipe = pipe;
+            _reader = new StreamReader(pipe, Utf8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+            _writer = new StreamWriter(pipe, Utf8, leaveOpen: true) { AutoFlush = true };
+        }
+
+        public async Task<string> CallAsync(string request)
+        {
+            await _writer.WriteLineAsync(request).ConfigureAwait(false);
+            return await _reader.ReadLineAsync().ConfigureAwait(false)
+                   ?? throw new IOException("The pipe closed before replying.");
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            _reader.Dispose();
+            await _writer.DisposeAsync().ConfigureAwait(false);
+            await _pipe.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// End-to-end check of <see cref="AgentProjectLink"/> against a throwaway project folder:
+    /// link (merging into pre-existing agent files), refresh with a new endpoint (no duplicate
+    /// blocks, URL rotated), then unlink (project content restored). With <c>panel: true</c> it
+    /// also drives the live AI panel view model from the open ai_render_probe tab.
+    /// </summary>
+    private static async Task<JsonObject> AgentProjectLinkCheckAsync(JsonObject args)
+    {
+        var keep = args["keep"]?.GetValue<bool>() ?? false;
+        var usePanel = args["panel"]?.GetValue<bool>() ?? false;
+
+        var root = Path.Combine(Path.GetTempPath(), "jrm-link-check-" + Guid.NewGuid().ToString("N")[..8]);
+        var project = Path.Combine(root, "my-project");
+        var workspace = Path.Combine(root, "workspace");
+        const string server = "jrm-remote-vps-bwg";
+
+        var report = new StringBuilder();
+        var failures = new List<string>();
+
+        void Check(string name, bool ok)
+        {
+            report.AppendLine($"{(ok ? "ok  " : "FAIL")}: {name}");
+            if (!ok)
+                failures.Add(name);
+        }
+
+        static int CountOccurrences(string text, string needle)
+        {
+            var count = 0;
+            var index = 0;
+            while ((index = text.IndexOf(needle, index, StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                index += needle.Length;
+            }
+
+            return count;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(project);
+            Directory.CreateDirectory(workspace);
+            Directory.CreateDirectory(Path.Combine(project, ".codex"));
+
+            // Seed the project the way a real repository looks before linking.
+            File.WriteAllText(Path.Combine(project, "AGENTS.md"), "# My project\n\nProject rules stay here.\n");
+            File.WriteAllText(
+                Path.Combine(project, ".mcp.json"),
+                "{\n  \"mcpServers\": {\n    \"other\": { \"type\": \"http\", \"url\": \"http://example/other\" }\n  }\n}\n");
+            File.WriteAllText(Path.Combine(project, ".codex", "config.toml"), "model = \"gpt-5\"\n");
+
+            var link = new AgentWorkspaceLink(
+                workspace, "vps/bwg", "vps/bwg", "bwg", "SSH", "root@10.0.0.1:22", McpToolsAutoApprove: true);
+            Check("MCP server name is per-connection", link.ProjectMcpServerName == server);
+
+            AgentProjectLink.WriteInto(link, project);
+
+            var agentsMd = File.ReadAllText(Path.Combine(project, "AGENTS.md"));
+            var codexToml = File.ReadAllText(Path.Combine(project, ".codex", "config.toml"));
+            var grokToml = File.ReadAllText(Path.Combine(project, ".grok", "config.toml"));
+            var mcpJson = File.ReadAllText(Path.Combine(project, ".mcp.json"));
+
+            Check("AGENTS.md keeps the project's own text", agentsMd.Contains("Project rules stay here.", StringComparison.Ordinal));
+            Check("AGENTS.md gains the reference block", agentsMd.Contains("BEGIN JeekRemoteManager link: vps/bwg", StringComparison.Ordinal));
+            Check("reference block names the MCP server", agentsMd.Contains(server, StringComparison.Ordinal));
+            Check("reference block points at the workspace doc", agentsMd.Contains(Path.Combine(workspace, "AGENTS.md"), StringComparison.Ordinal));
+            Check("CLAUDE.md includes AGENTS.md", File.ReadAllText(Path.Combine(project, "CLAUDE.md")).Contains("@AGENTS.md", StringComparison.Ordinal));
+            Check(".mcp.json keeps the project's own server", mcpJson.Contains("\"other\"", StringComparison.Ordinal));
+            Check(".mcp.json gains this connection as a stdio adapter launch",
+                mcpJson.Contains(server, StringComparison.Ordinal)
+                && mcpJson.Contains("\"stdio\"", StringComparison.Ordinal)
+                && mcpJson.Contains("JrmMcp.exe", StringComparison.Ordinal)
+                && mcpJson.Contains("--connection", StringComparison.Ordinal));
+            Check(".mcp.json entry carries no URL, port, or token",
+                JsonNode.Parse(mcpJson)?["mcpServers"]?[server] is JsonObject entry
+                && entry["url"] is null);
+            Check(".codex/config.toml keeps existing keys", codexToml.Contains("model = \"gpt-5\"", StringComparison.Ordinal));
+            Check(".codex/config.toml gains the server table",
+                codexToml.Contains($"[mcp_servers.{server}]", StringComparison.Ordinal)
+                && codexToml.Contains("JrmMcp.exe", StringComparison.Ordinal)
+                && codexToml.Contains("--connection", StringComparison.Ordinal));
+            Check(".codex approval mode follows auto-run", codexToml.Contains("default_tools_approval_mode = \"approve\"", StringComparison.Ordinal));
+            Check(".grok/config.toml gains the server table",
+                grokToml.Contains($"[mcp_servers.{server}]", StringComparison.Ordinal)
+                && grokToml.Contains("JrmMcp.exe", StringComparison.Ordinal));
+            // Writing again must replace the block in place, not append a second copy.
+            AgentProjectLink.WriteInto(link with { Target = "root@10.0.0.2:22" }, project);
+
+            agentsMd = File.ReadAllText(Path.Combine(project, "AGENTS.md"));
+            codexToml = File.ReadAllText(Path.Combine(project, ".codex", "config.toml"));
+            mcpJson = File.ReadAllText(Path.Combine(project, ".mcp.json"));
+
+            Check("rewriting does not duplicate the markdown block", CountOccurrences(agentsMd, "BEGIN JeekRemoteManager link: vps/bwg") == 1);
+            Check("rewriting does not duplicate the TOML block", CountOccurrences(codexToml, $"[mcp_servers.{server}]") == 1);
+            Check("rewriting updates the block from the connection",
+                agentsMd.Contains("root@10.0.0.2:22", StringComparison.Ordinal));
+            Check("rewriting keeps the project's own server", mcpJson.Contains("\"other\"", StringComparison.Ordinal));
+
+            AgentProjectLink.RemoveFrom(link, project);
+
+            agentsMd = File.ReadAllText(Path.Combine(project, "AGENTS.md"));
+            codexToml = File.ReadAllText(Path.Combine(project, ".codex", "config.toml"));
+            mcpJson = File.ReadAllText(Path.Combine(project, ".mcp.json"));
+
+            Check("removal takes the markdown block out", !agentsMd.Contains("JeekRemoteManager link", StringComparison.Ordinal));
+            Check("removal keeps the project's own text", agentsMd.Contains("Project rules stay here.", StringComparison.Ordinal));
+            Check("removal takes the TOML block out", !codexToml.Contains(server, StringComparison.Ordinal) && codexToml.Contains("model = \"gpt-5\"", StringComparison.Ordinal));
+            Check("removal takes the MCP entry out", !mcpJson.Contains(server, StringComparison.Ordinal) && mcpJson.Contains("\"other\"", StringComparison.Ordinal));
+            Check(
+                "removal deletes the files it created",
+                !File.Exists(Path.Combine(project, "CLAUDE.md"))
+                && !Directory.Exists(Path.Combine(project, ".grok")));
+
+            if (usePanel)
+            {
+                var panelProject = Path.Combine(root, "panel-project");
+                Directory.CreateDirectory(panelProject);
+                var panelResult = await OnUiAsync(() =>
+                {
+                    if (_renderProbeView?.AiViewModel is not { } vm)
+                        return "probe tab is not open (run ai_render_probe with action=open first)";
+
+                    var written = vm.WriteToProject(panelProject);
+                    var block = File.Exists(Path.Combine(panelProject, "AGENTS.md"))
+                                && File.ReadAllText(Path.Combine(panelProject, "AGENTS.md"))
+                                    .Contains("JeekRemoteManager link", StringComparison.Ordinal);
+                    vm.RemoveFromProject(panelProject);
+                    var cleared = !File.Exists(Path.Combine(panelProject, "AGENTS.md"));
+                    return $"written={written} block={block} cleared={cleared} status={vm.StatusText}";
+                });
+
+                report.AppendLine($"panel: {panelResult}");
+                Check(
+                    "AI panel writes and removes through the view model",
+                    panelResult.Contains("written=True", StringComparison.Ordinal)
+                    && panelResult.Contains("block=True", StringComparison.Ordinal)
+                    && panelResult.Contains("cleared=True", StringComparison.Ordinal));
+            }
+
+            // Leave a written sample behind so the generated wording can be reviewed by hand.
+            if (keep)
+                AgentProjectLink.WriteInto(link, project);
+
+            var passed = failures.Count == 0;
+            return ToolText(
+                $"{(passed ? "PASS" : "FAIL")}: agent project link ({project})\n{report.ToString().TrimEnd()}",
+                isError: !passed);
+        }
+        catch (Exception ex)
+        {
+            return ToolText($"FAIL: agent project link threw {ex.GetType().Name}: {ex.Message}\n{report}", isError: true);
+        }
+        finally
+        {
+            if (!keep)
+            {
+                try { Directory.Delete(root, recursive: true); }
+                catch { /* best-effort cleanup */ }
             }
         }
     }

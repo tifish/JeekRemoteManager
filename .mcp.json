@@ -2,17 +2,12 @@
   "mcpServers": {
     "jrm-debug": {
       "type": "stdio",
-      "command": "dotnet",
+      "command": "cmd",
       "args": [
-        "run",
-        "--project",
-        "tools/DebugMcpBridge/DebugMcpBridge.csproj",
-        "--configuration",
-        "Debug",
-        "--no-launch-profile",
-        "--",
-        "--workspace",
-        "."
+        "/c",
+        ".\\bin\\JrmMcp.exe",
+        "--surface",
+        "debug"
       ],
       "cwd": "."
     }

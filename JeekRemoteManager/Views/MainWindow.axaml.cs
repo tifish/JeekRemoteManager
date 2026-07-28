@@ -597,6 +597,98 @@ public partial class MainWindow : Window
         return Task.FromResult<TerminalScriptSession?>(CreateTerminalScriptSession(view, tab));
     }
 
+    #region Product MCP session addressing
+
+    /// <summary>
+    /// Open terminal tabs, in tab order, for the product MCP surface. Sessions are addressed
+    /// by the same tree-relative path the agent workspace uses (<c>vps/bwg</c>, <c>vps/bwg (2)</c>)
+    /// so an id is meaningful to a user and survives without a registry.
+    /// </summary>
+    internal IReadOnlyList<(string SessionId, TerminalView View, TabItem Tab)> EnumerateTerminalSessions()
+    {
+        var connectionsRoot = (DataContext as MainWindowViewModel)?.RootPath
+                              ?? SettingsService.ResolveConnectionsRoot(StorageLocation.UserDirectory);
+        var sessions = new List<(string, TerminalView, TabItem)>();
+        foreach (var item in RightTabs.Items)
+        {
+            if (item is not TabItem { Content: TerminalView view } tab)
+                continue;
+
+            sessions.Add((BuildSessionId(connectionsRoot, view), view, tab));
+        }
+
+        return sessions;
+    }
+
+    private static string BuildSessionId(string connectionsRoot, TerminalView view) =>
+        AgentCliWorkspace
+            .ResolveRelativePath(connectionsRoot, view.SourcePath, view.Connection, view.SessionNumber)
+            .Replace('\\', '/');
+
+    /// <summary>Opens a terminal tab for the product MCP surface and returns its session id.</summary>
+    internal string OpenTerminalSession(
+        Connection connection,
+        string? sourcePath,
+        bool duplicate,
+        bool activate)
+    {
+        TerminalView view;
+        if (duplicate
+            && EnumerateTerminalSessions().FirstOrDefault(s =>
+                !string.IsNullOrEmpty(s.View.SourcePath)
+                && !string.IsNullOrEmpty(sourcePath)
+                && PathEquals(s.View.SourcePath!, sourcePath!)) is { View: { } source })
+        {
+            // Piggyback on the authenticated transport, like the tab's own Duplicate command.
+            var shared = source.ShareClientForDuplicate();
+            (view, _) = CreateTerminalTab(connection, sourcePath, activate);
+            view.Start(connection, sourcePath, shared, isDuplicatedSession: true);
+        }
+        else
+        {
+            (view, _) = CreateTerminalTab(connection, sourcePath, activate);
+            view.Start(connection, sourcePath);
+        }
+
+        if (activate)
+            ActivateWindow();
+
+        var connectionsRoot = (DataContext as MainWindowViewModel)?.RootPath
+                              ?? SettingsService.ResolveConnectionsRoot(StorageLocation.UserDirectory);
+        return BuildSessionId(connectionsRoot, view);
+    }
+
+    internal bool CloseTerminalSession(TabItem tab)
+    {
+        CloseTerminalTab(tab);
+        return true;
+    }
+
+    /// <summary>Currently selected terminal tab, or null when another tab kind is selected.</summary>
+    internal TabItem? SelectedTerminalTab =>
+        RightTabs.SelectedItem as TabItem is { Content: TerminalView } tab ? tab : null;
+
+    /// <summary>Brings the window forward so the user can act on a GUI prompt.</summary>
+    internal void ActivateMainWindow() => ActivateWindow();
+
+    /// <summary>Selects a tab and brings the window forward — used when a tool needs the user.</summary>
+    internal void ActivateTerminalSession(TabItem tab, TerminalView view)
+    {
+        RightTabs.SelectedItem = tab;
+        ActivateWindow();
+        view.FocusTerminal();
+    }
+
+    private void ActivateWindow()
+    {
+        if (WindowState == WindowState.Minimized)
+            WindowState = WindowState.Normal;
+        Show();
+        Activate();
+    }
+
+    #endregion
+
     private (TerminalView View, TabItem Tab) CreateTerminalTab(Connection connection, string? sourcePath, bool select = true)
     {
         var sessionNumber = NextTerminalSessionNumber(connection, sourcePath);

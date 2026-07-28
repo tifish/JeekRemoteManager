@@ -26,7 +26,6 @@ public sealed record AgentCliRunModeOption(AgentCliRunMode Mode, string Label)
 public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDisposable
 {
     private readonly string _workingDirectory;
-    private readonly Func<AgentRemoteMcpServer?> _getMcpServer;
     private readonly Action<bool>? _onHideSshTerminalChanged;
     private readonly Action<bool, bool>? _onSafetyOptionsChanged;
     private readonly Func<AgentCliKind, AgentCliRunMode>? _resolvePreferredRunMode;
@@ -47,18 +46,23 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     public Func<(int Cols, int Rows)>? GetViewportSize { get; set; }
 
     /// <summary>
-    /// Optional hook run immediately before each CLI start. Receives the live MCP endpoint
-    /// URL so the workspace can refresh <c>AGENTS.md</c>/<c>CLAUDE.md</c> and project MCP
-    /// configs (no server details on the command line).
+    /// Optional hook run immediately before each CLI start, so the workspace can refresh
+    /// <c>AGENTS.md</c>/<c>CLAUDE.md</c> and the project MCP configs (no server details on
+    /// the command line).
     /// </summary>
-    public Action<string>? PrepareWorkspace { get; set; }
+    public Action? PrepareWorkspace { get; set; }
+
+    /// <summary>
+    /// Optional hook from the view: builds this tab's workspace identity plus the live MCP
+    /// endpoint, used when linking the connection into the user's own project folders.
+    /// </summary>
+    public Func<AgentWorkspaceLink?>? ResolveLinkContext { get; set; }
 
     /// <summary>Absolute local workspace for this connection (%LOCALAPPDATA%\JeekRemoteManager\AgentWorkspaces\...).</summary>
     public string WorkingDirectory => _workingDirectory;
 
     public AgentCliPanelViewModel(
         string workingDirectory,
-        Func<AgentRemoteMcpServer?> getMcpServer,
         string? preferredProviderLabel = null,
         bool autoRun = true,
         bool autoApproveDangerousCommands = false,
@@ -69,7 +73,6 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         Func<AgentCliKind, AgentCliRunMode>? resolvePreferredRunMode = null)
     {
         _workingDirectory = workingDirectory;
-        _getMcpServer = getMcpServer;
         _onHideSshTerminalChanged = onHideSshTerminalChanged;
         _onSafetyOptionsChanged = onSafetyOptionsChanged;
         _resolvePreferredRunMode = resolvePreferredRunMode;
@@ -473,19 +476,11 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
                 return;
             }
 
-            var mcp = _getMcpServer();
-            var mcpUrl = mcp?.EndpointUrl;
-            if (string.IsNullOrEmpty(mcpUrl))
-            {
-                StatusText = L("AiCliMcpUnavailable");
-                return;
-            }
-
             try
             {
-                // Refresh AGENTS.md / CLAUDE.md + project MCP configs with the live endpoint
-                // before the CLI (or a desktop app opening this folder) loads them.
-                try { PrepareWorkspace?.Invoke(mcpUrl); }
+                // Refresh AGENTS.md / CLAUDE.md + project MCP configs before the CLI (or a
+                // desktop app opening this folder) loads them.
+                try { PrepareWorkspace?.Invoke(); }
                 catch { /* best-effort; still launch the agent */ }
 
                 Directory.CreateDirectory(_workingDirectory);
@@ -608,6 +603,52 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         finally
         {
             _startGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// One-shot write of this connection's reference block and MCP entry into
+    /// <paramref name="projectDirectory"/>, so agents started there can drive it. Nothing is
+    /// remembered afterwards — the entry launches the local adapter and never expires.
+    /// </summary>
+    public bool WriteToProject(string projectDirectory)
+    {
+        if (ResolveLinkContext?.Invoke() is not { } link)
+        {
+            StatusText = L("AiLinkProjectUnavailable");
+            return false;
+        }
+
+        try
+        {
+            StatusText = L("AiLinkProjectDone", AgentProjectLink.WriteInto(link, projectDirectory));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            StatusText = L("AiLinkProjectFailed", FormatExceptionMessage(ex));
+            return false;
+        }
+    }
+
+    /// <summary>Takes this connection back out of a project folder the user picks.</summary>
+    public bool RemoveFromProject(string projectDirectory)
+    {
+        if (ResolveLinkContext?.Invoke() is not { } link)
+        {
+            StatusText = L("AiLinkProjectUnavailable");
+            return false;
+        }
+
+        try
+        {
+            StatusText = L("AiUnlinkProjectDone", AgentProjectLink.RemoveFrom(link, projectDirectory));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            StatusText = L("AiLinkProjectFailed", FormatExceptionMessage(ex));
+            return false;
         }
     }
 

@@ -315,6 +315,16 @@ AiOptionDefault	Default	默认
 AiSettingsChanged	Settings changed; applies to a new conversation.	设置已更改，将用于新对话。
 AiHideSshTerminal	Hide SSH terminal	隐藏 SSH 终端
 AiHideSshTerminalHint	Hide the SSH terminal and let the assistant fill the whole tab. Commands still run on the server.	隐藏 SSH 终端面板，AI 助手占满整个页面。命令仍会在服务器上执行。
+AiLinkProject	Let agents in a project folder use this connection…	让项目目录中的 AI 使用此连接…
+AiLinkProjectHint	Writes this connection's notes and MCP config into that folder, so any agent started there can drive this server. Written once; nothing to keep in sync.	会在该目录写入说明和 MCP 配置，在该目录中启动的 AI 就能操作这台服务器。一次写入即可，无需保持同步。
+AiLinkProjectTitle	Choose the project folder whose agents should use this connection	选择要让其中 AI 使用此连接的项目目录
+AiLinkProjectDone	Agents started in {0} can now use this connection.	在 {0} 中启动的 AI 现在可以使用此连接。
+AiLinkProjectFailed	Could not update the project folder: {0}	更新项目目录失败：{0}
+AiLinkProjectUnavailable	This tab cannot be shared with a project folder yet.	此标签页暂时无法提供给项目目录使用。
+AiUnlinkProject	Stop agents in a project folder from using this connection…	不再让项目目录中的 AI 使用此连接…
+AiUnlinkProjectHint	Removes this connection's notes and MCP config from that folder. Anything the project had before is left untouched.	从该目录移除本连接的说明和 MCP 配置，项目原有内容不受影响。
+AiUnlinkProjectTitle	Choose the project folder that should stop using this connection	选择要停止使用此连接的项目目录
+AiUnlinkProjectDone	Agents in {0} no longer use this connection.	{0} 中的 AI 不再使用此连接。
 AiCliStart	Start	启动
 AiCliRestart	Restart	重启
 AiCliStop	Stop	停止
@@ -341,7 +351,6 @@ AiCliExitedNoCode	{0} exited. Click Start to run again.	{0} 已退出。点击�
 AiCliExitedWithDetail	{0} exited (code {1}): {2}	{0} 已退出（代码 {1}）：{2}
 AiCliExitedWithDetailNoCode	{0} exited: {1}	{0} 已退出：{1}
 AiCliStopped	{0} stopped.	{0} 已停止。
-AiCliMcpUnavailable	Remote MCP tools are not available yet. Close and reopen the AI panel.	远程 MCP 工具尚未就绪，请关闭后重新打开 AI 面板。
 AiCliExternalHint	The agent CLI is running in Windows Terminal. Remote server tools are provided by JeekRemoteManager over MCP.	Agent CLI 正在 Windows Terminal 中运行。远程服务器工具由 JeekRemoteManager 通过 MCP 提供。
 AiCliDesktopHint	The agent is running in the desktop app. Remote server tools are provided by JeekRemoteManager over MCP (workspace folder).	Agent 正在桌面应用中运行。远程服务器工具由 JeekRemoteManager 通过 MCP 提供（工作区文件夹）。
 AiCliDangerTitle	Confirm dangerous command	确认危险命令

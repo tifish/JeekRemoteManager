@@ -77,6 +77,11 @@ public partial class App : Application
             DebugMcpServer.Start();
             desktop.Exit += (_, _) => DebugMcpServer.Stop();
 
+            // Product surface (all builds), on its own named pipe. Agents reach it through
+            // bin\JrmMcp.exe; tools that need the window report awaiting_user until it is up.
+            ProductMcpServer.Start();
+            desktop.Exit += (_, _) => ProductMcpServer.Stop();
+
             // Gate the main window behind the master-password setup/unlock flow.
             _ = StartupAsync(desktop, settings, store, launcher, master);
         }

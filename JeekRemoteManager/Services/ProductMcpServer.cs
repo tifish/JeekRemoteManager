@@ -1,0 +1,574 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Threading.Tasks;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Threading;
+using JeekTools;
+using JeekRemoteManager.Models;
+using JeekRemoteManager.ViewModels;
+using JeekRemoteManager.Views;
+using Microsoft.Extensions.Logging;
+using ZLogger;
+
+namespace JeekRemoteManager.Services;
+
+/// <summary>
+/// The product MCP surface: JeekRemoteManager as a second front-end for an agent, served on
+/// a named pipe (see <see cref="McpPipeNames"/>) so a user's project config never carries a
+/// port or a token. Ships in every build, unlike the Debug object-graph surface, which stays
+/// a separate endpoint with its own pipe — the two tool registries must never merge.
+///
+/// Responses are assembled field by field, never by serializing a <see cref="Connection"/>:
+/// passwords are write-only, so no encrypted blob or clear text can leak through a field
+/// added to the model later.
+/// </summary>
+internal static class ProductMcpServer
+{
+    private static readonly ILogger Log = LogManager.CreateLogger(nameof(ProductMcpServer));
+    private static readonly JsonSerializerOptions PrettyOptions = new() { WriteIndented = true };
+
+    private static readonly McpHost Host = CreateHost();
+
+    public static void Start()
+    {
+        Host.Start();
+        if (Host.PipeName.Length > 0)
+            Log.ZLogInformation($@"Product MCP listening on \\.\pipe\{Host.PipeName}");
+    }
+
+    public static void Stop() => Host.Stop();
+
+    /// <summary>Pipe currently accepting product sessions ("" when stopped).</summary>
+    public static string PipeName => Host.PipeName;
+
+    private static McpHost CreateHost()
+    {
+        var host = new McpHost(new McpHostOptions
+        {
+            ServerName = "jeek-remote-manager",
+            ServerTitle = "JeekRemoteManager",
+            Graph = new ObjectGraph(new ObjectGraphOptions
+            {
+                // The product surface exposes no object graph; the standard get/set/invoke
+                // tools are never advertised by ProductMcpContract.
+                ResolveRoot = name => throw new InvalidOperationException(
+                    $"The product MCP surface has no object roots ('{name}')."),
+                RootNamesHelp = "(none)",
+            }),
+            GetVersion = () => $"{AutoUpdateService.GetLocalCommitCount()}",
+            PipeName = DebugInstanceContext.ProductMcpPipeName,
+            DefaultPort = 0,
+            UiInvoker = func => Dispatcher.UIThread.InvokeAsync(func).GetTask()
+                .WaitAsync(TimeSpan.FromMinutes(5)),
+            Describe = BuildDescribeText,
+            ToolListProvider = ProductMcpContract.BuildToolList,
+        });
+
+        host.AddTool("connection_list", ConnectionListAsync);
+        host.AddTool("connection_get", ConnectionGetAsync);
+        host.AddTool("connection_create", ConnectionCreateAsync);
+        host.AddTool("connection_set_password", ConnectionSetPasswordAsync);
+
+        host.AddTool("session_list", _ => SessionListAsync());
+        host.AddTool("session_open", SessionOpenAsync);
+        host.AddTool("session_close", args => SessionCommandAsync(args, close: true));
+        host.AddTool("session_activate", args => SessionCommandAsync(args, close: false));
+
+        host.AddTool("terminal_status", args => InSessionAsync(args, (tools, _) => tools.GetStatusAsync()));
+        host.AddTool("terminal_run", args => RunCommandAsync(args, forceDanger: false));
+        host.AddTool("terminal_run_danger", args => RunCommandAsync(args, forceDanger: true));
+        host.AddTool("terminal_interrupt", args => InSessionAsync(args,
+            (tools, _) => tools.RunTerminalActionAsync(AgentTerminalAction.ForceInterrupt)));
+        host.AddTool("terminal_reconnect", args => InSessionAsync(args,
+            (tools, _) => tools.RunTerminalActionAsync(AgentTerminalAction.Reconnect)));
+        host.AddTool("terminal_scrollback", args => InSessionAsync(args,
+            (tools, a) => tools.GetScrollbackAsync(Math.Clamp(a["lines"]?.GetValue<int>() ?? 200, 1, 5000))));
+        host.AddTool("terminal_send_keys", args => InSessionAsync(args,
+            (tools, a) => tools.SendKeysAsync(McpHost.RequiredString(a, "text"))));
+        host.AddTool("file_upload", args => TransferAsync(args, isUpload: true));
+        host.AddTool("file_download", args => TransferAsync(args, isUpload: false));
+        host.AddTool("monitor_snapshot", args => InSessionAsync(args, (tools, _) => tools.GetMonitorSnapshotAsync()));
+        return host;
+    }
+
+    private static JsonObject ToolText(string text, bool isError = false) =>
+        McpHost.ToolText(text, isError);
+
+    private static Task<T> OnUiAsync<T>(Func<T> func) => Host.OnUiAsync(func);
+
+    private static IClassicDesktopStyleApplicationLifetime? Desktop =>
+        Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
+
+    private static MainWindow MainWindow =>
+        Desktop?.MainWindow as MainWindow
+        ?? throw new InvalidOperationException(
+            "The JeekRemoteManager window is not ready yet (it may be waiting for the master password).");
+
+    private static MainWindowViewModel MainVm =>
+        MainWindow.DataContext as MainWindowViewModel
+        ?? throw new InvalidOperationException("The main window has no view model yet.");
+
+    private static string BuildDescribeText()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("JeekRemoteManager product MCP surface.");
+        sb.AppendLine($@"Pipe: \\.\pipe\{Host.PipeName}");
+        sb.AppendLine();
+        sb.AppendLine("Start with connection_list to see saved connections, session_open to get a shell,");
+        sb.AppendLine("then terminal_run and friends against the returned session id.");
+        sb.AppendLine();
+        sb.AppendLine(ProductMcpContract.SessionHelp);
+        sb.AppendLine();
+        sb.AppendLine("Passwords are write-only: no tool returns one, and connection_set_password defaults");
+        sb.AppendLine("to letting the user type it in the app window. Two-factor prompts always happen there.");
+        return sb.ToString();
+    }
+
+    #region Connections
+
+    private static async Task<JsonObject> ConnectionListAsync(JsonObject args)
+    {
+        var filter = args["filter"]?.GetValue<string>();
+        var folder = NormalizeTreePath(args["folder"]?.GetValue<string>());
+        var limit = Math.Clamp(args["limit"]?.GetValue<int>() ?? 200, 1, 2000);
+
+        var entries = await OnUiAsync(() =>
+        {
+            var root = MainVm.RootPath;
+            var store = new ConnectionStore(root);
+            var list = new List<JsonObject>();
+            foreach (var file in store.AllConnectionFiles())
+            {
+                var path = ToTreePath(root, file);
+                if (folder.Length > 0
+                    && !path.StartsWith(folder + "/", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                Connection connection;
+                try
+                {
+                    connection = store.Load(file);
+                }
+                catch (Exception ex)
+                {
+                    Log.ZLogWarning($"Could not load '{file}' for connection_list: {ex.Message}");
+                    continue;
+                }
+
+                if (!MatchesFilter(connection, path, filter))
+                    continue;
+
+                list.Add(DescribeConnection(connection, path, full: false));
+                if (list.Count >= limit)
+                    break;
+            }
+
+            return list;
+        }).ConfigureAwait(false);
+
+        var result = new JsonObject
+        {
+            ["count"] = entries.Count,
+            ["connections"] = new JsonArray(entries.Cast<JsonNode>().ToArray()),
+        };
+        return ToolText(result.ToJsonString(PrettyOptions));
+    }
+
+    private static async Task<JsonObject> ConnectionGetAsync(JsonObject args)
+    {
+        var path = NormalizeTreePath(McpHost.RequiredString(args, "connection"));
+        var described = await OnUiAsync(() =>
+        {
+            var (connection, treePath, _) = LoadConnection(path);
+            return DescribeConnection(connection, treePath, full: true);
+        }).ConfigureAwait(false);
+
+        return ToolText(described.ToJsonString(PrettyOptions));
+    }
+
+    private static async Task<JsonObject> ConnectionCreateAsync(JsonObject args)
+    {
+        var name = McpHost.RequiredString(args, "name").Trim();
+        if (name.Length == 0)
+            return ToolText("A connection name is required.", isError: true);
+
+        var typeText = (args["type"]?.GetValue<string>() ?? "ssh").Trim().ToLowerInvariant();
+        var type = typeText switch
+        {
+            "ssh" => ConnectionType.Ssh,
+            "wsl" => ConnectionType.Wsl,
+            "rdp" => ConnectionType.Rdp,
+            _ => throw new InvalidOperationException($"Unknown connection type '{typeText}'. Use ssh, wsl, or rdp."),
+        };
+
+        var folder = NormalizeTreePath(args["folder"]?.GetValue<string>());
+        var open = args["open"]?.GetValue<bool>() ?? false;
+
+        var connection = new Connection
+        {
+            ConnectionId = Guid.NewGuid().ToString(),
+            Type = type,
+            Name = name,
+            Host = args["host"]?.GetValue<string>()?.Trim() ?? "",
+            Port = args["port"]?.GetValue<int>() ?? Connection.DefaultPort(type),
+            Username = args["username"]?.GetValue<string>()?.Trim() ?? "",
+            PrivateKeyPath = args["private_key_path"]?.GetValue<string>()?.Trim() ?? "",
+            LoginCommands = args["login_commands"]?.GetValue<string>() ?? "",
+            WslDistro = args["wsl_distro"]?.GetValue<string>()?.Trim() ?? "",
+            Notes = args["notes"]?.GetValue<string>() ?? "",
+        };
+
+        var report = await OnUiAsync(() =>
+        {
+            var root = MainVm.RootPath;
+            var store = new ConnectionStore(root);
+            var targetFolder = folder.Length == 0
+                ? root
+                : Path.Combine(root, folder.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(targetFolder);
+
+            var savedPath = store.Save(connection, targetFolder);
+            MainVm.ReloadTreeFromDisk(savedPath);
+
+            var treePath = ToTreePath(root, savedPath);
+            var result = DescribeConnection(connection, treePath, full: true);
+            result["created"] = true;
+
+            if (open)
+                result["session"] = MainWindow.OpenTerminalSession(connection, savedPath, duplicate: false, activate: true);
+
+            return result;
+        }).ConfigureAwait(false);
+
+        return ToolText(report.ToJsonString(PrettyOptions));
+    }
+
+    /// <summary>
+    /// Write-only credential path. The default mode never accepts the secret: it selects the
+    /// connection in the tree, which opens its editor, and asks the user to type it there.
+    /// </summary>
+    private static async Task<JsonObject> ConnectionSetPasswordAsync(JsonObject args)
+    {
+        var path = NormalizeTreePath(McpHost.RequiredString(args, "connection"));
+        var target = (args["target"]?.GetValue<string>() ?? "password").Trim().ToLowerInvariant();
+        if (target is not ("password" or "key_passphrase"))
+            return ToolText($"Unknown target '{target}'. Use password or key_passphrase.", isError: true);
+
+        var mode = (args["mode"]?.GetValue<string>() ?? "prompt").Trim().ToLowerInvariant();
+        if (mode == "prompt")
+        {
+            var prompted = await OnUiAsync(() =>
+            {
+                var (_, treePath, filePath) = LoadConnection(path);
+                MainVm.SelectNodeByPath(filePath);
+                MainWindow.ActivateMainWindow();
+                return treePath;
+            }).ConfigureAwait(false);
+
+            return ToolText(new JsonObject
+            {
+                ["status"] = "awaiting_user",
+                ["connection"] = prompted,
+                ["message"] = $"Opened '{prompted}' in the JeekRemoteManager window. Ask the user to type the "
+                              + $"{(target == "password" ? "password" : "key passphrase")} there and save; "
+                              + "the secret is never passed through this channel.",
+            }.ToJsonString(PrettyOptions));
+        }
+
+        if (mode != "value")
+            return ToolText($"Unknown mode '{mode}'. Use prompt or value.", isError: true);
+
+        if (args["value"]?.GetValue<string>() is not { } value)
+            return ToolText("mode 'value' requires the 'value' argument.", isError: true);
+
+        var saved = await OnUiAsync(() =>
+        {
+            var (connection, treePath, filePath) = LoadConnection(path);
+            var encrypted = PasswordProtector.Encrypt(value);
+            if (target == "password")
+                connection.EncryptedPassword = encrypted;
+            else
+                connection.EncryptedPrivateKeyPassphrase = encrypted;
+
+            new ConnectionStore(MainVm.RootPath).SaveInPlace(connection, filePath);
+            MainVm.ReloadTreeFromDisk(filePath);
+            return treePath;
+        }).ConfigureAwait(false);
+
+        // Deliberately echoes nothing about the value, not even its length.
+        return ToolText(new JsonObject
+        {
+            ["status"] = "saved",
+            ["connection"] = saved,
+            ["target"] = target,
+        }.ToJsonString(PrettyOptions));
+    }
+
+    /// <summary>
+    /// Explicit whitelist — the only place connection fields reach an agent. Credentials are
+    /// reported as booleans; neither the clear text nor the encrypted blob is ever included.
+    /// </summary>
+    private static JsonObject DescribeConnection(Connection connection, string treePath, bool full)
+    {
+        var described = new JsonObject
+        {
+            ["connection"] = treePath,
+            ["name"] = connection.Name,
+            ["type"] = connection.Type.ToString().ToUpperInvariant(),
+            ["target"] = connection.TargetLabel,
+        };
+
+        if (!full)
+            return described;
+
+        described["host"] = connection.Host;
+        described["port"] = connection.Port;
+        described["username"] = connection.Username;
+        described["hasPassword"] = !string.IsNullOrEmpty(connection.EncryptedPassword);
+        described["hasKeyPassphrase"] = !string.IsNullOrEmpty(connection.EncryptedPrivateKeyPassphrase);
+        described["privateKeyPath"] = connection.PrivateKeyPath;
+        described["terminalType"] = connection.TerminalType;
+        described["loginCommands"] = connection.LoginCommands;
+        described["autoOpenMonitorPanel"] = connection.AutoOpenMonitorPanel;
+        described["autoOpenFileBrowserPanel"] = connection.AutoOpenFileBrowserPanel;
+        described["wslDistro"] = connection.WslDistro;
+        described["wslStartDirectory"] = connection.WslStartDirectory;
+        described["notes"] = connection.Notes;
+        return described;
+    }
+
+    private static bool MatchesFilter(Connection connection, string treePath, string? filter)
+    {
+        if (string.IsNullOrWhiteSpace(filter))
+            return true;
+
+        return treePath.Contains(filter, StringComparison.OrdinalIgnoreCase)
+               || connection.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)
+               || connection.Host.Contains(filter, StringComparison.OrdinalIgnoreCase)
+               || connection.Username.Contains(filter, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Resolves a tree path such as <c>vps/bwg</c> to its file and loaded model.</summary>
+    private static (Connection Connection, string TreePath, string FilePath) LoadConnection(string treePath)
+    {
+        var root = MainVm.RootPath;
+        var store = new ConnectionStore(root);
+        var relative = treePath.Replace('/', Path.DirectorySeparatorChar);
+        var filePath = Path.Combine(root, relative + ConnectionStore.FileExtension);
+
+        if (!File.Exists(filePath))
+        {
+            // Fall back to a name match so 'bwg' works when it is unambiguous.
+            var matches = store.AllConnectionFiles()
+                .Where(f => string.Equals(
+                    Path.GetFileNameWithoutExtension(f), Path.GetFileName(treePath), StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (matches.Count == 0)
+                throw new InvalidOperationException($"No connection at '{treePath}'. Use connection_list to see the tree.");
+            if (matches.Count > 1)
+            {
+                throw new InvalidOperationException(
+                    $"'{treePath}' matches {matches.Count} connections; use the full tree path from connection_list.");
+            }
+
+            filePath = matches[0];
+        }
+
+        return (store.Load(filePath), ToTreePath(root, filePath), filePath);
+    }
+
+    private static string ToTreePath(string root, string filePath)
+    {
+        var relative = Path.GetRelativePath(root, filePath);
+        if (relative.EndsWith(ConnectionStore.FileExtension, StringComparison.OrdinalIgnoreCase))
+            relative = relative[..^ConnectionStore.FileExtension.Length];
+        return relative.Replace('\\', '/');
+    }
+
+    private static string NormalizeTreePath(string? value) =>
+        (value ?? "").Trim().Replace('\\', '/').Trim('/');
+
+    #endregion
+
+    #region Sessions
+
+    private static async Task<JsonObject> SessionListAsync()
+    {
+        var sessions = await OnUiAsync(() => MainWindow.EnumerateTerminalSessions()
+            .Select(s => new JsonObject
+            {
+                ["session"] = s.SessionId,
+                ["name"] = s.View.Connection?.Name ?? s.SessionId,
+                ["type"] = (s.View.Connection?.Type ?? ConnectionType.Ssh).ToString().ToUpperInvariant(),
+                ["target"] = s.View.Connection?.TargetLabel ?? "",
+                ["live"] = s.View.IsSessionLive,
+                ["active"] = ReferenceEquals(s.Tab, MainWindow.SelectedTerminalTab),
+            })
+            .ToList()).ConfigureAwait(false);
+
+        var result = new JsonObject
+        {
+            ["count"] = sessions.Count,
+            ["sessions"] = new JsonArray(sessions.Cast<JsonNode>().ToArray()),
+        };
+        return ToolText(result.ToJsonString(PrettyOptions));
+    }
+
+    private static async Task<JsonObject> SessionOpenAsync(JsonObject args)
+    {
+        var path = NormalizeTreePath(McpHost.RequiredString(args, "connection"));
+        var duplicate = args["duplicate"]?.GetValue<bool>() ?? false;
+        var activate = args["activate"]?.GetValue<bool>() ?? true;
+        var waitSeconds = Math.Clamp(args["wait_seconds"]?.GetValue<int>() ?? 30, 1, 300);
+
+        var sessionId = await OnUiAsync(() =>
+        {
+            var (connection, _, filePath) = LoadConnection(path);
+            return MainWindow.OpenTerminalSession(connection, filePath, duplicate, activate);
+        }).ConfigureAwait(false);
+
+        // Logging in can need the user (master password, two-factor, a bastion menu). Wait a
+        // bounded time, then hand back a pollable id instead of holding the tool call open.
+        var deadline = DateTime.UtcNow.AddSeconds(waitSeconds);
+        var live = false;
+        while (DateTime.UtcNow < deadline)
+        {
+            live = await OnUiAsync(() => MainWindow.EnumerateTerminalSessions()
+                .Any(s => s.SessionId == sessionId && s.View.IsSessionLive)).ConfigureAwait(false);
+            if (live)
+                break;
+            await Task.Delay(250).ConfigureAwait(false);
+        }
+
+        return ToolText(new JsonObject
+        {
+            ["status"] = live ? "open" : "awaiting_user",
+            ["session"] = sessionId,
+            ["message"] = live
+                ? "The shell is up; address it with this session id."
+                : "Still logging in — the JeekRemoteManager window may be waiting for the user "
+                  + "(master password, two-factor, bastion menu). Poll session_list for 'live'.",
+        }.ToJsonString(PrettyOptions));
+    }
+
+    private static async Task<JsonObject> SessionCommandAsync(JsonObject args, bool close)
+    {
+        var id = McpHost.RequiredString(args, "session");
+        var report = await OnUiAsync(() =>
+        {
+            if (MainWindow.EnumerateTerminalSessions().FirstOrDefault(s => s.SessionId == id) is not { View: not null } session)
+                throw new InvalidOperationException($"No open session '{id}'. Call session_list.");
+
+            if (close)
+            {
+                MainWindow.CloseTerminalSession(session.Tab);
+                return $"Closed session '{id}'.";
+            }
+
+            MainWindow.ActivateTerminalSession(session.Tab, session.View);
+            return $"Brought session '{id}' to the front.";
+        }).ConfigureAwait(false);
+
+        return ToolText(report);
+    }
+
+    /// <summary>Resolves the session an in-session tool addresses, by id or by connection path.</summary>
+    private static async Task<IAgentRemoteTools> ResolveToolsAsync(JsonObject args)
+    {
+        var id = args["session"]?.GetValue<string>();
+        var connection = NormalizeTreePath(args["connection"]?.GetValue<string>());
+
+        return await OnUiAsync(() =>
+        {
+            var sessions = MainWindow.EnumerateTerminalSessions();
+            if (sessions.Count == 0)
+                throw new InvalidOperationException("No terminal session is open. Call session_open first.");
+
+            if (!string.IsNullOrWhiteSpace(id))
+            {
+                return sessions.FirstOrDefault(s => s.SessionId == id) is { View: not null } match
+                    ? match.View.AgentRemoteTools
+                    : throw new InvalidOperationException($"No open session '{id}'. Call session_list.");
+            }
+
+            if (connection.Length > 0)
+            {
+                // 'vps/bwg' also matches its duplicated tabs 'vps/bwg (2)'; prefer the first.
+                var byConnection = sessions
+                    .Where(s => s.SessionId == connection
+                                || s.SessionId.StartsWith(connection + " (", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                if (byConnection.Count == 0)
+                {
+                    throw new InvalidOperationException(
+                        $"'{connection}' has no open session. Call session_open first.");
+                }
+
+                return byConnection[0].View.AgentRemoteTools;
+            }
+
+            if (sessions.Count == 1)
+                return sessions[0].View.AgentRemoteTools;
+
+            throw new InvalidOperationException(
+                $"{sessions.Count} sessions are open; pass 'session' or 'connection'. Call session_list.");
+        }).ConfigureAwait(false);
+    }
+
+    private static async Task<JsonObject> InSessionAsync(
+        JsonObject args,
+        Func<IAgentRemoteTools, JsonObject, Task<string>> action)
+    {
+        var tools = await ResolveToolsAsync(args).ConfigureAwait(false);
+        return ToolText(await action(tools, args).ConfigureAwait(false));
+    }
+
+    private static async Task<JsonObject> RunCommandAsync(JsonObject args, bool forceDanger)
+    {
+        var command = McpHost.RequiredString(args, "command");
+        int? timeout = args["timeout_seconds"] is { } node ? node.GetValue<int>() : null;
+        var tools = await ResolveToolsAsync(args).ConfigureAwait(false);
+
+        // The app's own confirmation for destructive commands, unless the user turned it off
+        // in the AI panel (Auto-approve). The agent's own approval flow still applies.
+        if (forceDanger || DangerousCommandDetector.IsDangerous(command))
+        {
+            var autoApprove = await OnUiAsync(() =>
+                (Desktop?.MainWindow?.DataContext as MainWindowViewModel)?.AiAutoApproveDangerousCommands
+                ?? false).ConfigureAwait(false);
+            if (!autoApprove
+                && !await tools.ConfirmDangerousCommandAsync(command).ConfigureAwait(false))
+            {
+                return ToolText("The user declined this command in the JeekRemoteManager window.", isError: true);
+            }
+        }
+
+        return ToolText(await tools.RunCommandAsync(command, timeout).ConfigureAwait(false));
+    }
+
+    private static async Task<JsonObject> TransferAsync(JsonObject args, bool isUpload)
+    {
+        var sources = (args["sources"] as JsonArray)?
+            .Select(node => node?.GetValue<string>() ?? "")
+            .Where(value => value.Length > 0)
+            .ToList() ?? [];
+        if (sources.Count == 0)
+            return ToolText("'sources' must list at least one file path.", isError: true);
+
+        var destination = args["destination"]?.GetValue<string>();
+        var tools = await ResolveToolsAsync(args).ConfigureAwait(false);
+        var transfer = new AgentFileTransfer(isUpload, sources, string.IsNullOrWhiteSpace(destination) ? null : destination);
+        return ToolText(await tools.TransferFilesAsync(transfer).ConfigureAwait(false));
+    }
+
+    #endregion
+}

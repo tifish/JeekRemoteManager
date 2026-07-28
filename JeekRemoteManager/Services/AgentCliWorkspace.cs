@@ -47,9 +47,10 @@ public static class AgentCliWorkspace
 
     /// <summary>
     /// Absolute workspace under <see cref="RootPath"/>/&lt;tree-relative-path&gt;.
-    /// Creates the directory, refreshes <c>AGENTS.md</c> (and a <c>CLAUDE.md</c> include),
-    /// and when <paramref name="mcpEndpointUrl"/> is set, writes project MCP configs that
-    /// desktop and CLI agents load from the working directory (no command-line MCP/system flags).
+    /// Creates the directory, refreshes <c>AGENTS.md</c> (and a <c>CLAUDE.md</c> include), and
+    /// writes project MCP configs that desktop and CLI agents load from the working directory
+    /// (no command-line MCP/system flags). Those configs launch <c>JrmMcp.exe</c> pinned to
+    /// this connection, so nothing in them expires between app runs.
     /// <paramref name="mcpToolsAutoApprove"/> controls Codex
     /// <c>default_tools_approval_mode</c> (approve vs prompt); do not pass this via
     /// <c>codex -c mcp_servers...</c> — partial MCP overrides fail with "invalid transport".
@@ -59,21 +60,54 @@ public static class AgentCliWorkspace
         string connectionsRoot,
         string? sourcePath,
         Connection? connection,
-        string? mcpEndpointUrl = null,
         int sessionNumber = 1,
         bool mcpToolsAutoApprove = true)
     {
-        var relative = ResolveRelativePath(connectionsRoot, sourcePath, connection, sessionNumber);
+        var connectionPath = ResolveConnectionRelativePath(connectionsRoot, sourcePath, connection);
+        var relative = AppendSessionSegment(connectionPath, sessionNumber);
         var absolute = Path.GetFullPath(Path.Combine(
             RootPath,
             relative.Replace('/', Path.DirectorySeparatorChar)));
 
         Directory.CreateDirectory(absolute);
-        WriteAgentDocs(absolute, relative, connection, sourcePath, mcpEndpointUrl, sessionNumber);
-        if (!string.IsNullOrWhiteSpace(mcpEndpointUrl))
-            WriteProjectMcpConfigs(absolute, mcpEndpointUrl.Trim(), mcpToolsAutoApprove);
+        WriteAgentDocs(absolute, relative, connection, sourcePath, connectionPath, sessionNumber);
+        WriteProjectMcpConfigs(absolute, connectionPath, mcpToolsAutoApprove);
         return absolute;
     }
+
+    /// <summary>
+    /// Workspace identity handed to <see cref="AgentProjectLink"/> when the user links this
+    /// connection into their own project folder.
+    /// </summary>
+    public static AgentWorkspaceLink BuildLink(
+        string connectionsRoot,
+        string? sourcePath,
+        Connection? connection,
+        int sessionNumber = 1,
+        bool mcpToolsAutoApprove = true)
+    {
+        var connectionPath = ResolveConnectionRelativePath(connectionsRoot, sourcePath, connection);
+        var relative = AppendSessionSegment(connectionPath, sessionNumber);
+        var absolute = Path.GetFullPath(Path.Combine(
+            RootPath,
+            relative.Replace('/', Path.DirectorySeparatorChar)));
+        return BuildLink(absolute, relative, connectionPath, connection, mcpToolsAutoApprove);
+    }
+
+    private static AgentWorkspaceLink BuildLink(
+        string workspaceDirectory,
+        string relativePath,
+        string connectionPath,
+        Connection? connection,
+        bool mcpToolsAutoApprove) =>
+        new(
+            workspaceDirectory,
+            relativePath,
+            connectionPath,
+            ResolveDisplayName(relativePath, connection),
+            ResolveConnectionKind(connection),
+            ResolveConnectionTarget(connection),
+            mcpToolsAutoApprove);
 
     private static string ResolveConnectionRelativePath(
         string connectionsRoot,
@@ -146,10 +180,10 @@ public static class AgentCliWorkspace
         string relativePath,
         Connection? connection,
         string? sourcePath,
-        string? mcpEndpointUrl,
+        string connectionPath,
         int sessionNumber)
     {
-        var body = BuildAgentDocBody(relativePath, connection, sourcePath, mcpEndpointUrl, sessionNumber);
+        var body = BuildAgentDocBody(relativePath, connection, sourcePath, connectionPath, sessionNumber);
         // Full context lives in AGENTS.md (Codex/Grok/shared). Claude reads CLAUDE.md which
         // only includes AGENTS.md so we do not maintain two copies.
         var utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
@@ -159,8 +193,10 @@ public static class AgentCliWorkspace
 
     /// <summary>
     /// Writes project-level MCP configs for Claude (`.mcp.json`), Codex (`.codex/config.toml`),
-    /// and Grok (`.grok/config.toml`) so any agent that opens this directory can reach the
-    /// live JeekRemoteManager remote tools endpoint.
+    /// and Grok (`.grok/config.toml`) so any agent that opens this directory reaches this
+    /// connection. Each launches <c>JrmMcp.exe --connection &lt;tree path&gt;</c>, the stdio
+    /// adapter that talks to the app over a named pipe — there is no port or token here, so
+    /// these files stay valid across app restarts and the workspace can be opened cold.
     /// </summary>
     /// <param name="mcpToolsAutoApprove">
     /// When true, Codex uses <c>default_tools_approval_mode = "approve"</c>; otherwise
@@ -170,14 +206,19 @@ public static class AgentCliWorkspace
     /// </param>
     public static void WriteProjectMcpConfigs(
         string workspaceDir,
-        string mcpEndpointUrl,
+        string connectionPath,
         bool mcpToolsAutoApprove = true)
     {
         Directory.CreateDirectory(workspaceDir);
         var utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+        var adapter = AgentWorkspaceLink.AdapterPath;
+        var connection = connectionPath.Replace('\\', '/').Trim('/');
 
         // Legacy Claude sidecar used with --mcp-config; project agents load .mcp.json instead.
         TryDelete(Path.Combine(workspaceDir, "jrm-mcp.json"));
+        // Legacy registry of linked projects, kept when project configs still held an
+        // expiring URL. Writing into a project folder is a one-shot action now.
+        TryDelete(Path.Combine(workspaceDir, "linked-projects.json"));
 
         // Claude Code / Claude Desktop project MCP (auto-loaded from workspace root).
         File.WriteAllText(
@@ -185,16 +226,16 @@ public static class AgentCliWorkspace
             "{\n" +
             "  \"mcpServers\": {\n" +
             $"    \"{McpServerName}\": {{\n" +
-            "      \"type\": \"http\",\n" +
-            $"      \"url\": \"{EscapeJson(mcpEndpointUrl)}\"\n" +
+            "      \"type\": \"stdio\",\n" +
+            $"      \"command\": \"{EscapeJson(adapter)}\",\n" +
+            $"      \"args\": [\"--connection\", \"{EscapeJson(connection)}\"]\n" +
             "    }\n" +
             "  }\n" +
             "}\n",
             utf8);
 
-        // Codex project config (workspace/.codex/config.toml).
-        // Transport is inferred from `url` (streamable HTTP). Do not emit a `transport`
-        // key and do not patch mcp_servers via `codex -c` — both break config load.
+        // Codex project config (workspace/.codex/config.toml). Do not patch mcp_servers via
+        // `codex -c` — partial overrides break config load.
         var codexApproval = mcpToolsAutoApprove ? "approve" : "prompt";
         var codexDir = Path.Combine(workspaceDir, ".codex");
         Directory.CreateDirectory(codexDir);
@@ -203,7 +244,8 @@ public static class AgentCliWorkspace
             "# Generated by JeekRemoteManager — per-connection remote tools\n" +
             "# Open this workspace folder in Codex desktop/CLI; AGENTS.md has full context.\n" +
             $"[mcp_servers.{McpServerName}]\n" +
-            $"url = \"{EscapeToml(mcpEndpointUrl)}\"\n" +
+            $"command = \"{EscapeToml(adapter)}\"\n" +
+            $"args = [\"--connection\", \"{EscapeToml(connection)}\"]\n" +
             $"default_tools_approval_mode = \"{codexApproval}\"\n",
             utf8);
 
@@ -215,8 +257,8 @@ public static class AgentCliWorkspace
             "# Generated by JeekRemoteManager — per-connection remote tools\n" +
             "# Open this workspace folder in Grok; AGENTS.md has full context.\n" +
             $"[mcp_servers.{McpServerName}]\n" +
-            "transport = \"http\"\n" +
-            $"url = \"{EscapeToml(mcpEndpointUrl)}\"\n",
+            $"command = \"{EscapeToml(adapter)}\"\n" +
+            $"args = [\"--connection\", \"{EscapeToml(connection)}\"]\n",
             utf8);
     }
 
@@ -224,25 +266,12 @@ public static class AgentCliWorkspace
         string relativePath,
         Connection? connection,
         string? sourcePath,
-        string? mcpEndpointUrl,
+        string connectionPath,
         int sessionNumber)
     {
-        var name = connection?.Name?.Trim();
-        if (string.IsNullOrEmpty(name))
-            name = Path.GetFileName(relativePath.Replace('\\', '/'));
-
-        var kind = connection?.IsWsl == true
-            ? "WSL"
-            : connection?.IsRdp == true
-                ? "RDP"
-                : "SSH";
-
-        var target = connection?.IsWsl == true
-            ? (string.IsNullOrWhiteSpace(connection.WslDistro) ? "default WSL distribution" : connection.WslDistro.Trim())
-            : string.IsNullOrWhiteSpace(connection?.Host)
-                ? "(unknown host)"
-                : $"{connection!.Username}@{connection.Host}:{connection.Port}";
-
+        var name = ResolveDisplayName(relativePath, connection);
+        var kind = ResolveConnectionKind(connection);
+        var target = ResolveConnectionTarget(connection);
         var notes = connection?.Notes?.Trim();
         var sb = new StringBuilder();
         sb.AppendLine("# JeekRemoteManager agent workspace");
@@ -279,35 +308,29 @@ public static class AgentCliWorkspace
         }
 
         sb.AppendLine();
-        sb.AppendLine("## Live MCP endpoint (jrm-remote)");
+        sb.AppendLine($"## Remote tools ({McpServerName})");
         sb.AppendLine();
-        if (!string.IsNullOrWhiteSpace(mcpEndpointUrl))
-        {
-            sb.AppendLine("JeekRemoteManager is currently exposing remote tools for **this tab** at:");
-            sb.AppendLine();
-            sb.AppendLine($"- **MCP server name:** `{McpServerName}`");
-            sb.AppendLine($"- **URL:** `{mcpEndpointUrl.Trim()}`");
-            sb.AppendLine();
-            sb.AppendLine("Project configs (refreshed with the same URL when the AI panel starts):");
-            sb.AppendLine();
-            sb.AppendLine("| Agent | Config file |");
-            sb.AppendLine("|-------|-------------|");
-            sb.AppendLine("| Claude Code / Desktop | `.mcp.json` |");
-            sb.AppendLine("| Codex | `.codex/config.toml` |");
-            sb.AppendLine("| Grok | `.grok/config.toml` |");
-            sb.AppendLine();
-            sb.AppendLine("Open **this directory** as the project/workspace root in desktop Claude, Codex,");
-            sb.AppendLine("or Grok so those files are loaded automatically. Keep JeekRemoteManager running");
-            sb.AppendLine("with this connection's terminal open; the endpoint is loopback HTTP and dies");
-            sb.AppendLine("when the tab/app stops.");
-        }
-        else
-        {
-            sb.AppendLine("No live MCP URL has been written yet. Start the AI panel (or reconnect) inside");
-            sb.AppendLine("JeekRemoteManager so this file and the project MCP configs are refreshed with");
-            sb.AppendLine("the current loopback endpoint.");
-        }
-
+        sb.AppendLine("Project configs in this folder register an MCP server that reaches this");
+        sb.AppendLine("connection. They launch a small local adapter which talks to JeekRemoteManager");
+        sb.AppendLine("over a named pipe, so there is no URL, port, or token to expire:");
+        sb.AppendLine();
+        sb.AppendLine($"- **MCP server name:** `{McpServerName}`");
+        sb.AppendLine(
+            $"- **Pinned connection:** `{connectionPath.Replace('\\', '/')}` "
+            + "(you may omit the `connection` argument)");
+        sb.AppendLine($"- **Adapter:** `{AgentWorkspaceLink.AdapterPath}`");
+        sb.AppendLine();
+        sb.AppendLine("| Agent | Config file |");
+        sb.AppendLine("|-------|-------------|");
+        sb.AppendLine("| Claude Code / Desktop | `.mcp.json` |");
+        sb.AppendLine("| Codex | `.codex/config.toml` |");
+        sb.AppendLine("| Grok | `.grok/config.toml` |");
+        sb.AppendLine();
+        sb.AppendLine("Open **this directory** as the project/workspace root in desktop Claude, Codex,");
+        sb.AppendLine("or Grok so those files load automatically. The adapter starts JeekRemoteManager");
+        sb.AppendLine("if it is closed and reconnects by itself if it restarts; if no terminal tab is");
+        sb.AppendLine("open for this connection, call `session_open` first (`session_list` shows what");
+        sb.AppendLine("is live).");
         sb.AppendLine();
         sb.AppendLine("## Tools: local vs remote");
         sb.AppendLine();
@@ -364,6 +387,31 @@ public static class AgentCliWorkspace
         sb.AppendLine();
         return sb.ToString();
     }
+
+    /// <summary>Connection name, falling back to the workspace path's leaf folder.</summary>
+    private static string ResolveDisplayName(string relativePath, Connection? connection)
+    {
+        var name = connection?.Name?.Trim();
+        return string.IsNullOrEmpty(name)
+            ? Path.GetFileName(relativePath.Replace('\\', '/'))
+            : name;
+    }
+
+    private static string ResolveConnectionKind(Connection? connection) =>
+        connection?.IsWsl == true
+            ? "WSL"
+            : connection?.IsRdp == true
+                ? "RDP"
+                : "SSH";
+
+    private static string ResolveConnectionTarget(Connection? connection) =>
+        connection?.IsWsl == true
+            ? (string.IsNullOrWhiteSpace(connection.WslDistro)
+                ? "default WSL distribution"
+                : connection.WslDistro.Trim())
+            : string.IsNullOrWhiteSpace(connection?.Host)
+                ? "(unknown host)"
+                : $"{connection!.Username}@{connection.Host}:{connection.Port}";
 
     private static string SanitizeRelativePath(string relative)
     {

@@ -720,7 +720,8 @@ try
               Path.GetFullPath(localRoot),
               StringComparison.OrdinalIgnoreCase),
           "AI CLI workspace root is %LOCALAPPDATA%\\JeekRemoteManager\\AgentWorkspaces");
-    const string smokeMcpUrl = "http://127.0.0.1:1234/agent/smoketest/mcp";
+    // The workspace now points agents at the local stdio adapter instead of a loopback URL.
+    const string smokeAdapter = "JrmMcp.exe";
     var workspace = AgentCliWorkspace.Ensure(
         connectionsRoot,
         bwgFile,
@@ -732,8 +733,7 @@ try
             Port = 22,
             Username = "root",
             Notes = "edge VPS",
-        },
-        smokeMcpUrl);
+        });
     var agentsMd = File.ReadAllText(Path.Combine(workspace, "AGENTS.md"));
     var claudeMd = File.ReadAllText(Path.Combine(workspace, "CLAUDE.md")).Trim();
     var mcpJson = File.Exists(Path.Combine(workspace, ".mcp.json"))
@@ -754,24 +754,28 @@ try
           && !claudeMd.Contains("jrm-remote", StringComparison.Ordinal)
           && agentsMd.Contains("jrm-remote", StringComparison.Ordinal)
           && agentsMd.Contains("edge VPS", StringComparison.Ordinal)
-          && agentsMd.Contains(smokeMcpUrl, StringComparison.Ordinal)
+          && agentsMd.Contains(smokeAdapter, StringComparison.Ordinal)
+          && agentsMd.Contains("**Pinned connection:** `vps/bwg`", StringComparison.Ordinal)
+          && !agentsMd.Contains("http://", StringComparison.Ordinal)
           && agentsMd.Contains(".mcp.json", StringComparison.Ordinal)
           && agentsMd.Contains("**Terminal tab session:** 1", StringComparison.Ordinal)
           && !agentsMd.Contains("--append-system-prompt", StringComparison.Ordinal)
-          && mcpJson.Contains(smokeMcpUrl, StringComparison.Ordinal)
-          && codexToml.Contains(smokeMcpUrl, StringComparison.Ordinal)
+          && mcpJson.Contains(smokeAdapter, StringComparison.Ordinal)
+          && mcpJson.Contains("\"stdio\"", StringComparison.Ordinal)
+          && !mcpJson.Contains("http", StringComparison.Ordinal)
+          && codexToml.Contains(smokeAdapter, StringComparison.Ordinal)
+          && codexToml.Contains("--connection", StringComparison.Ordinal)
           && codexToml.Contains("default_tools_approval_mode = \"approve\"", StringComparison.Ordinal)
           && !codexToml.Contains("transport =", StringComparison.Ordinal)
-          && grokToml.Contains(smokeMcpUrl, StringComparison.Ordinal)
-          && grokToml.Contains("transport = \"http\"", StringComparison.Ordinal),
+          && grokToml.Contains(smokeAdapter, StringComparison.Ordinal),
           "AI workspace writes AGENTS.md (full) + CLAUDE.md include + project MCP configs");
 
-    AgentCliWorkspace.WriteProjectMcpConfigs(workspace, smokeMcpUrl, mcpToolsAutoApprove: false);
+    AgentCliWorkspace.WriteProjectMcpConfigs(workspace, "vps/bwg", mcpToolsAutoApprove: false);
     var codexTomlPrompt = File.ReadAllText(Path.Combine(workspace, ".codex", "config.toml"));
     Check(codexTomlPrompt.Contains("default_tools_approval_mode = \"prompt\"", StringComparison.Ordinal)
-          && codexTomlPrompt.Contains(smokeMcpUrl, StringComparison.Ordinal),
+          && codexTomlPrompt.Contains(smokeAdapter, StringComparison.Ordinal),
           "Codex project MCP config stores prompt approval mode without CLI -c overrides");
-    AgentCliWorkspace.WriteProjectMcpConfigs(workspace, smokeMcpUrl, mcpToolsAutoApprove: true);
+    AgentCliWorkspace.WriteProjectMcpConfigs(workspace, "vps/bwg", mcpToolsAutoApprove: true);
 
     var connectionForWorkspace = new Connection
     {
@@ -785,7 +789,7 @@ try
     var relativeSession2 = AgentCliWorkspace.ResolveRelativePath(
         connectionsRoot, bwgFile, connectionForWorkspace, sessionNumber: 2);
     var workspaceSession2 = AgentCliWorkspace.Ensure(
-        connectionsRoot, bwgFile, connectionForWorkspace, smokeMcpUrl, sessionNumber: 2);
+        connectionsRoot, bwgFile, connectionForWorkspace, sessionNumber: 2);
     var agentsMdSession2 = File.ReadAllText(Path.Combine(workspaceSession2, "AGENTS.md"));
     Check(relativeSession2.Replace('\\', '/') == "vps/bwg (2)"
           && workspaceSession2.Replace('\\', '/').EndsWith(
@@ -795,7 +799,7 @@ try
               Path.GetFullPath(workspaceSession2),
               StringComparison.OrdinalIgnoreCase)
           && agentsMdSession2.Contains("**Terminal tab session:** 2", StringComparison.Ordinal)
-          && agentsMdSession2.Contains(smokeMcpUrl, StringComparison.Ordinal),
+          && agentsMdSession2.Contains("**Pinned connection:** `vps/bwg`", StringComparison.Ordinal),
           "Duplicated tabs get a sibling AI workspace matching the tab header name");
 
     var claudeAutoArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Claude, autoRun: true);
@@ -839,47 +843,39 @@ try
           && codexDesktopUri.Contains("path=", StringComparison.Ordinal),
           "Desktop mode protocol URIs cover Claude/Codex only");
 
-    await using (var safetyServer = new AgentRemoteMcpServer(new SmokeAgentRemoteTools()))
+    Check(DangerousCommandDetector.IsDangerous("rm -rf /tmp/jrm-smoke")
+          && !DangerousCommandDetector.IsDangerous("echo safe"),
+          "Dangerous-command detection still gates destructive remote commands");
+
+    // The product surface builds its tool list from scratch each call: reusing a JsonNode
+    // across two tools ("already has a parent") once broke Codex MCP startup, and
+    // terminal_run / terminal_run_danger deliberately share the same argument shape.
+    var productToolsOk = false;
+    var productToolNames = "";
+    try
     {
-        Check(safetyServer.RequiresDangerConfirmation("rm -rf /tmp/jrm-smoke", false)
-              && safetyServer.RequiresDangerConfirmation("echo safe", true),
-              "AI dangerous-command confirmation remains enabled by default");
-        safetyServer.AutoApproveDangerousCommands = true;
-        Check(!safetyServer.RequiresDangerConfirmation("rm -rf /tmp/jrm-smoke", false)
-              && !safetyServer.RequiresDangerConfirmation("echo safe", true),
-              "AI auto-approve bypasses detector and agent-tagged dangerous-command confirmations");
-
-        // tools/list must succeed even when terminal_run and terminal_run_danger share schema props.
-        // (JsonNode "already has a parent" regressed Codex MCP startup.)
-        safetyServer.Start();
-        var toolsListOk = false;
-        var toolsListNames = "";
-        try
-        {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-            var listBody = """{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}""";
-            using var listResp = await http.PostAsync(
-                safetyServer.EndpointUrl,
-                new StringContent(listBody, Encoding.UTF8, "application/json"));
-            var listJson = await listResp.Content.ReadAsStringAsync();
-            var listNode = JsonNode.Parse(listJson) as JsonObject;
-            var tools = listNode?["result"]?["tools"] as JsonArray;
-            toolsListOk = listResp.IsSuccessStatusCode
-                          && listNode?["error"] is null
-                          && tools is { Count: > 0 }
-                          && tools.Any(t => t?["name"]?.GetValue<string>() == "terminal_run")
-                          && tools.Any(t => t?["name"]?.GetValue<string>() == "terminal_run_danger");
-            toolsListNames = tools is null
-                ? listJson
-                : string.Join(',', tools.Select(t => t?["name"]?.GetValue<string>() ?? "?"));
-        }
-        catch (Exception ex)
-        {
-            toolsListNames = ex.Message;
-        }
-
-        Check(toolsListOk, $"Agent MCP tools/list returns shared-schema tools ({toolsListNames})");
+        var first = ProductMcpContract.BuildToolList();
+        var second = ProductMcpContract.BuildToolList();
+        productToolNames = string.Join(
+            ',', first.Select(t => t?["name"]?.GetValue<string>() ?? "?"));
+        productToolsOk = first.Count > 0
+                         && first.Count == second.Count
+                         && first.Any(t => t?["name"]?.GetValue<string>() == "terminal_run")
+                         && first.Any(t => t?["name"]?.GetValue<string>() == "terminal_run_danger")
+                         && first.Any(t => t?["name"]?.GetValue<string>() == "session_open")
+                         && first.All(t => t?["inputSchema"]?["properties"] is JsonObject);
     }
+    catch (Exception ex)
+    {
+        productToolNames = ex.Message;
+    }
+
+    Check(productToolsOk, $"Product MCP tools/list builds shared-schema tools ({productToolNames})");
+
+    // Passwords are write-only: nothing in the contract may offer a way to read one back.
+    Check(!ProductMcpContract.BuildToolList()
+              .Any(t => (t?["name"]?.GetValue<string>() ?? "").Contains("get_password", StringComparison.OrdinalIgnoreCase)),
+          "Product MCP exposes no tool that reads a stored password");
 
     var dimFilter = new TerminalDimColorFilter();
     var dimRewritten = Encoding.ASCII.GetString(dimFilter.Process(Encoding.ASCII.GetBytes("\u001b[2msecondary\u001b[22m")));

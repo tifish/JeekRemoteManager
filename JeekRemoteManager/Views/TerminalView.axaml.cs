@@ -99,7 +99,6 @@ public partial class TerminalView : UserControl
     private long _resizeOutputDeadlineTicks;
     private string? _pendingKeyboardCopyText;
     private AgentCliPanelViewModel? _aiViewModel;
-    private AgentRemoteMcpServer? _agentRemoteMcp;
     private double _aiPanelWidth = 380;
     private FileBrowserViewModel? _fileBrowserViewModel;
     private double _fileBrowserHeight = 260;
@@ -177,11 +176,7 @@ public partial class TerminalView : UserControl
     public AgentCliPanelViewModel? AiViewModel => _aiViewModel;
 
     /// <summary>Current connection-scoped agent MCP server, exposed for Debug MCP safety probes.</summary>
-    public AgentRemoteMcpServer? AgentRemoteMcp => _agentRemoteMcp;
-
     /// <summary>Product MCP endpoint for the AI CLI on this tab (null until the panel starts it).</summary>
-    public string? AgentRemoteMcpUrl => _agentRemoteMcp?.EndpointUrl;
-
     public string? SourcePath => _sourcePath;
 
     /// <summary>
@@ -1016,13 +1011,12 @@ public partial class TerminalView : UserControl
 
     private AgentCliPanelViewModel CreateAgentCliPanelViewModel()
     {
-        EnsureAgentRemoteMcp();
 
         // Durable workspace mirrors the connection tree path (e.g. Connections/vps/bwg.json
         // → %LOCALAPPDATA%\JeekRemoteManager\AgentWorkspaces\vps\bwg). Write AGENTS.md and
         // project MCP configs as soon as the panel opens so desktop Claude/Codex/Grok can
         // open this folder without any CLI flags.
-        var workingDir = ResolveAgentCliWorkingDirectory(_agentRemoteMcp?.EndpointUrl);
+        var workingDir = ResolveAgentCliWorkingDirectory();
 
         var preferred = (DataContext as MainWindowViewModel)?.AiProvider;
         var mainVm = DataContext as MainWindowViewModel;
@@ -1035,7 +1029,6 @@ public partial class TerminalView : UserControl
                 : mainVm.AiRunMode;
         var vm = new AgentCliPanelViewModel(
             workingDir,
-            () => _agentRemoteMcp,
             preferred,
             autoRun: mainVm?.AiAutoRun ?? true,
             autoApproveDangerousCommands: mainVm?.AiAutoApproveDangerousCommands ?? false,
@@ -1047,8 +1040,6 @@ public partial class TerminalView : UserControl
                     ownerVm.AiAutoRun = autoRun;
                     ownerVm.AiAutoApproveDangerousCommands = autoApprove;
                 }
-                if (_agentRemoteMcp is not null)
-                    _agentRemoteMcp.AutoApproveDangerousCommands = autoApprove;
             },
             onHideSshTerminalChanged: hide =>
             {
@@ -1065,7 +1056,10 @@ public partial class TerminalView : UserControl
 
         // Rewrite AGENTS.md + project MCP configs (including Codex default_tools_approval_mode)
         // from the live AutoRun toggle — never via `codex -c mcp_servers...` (invalid transport).
-        vm.PrepareWorkspace = mcpUrl => ResolveAgentCliWorkingDirectory(mcpUrl, vm.AutoRun);
+        vm.PrepareWorkspace = () => ResolveAgentCliWorkingDirectory(vm.AutoRun);
+
+        // Workspace identity used when the user writes this connection into a project folder.
+        vm.ResolveLinkContext = () => ResolveAgentCliLink(vm.AutoRun);
 
         // Remember last-chosen provider and per-family run mode across tabs and runs.
         // Claude/Codex share AiRunMode; Grok uses AiGrokRunMode (no Desktop).
@@ -1087,13 +1081,11 @@ public partial class TerminalView : UserControl
     /// <summary>
     /// %LOCALAPPDATA%\JeekRemoteManager\AgentWorkspaces\&lt;tree-relative-path&gt; for this
     /// tab (session 2+ uses a sibling folder matching the tab title, e.g. <c>bwg (2)</c>).
-    /// Rewrites AGENTS.md / CLAUDE.md (and project MCP configs when
-    /// <paramref name="mcpEndpointUrl"/> is set) so agents need no command-line context.
-    /// <paramref name="mcpToolsAutoApprove"/> maps to Codex <c>default_tools_approval_mode</c>.
+    /// Rewrites AGENTS.md / CLAUDE.md and the project MCP configs so agents need no
+    /// command-line context. <paramref name="mcpToolsAutoApprove"/> maps to Codex
+    /// <c>default_tools_approval_mode</c>.
     /// </summary>
-    private string ResolveAgentCliWorkingDirectory(
-        string? mcpEndpointUrl = null,
-        bool? mcpToolsAutoApprove = null)
+    private string ResolveAgentCliWorkingDirectory(bool? mcpToolsAutoApprove = null)
     {
         var mainVm = DataContext as MainWindowViewModel;
         var connectionsRoot = mainVm?.RootPath
@@ -1103,25 +1095,40 @@ public partial class TerminalView : UserControl
             connectionsRoot,
             _sourcePath,
             _connection,
-            mcpEndpointUrl,
             SessionNumber,
             mcpToolsAutoApprove: mcpToolsAutoApprove ?? mainVm?.AiAutoRun ?? true);
     }
 
-    private void EnsureAgentRemoteMcp()
+    /// <summary>
+    /// This tab's workspace identity for <see cref="AgentProjectLink"/>. Linked projects get
+    /// a stdio launch of the JrmMcp adapter pinned to this connection, so nothing in them
+    /// depends on a listener that is up right now.
+    /// </summary>
+    private AgentWorkspaceLink ResolveAgentCliLink(bool? mcpToolsAutoApprove = null)
     {
-        if (_agentRemoteMcp is not null)
-            return;
+        var mainVm = DataContext as MainWindowViewModel;
+        var connectionsRoot = mainVm?.RootPath
+            ?? SettingsService.ResolveConnectionsRoot(StorageLocation.UserDirectory);
 
-        var tools = new TerminalAgentRemoteTools(this);
-        var server = new AgentRemoteMcpServer(tools)
-        {
-            AutoApproveDangerousCommands =
-                (DataContext as MainWindowViewModel)?.AiAutoApproveDangerousCommands ?? false,
-        };
-        server.Start();
-        _agentRemoteMcp = server;
+        return AgentCliWorkspace.BuildLink(
+            connectionsRoot,
+            _sourcePath,
+            _connection,
+            SessionNumber,
+            mcpToolsAutoApprove: mcpToolsAutoApprove ?? mainVm?.AiAutoRun ?? true);
     }
+
+    private IAgentRemoteTools? _agentRemoteTools;
+
+    /// <summary>
+    /// This tab's remote-terminal tool implementation, reached by the app-wide product MCP
+    /// server, which addresses tabs by session id.
+    /// </summary>
+    public IAgentRemoteTools AgentRemoteTools =>
+        _agentRemoteTools ??= new TerminalAgentRemoteTools(this);
+
+    /// <summary>True while this tab has a usable shell (connected or connecting).</summary>
+    public bool IsSessionLive => CanReuseSession;
 
     private string BuildAiConversationLabel()
     {
@@ -3175,9 +3182,5 @@ public partial class TerminalView : UserControl
         if (ai is not null)
             _ = ai.DisposeAsync();
 
-        var mcp = _agentRemoteMcp;
-        _agentRemoteMcp = null;
-        if (mcp is not null)
-            _ = mcp.DisposeAsync();
     }
 }

@@ -6,6 +6,9 @@ namespace JeekRemoteManager.Services;
 public sealed class DebugMcpDiscovery
 {
     public string Url { get; set; } = "";
+
+    /// <summary>Named pipe accepting Debug MCP sessions (preferred over <see cref="Url"/>).</summary>
+    public string PipeName { get; set; } = "";
     public int ProcessId { get; set; }
     public string ExecutablePath { get; set; } = "";
     public string InstanceId { get; set; } = "";
@@ -72,6 +75,19 @@ public static class DebugMcpContract
         Tool("ai_render_probe",
             "Persistent AI-panel rendering probe: action 'open' adds a local terminal tab with the embedded agent CLI started, 'status' reports feed/scroll state plus visible viewport text, 'close' removes the tab.",
             new() { ["action"] = Prop("string", "open | status | close (default status).") }),
+        Tool("product_mcp_check",
+            "Drives the product MCP surface over its own pipe the way a user's agent would: create a throwaway connection, verify passwords are write-only (hasPassword only, never the value or blob), set one, check in-session tools refuse clearly with no session, then delete the connection.",
+            new()),
+        Tool("mcp_transport_check",
+            "Connects to the app's own MCP named pipe as a client and runs initialize + tools/list plus a second concurrent session, verifying the pipe transport, its ACL, and the line framing.",
+            new()),
+        Tool("agent_project_link_check",
+            "Links a throwaway project folder to a synthetic agent workspace and verifies the AGENTS.md/CLAUDE.md reference block plus merged .mcp.json/.codex/.grok configs, then refresh (URL rotation, no duplicates) and unlink (project content restored).",
+            new()
+            {
+                ["panel"] = Prop("boolean", "Also drive the live AI panel view model from the open ai_render_probe tab (default false)."),
+                ["keep"] = Prop("boolean", "Keep the temporary project folder instead of deleting it (default false)."),
+            }),
         Tool("auto_update_stage_check",
             "Runs the in-app update downloader end-to-end (real network): downloads the release package, extracts and verifies it in the staging folder, then cleans up.",
             new()

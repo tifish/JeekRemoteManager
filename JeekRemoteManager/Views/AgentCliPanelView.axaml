@@ -121,6 +121,13 @@
                                           IsChecked="{Binding HideSshTerminal, Mode=TwoWay}"
                                           ToolTip.Tip="{l:Localize AiHideSshTerminalHint}" />
                                 <Separator />
+                                <MenuItem Header="{l:Localize AiLinkProject}"
+                                          Click="OnWriteToProjectClick"
+                                          ToolTip.Tip="{l:Localize AiLinkProjectHint}" />
+                                <MenuItem Header="{l:Localize AiUnlinkProject}"
+                                          Click="OnRemoveFromProjectClick"
+                                          ToolTip.Tip="{l:Localize AiUnlinkProjectHint}" />
+                                <Separator />
                                 <MenuItem Header="{l:Localize FontDecrease}"
                                           Click="OnFontDecreaseClick" />
                                 <MenuItem Header="{l:Localize FontIncrease}"

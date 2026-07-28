@@ -991,6 +991,11 @@ public partial class MainWindowViewModel : ViewModelBase
 
     // --- Tree building ---
 
+    /// <summary>Reloads the tree from disk after an external change (e.g. the product MCP
+    /// surface creating or updating a connection file).</summary>
+    public void ReloadTreeFromDisk(string? pathToSelect = null) =>
+        ReloadTree(pathToSelect, requestFocus: false);
+
     private void ReloadTree(string? pathToSelect = null, bool requestFocus = true)
     {
         // Folder expand/collapse state is persisted in AppSettings.CollapsedFolderPaths
@@ -1303,6 +1308,21 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         for (var p = node.Parent; p != null; p = p.Parent)
             p.IsExpanded = true;
+    }
+
+    /// <summary>
+    /// Reveals and selects a tree node by file path, which opens its editor. Used by the
+    /// product MCP surface to hand a task back to the user in the GUI (setting a password)
+    /// instead of accepting the secret over the tool channel.
+    /// </summary>
+    public bool SelectNodeByPath(string fullPath)
+    {
+        if (FindNode(Nodes, fullPath) is not { } node)
+            return false;
+
+        ExpandAncestors(node);
+        SelectedNode = node;
+        return true;
     }
 
     private static TreeNodeViewModel? FindNode(IEnumerable<TreeNodeViewModel> nodes, string fullPath)
