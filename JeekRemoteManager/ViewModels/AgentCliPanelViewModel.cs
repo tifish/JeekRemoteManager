@@ -198,10 +198,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         NotifyLayoutFlags();
         InstallCommand.NotifyCanExecuteChanged();
         RefreshStatusFromProvider();
-        // Always launch the newly selected agent. Fire-and-forget is OK: StartAsync is
-        // serialized and generation-gated so rapid ComboBox changes only keep the last one.
-        if (!_disposed && !IsInstalling && CanStartSelectedProvider())
-            _ = StartAsync();
+        ApplySelection();
     }
 
     partial void OnSelectedRunModeOptionChanged(AgentCliRunModeOption value)
@@ -210,8 +207,48 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         NotifyLayoutFlags();
         InstallCommand.NotifyCanExecuteChanged();
         RefreshStatusFromProvider();
-        if (!_disposed && !IsInstalling && CanStartSelectedProvider())
+        ApplySelection();
+    }
+
+    /// <summary>
+    /// Brings the running agent in line with the current provider and mode: launch the new one,
+    /// or — when it cannot launch because it is not installed — stop the old one. Leaving the
+    /// previous session alive would keep another agent's terminal on screen under this agent's
+    /// status text, and its running state would suppress the install prompt the user needs.
+    ///
+    /// Fire-and-forget is OK: both paths are serialized on the start gate and generation-gated,
+    /// so rapid ComboBox changes only leave the last one standing.
+    /// </summary>
+    private void ApplySelection()
+    {
+        if (_disposed || IsInstalling)
+            return;
+
+        if (CanStartSelectedProvider())
             _ = StartAsync();
+        else if (IsRunning)
+            _ = StopForSelectionChangeAsync();
+    }
+
+    /// <summary>
+    /// Stops the previous agent because the newly selected one cannot start. Reported as
+    /// replaced rather than user-stopped, so the view clears its surface instead of showing a
+    /// "session ended" banner for an agent the user did not stop.
+    /// </summary>
+    private async Task StopForSelectionChangeAsync()
+    {
+        Interlocked.Increment(ref _startGeneration);
+        await _startGate.WaitAsync().ConfigureAwait(true);
+        try
+        {
+            await StopInternalAsync(userStopped: false, replaced: true).ConfigureAwait(true);
+            RefreshStatusFromProvider();
+            NotifyLayoutFlags();
+        }
+        finally
+        {
+            _startGate.Release();
+        }
     }
 
     partial void OnIsRunningChanged(bool value)
@@ -330,9 +367,10 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             return;
         }
 
-        // Languages.tab uses {2} for newlines so install command stays readable.
+        // Languages.tab uses {2} for newlines so the hint stays readable. Agents we cannot
+        // install for the user show a download page, which is not a command to run.
         StatusText = string.Format(
-            L("AiCliNotInstalled"),
+            L(SelectedProvider.CanAutoInstall ? "AiCliNotInstalled" : "AiCliNotInstalledDownload"),
             SelectedProvider.Label,
             SelectedProvider.InstallHint,
             Environment.NewLine);
