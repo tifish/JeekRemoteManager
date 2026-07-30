@@ -150,7 +150,14 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         !IsRunning
         && !IsInstalling
         && !LaunchesWithoutLocalBinary
-        && !SelectedProvider.IsAvailable;
+        && SelectedSurface?.IsAvailable != true;
+
+    /// <summary>
+    /// The program behind the current provider and mode. Agents that ship several — Antigravity's
+    /// CLI, desktop app, and IDE — resolve to a different one per mode, so availability, the
+    /// install hint, and the launch all have to be read from here rather than the provider.
+    /// </summary>
+    private AgentSurface? SelectedSurface => SelectedProvider.SurfaceFor(RunMode);
 
     /// <summary>Desktop mode on an agent that registers a URI rather than shipping an exe we run.</summary>
     private bool LaunchesWithoutLocalBinary =>
@@ -339,7 +346,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     }
 
     private bool CanStartSelectedProvider() =>
-        LaunchesWithoutLocalBinary || SelectedProvider.IsAvailable;
+        LaunchesWithoutLocalBinary || SelectedSurface?.IsAvailable == true;
 
     private void RefreshStatusFromProvider()
     {
@@ -353,7 +360,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             return;
         }
 
-        if (LaunchesWithoutLocalBinary || SelectedProvider.IsAvailable)
+        if (LaunchesWithoutLocalBinary || SelectedSurface?.IsAvailable == true)
         {
             StatusText = IsRunning
                 ? RunMode switch
@@ -370,9 +377,9 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         // Languages.tab uses {2} for newlines so the hint stays readable. Agents we cannot
         // install for the user show a download page, which is not a command to run.
         StatusText = string.Format(
-            L(SelectedProvider.CanAutoInstall ? "AiCliNotInstalled" : "AiCliNotInstalledDownload"),
+            L(SelectedSurface?.CanAutoInstall == true ? "AiCliNotInstalled" : "AiCliNotInstalledDownload"),
             SelectedProvider.Label,
-            SelectedProvider.InstallHint,
+            SelectedSurface?.InstallHint ?? "",
             Environment.NewLine);
     }
 
@@ -409,9 +416,8 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     private bool CanInstall() =>
         !IsInstalling
         && !IsRunning
-        && SelectedProvider.CanAutoInstall
-        && !LaunchesWithoutLocalBinary
-        && !SelectedProvider.IsAvailable;
+        && SelectedSurface is { CanAutoInstall: true, IsAvailable: false }
+        && !LaunchesWithoutLocalBinary;
 
     [RelayCommand(CanExecute = nameof(CanInstall))]
     private async Task InstallAsync()
@@ -423,9 +429,12 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         StatusText = string.Format(
             L("AiCliInstalling"),
             SelectedProvider.Label,
-            SelectedProvider.InstallHint,
+            SelectedSurface?.InstallHint ?? "",
             Environment.NewLine);
         var kind = SelectedProvider.Kind;
+        // Install the surface the current mode needs — Antigravity's CLI and IDE are separate
+        // downloads, so which one is missing depends on the mode the user picked.
+        var surface = AgentCliCatalog.SurfaceKindFor(RunMode);
         try
         {
             var progress = new Progress<string>(line =>
@@ -439,10 +448,11 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
                 StatusText = trimmed.Length > 200 ? trimmed[..200] + "…" : trimmed;
             });
 
-            var result = await AgentCliInstaller.InstallAsync(kind, progress).ConfigureAwait(true);
+            var result = await AgentCliInstaller.InstallAsync(kind, surface, progress)
+                .ConfigureAwait(true);
             RediscoverProviders(preferKind: kind);
 
-            if (result.Success && SelectedProvider.IsAvailable)
+            if (result.Success && SelectedSurface?.IsAvailable == true)
             {
                 StatusText = L("AiCliInstallSucceeded", SelectedProvider.Label);
                 await StartAsync().ConfigureAwait(true);
@@ -524,12 +534,13 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
                 return;
             }
 
-            // Only a protocol launch works without a local binary; everything else, Antigravity
-            // 2.0 included, needs its executable on disk.
+            // Only a protocol launch works without a local binary; every other surface needs its
+            // own executable on disk, and which one that is depends on the mode.
+            var surface = provider.SurfaceFor(runMode);
             if (!(runMode == AgentCliRunMode.Desktop && desktopLaunch == AgentDesktopLaunch.Protocol)
-                && (!provider.IsAvailable || provider.ExecutablePath is null))
+                && surface?.ExecutablePath is null)
             {
-                StatusText = provider.InstallHint;
+                StatusText = surface?.InstallHint ?? L("AiCliDesktopUnsupported", provider.Label);
                 NotifyLayoutFlags();
                 return;
             }
@@ -545,7 +556,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
                 if (runMode == AgentCliRunMode.Desktop)
                 {
-                    if (!TryStartDesktopApp(provider))
+                    if (!TryStartDesktopApp(provider, surface))
                     {
                         if (generation != Volatile.Read(ref _startGeneration))
                             return;
@@ -567,7 +578,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
                     return;
                 }
 
-                var exePath = provider.ExecutablePath!;
+                var exePath = surface!.ExecutablePath!;
 
                 if (runMode == AgentCliRunMode.Ide)
                 {
@@ -914,10 +925,10 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     /// Claude and Codex register a URI the shell hands off, while Antigravity 2.0 is an
     /// executable we start on the folder like an editor.
     /// </summary>
-    private bool TryStartDesktopApp(AgentCliDescriptor provider)
+    private bool TryStartDesktopApp(AgentCliDescriptor provider, AgentSurface? surface)
     {
         if (AgentCliCatalog.DesktopLaunch(provider.Kind) == AgentDesktopLaunch.Executable)
-            return provider.ExecutablePath is { } exe && TryStartOnWorkspaceFolder(exe);
+            return surface?.ExecutablePath is { } exe && TryStartOnWorkspaceFolder(exe);
 
         var uri = AgentCliCatalog.BuildDesktopProtocolUri(provider.Kind, _workingDirectory);
         if (uri is null)

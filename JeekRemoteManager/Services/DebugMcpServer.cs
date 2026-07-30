@@ -1330,11 +1330,29 @@ internal static class DebugMcpServer
     private static Task<JsonObject> AgentCliLocateCheckAsync(JsonObject args)
     {
         var sb = new StringBuilder();
-        // Drive off the panel's own provider list so a newly added agent cannot be missing here.
+        // Drive off the panel's own provider list so a newly added agent cannot be missing here,
+        // and report every surface — an agent can have its CLI installed but not its IDE.
         foreach (var descriptor in AgentCliCatalog.Discover())
         {
-            sb.AppendLine(
-                $"{descriptor.Label}: {descriptor.ExecutablePath ?? $"(not found — {descriptor.InstallHint})"}");
+            var protocolDesktop =
+                AgentCliCatalog.DesktopLaunch(descriptor.Kind) == AgentDesktopLaunch.Protocol;
+            var surfaceKinds = AgentCliCatalog.RunModesFor(descriptor.Kind)
+                .Select(AgentCliCatalog.SurfaceKindFor)
+                .Distinct()
+                // A protocol desktop has no executable to report — the shell resolves it.
+                .Where(kind => !(kind == AgentSurfaceKind.Desktop && protocolDesktop))
+                .ToList();
+
+            foreach (var kind in surfaceKinds)
+            {
+                var surface = descriptor.Surfaces.GetValueOrDefault(kind);
+                var label = surfaceKinds.Count > 1 ? $"{descriptor.Label} [{kind}]" : descriptor.Label;
+                sb.AppendLine(
+                    $"{label}: {surface?.ExecutablePath ?? $"(not found — {surface?.InstallHint})"}");
+            }
+
+            if (protocolDesktop)
+                sb.AppendLine($"{descriptor.Label} [Desktop]: registered protocol");
         }
         if (args["path"]?.GetValue<string>() is { Length: > 0 } path)
             sb.AppendLine($"resolve: {path} -> {AgentCliLocator.ResolveRealPath(path)}");

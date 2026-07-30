@@ -8,46 +8,60 @@ using System.Threading.Tasks;
 namespace JeekRemoteManager.Services;
 
 /// <summary>
-/// Runs the official one-line installers for the agents that have one (Claude Code, Codex CLI,
-/// Grok Build, Antigravity CLI, and the winget-published editors) on Windows, then re-probes
-/// <see cref="AgentCliLocator"/>. Agents whose descriptor sets <c>CanAutoInstall: false</c> only
-/// show a download page and never reach this class.
+/// Runs the official one-line installers for the agent surfaces that have one (Claude Code,
+/// Codex CLI, Grok Build, Antigravity CLI, and the winget-published editors) on Windows, then
+/// re-probes <see cref="AgentCliLocator"/>. Surfaces that <see cref="CanAutoInstall"/> rejects
+/// only show a download page and never start a process here.
 /// </summary>
 public static class AgentCliInstaller
 {
     public sealed record InstallResult(bool Success, string Message, string? ExecutablePath);
 
-    /// <summary>Official PowerShell/npm install line shown to the user before/while running.</summary>
-    public static string GetInstallCommandSummary(AgentCliKind kind) => kind switch
-    {
-        AgentCliKind.Claude => "irm https://claude.ai/install.ps1 | iex",
-        AgentCliKind.Codex => "npm install -g @openai/codex",
-        AgentCliKind.Grok => "irm https://x.ai/cli/install.ps1 | iex",
-        AgentCliKind.Antigravity => "irm https://antigravity.google/cli/install.ps1 | iex",
-        AgentCliKind.VsCode => "winget install Microsoft.VisualStudioCode",
-        AgentCliKind.Cursor => "winget install Anysphere.Cursor",
-        // No winget package to point at, so these show a download page instead of a command
-        // and their descriptors turn auto-install off.
-        AgentCliKind.AntigravityDesktop or AgentCliKind.AntigravityIde =>
-            "https://antigravity.google/download",
-        _ => "",
-    };
+    private const string AntigravityDownload = "https://antigravity.google/download";
+
+    /// <summary>
+    /// Official install line for one surface of an agent, shown to the user before and while it
+    /// runs. Surfaces with no published command show a download page instead — see
+    /// <see cref="CanAutoInstall"/>.
+    /// </summary>
+    public static string GetInstallCommandSummary(AgentCliKind kind, AgentSurfaceKind surface) =>
+        (kind, surface) switch
+        {
+            (AgentCliKind.Claude, _) => "irm https://claude.ai/install.ps1 | iex",
+            (AgentCliKind.Codex, _) => "npm install -g @openai/codex",
+            (AgentCliKind.Grok, _) => "irm https://x.ai/cli/install.ps1 | iex",
+            (AgentCliKind.Antigravity, AgentSurfaceKind.Terminal) =>
+                "irm https://antigravity.google/cli/install.ps1 | iex",
+            // The 2.0 desktop app and the IDE are downloads, not winget packages.
+            (AgentCliKind.Antigravity, _) => AntigravityDownload,
+            (AgentCliKind.VsCode, _) => "winget install Microsoft.VisualStudioCode",
+            (AgentCliKind.Cursor, _) => "winget install Anysphere.Cursor",
+            _ => "",
+        };
+
+    /// <summary>
+    /// Whether the panel can install this surface for the user, or only point at a download page.
+    /// </summary>
+    public static bool CanAutoInstall(AgentCliKind kind, AgentSurfaceKind surface) =>
+        GetInstallCommandSummary(kind, surface) is { Length: > 0 } hint
+        && !hint.StartsWith("http", StringComparison.OrdinalIgnoreCase);
 
     public static async Task<InstallResult> InstallAsync(
         AgentCliKind kind,
+        AgentSurfaceKind surface,
         IProgress<string>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        progress?.Report($"Running: {GetInstallCommandSummary(kind)}");
+        progress?.Report($"Running: {GetInstallCommandSummary(kind, surface)}");
 
         try
         {
-            var (fileName, arguments) = BuildProcess(kind);
+            var (fileName, arguments) = BuildProcess(kind, surface);
             var output = await RunProcessAsync(fileName, arguments, progress, cancellationToken)
                 .ConfigureAwait(false);
 
             // PATH may have changed in the child process only; probe known install locations too.
-            var path = Locate(kind);
+            var path = Locate(kind, surface);
             if (path is not null)
             {
                 return new InstallResult(true, $"Installed successfully.\n{path}", path);
@@ -55,7 +69,7 @@ public static class AgentCliInstaller
 
             // One more pass after a short delay (some installers finish writing asynchronously).
             await Task.Delay(800, cancellationToken).ConfigureAwait(false);
-            path = Locate(kind);
+            path = Locate(kind, surface);
             if (path is not null)
                 return new InstallResult(true, $"Installed successfully.\n{path}", path);
 
@@ -74,21 +88,30 @@ public static class AgentCliInstaller
         }
     }
 
-    private static string? Locate(AgentCliKind kind) => kind switch
+    /// <summary>Resolves the executable behind one surface of an agent.</summary>
+    public static string? Locate(AgentCliKind kind, AgentSurfaceKind surface) => (kind, surface) switch
     {
-        AgentCliKind.Claude => AgentCliLocator.FindClaude(),
-        AgentCliKind.Codex => AgentCliLocator.FindCodex(),
-        AgentCliKind.Grok => AgentCliLocator.FindGrok(),
-        AgentCliKind.Antigravity => AgentCliLocator.FindAntigravityCli(),
-        AgentCliKind.AntigravityDesktop => AgentCliLocator.FindAntigravityDesktop(),
-        AgentCliKind.AntigravityIde => AgentCliLocator.FindAntigravityIde(),
-        AgentCliKind.VsCode => AgentCliLocator.FindVsCode(),
-        AgentCliKind.Cursor => AgentCliLocator.FindCursor(),
+        (AgentCliKind.Claude, _) => AgentCliLocator.FindClaude(),
+        (AgentCliKind.Codex, _) => AgentCliLocator.FindCodex(),
+        (AgentCliKind.Grok, _) => AgentCliLocator.FindGrok(),
+        (AgentCliKind.Antigravity, AgentSurfaceKind.Terminal) => AgentCliLocator.FindAntigravityCli(),
+        (AgentCliKind.Antigravity, AgentSurfaceKind.Desktop) => AgentCliLocator.FindAntigravityDesktop(),
+        (AgentCliKind.Antigravity, AgentSurfaceKind.Ide) => AgentCliLocator.FindAntigravityIde(),
+        (AgentCliKind.VsCode, _) => AgentCliLocator.FindVsCode(),
+        (AgentCliKind.Cursor, _) => AgentCliLocator.FindCursor(),
         _ => null,
     };
 
-    private static (string FileName, string Arguments) BuildProcess(AgentCliKind kind)
+    private static (string FileName, string Arguments) BuildProcess(
+        AgentCliKind kind,
+        AgentSurfaceKind surface)
     {
+        if (!CanAutoInstall(kind, surface))
+        {
+            throw new InvalidOperationException(
+                $"{kind} ({surface}) has no install command; it is a download.");
+        }
+
         // Use powershell.exe so install.ps1 scripts and npm.cmd all work on stock Windows.
         return kind switch
         {

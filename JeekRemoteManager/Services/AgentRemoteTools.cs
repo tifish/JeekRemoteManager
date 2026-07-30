@@ -73,29 +73,40 @@ public interface IAgentRemoteTools
     Task<string> GetMonitorSnapshotAsync(CancellationToken cancellationToken = default);
 }
 
-/// <summary>Identity of a local agent CLI the AI panel can launch.</summary>
+/// <summary>Identity of a local agent the AI panel can launch.</summary>
 public enum AgentCliKind
 {
     Claude,
     Codex,
     Grok,
 
-    /// <summary>Antigravity's terminal agent (<c>agy</c>), Google's replacement for Gemini CLI.</summary>
+    /// <summary>
+    /// Google's replacement for Gemini CLI. One agent shipping three programs — the
+    /// <c>agy</c> terminal agent, the 2.0 desktop app, and the IDE — so it is one provider
+    /// whose run mode picks the surface.
+    /// </summary>
     Antigravity,
-
-    /// <summary>Antigravity 2.0, the standalone agent-orchestration app, opened on a folder.</summary>
-    AntigravityDesktop,
 
     /// <summary>Editors opened on the workspace folder rather than run as a CLI.</summary>
     VsCode,
     Cursor,
-    AntigravityIde,
 }
 
-/// <summary>How an agent's non-terminal surface is opened on the workspace folder.</summary>
+/// <summary>
+/// Which of an agent's programs backs a run mode. CLI and Windows Terminal are the same
+/// program in two windows, so they share one surface.
+/// </summary>
+public enum AgentSurfaceKind
+{
+    Terminal,
+    Desktop,
+    Ide,
+}
+
+/// <summary>How an agent's desktop surface is opened on the workspace folder.</summary>
 public enum AgentDesktopLaunch
 {
-    /// <summary>No desktop surface — CLI-only agents.</summary>
+    /// <summary>No desktop surface at all.</summary>
     None,
 
     /// <summary>A registered URI the shell hands off (<c>claude://</c>, <c>codex://</c>).
@@ -106,15 +117,31 @@ public enum AgentDesktopLaunch
     Executable,
 }
 
-/// <summary>Resolved install path and launch metadata for one agent.</summary>
-public sealed record AgentCliDescriptor(
-    AgentCliKind Kind,
-    string Label,
+/// <summary>One launchable surface of an agent: the program behind it, and how to get it.</summary>
+public sealed record AgentSurface(
     string? ExecutablePath,
     string InstallHint,
     bool CanAutoInstall = true)
 {
     public bool IsAvailable => !string.IsNullOrWhiteSpace(ExecutablePath);
+}
+
+/// <summary>
+/// One agent in the provider picker, with a surface per run mode it offers. Agents that ship
+/// several programs (Antigravity) stay a single provider — the run-mode picker chooses which
+/// program runs, so the user picks the agent first and the surface second.
+/// </summary>
+public sealed record AgentCliDescriptor(
+    AgentCliKind Kind,
+    string Label,
+    IReadOnlyDictionary<AgentSurfaceKind, AgentSurface> Surfaces)
+{
+    /// <summary>The surface backing <paramref name="mode"/>, or null when the agent has none.</summary>
+    public AgentSurface? SurfaceFor(AgentCliRunMode mode) =>
+        Surfaces.GetValueOrDefault(AgentCliCatalog.SurfaceKindFor(mode));
+
+    /// <summary>Whether any surface is installed — used to preselect an agent in the picker.</summary>
+    public bool IsAvailable => Surfaces.Values.Any(surface => surface.IsAvailable);
 }
 
 /// <summary>
@@ -146,56 +173,69 @@ public static class AgentCliCatalog
 
     public static IReadOnlyList<AgentCliDescriptor> Discover() =>
     [
-        new(AgentCliKind.Claude, "Claude", AgentCliLocator.FindClaude(),
-            AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.Claude)),
-        new(AgentCliKind.Codex, "Codex", AgentCliLocator.FindCodex(),
-            AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.Codex)),
-        new(AgentCliKind.Grok, "Grok", AgentCliLocator.FindGrok(),
-            AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.Grok)),
-        new(AgentCliKind.Antigravity, "Antigravity", AgentCliLocator.FindAntigravityCli(),
-            AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.Antigravity)),
-        new(AgentCliKind.AntigravityDesktop, "Antigravity 2.0",
-            AgentCliLocator.FindAntigravityDesktop(),
-            AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.AntigravityDesktop),
-            CanAutoInstall: false),
-        new(AgentCliKind.VsCode, "VS Code", AgentCliLocator.FindVsCode(),
-            AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.VsCode)),
-        new(AgentCliKind.Cursor, "Cursor", AgentCliLocator.FindCursor(),
-            AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.Cursor)),
-        new(AgentCliKind.AntigravityIde, "Antigravity IDE",
-            AgentCliLocator.FindAntigravityIde(),
-            AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.AntigravityIde),
-            CanAutoInstall: false),
+        Terminal(AgentCliKind.Claude, "Claude", AgentCliLocator.FindClaude()),
+        Terminal(AgentCliKind.Codex, "Codex", AgentCliLocator.FindCodex()),
+        Terminal(AgentCliKind.Grok, "Grok", AgentCliLocator.FindGrok()),
+        new(AgentCliKind.Antigravity, "Antigravity", new Dictionary<AgentSurfaceKind, AgentSurface>
+        {
+            [AgentSurfaceKind.Terminal] = Surface(
+                AgentCliKind.Antigravity, AgentSurfaceKind.Terminal,
+                AgentCliLocator.FindAntigravityCli()),
+            [AgentSurfaceKind.Desktop] = Surface(
+                AgentCliKind.Antigravity, AgentSurfaceKind.Desktop,
+                AgentCliLocator.FindAntigravityDesktop()),
+            [AgentSurfaceKind.Ide] = Surface(
+                AgentCliKind.Antigravity, AgentSurfaceKind.Ide,
+                AgentCliLocator.FindAntigravityIde()),
+        }),
+        Editor(AgentCliKind.VsCode, "VS Code", AgentCliLocator.FindVsCode()),
+        Editor(AgentCliKind.Cursor, "Cursor", AgentCliLocator.FindCursor()),
     ];
 
-    /// <summary>
-    /// Editors, which have exactly one launch shape: open the workspace folder in the editor
-    /// window. They are not run in the side panel or Windows Terminal.
-    /// </summary>
-    public static bool IsIde(AgentCliKind kind) =>
-        kind is AgentCliKind.VsCode or AgentCliKind.Cursor or AgentCliKind.AntigravityIde;
+    private static AgentCliDescriptor Terminal(AgentCliKind kind, string label, string? path) =>
+        new(kind, label, new Dictionary<AgentSurfaceKind, AgentSurface>
+        {
+            [AgentSurfaceKind.Terminal] = Surface(kind, AgentSurfaceKind.Terminal, path),
+        });
 
-    /// <summary>
-    /// Whether this agent runs as a terminal program at all. Editors and the Antigravity
-    /// desktop app do not — they are windows we point at the workspace folder.
-    /// </summary>
-    public static bool IsTerminalAgent(AgentCliKind kind) =>
-        !IsIde(kind) && kind != AgentCliKind.AntigravityDesktop;
+    private static AgentCliDescriptor Editor(AgentCliKind kind, string label, string? path) =>
+        new(kind, label, new Dictionary<AgentSurfaceKind, AgentSurface>
+        {
+            [AgentSurfaceKind.Ide] = Surface(kind, AgentSurfaceKind.Ide, path),
+        });
+
+    private static AgentSurface Surface(AgentCliKind kind, AgentSurfaceKind surface, string? path) =>
+        new(
+            path,
+            AgentCliInstaller.GetInstallCommandSummary(kind, surface),
+            AgentCliInstaller.CanAutoInstall(kind, surface));
+
+    /// <summary>Which program a run mode starts. CLI and Windows Terminal share one.</summary>
+    public static AgentSurfaceKind SurfaceKindFor(AgentCliRunMode mode) => mode switch
+    {
+        AgentCliRunMode.Desktop => AgentSurfaceKind.Desktop,
+        AgentCliRunMode.Ide => AgentSurfaceKind.Ide,
+        _ => AgentSurfaceKind.Terminal,
+    };
 
     /// <summary>
     /// The launch modes one agent offers, in picker order. Agents with a single mode make the
     /// picker a label rather than a choice — and that mode is never worth persisting.
     /// </summary>
-    public static IReadOnlyList<AgentCliRunMode> RunModesFor(AgentCliKind kind)
+    public static IReadOnlyList<AgentCliRunMode> RunModesFor(AgentCliKind kind) => kind switch
     {
-        if (IsIde(kind))
-            return [AgentCliRunMode.Ide];
-        if (kind == AgentCliKind.AntigravityDesktop)
-            return [AgentCliRunMode.Desktop];
-        return SupportsDesktop(kind)
-            ? [AgentCliRunMode.Cli, AgentCliRunMode.WindowsTerminal, AgentCliRunMode.Desktop]
-            : [AgentCliRunMode.Cli, AgentCliRunMode.WindowsTerminal];
-    }
+        AgentCliKind.VsCode or AgentCliKind.Cursor => [AgentCliRunMode.Ide],
+        AgentCliKind.Antigravity =>
+        [
+            AgentCliRunMode.Cli,
+            AgentCliRunMode.WindowsTerminal,
+            AgentCliRunMode.Desktop,
+            AgentCliRunMode.Ide,
+        ],
+        AgentCliKind.Claude or AgentCliKind.Codex =>
+            [AgentCliRunMode.Cli, AgentCliRunMode.WindowsTerminal, AgentCliRunMode.Desktop],
+        _ => [AgentCliRunMode.Cli, AgentCliRunMode.WindowsTerminal],
+    };
 
     /// <summary>
     /// Runtime-only CLI flags. Connection context, system guidance, and MCP URL are
@@ -221,7 +261,7 @@ public static class AgentCliCatalog
     public static AgentDesktopLaunch DesktopLaunch(AgentCliKind kind) => kind switch
     {
         AgentCliKind.Claude or AgentCliKind.Codex => AgentDesktopLaunch.Protocol,
-        AgentCliKind.AntigravityDesktop => AgentDesktopLaunch.Executable,
+        AgentCliKind.Antigravity => AgentDesktopLaunch.Executable,
         _ => AgentDesktopLaunch.None,
     };
 
