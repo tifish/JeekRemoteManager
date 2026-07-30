@@ -1491,7 +1491,7 @@ internal static class DebugMcpServer
         var requested = args["agent"]?.GetValue<string>();
         var kinds = new List<AgentCliKind>();
         if (string.IsNullOrWhiteSpace(requested))
-            kinds.AddRange([AgentCliKind.Claude, AgentCliKind.Codex]);
+            kinds.Add(AgentCliKind.Claude);
         else if (Enum.TryParse<AgentCliKind>(requested, ignoreCase: true, out var parsed))
             kinds.Add(parsed);
         else
@@ -1625,24 +1625,6 @@ internal static class DebugMcpServer
                     environment.OrderBy(pair => pair.Key, StringComparer.Ordinal)
                         .Select(pair => $"{pair.Key}={MaskValue(pair.Key, pair.Value)}")));
 
-            if (kind == AgentCliKind.Codex)
-            {
-                var toml = AgentEndpointConfig.BuildCodexProviderToml(endpoint);
-                report.AppendLine(toml.Length == 0
-                    ? "  config.toml: (no provider block)"
-                    : "  config.toml: " + toml.Replace("\n", " | ").TrimEnd(' ', '|'));
-                // The block must name the variable, never carry the secret. Short keys are not
-                // worth checking: "KEY" is a substring of JRM_CODEX_API_KEY and would false-fail.
-                if (setApiKey is { Length: >= 12 })
-                {
-                    var leaks = toml.Contains(setApiKey, StringComparison.Ordinal);
-                    report.AppendLine($"  key kept out of config.toml: {(leaks ? "FAIL" : "ok")}");
-                }
-                else if (!string.IsNullOrEmpty(setApiKey))
-                {
-                    report.AppendLine("  key kept out of config.toml: (skipped — test key too short)");
-                }
-            }
         }
 
         return ToolText(report.ToString().TrimEnd());

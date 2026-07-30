@@ -64,10 +64,10 @@ public static class DebugMcpContract
             "Refresh and verify one generated AI workspace has accurate AGENTS.md connection context, the installed JeekRemoteManagerMcp adapter, Claude approval, and every project MCP config in the catalog (.mcp.json, .vscode/mcp.json, .codex, .grok) pinned to the requested connection under the root key each agent reads.",
             new() { ["connection"] = Prop("string", "Connection tree path under AgentWorkspaces (default vps/bwg).") }),
         Tool("agent_endpoint_check",
-            "Verify custom API endpoints end to end without revealing the key: reports each agent's stored endpoint (hasApiKey only), the environment variables its launch would set (values masked), and the Codex model_provider block written into a workspace config. Optionally sets a throwaway endpoint first and restores the previous one afterwards.",
+            "Verify custom API endpoints end to end without revealing the key: reports the agent's saved endpoints (hasApiKey only) and the environment variables its launch would set, with secret values masked to their length. Can also add, select, and delete saved endpoints to exercise the picker.",
             new()
             {
-                ["agent"] = Prop("string", "Claude | Codex (default: report both)."),
+                ["agent"] = Prop("string", "Claude — the only agent with custom endpoints (default)."),
                 ["set_base_url"] = Prop("string", "Temporarily apply this base URL to run the check."),
                 ["set_api_key"] = Prop("string", "Temporary key used with set_base_url; never echoed back."),
                 ["set_model"] = Prop("string", "Optional temporary model id."),

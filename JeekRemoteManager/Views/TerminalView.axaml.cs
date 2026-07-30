@@ -1105,9 +1105,7 @@ public partial class TerminalView : UserControl
             _sourcePath,
             _connection,
             SessionNumber,
-            mcpToolsAutoApprove: mcpToolsAutoApprove ?? mainVm?.AiAutoRun ?? true,
-            // Codex reads its endpoint from the workspace config rather than the environment.
-            codexEndpoint: mainVm?.GetSelectedAiEndpoint(AgentCliKind.Codex));
+            mcpToolsAutoApprove: mcpToolsAutoApprove ?? mainVm?.AiAutoRun ?? true);
     }
 
     /// <summary>

@@ -370,6 +370,17 @@ public class SettingsService
         settings.TerminalFontSize = Math.Clamp(settings.TerminalFontSize, 8, 36);
         if (string.IsNullOrWhiteSpace(settings.AiProvider))
             settings.AiProvider = null;
+
+        // Drop endpoints saved for agents that no longer offer them, so the file does not keep
+        // carrying a section nothing reads. Codex was removed once it dropped Chat Completions.
+        foreach (var key in settings.AiEndpoints.Keys.ToList())
+        {
+            if (!Enum.TryParse<AgentCliKind>(key, ignoreCase: true, out var kind)
+                || !AgentEndpointConfig.Supports(kind))
+            {
+                settings.AiEndpoints.Remove(key);
+            }
+        }
     }
 
     private static bool IsValidWindowDimension(double? value) =>
