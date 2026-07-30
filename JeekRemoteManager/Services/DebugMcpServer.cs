@@ -107,6 +107,7 @@ internal static class DebugMcpServer
         host.AddTool("ai_cli_ctrl_c_check", _ => AiCliCtrlCCheckAsync());
         host.AddTool("agent_cli_locate_check", AgentCliLocateCheckAsync);
         host.AddTool("agent_cli_mcp_config_check", AgentCliMcpConfigCheckAsync);
+        host.AddTool("agent_endpoint_check", AgentEndpointCheckAsync);
         host.AddTool("login_menu_select_check", LoginMenuSelectCheckAsync);
         host.AddTool("login_menu_select_probe", LoginMenuSelectProbeAsync);
         host.AddTool("auto_update_stage_check", AutoUpdateStageCheckAsync);
@@ -1477,6 +1478,151 @@ internal static class DebugMcpServer
             report.AppendLine($"{name}={(ok ? "ok" : "FAIL")}");
 
         return ToolText(report.ToString().TrimEnd(), isError: !passed);
+    }
+
+    /// <summary>
+    /// Reports how a custom API endpoint would reach the agent, without ever returning the key.
+    /// Values of secret-bearing variables are replaced by their length, so a test can prove the
+    /// key was passed through while the transcript never carries it.
+    /// </summary>
+    private static async Task<JsonObject> AgentEndpointCheckAsync(JsonObject args)
+    {
+        var requested = args["agent"]?.GetValue<string>();
+        var kinds = new List<AgentCliKind>();
+        if (string.IsNullOrWhiteSpace(requested))
+            kinds.AddRange([AgentCliKind.Claude, AgentCliKind.Codex]);
+        else if (Enum.TryParse<AgentCliKind>(requested, ignoreCase: true, out var parsed))
+            kinds.Add(parsed);
+        else
+            return ToolText($"FAIL: unknown agent '{requested}'.", isError: true);
+
+        var setBaseUrl = args["set_base_url"]?.GetValue<string>();
+        var setApiKey = args["set_api_key"]?.GetValue<string>();
+        var setModel = args["set_model"]?.GetValue<string>();
+
+        var report = new StringBuilder();
+
+        if (args["probe_env"]?.GetValue<bool>() == true)
+            report.AppendLine(await ProbeEnvironmentBlockAsync());
+
+        foreach (var kind in kinds)
+        {
+            var endpoint = await OnUiAsync(() =>
+                ResolveRoot("MainVm") is MainWindowViewModel vm ? vm.GetAiEndpoint(kind) : null);
+            if (endpoint is null)
+            {
+                report.AppendLine($"{kind}: not redirectable");
+                continue;
+            }
+
+            // Apply a throwaway endpoint for the duration of the check, then put it back.
+            var saved = (endpoint.Enabled, endpoint.BaseUrl, endpoint.EncryptedApiKey, endpoint.Model);
+            var temporary = !string.IsNullOrWhiteSpace(setBaseUrl);
+            if (temporary)
+            {
+                endpoint.Enabled = true;
+                endpoint.BaseUrl = setBaseUrl!;
+                endpoint.Model = setModel ?? "";
+                if (!string.IsNullOrEmpty(setApiKey))
+                    endpoint.EncryptedApiKey = PasswordProtector.Encrypt(setApiKey);
+            }
+
+            try
+            {
+                report.AppendLine(
+                    $"{kind}: enabled={endpoint.Enabled} baseUrl={Describe(endpoint.BaseUrl)} "
+                    + $"hasApiKey={endpoint.EncryptedApiKey.Length > 0} model={Describe(endpoint.Model)}");
+
+                var environment = AgentEndpointConfig.BuildEnvironment(kind, endpoint);
+                report.AppendLine(environment.Count == 0
+                    ? "  env: (none — agent uses its own API)"
+                    : "  env: " + string.Join(
+                        ", ",
+                        environment.OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                            .Select(pair => $"{pair.Key}={MaskValue(pair.Key, pair.Value)}")));
+
+                if (kind == AgentCliKind.Codex)
+                {
+                    var toml = AgentEndpointConfig.BuildCodexProviderToml(endpoint);
+                    report.AppendLine(toml.Length == 0
+                        ? "  config.toml: (no provider block)"
+                        : "  config.toml: " + toml.Replace("\n", " | ").TrimEnd(' ', '|'));
+                    // The block must name the variable, never carry the secret.
+                    var leaks = !string.IsNullOrEmpty(setApiKey)
+                                && toml.Contains(setApiKey, StringComparison.Ordinal);
+                    report.AppendLine($"  key kept out of config.toml: {(leaks ? "FAIL" : "ok")}");
+                }
+            }
+            finally
+            {
+                if (temporary)
+                {
+                    (endpoint.Enabled, endpoint.BaseUrl, endpoint.EncryptedApiKey, endpoint.Model) = saved;
+                }
+            }
+        }
+
+        return ToolText(report.ToString().TrimEnd());
+
+        static string Describe(string value) => value.Length == 0 ? "(blank)" : value;
+
+        // Secrets are write-only across this surface: prove the length, never the value.
+        static string MaskValue(string name, string value) =>
+            name.Contains("TOKEN", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("KEY", StringComparison.OrdinalIgnoreCase)
+                ? $"<{value.Length} chars>"
+                : value;
+    }
+
+    /// <summary>
+    /// Proves the hand-marshalled CreateProcess environment block actually reaches the child:
+    /// runs <c>cmd /c set</c> under a pseudo console with one override, and checks both that the
+    /// override arrived and that an inherited variable survived (a malformed block would drop
+    /// everything). Uses a throwaway variable name, never a real key.
+    /// </summary>
+    private static async Task<string> ProbeEnvironmentBlockAsync()
+    {
+        const string name = "JRM_ENV_PROBE";
+        var expected = "probe-" + Environment.ProcessId;
+        var overrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            [name] = expected,
+        };
+
+        try
+        {
+            var output = new StringBuilder();
+            using var session = await Task.Run(() => ConPtySession.Start(
+                "cmd.exe",
+                ["/c", "set"],
+                cols: 200,
+                rows: 40,
+                workingDirectory: null,
+                environmentOverrides: overrides)).ConfigureAwait(false);
+
+            var done = new TaskCompletionSource();
+            session.DataReceived += bytes =>
+            {
+                lock (output)
+                    output.Append(Encoding.UTF8.GetString(bytes));
+            };
+            session.Exited += _ => done.TrySetResult();
+            await Task.WhenAny(done.Task, Task.Delay(TimeSpan.FromSeconds(10))).ConfigureAwait(false);
+
+            string text;
+            lock (output)
+                text = output.ToString();
+
+            var gotOverride = text.Contains($"{name}={expected}", StringComparison.OrdinalIgnoreCase);
+            // PATH stands in for "the rest of our environment came through".
+            var keptInherited = text.Contains("PATH=", StringComparison.OrdinalIgnoreCase);
+            return $"env block: override={(gotOverride ? "ok" : "FAIL")} "
+                   + $"inherited={(keptInherited ? "ok" : "FAIL")}";
+        }
+        catch (Exception ex)
+        {
+            return $"env block: FAIL ({ex.GetType().Name}: {ex.Message})";
+        }
     }
 
     /// <summary>Parses a config file for probing, treating malformed JSON as a failed check.</summary>

@@ -68,7 +68,21 @@ public sealed class ConPtySession : IDisposable
         IReadOnlyList<string> arguments,
         int cols,
         int rows,
-        string? workingDirectory)
+        string? workingDirectory) =>
+        Start(exePath, arguments, cols, rows, workingDirectory, environmentOverrides: null);
+
+    /// <summary>
+    /// Starts <paramref name="exePath"/> under a new pseudo console with
+    /// <paramref name="environmentOverrides"/> added to this process's environment. Used to hand
+    /// an agent its API endpoint and key without those ever reaching disk or another child.
+    /// </summary>
+    public static ConPtySession Start(
+        string exePath,
+        IReadOnlyList<string> arguments,
+        int cols,
+        int rows,
+        string? workingDirectory,
+        IReadOnlyDictionary<string, string>? environmentOverrides)
     {
         CreatePipePair(out var inputRead, out var inputWrite);
         SafeFileHandle? outputRead = null, outputWrite = null;
@@ -93,7 +107,8 @@ public sealed class ConPtySession : IDisposable
             process = SpawnAttachedProcess(
                 pseudoConsole,
                 BuildCommandLine(exePath, arguments),
-                string.IsNullOrWhiteSpace(workingDirectory) ? null : workingDirectory);
+                string.IsNullOrWhiteSpace(workingDirectory) ? null : workingDirectory,
+                environmentOverrides);
             job = CreateKillOnCloseJob();
             if (!AssignProcessToJobObject(job, process))
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "AssignProcessToJobObject failed.");
@@ -311,10 +326,83 @@ public sealed class ConPtySession : IDisposable
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Builds a UTF-16 environment block of this process's variables plus
+    /// <paramref name="overrides"/>, or <see cref="IntPtr.Zero"/> when there is nothing to
+    /// override (in which case the child simply inherits ours). CreateProcess requires the
+    /// names sorted case-insensitively and the whole block terminated by a second null.
+    /// </summary>
+    private static IntPtr BuildEnvironmentBlock(IReadOnlyDictionary<string, string>? overrides)
+    {
+        if (overrides is null || overrides.Count == 0)
+            return IntPtr.Zero;
+
+        var merged = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
+        {
+            if (entry.Key is string name && entry.Value is string value)
+                merged[name] = value;
+        }
+
+        foreach (var (name, value) in overrides)
+            merged[name] = value;
+
+        var sb = new StringBuilder();
+        foreach (var (name, value) in merged)
+            sb.Append(name).Append('=').Append(value).Append('\0');
+        sb.Append('\0');
+
+        // Marshal by hand so the buffer can be wiped afterwards; Marshal.StringToHGlobalUni
+        // would leave the secret in a block we no longer have the length of.
+        var chars = new char[sb.Length];
+        sb.CopyTo(0, chars, 0, sb.Length);
+        var bytes = chars.Length * sizeof(char);
+        var block = Marshal.AllocHGlobal(bytes + sizeof(char));
+        Marshal.Copy(chars, 0, block, chars.Length);
+        Marshal.WriteInt16(block, bytes, 0);
+        Array.Clear(chars);
+        return block;
+    }
+
+    private static void ZeroAndFreeEnvironmentBlock(IntPtr block)
+    {
+        try
+        {
+            // Walk to the double null and overwrite everything up to it.
+            var offset = 0;
+            var previousWasNull = false;
+            while (true)
+            {
+                var value = Marshal.ReadInt16(block, offset);
+                Marshal.WriteInt16(block, offset, 0);
+                offset += sizeof(char);
+                if (value == 0)
+                {
+                    if (previousWasNull)
+                        break;
+                    previousWasNull = true;
+                }
+                else
+                {
+                    previousWasNull = false;
+                }
+            }
+        }
+        catch
+        {
+            // Wiping is best-effort; the block still has to be freed.
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(block);
+        }
+    }
+
     private static SafeFileHandle SpawnAttachedProcess(
         IntPtr pseudoConsole,
         string commandLine,
-        string? workingDirectory)
+        string? workingDirectory,
+        IReadOnlyDictionary<string, string>? environmentOverrides)
     {
         var attributeListSize = IntPtr.Zero;
         InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref attributeListSize);
@@ -337,16 +425,34 @@ public sealed class ConPtySession : IDisposable
                 startupInfo.StartupInfo.cb = Marshal.SizeOf<StartupInfoEx>();
                 startupInfo.lpAttributeList = attributeList;
 
-                if (!CreateProcessW(
-                        null, commandLine, IntPtr.Zero, IntPtr.Zero, bInheritHandles: false,
-                        ExtendedStartupInfoPresent, IntPtr.Zero, workingDirectory,
-                        ref startupInfo, out var processInfo))
-                {
-                    throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateProcess failed.");
-                }
+                // A null block means "inherit ours". Building one switches the child to a copy
+                // with our overrides applied, so a secret reaches this agent and nothing else.
+                var environment = BuildEnvironmentBlock(environmentOverrides);
+                var flags = ExtendedStartupInfoPresent;
+                if (environment != IntPtr.Zero)
+                    flags |= CreateUnicodeEnvironment;
 
-                CloseHandle(processInfo.hThread);
-                return new SafeFileHandle(processInfo.hProcess, ownsHandle: true);
+                try
+                {
+                    if (!CreateProcessW(
+                            null, commandLine, IntPtr.Zero, IntPtr.Zero, bInheritHandles: false,
+                            flags, environment, workingDirectory,
+                            ref startupInfo, out var processInfo))
+                    {
+                        throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateProcess failed.");
+                    }
+
+                    CloseHandle(processInfo.hThread);
+                    return new SafeFileHandle(processInfo.hProcess, ownsHandle: true);
+                }
+                finally
+                {
+                    if (environment != IntPtr.Zero)
+                    {
+                        // Zero the copy before releasing it: it holds an API key in this process.
+                        ZeroAndFreeEnvironmentBlock(environment);
+                    }
+                }
             }
             finally
             {
@@ -402,6 +508,9 @@ public sealed class ConPtySession : IDisposable
     // ---- P/Invoke ----
 
     private const uint ExtendedStartupInfoPresent = 0x00080000;
+
+    /// <summary>Required when lpEnvironment points at a UTF-16 block rather than ANSI.</summary>
+    private const uint CreateUnicodeEnvironment = 0x00000400;
     private static readonly IntPtr ProcThreadAttributePseudoConsole = (IntPtr)0x20016;
     private const uint JobObjectLimitKillOnJobClose = 0x2000;
     private const int JobObjectExtendedLimitInformationClass = 9;

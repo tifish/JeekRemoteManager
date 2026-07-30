@@ -63,6 +63,16 @@ public static class DebugMcpContract
         Tool("agent_cli_mcp_config_check",
             "Refresh and verify one generated AI workspace has accurate AGENTS.md connection context, the installed JeekRemoteManagerMcp adapter, Claude approval, and every project MCP config in the catalog (.mcp.json, .vscode/mcp.json, .codex, .grok) pinned to the requested connection under the root key each agent reads.",
             new() { ["connection"] = Prop("string", "Connection tree path under AgentWorkspaces (default vps/bwg).") }),
+        Tool("agent_endpoint_check",
+            "Verify custom API endpoints end to end without revealing the key: reports each agent's stored endpoint (hasApiKey only), the environment variables its launch would set (values masked), and the Codex model_provider block written into a workspace config. Optionally sets a throwaway endpoint first and restores the previous one afterwards.",
+            new()
+            {
+                ["agent"] = Prop("string", "Claude | Codex (default: report both)."),
+                ["set_base_url"] = Prop("string", "Temporarily apply this base URL to run the check."),
+                ["set_api_key"] = Prop("string", "Temporary key used with set_base_url; never echoed back."),
+                ["set_model"] = Prop("string", "Optional temporary model id."),
+                ["probe_env"] = Prop("boolean", "Also run cmd /c set under a pseudo console to prove the environment block reaches the child process (default false)."),
+            }),
         Tool("login_menu_select_check",
             "Run the login-command \"#select <name>\" matcher against menu text: reports the parsed menu entries and which number the name would type.",
             new()

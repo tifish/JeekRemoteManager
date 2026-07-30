@@ -264,6 +264,39 @@ public partial class AgentCliPanelView : UserControl
     }
 
     /// <summary>
+    /// Edits the selected agent's custom API endpoint. Only Claude and Codex can be redirected;
+    /// for anything else the panel says so rather than opening an editor that does nothing.
+    /// </summary>
+    private async void OnCustomEndpointClick(object? sender, RoutedEventArgs e)
+    {
+        if (_vm is null)
+            return;
+
+        var provider = _vm.SelectedProvider;
+        if (_vm.ResolveEndpoint?.Invoke(provider.Kind) is not { } endpoint)
+        {
+            _vm.StatusText = string.Format(
+                Localizer.Get("AiEndpointUnsupported"), provider.Label);
+            return;
+        }
+
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (!await AgentEndpointDialog.ShowAsync(owner, provider.Label, endpoint))
+            return;
+
+        SaveEndpointRequested?.Invoke(this, EventArgs.Empty);
+        _vm.StatusText = string.Format(
+            Localizer.Get(endpoint.Enabled ? "AiEndpointSaved" : "AiEndpointDisabled"),
+            provider.Label);
+        // The endpoint is read at launch, so an already-running agent keeps the old one.
+        if (_vm.IsRunning)
+            await _vm.RestartCommand.ExecuteAsync(null);
+    }
+
+    /// <summary>Raised when endpoint edits were accepted and the host should persist settings.</summary>
+    public event EventHandler? SaveEndpointRequested;
+
+    /// <summary>
     /// Opens this tab's generated workspace in Explorer. It holds AGENTS.md and the project MCP
     /// configs, and lives under %LOCALAPPDATA% where the user would otherwise have to go looking
     /// for it — from here they can open it in whatever editor they like.

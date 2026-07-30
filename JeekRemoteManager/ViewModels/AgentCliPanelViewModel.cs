@@ -58,6 +58,12 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     /// </summary>
     public Func<AgentWorkspaceLink?>? ResolveLinkContext { get; set; }
 
+    /// <summary>
+    /// Optional hook from the view: the user's custom API endpoint for one agent, or null to use
+    /// the vendor's own API. Read at launch so edits apply to the next start without a restart.
+    /// </summary>
+    public Func<AgentCliKind, AgentEndpointSettings?>? ResolveEndpoint { get; set; }
+
     /// <summary>Absolute local workspace for this connection (%LOCALAPPDATA%\JeekRemoteManager\AgentWorkspaces\...).</summary>
     public string WorkingDirectory => _workingDirectory;
 
@@ -606,10 +612,15 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
                 // Runtime flags only (auto-approve tools / scrollback). Server context is in AGENTS.md.
                 var args = AgentCliCatalog.BuildInteractiveArguments(provider.Kind, AutoRun);
+                // Custom endpoint, when the user configured one: base URL and key reach the agent
+                // as environment variables so the key never lands in a config file.
+                var environment = AgentEndpointConfig.BuildEnvironment(
+                    provider.Kind,
+                    ResolveEndpoint?.Invoke(provider.Kind));
 
                 if (runMode == AgentCliRunMode.WindowsTerminal)
                 {
-                    if (!TryStartWindowsTerminal(exePath, args))
+                    if (!TryStartWindowsTerminal(exePath, args, environment))
                     {
                         if (generation != Volatile.Read(ref _startGeneration))
                             return;
@@ -641,7 +652,8 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
                         args,
                         cols,
                         rows,
-                        _workingDirectory)).ConfigureAwait(true);
+                        _workingDirectory,
+                        environment)).ConfigureAwait(true);
 
                 if (_disposed || generation != Volatile.Read(ref _startGeneration))
                 {
@@ -982,7 +994,10 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         }
     }
 
-    private bool TryStartWindowsTerminal(string exePath, IReadOnlyList<string> args)
+    private bool TryStartWindowsTerminal(
+        string exePath,
+        IReadOnlyList<string> args,
+        IReadOnlyDictionary<string, string> environment)
     {
         var wt = FindWindowsTerminal();
         if (wt is null)
@@ -997,6 +1012,9 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             UseShellExecute = false,
             CreateNoWindow = true,
         };
+        // wt passes its environment down to the console process it launches.
+        foreach (var (name, value) in environment)
+            psi.Environment[name] = value;
         psi.ArgumentList.Add("-d");
         psi.ArgumentList.Add(_workingDirectory);
         psi.ArgumentList.Add("--");

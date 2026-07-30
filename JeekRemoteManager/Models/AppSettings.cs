@@ -139,6 +139,32 @@ public class AppSettings
     /// <summary>Whether the AI panel was open when last toggled; new SSH tabs
     /// and restarts open it automatically when true (global, not per-connection).</summary>
     public bool AiPanelOpen { get; set; }
+
+    /// <summary>
+    /// Custom API endpoints per agent, keyed by <c>AgentCliKind</c> name. Lets Claude and Codex
+    /// run against an Anthropic- or OpenAI-compatible gateway instead of the vendor's own API.
+    /// </summary>
+    public Dictionary<string, AgentEndpointSettings> AiEndpoints { get; set; } = [];
+}
+
+/// <summary>
+/// One agent's custom API endpoint. The key is stored encrypted the same way connection
+/// passwords are, and is only ever handed to the agent process as an environment variable —
+/// never written into a config file or returned by a tool.
+/// </summary>
+public class AgentEndpointSettings
+{
+    /// <summary>When false the agent talks to its vendor's own API and nothing here applies.</summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>Gateway root, e.g. <c>https://open.bigmodel.cn/api/anthropic</c>.</summary>
+    public string BaseUrl { get; set; } = "";
+
+    /// <summary>API key, encrypted by <c>PasswordProtector</c>. Never stored in clear.</summary>
+    public string EncryptedApiKey { get; set; } = "";
+
+    /// <summary>Optional model id the gateway expects; blank keeps the agent's default.</summary>
+    public string Model { get; set; } = "";
 }
 
 /// <summary>Settings that are bound to this Windows account and machine.

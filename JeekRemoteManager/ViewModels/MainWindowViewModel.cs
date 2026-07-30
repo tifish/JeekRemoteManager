@@ -567,6 +567,28 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// This agent's custom API endpoint, creating an empty one on first access so the settings
+    /// dialog can edit it in place. Returns null for agents that cannot be redirected.
+    /// </summary>
+    public AgentEndpointSettings? GetAiEndpoint(AgentCliKind kind)
+    {
+        if (!AgentEndpointConfig.Supports(kind))
+            return null;
+
+        var key = kind.ToString();
+        if (!_settings.Settings.AiEndpoints.TryGetValue(key, out var endpoint))
+        {
+            endpoint = new AgentEndpointSettings();
+            _settings.Settings.AiEndpoints[key] = endpoint;
+        }
+
+        return endpoint;
+    }
+
+    /// <summary>Persists endpoint edits made through <see cref="GetAiEndpoint"/>.</summary>
+    public void SaveAiEndpoints() => _settings.SaveIfChanged();
+
     /// <summary>True when a terminal tab is the active right-pane tab. Drives the
     /// visibility of the terminal font-size toolbar buttons.</summary>
     [ObservableProperty]

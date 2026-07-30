@@ -1064,6 +1064,12 @@ public partial class TerminalView : UserControl
         // Workspace identity used when the user writes this connection into a project folder.
         vm.ResolveLinkContext = () => ResolveAgentCliLink(vm.AutoRun);
 
+        // Custom API endpoint per agent, read fresh at each launch.
+        vm.ResolveEndpoint = kind =>
+            (DataContext as MainWindowViewModel)?.GetAiEndpoint(kind);
+        AiPanel.SaveEndpointRequested += (_, _) =>
+            (DataContext as MainWindowViewModel)?.SaveAiEndpoints();
+
         // Remember last-chosen provider and per-family run mode across tabs and runs.
         // Claude/Codex share AiRunMode; Grok uses AiGrokRunMode (no Desktop).
         vm.PropertyChanged += (_, e) =>
@@ -1099,7 +1105,9 @@ public partial class TerminalView : UserControl
             _sourcePath,
             _connection,
             SessionNumber,
-            mcpToolsAutoApprove: mcpToolsAutoApprove ?? mainVm?.AiAutoRun ?? true);
+            mcpToolsAutoApprove: mcpToolsAutoApprove ?? mainVm?.AiAutoRun ?? true,
+            // Codex reads its endpoint from the workspace config rather than the environment.
+            codexEndpoint: mainVm?.GetAiEndpoint(AgentCliKind.Codex));
     }
 
     /// <summary>

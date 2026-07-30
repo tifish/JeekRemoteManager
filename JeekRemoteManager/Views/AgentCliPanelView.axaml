@@ -121,6 +121,10 @@
                                           IsChecked="{Binding HideSshTerminal, Mode=TwoWay}"
                                           ToolTip.Tip="{l:Localize AiHideSshTerminalHint}" />
                                 <Separator />
+                                <MenuItem Header="{l:Localize AiEndpointMenu}"
+                                          Click="OnCustomEndpointClick"
+                                          ToolTip.Tip="{l:Localize AiEndpointMenuHint}" />
+                                <Separator />
                                 <MenuItem Header="{l:Localize AiOpenWorkspaceFolder}"
                                           Click="OnOpenWorkspaceFolderClick"
                                           ToolTip.Tip="{l:Localize AiOpenWorkspaceFolderHint}" />
