@@ -50,6 +50,9 @@ jobs:
             - name: Zip files
               shell: pwsh
               run: |
+                  if (-not (Test-Path -LiteralPath bin\JeekRemoteManagerMcp.exe)) {
+                      throw "Published package is missing JeekRemoteManagerMcp.exe"
+                  }
                   Get-ChildItem -Path bin -Filter *.pdb -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force
                   Compress-Archive -Path bin\* -DestinationPath ${{ env.PROJECT_NAME }}.zip -Force
 

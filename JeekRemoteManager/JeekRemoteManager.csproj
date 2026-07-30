@@ -99,7 +99,7 @@
     </PropertyGroup>
     <MSBuild
       Projects="..\Tools\JeekRemoteManagerMcp\JeekRemoteManagerMcp.csproj"
-      Targets="Publish"
+      Targets="Restore;Publish"
       Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishSingleFile=true;PublishDir=$(JeekRemoteManagerMcpBuildDir)" />
   </Target>
 
@@ -112,7 +112,7 @@
     </PropertyGroup>
     <MSBuild
       Projects="..\Tools\JeekRemoteManagerMcp\JeekRemoteManagerMcp.csproj"
-      Targets="Publish"
+      Targets="Restore;Publish"
       Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishSingleFile=true;PublishDir=$(JeekRemoteManagerMcpPublishDir)" />
   </Target>
 

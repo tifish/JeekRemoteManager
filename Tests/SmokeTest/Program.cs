@@ -716,6 +716,10 @@ try
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "JeekRemoteManager",
         "AgentWorkspaces");
+    var isolatedWorkspaceRoot = Path.Combine(
+        Path.GetTempPath(),
+        "jrm-agent-ws-smoke",
+        "AgentWorkspaces");
     Check(string.Equals(
               Path.GetFullPath(AgentCliWorkspace.RootPath),
               Path.GetFullPath(localRoot),
@@ -734,7 +738,8 @@ try
             Port = 22,
             Username = "root",
             Notes = "edge VPS",
-        });
+        },
+        workspaceRoot: isolatedWorkspaceRoot);
     var agentsMd = File.ReadAllText(Path.Combine(workspace, "AGENTS.md"));
     var claudeMd = File.ReadAllText(Path.Combine(workspace, "CLAUDE.md")).Trim();
     var mcpJson = File.Exists(Path.Combine(workspace, ".mcp.json"))
@@ -751,7 +756,7 @@ try
         : "";
     Check(relative.Replace('\\', '/') == "vps/bwg"
           && workspace.Replace('\\', '/').EndsWith("AgentWorkspaces/vps/bwg", StringComparison.OrdinalIgnoreCase)
-          && workspace.StartsWith(Path.GetFullPath(localRoot), StringComparison.OrdinalIgnoreCase)
+          && workspace.StartsWith(Path.GetFullPath(isolatedWorkspaceRoot), StringComparison.OrdinalIgnoreCase)
           && File.Exists(Path.Combine(workspace, "CLAUDE.md"))
           && File.Exists(Path.Combine(workspace, "AGENTS.md"))
           && claudeMd == "@AGENTS.md"
@@ -814,7 +819,11 @@ try
     var relativeSession2 = AgentCliWorkspace.ResolveRelativePath(
         connectionsRoot, bwgFile, connectionForWorkspace, sessionNumber: 2);
     var workspaceSession2 = AgentCliWorkspace.Ensure(
-        connectionsRoot, bwgFile, connectionForWorkspace, sessionNumber: 2);
+        connectionsRoot,
+        bwgFile,
+        connectionForWorkspace,
+        sessionNumber: 2,
+        workspaceRoot: isolatedWorkspaceRoot);
     var agentsMdSession2 = File.ReadAllText(Path.Combine(workspaceSession2, "AGENTS.md"));
     Check(relativeSession2.Replace('\\', '/') == "vps/bwg (2)"
           && workspaceSession2.Replace('\\', '/').EndsWith(

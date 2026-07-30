@@ -16,6 +16,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Jeek.Avalonia.Localization;
+using JeekRemoteManager.ViewModels;
 using JeekTools;
 using JeekRemoteManager.Views;
 using Microsoft.Extensions.Logging;
@@ -1293,7 +1294,7 @@ internal static class DebugMcpServer
         return Task.FromResult(ToolText(sb.ToString().TrimEnd()));
     }
 
-    private static Task<JsonObject> AgentCliMcpConfigCheckAsync(JsonObject args)
+    private static async Task<JsonObject> AgentCliMcpConfigCheckAsync(JsonObject args)
     {
         var connection = args["connection"]?.GetValue<string>()?.Replace('\\', '/').Trim('/')
                          ?? "vps/bwg";
@@ -1306,15 +1307,39 @@ internal static class DebugMcpServer
             root,
             connection.Replace('/', Path.DirectorySeparatorChar)));
         if (!workspace.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-            return Task.FromResult(ToolText("FAIL: connection escapes the agent workspace root.", isError: true));
+            return ToolText("FAIL: connection escapes the agent workspace root.", isError: true);
 
         var adapter = AgentWorkspaceLink.AdapterPath;
-        AgentCliWorkspace.WriteProjectMcpConfigs(workspace, connection);
+        var connectionsRoot = await OnUiAsync(() =>
+            ResolveRoot("MainVm") is MainWindowViewModel vm ? vm.RootPath : "");
+        var sourcePath = connectionsRoot.Length == 0
+            ? ""
+            : Path.GetFullPath(Path.Combine(
+                connectionsRoot,
+                connection.Replace('/', Path.DirectorySeparatorChar) + ConnectionStore.FileExtension));
+        if (sourcePath.Length > 0
+            && sourcePath.StartsWith(
+                Path.GetFullPath(connectionsRoot).TrimEnd(
+                    Path.DirectorySeparatorChar,
+                    Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase)
+            && File.Exists(sourcePath))
+        {
+            var model = new ConnectionStore(connectionsRoot).Load(sourcePath);
+            workspace = AgentCliWorkspace.Ensure(connectionsRoot, sourcePath, model);
+        }
+        else
+        {
+            AgentCliWorkspace.WriteProjectMcpConfigs(workspace, connection);
+        }
+
+        var agentsPath = Path.Combine(workspace, "AGENTS.md");
         var mcpJsonPath = Path.Combine(workspace, ".mcp.json");
         var claudeSettingsPath = Path.Combine(workspace, ".claude", "settings.local.json");
         var codexPath = Path.Combine(workspace, ".codex", "config.toml");
         var grokPath = Path.Combine(workspace, ".grok", "config.toml");
 
+        var agents = File.Exists(agentsPath) ? File.ReadAllText(agentsPath) : "";
         var mcpJson = File.Exists(mcpJsonPath) ? File.ReadAllText(mcpJsonPath) : "";
         var codex = File.Exists(codexPath) ? File.ReadAllText(codexPath) : "";
         var grok = File.Exists(grokPath) ? File.ReadAllText(grokPath) : "";
@@ -1342,6 +1367,10 @@ internal static class DebugMcpServer
         var checks = new[]
         {
             ("adapter", File.Exists(adapter)),
+            ("AGENTS.md", agents.Contains($"**Adapter:** `{adapter}`", StringComparison.Ordinal)
+                          && agents.Contains(
+                              $"**Pinned connection:** `{connection}`",
+                              StringComparison.Ordinal)),
             (".mcp.json", mcpJson.Contains(escapedAdapter, StringComparison.Ordinal)
                           && mcpJson.Contains(pinned, StringComparison.Ordinal)),
             ("Claude approval", claudeApproved),
@@ -1354,11 +1383,12 @@ internal static class DebugMcpServer
         var report = new StringBuilder()
             .AppendLine($"{(passed ? "PASS" : "FAIL")}: AI CLI MCP config")
             .AppendLine($"workspace={workspace}")
+            .AppendLine($"connectionFile={(File.Exists(sourcePath) ? sourcePath : "(not found)")}")
             .AppendLine($"adapter={adapter}");
         foreach (var (name, ok) in checks)
             report.AppendLine($"{name}={(ok ? "ok" : "FAIL")}");
 
-        return Task.FromResult(ToolText(report.ToString().TrimEnd(), isError: !passed));
+        return ToolText(report.ToString().TrimEnd(), isError: !passed);
     }
 
     private static TerminalView? _menuProbeView;

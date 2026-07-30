@@ -63,12 +63,16 @@ public static class AgentCliWorkspace
         string? sourcePath,
         Connection? connection,
         int sessionNumber = 1,
-        bool mcpToolsAutoApprove = true)
+        bool mcpToolsAutoApprove = true,
+        string? workspaceRoot = null)
     {
         var connectionPath = ResolveConnectionRelativePath(connectionsRoot, sourcePath, connection);
         var relative = AppendSessionSegment(connectionPath, sessionNumber);
+        var root = string.IsNullOrWhiteSpace(workspaceRoot)
+            ? RootPath
+            : Path.GetFullPath(workspaceRoot);
         var absolute = Path.GetFullPath(Path.Combine(
-            RootPath,
+            root,
             relative.Replace('/', Path.DirectorySeparatorChar)));
 
         Directory.CreateDirectory(absolute);

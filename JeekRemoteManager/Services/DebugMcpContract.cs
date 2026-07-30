@@ -61,7 +61,7 @@ public static class DebugMcpContract
             "Report the resolved executable paths for the agent CLIs (claude/codex/grok); optionally resolve one path through the locator's link resolution.",
             new() { ["path"] = Prop("string", "Optional file path to run through ResolveRealPath.") }),
         Tool("agent_cli_mcp_config_check",
-            "Refresh and verify one generated AI workspace has the installed JeekRemoteManagerMcp adapter plus Claude approval and Claude/Codex/Grok project MCP configs pinned to the requested connection.",
+            "Refresh and verify one generated AI workspace has accurate AGENTS.md connection context, the installed JeekRemoteManagerMcp adapter, Claude approval, and Claude/Codex/Grok project MCP configs pinned to the requested connection.",
             new() { ["connection"] = Prop("string", "Connection tree path under AgentWorkspaces (default vps/bwg).") }),
         Tool("login_menu_select_check",
             "Run the login-command \"#select <name>\" matcher against menu text: reports the parsed menu entries and which number the name would type.",
