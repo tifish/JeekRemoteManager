@@ -12,7 +12,7 @@
                 BorderBrush="{DynamicResource BorderBrushSoft}"
                 BorderThickness="0,0,0,1"
                 Background="{DynamicResource ChromeSurfaceBrush}">
-            <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="6">
+            <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="6">
                 <ComboBox Grid.Column="0"
                           Classes="header-option"
                           MinWidth="92"
@@ -43,7 +43,23 @@
                     </ComboBox.ItemTemplate>
                 </ComboBox>
 
-                <TextBlock Grid.Column="2"
+                <ComboBox Grid.Column="2"
+                          Classes="header-option"
+                          MinWidth="96"
+                          MaxWidth="150"
+                          MinHeight="28"
+                          IsVisible="{Binding ShowEndpointPicker}"
+                          ItemsSource="{Binding EndpointOptions}"
+                          SelectedItem="{Binding SelectedEndpointOption}"
+                          ToolTip.Tip="{l:Localize AiEndpointPicker}">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Label}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+
+                <TextBlock Grid.Column="3"
                            VerticalAlignment="Center"
                            Text="{Binding StatusText}"
                            TextTrimming="CharacterEllipsis"
@@ -52,7 +68,7 @@
                            Foreground="{DynamicResource TextMutedBrush}"
                            ToolTip.Tip="{Binding StatusText}" />
 
-                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
+                <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
                     <Button Classes="toolbar icon-button"
                             Command="{Binding StartCommand}"
                             IsVisible="{Binding ShowStartButton}"
@@ -120,10 +136,6 @@
                                           ToggleType="CheckBox"
                                           IsChecked="{Binding HideSshTerminal, Mode=TwoWay}"
                                           ToolTip.Tip="{l:Localize AiHideSshTerminalHint}" />
-                                <Separator />
-                                <MenuItem Header="{l:Localize AiEndpointMenu}"
-                                          Click="OnCustomEndpointClick"
-                                          ToolTip.Tip="{l:Localize AiEndpointMenuHint}" />
                                 <Separator />
                                 <MenuItem Header="{l:Localize AiOpenWorkspaceFolder}"
                                           Click="OnOpenWorkspaceFolderClick"

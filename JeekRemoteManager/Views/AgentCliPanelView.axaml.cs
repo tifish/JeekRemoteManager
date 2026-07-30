@@ -9,9 +9,12 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Jeek.Avalonia.Localization;
+using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
 using JeekRemoteManager.ViewModels;
 using SvcSystems.UI.Terminal;
@@ -264,33 +267,113 @@ public partial class AgentCliPanelView : UserControl
     }
 
     /// <summary>
-    /// Edits the selected agent's custom API endpoint. Only Claude and Codex can be redirected;
-    /// for anything else the panel says so rather than opening an editor that does nothing.
+    /// Handles the add / edit / delete entries of the endpoint picker. The view model owns the
+    /// list but not the dialogs, so it delegates here and reloads once the settings have changed.
     /// </summary>
-    private async void OnCustomEndpointClick(object? sender, RoutedEventArgs e)
+    private async void OnEndpointActionRequested(AgentEndpointAction action, AgentEndpointProfile? target)
     {
         if (_vm is null)
             return;
 
         var provider = _vm.SelectedProvider;
-        if (_vm.ResolveEndpoint?.Invoke(provider.Kind) is not { } endpoint)
-        {
-            _vm.StatusText = string.Format(
-                Localizer.Get("AiEndpointUnsupported"), provider.Label);
+        if (_vm.ResolveEndpoints?.Invoke(provider.Kind) is not { } settings)
             return;
-        }
 
         var owner = TopLevel.GetTopLevel(this) as Window;
-        if (!await AgentEndpointDialog.ShowAsync(owner, provider.Label, endpoint))
+        var changed = false;
+
+        switch (action)
+        {
+            case AgentEndpointAction.Select:
+                changed = true;
+                break;
+
+            case AgentEndpointAction.Add:
+                var added = new AgentEndpointProfile();
+                if (await AgentEndpointDialog.ShowAsync(owner, provider.Label, added))
+                {
+                    settings.Profiles.Add(added);
+                    // Adding one is also choosing it — otherwise the user has to pick it again.
+                    settings.SelectedId = added.Id;
+                    changed = true;
+                }
+
+                break;
+
+            case AgentEndpointAction.Edit when target is not null:
+                if (await AgentEndpointDialog.ShowAsync(owner, provider.Label, target))
+                    changed = true;
+                break;
+
+            case AgentEndpointAction.Delete when target is not null:
+                var name = target.Name.Length > 0 ? target.Name : target.BaseUrl;
+                if (await ConfirmAsync(
+                        owner,
+                        Localizer.Get("AiEndpointDelete"),
+                        string.Format(Localizer.Get("AiEndpointDeleteConfirm"), name)))
+                {
+                    settings.Profiles.Remove(target);
+                    if (settings.SelectedId == target.Id)
+                        settings.SelectedId = "";
+                    changed = true;
+                }
+
+                break;
+        }
+
+        if (!changed)
             return;
 
         SaveEndpointRequested?.Invoke(this, EventArgs.Empty);
-        _vm.StatusText = string.Format(
-            Localizer.Get(endpoint.Enabled ? "AiEndpointSaved" : "AiEndpointDisabled"),
-            provider.Label);
+        _vm.ReloadEndpointOptions();
         // The endpoint is read at launch, so an already-running agent keeps the old one.
         if (_vm.IsRunning)
             await _vm.RestartCommand.ExecuteAsync(null);
+    }
+
+    /// <summary>Small yes/no prompt, so deleting a saved endpoint is not a single misclick.</summary>
+    private static Task<bool> ConfirmAsync(Window? owner, string title, string message)
+    {
+        var tcs = new TaskCompletionSource<bool>();
+        var yes = new Button { Content = Localizer.Get("DialogYes"), MinWidth = 80, IsDefault = true };
+        var no = new Button { Content = Localizer.Get("DialogNo"), MinWidth = 80, IsCancel = true };
+
+        var dialog = new Window
+        {
+            Title = title,
+            Width = 380,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = owner is null
+                ? WindowStartupLocation.CenterScreen
+                : WindowStartupLocation.CenterOwner,
+            CanResize = false,
+            Content = new StackPanel
+            {
+                Margin = new Thickness(16),
+                Spacing = 16,
+                Children =
+                {
+                    new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Spacing = 8,
+                        Children = { yes, no },
+                    },
+                },
+            },
+        };
+
+        yes.Click += (_, _) => { tcs.TrySetResult(true); dialog.Close(); };
+        no.Click += (_, _) => { tcs.TrySetResult(false); dialog.Close(); };
+        dialog.Closed += (_, _) => tcs.TrySetResult(false);
+
+        if (owner is null)
+            dialog.Show();
+        else
+            dialog.ShowDialog(owner);
+        return tcs.Task;
     }
 
     /// <summary>Raised when endpoint edits were accepted and the host should persist settings.</summary>
@@ -381,6 +464,7 @@ public partial class AgentCliPanelView : UserControl
         {
             _vm.SessionStarted -= OnSessionStarted;
             _vm.SessionStopped -= OnSessionStopped;
+            _vm.EndpointActionRequested -= OnEndpointActionRequested;
             _vm.GetViewportSize = null;
         }
 
@@ -391,6 +475,9 @@ public partial class AgentCliPanelView : UserControl
         _vm.GetViewportSize = ReadViewportSize;
         _vm.SessionStarted += OnSessionStarted;
         _vm.SessionStopped += OnSessionStopped;
+        _vm.EndpointActionRequested += OnEndpointActionRequested;
+        // The host wires ResolveEndpoints after construction, so fill the picker here.
+        _vm.ReloadEndpointOptions();
     }
 
     private (int Cols, int Rows) ReadViewportSize()

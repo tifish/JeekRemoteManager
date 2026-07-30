@@ -336,13 +336,18 @@ AiCliInstall	Install	安装
 AiCliOptions	AI panel options	AI 面板选项
 AiCliInstallNow	Install now	立即安装
 AiCliInstallHint	Uses the official installer. Requires network access. You may need to log in after install.	将运行官方安装命令，需要联网。安装后可能还需要登录。
-AiEndpointMenu	Custom API endpoint…	自定义 API 端点…
-AiEndpointMenuHint	Point Claude or Codex at an Anthropic- or OpenAI-compatible gateway instead of the vendor API.	让 Claude 或 Codex 走 Anthropic / OpenAI 兼容的第三方网关，而不是官方 API。
+AiEndpointPicker	API endpoint	API 端点
+AiEndpointOfficial	Official API	官方 API
+AiEndpointAdd	Add endpoint…	添加端点…
+AiEndpointEdit	Edit this endpoint…	编辑当前端点…
+AiEndpointDelete	Delete this endpoint	删除当前端点
+AiEndpointDeleteConfirm	Delete the endpoint "{0}"? The agent goes back to its official API.	确定删除端点“{0}”吗？该 Agent 将回到官方 API。
+AiEndpointName	Name	名称
+AiEndpointNamePlaceholder	(shown in the picker)	（显示在下拉框中）
 AiEndpointTitle	{0} — custom API endpoint	{0} — 自定义 API 端点
 AiEndpointHint	The key is stored encrypted and handed to the agent as an environment variable; it is never written into a config file.	密钥加密保存，仅以环境变量传给 Agent 进程，不会写入任何配置文件。
-AiEndpointEnabled	Use a custom endpoint for this agent	为该 Agent 使用自定义端点
 AiEndpointBaseUrl	Base URL	接口地址（Base URL）
-AiEndpointBaseUrlRequired	Enter a base URL, or switch the custom endpoint off.	请填写接口地址，或关闭自定义端点。
+AiEndpointBaseUrlRequired	Enter a base URL.	请填写接口地址。
 AiEndpointBaseUrlInvalid	The base URL must be a full http:// or https:// address.	接口地址必须是完整的 http:// 或 https:// 地址。
 AiEndpointKey	API key	API 密钥
 AiEndpointKeyKeep	(unchanged — type to replace)	（保持不变，输入即替换）
@@ -350,9 +355,6 @@ AiEndpointKeyEmpty	(none)	（未设置）
 AiEndpointKeyClear	Clear key	清除密钥
 AiEndpointModel	Model (optional)	模型（可选）
 AiEndpointModelDefault	(agent's default)	（使用 Agent 默认值）
-AiEndpointSaved	{0} will use the custom API endpoint.	{0} 将使用自定义 API 端点。
-AiEndpointDisabled	{0} will use its own API.	{0} 将使用官方 API。
-AiEndpointUnsupported	{0} has no custom endpoint setting.	{0} 不支持自定义端点。
 AiCliNotInstalled	{0} is not installed.{2}{2}Install command:{2}{1}	未安装 {0}。{2}{2}安装命令：{2}{1}
 AiCliNotInstalledDownload	{0} is not installed.{2}{2}Download it from:{2}{1}	未安装 {0}。{2}{2}请从以下地址下载：{2}{1}
 AiCliInstalling	Installing {0}…{2}{1}	正在安装 {0}…{2}{1}

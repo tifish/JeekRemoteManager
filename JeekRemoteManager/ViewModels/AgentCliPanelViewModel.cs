@@ -18,6 +18,28 @@ public sealed record AgentCliRunModeOption(AgentCliRunMode Mode, string Label)
     public override string ToString() => Label;
 }
 
+/// <summary>What an entry in the endpoint picker does when chosen.</summary>
+public enum AgentEndpointAction
+{
+    /// <summary>Use the agent's own API, or one of the saved endpoints.</summary>
+    Select,
+    Add,
+    Edit,
+    Delete,
+}
+
+/// <summary>
+/// One row of the endpoint picker: the official API, a saved endpoint, or an action. Actions sit
+/// in the same list so the picker is the single place endpoints are chosen and managed.
+/// </summary>
+public sealed record AgentEndpointOption(
+    AgentEndpointAction Action,
+    string Label,
+    AgentEndpointProfile? Profile = null)
+{
+    public override string ToString() => Label;
+}
+
 /// <summary>
 /// Drives the AI side panel after the headless-chat rewrite: pick a local agent, host it in-app
 /// (ConPTY), open it in Windows Terminal, launch Claude/Codex desktop via registered protocol, or
@@ -34,6 +56,8 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     private Process? _externalProcess;
     private bool _detachedAppActive;
     private bool _disposed;
+    /// <summary>Set while the picker is rebuilt, so repopulating it does not look like a choice.</summary>
+    private bool _suppressEndpointSelection;
     /// <summary>Bumped on every start/stop request so superseded launches dispose their process.</summary>
     private int _startGeneration;
     private readonly object _captureGate = new();
@@ -59,10 +83,27 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     public Func<AgentWorkspaceLink?>? ResolveLinkContext { get; set; }
 
     /// <summary>
-    /// Optional hook from the view: the user's custom API endpoint for one agent, or null to use
-    /// the vendor's own API. Read at launch so edits apply to the next start without a restart.
+    /// Optional hook from the view: this agent's saved endpoints and current selection, or null
+    /// for agents that cannot be redirected. Read at launch so edits apply to the next start.
     /// </summary>
-    public Func<AgentCliKind, AgentEndpointSettings?>? ResolveEndpoint { get; set; }
+    public Func<AgentCliKind, AgentEndpointSettings?>? ResolveEndpoints { get; set; }
+
+    /// <summary>
+    /// Raised when the user picks an action from the endpoint picker. The view owns the dialogs,
+    /// so it edits the settings and calls <see cref="ReloadEndpointOptions"/> when done.
+    /// </summary>
+    public event Action<AgentEndpointAction, AgentEndpointProfile?>? EndpointActionRequested;
+
+    /// <summary>The endpoint the next launch will use, or null for the agent's official API.</summary>
+    public AgentEndpointProfile? SelectedEndpointProfile
+    {
+        get
+        {
+            if (ResolveEndpoints?.Invoke(SelectedProvider.Kind) is not { } settings)
+                return null;
+            return settings.Profiles.FirstOrDefault(p => p.Id == settings.SelectedId);
+        }
+    }
 
     /// <summary>Absolute local workspace for this connection (%LOCALAPPDATA%\JeekRemoteManager\AgentWorkspaces\...).</summary>
     public string WorkingDirectory => _workingDirectory;
@@ -119,6 +160,24 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
     [ObservableProperty]
     private AgentCliRunModeOption _selectedRunModeOption;
+
+    /// <summary>
+    /// Official API, then each saved endpoint, then add/edit/delete. Rebuilt whenever the agent,
+    /// the mode, or the saved list changes.
+    /// </summary>
+    public ObservableCollection<AgentEndpointOption> EndpointOptions { get; } = [];
+
+    [ObservableProperty]
+    private AgentEndpointOption? _selectedEndpointOption;
+
+    /// <summary>
+    /// Endpoints only apply to the terminal surfaces we launch ourselves. A desktop app or editor
+    /// is started by the shell or already running with its own settings, so the picker hides
+    /// rather than implying a redirect that will not happen.
+    /// </summary>
+    public bool ShowEndpointPicker =>
+        AgentEndpointConfig.Supports(SelectedProvider.Kind)
+        && AgentCliCatalog.SurfaceKindFor(RunMode) == AgentSurfaceKind.Terminal;
 
     /// <summary>Current launch mode (CLI / Windows Terminal / Desktop / IDE).</summary>
     public AgentCliRunMode RunMode => SelectedRunModeOption?.Mode ?? AgentCliRunMode.Cli;
@@ -208,6 +267,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         if (SyncRunModeOptions(value.Kind, _resolvePreferredRunMode?.Invoke(value.Kind) ?? RunMode))
             return; // The run-mode change already requested a start.
 
+        ReloadEndpointOptions();
         NotifyLayoutFlags();
         InstallCommand.NotifyCanExecuteChanged();
         RefreshStatusFromProvider();
@@ -217,10 +277,90 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     partial void OnSelectedRunModeOptionChanged(AgentCliRunModeOption value)
     {
         OnPropertyChanged(nameof(RunMode));
+        ReloadEndpointOptions();
         NotifyLayoutFlags();
         InstallCommand.NotifyCanExecuteChanged();
         RefreshStatusFromProvider();
         ApplySelection();
+    }
+
+    /// <summary>
+    /// Rebuilds the endpoint picker from the saved list and lands on the selected endpoint.
+    /// Called by the view after it adds, edits, or deletes one.
+    /// </summary>
+    public void ReloadEndpointOptions()
+    {
+        _suppressEndpointSelection = true;
+        try
+        {
+            EndpointOptions.Clear();
+            OnPropertyChanged(nameof(ShowEndpointPicker));
+            if (!ShowEndpointPicker)
+            {
+                SelectedEndpointOption = null;
+                return;
+            }
+
+            var settings = ResolveEndpoints?.Invoke(SelectedProvider.Kind);
+            EndpointOptions.Add(new AgentEndpointOption(AgentEndpointAction.Select, L("AiEndpointOfficial")));
+            foreach (var profile in settings?.Profiles ?? [])
+            {
+                EndpointOptions.Add(new AgentEndpointOption(
+                    AgentEndpointAction.Select,
+                    profile.Name.Length > 0 ? profile.Name : profile.BaseUrl,
+                    profile));
+            }
+
+            EndpointOptions.Add(new AgentEndpointOption(AgentEndpointAction.Add, L("AiEndpointAdd")));
+            // Edit and delete act on the current selection, so they are pointless on Official.
+            if (SelectedEndpointProfile is not null)
+            {
+                EndpointOptions.Add(new AgentEndpointOption(AgentEndpointAction.Edit, L("AiEndpointEdit")));
+                EndpointOptions.Add(new AgentEndpointOption(AgentEndpointAction.Delete, L("AiEndpointDelete")));
+            }
+
+            var selectedId = settings?.SelectedId ?? "";
+            SelectedEndpointOption = EndpointOptions.FirstOrDefault(o =>
+                                         o.Action == AgentEndpointAction.Select
+                                         && (o.Profile?.Id ?? "") == selectedId)
+                                     ?? EndpointOptions[0];
+        }
+        finally
+        {
+            _suppressEndpointSelection = false;
+        }
+    }
+
+    partial void OnSelectedEndpointOptionChanged(AgentEndpointOption? value)
+    {
+        if (_suppressEndpointSelection || value is null || _disposed)
+            return;
+
+        if (value.Action != AgentEndpointAction.Select)
+        {
+            // Actions are not a selection: hand off to the view and put the picker back where
+            // it was, so the box never reads "Add…" as though it were the chosen endpoint.
+            var action = value.Action;
+            var target = SelectedEndpointProfile;
+            ReloadEndpointOptions();
+            EndpointActionRequested?.Invoke(action, target);
+            return;
+        }
+
+        if (ResolveEndpoints?.Invoke(SelectedProvider.Kind) is not { } settings)
+            return;
+
+        var newId = value.Profile?.Id ?? "";
+        if (settings.SelectedId == newId)
+            return;
+
+        settings.SelectedId = newId;
+        EndpointActionRequested?.Invoke(AgentEndpointAction.Select, value.Profile);
+        // Edit/Delete only make sense once something is selected, so the list changes shape.
+        ReloadEndpointOptions();
+        RefreshStatusFromProvider();
+        if (IsRunning)
+            _ = RestartAsync();
     }
 
     /// <summary>
@@ -284,6 +424,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
     private void NotifyLayoutFlags()
     {
+        OnPropertyChanged(nameof(ShowEndpointPicker));
         OnPropertyChanged(nameof(ShowInstallPrompt));
         OnPropertyChanged(nameof(ShowStartButton));
         OnPropertyChanged(nameof(ShowEmbeddedTerminal));
@@ -616,7 +757,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
                 // as environment variables so the key never lands in a config file.
                 var environment = AgentEndpointConfig.BuildEnvironment(
                     provider.Kind,
-                    ResolveEndpoint?.Invoke(provider.Kind));
+                    SelectedEndpointProfile);
 
                 if (runMode == AgentCliRunMode.WindowsTerminal)
                 {

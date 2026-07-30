@@ -80,7 +80,7 @@ public class SettingsService
         _baseMachineSettings = migratedMachineSettings is not null
             ? preMigrationMachineSettings
             : JsonSettingsFile.Clone(ToMachineSettings(Settings));
-        _baseRoamingSettings = ToRoamingSettings(Settings);
+        _baseRoamingSettings = JsonSettingsFile.Clone(ToRoamingSettings(Settings));
         _lastSavedMachineJson = JsonSettingsFile.Serialize(_baseMachineSettings);
         _lastSavedRoamingPath = CurrentRoamingSettingsPath();
         _lastSavedRoamingJson = JsonSettingsFile.Serialize(_baseRoamingSettings);
@@ -226,6 +226,7 @@ public class SettingsService
             AiProvider = roamingSettings.AiProvider,
             AiAutoRun = roamingSettings.AiAutoRun,
             AiAutoApproveDangerousCommands = roamingSettings.AiAutoApproveDangerousCommands,
+            AiEndpoints = roamingSettings.AiEndpoints,
         };
 
     private static MachineAppSettings ToMachineSettings(AppSettings settings)
@@ -270,6 +271,7 @@ public class SettingsService
             AiProvider = settings.AiProvider,
             AiAutoRun = settings.AiAutoRun,
             AiAutoApproveDangerousCommands = settings.AiAutoApproveDangerousCommands,
+            AiEndpoints = settings.AiEndpoints,
         };
         NormalizeRoamingSettings(roamingSettings);
         return roamingSettings;
@@ -310,6 +312,7 @@ public class SettingsService
         settings.AiProvider = normalized.AiProvider;
         settings.AiAutoRun = normalized.AiAutoRun;
         settings.AiAutoApproveDangerousCommands = normalized.AiAutoApproveDangerousCommands;
+        settings.AiEndpoints = normalized.AiEndpoints;
     }
 
     private static void NormalizeMachineSettings(MachineAppSettings settings)
@@ -391,7 +394,7 @@ public class SettingsService
         NormalizeSettings(Settings);
         RoamingSettingsPath = CurrentRoamingSettingsPath();
         _lastSavedRoamingPath = RoamingSettingsPath;
-        _baseRoamingSettings = ToRoamingSettings(Settings);
+        _baseRoamingSettings = JsonSettingsFile.Clone(ToRoamingSettings(Settings));
         _lastSavedRoamingJson = JsonSettingsFile.Serialize(_baseRoamingSettings);
     }
 
@@ -439,7 +442,11 @@ public class SettingsService
             {
                 RoamingSettingsPath = roamingPath;
                 _lastSavedRoamingPath = roamingPath;
-                _baseRoamingSettings = mergedRoaming;
+                // Clone, for the same reason the machine baseline is cloned: Settings is rebuilt
+                // from mergedRoaming below, so an uncloned baseline would share its Dictionary
+                // and List instances. The next save would then diff those collections against
+                // themselves, see no change, and silently drop the edit.
+                _baseRoamingSettings = JsonSettingsFile.Clone(mergedRoaming);
                 _lastSavedRoamingJson = JsonSettingsFile.Serialize(mergedRoaming);
             }
         }

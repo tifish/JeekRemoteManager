@@ -568,10 +568,10 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// This agent's custom API endpoint, creating an empty one on first access so the settings
-    /// dialog can edit it in place. Returns null for agents that cannot be redirected.
+    /// This agent's saved endpoints, creating the entry on first access so the picker can edit
+    /// the list in place. Returns null for agents that cannot be redirected.
     /// </summary>
-    public AgentEndpointSettings? GetAiEndpoint(AgentCliKind kind)
+    public AgentEndpointSettings? GetAiEndpoints(AgentCliKind kind)
     {
         if (!AgentEndpointConfig.Supports(kind))
             return null;
@@ -586,7 +586,15 @@ public partial class MainWindowViewModel : ViewModelBase
         return endpoint;
     }
 
-    /// <summary>Persists endpoint edits made through <see cref="GetAiEndpoint"/>.</summary>
+    /// <summary>The endpoint this agent will launch with, or null for its official API.</summary>
+    public AgentEndpointProfile? GetSelectedAiEndpoint(AgentCliKind kind)
+    {
+        if (GetAiEndpoints(kind) is not { } settings)
+            return null;
+        return settings.Profiles.FirstOrDefault(profile => profile.Id == settings.SelectedId);
+    }
+
+    /// <summary>Persists endpoint edits made through <see cref="GetAiEndpoints"/>.</summary>
     public void SaveAiEndpoints() => _settings.SaveIfChanged();
 
     /// <summary>True when a terminal tab is the active right-pane tab. Drives the

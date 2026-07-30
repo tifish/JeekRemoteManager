@@ -66,7 +66,7 @@ public static class AgentCliWorkspace
         int sessionNumber = 1,
         bool mcpToolsAutoApprove = true,
         string? workspaceRoot = null,
-        AgentEndpointSettings? codexEndpoint = null)
+        AgentEndpointProfile? codexEndpoint = null)
     {
         var connectionPath = ResolveConnectionRelativePath(connectionsRoot, sourcePath, connection);
         var relative = AppendSessionSegment(connectionPath, sessionNumber);
@@ -225,7 +225,7 @@ public static class AgentCliWorkspace
         string workspaceDir,
         string connectionPath,
         bool mcpToolsAutoApprove = true,
-        AgentEndpointSettings? codexEndpoint = null)
+        AgentEndpointProfile? codexEndpoint = null)
     {
         Directory.CreateDirectory(workspaceDir);
         var utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);

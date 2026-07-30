@@ -148,14 +148,17 @@ public class AppSettings
 }
 
 /// <summary>
-/// One agent's custom API endpoint. The key is stored encrypted the same way connection
-/// passwords are, and is only ever handed to the agent process as an environment variable —
-/// never written into a config file or returned by a tool.
+/// One saved custom API endpoint. The key is stored encrypted the same way connection passwords
+/// are, and is only ever handed to the agent process as an environment variable — never written
+/// into a config file or returned by a tool.
 /// </summary>
-public class AgentEndpointSettings
+public class AgentEndpointProfile
 {
-    /// <summary>When false the agent talks to its vendor's own API and nothing here applies.</summary>
-    public bool Enabled { get; set; }
+    /// <summary>Stable identity, so renaming an endpoint does not deselect it.</summary>
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+
+    /// <summary>Shown in the picker, e.g. "GLM" or "DeepSeek".</summary>
+    public string Name { get; set; } = "";
 
     /// <summary>Gateway root, e.g. <c>https://open.bigmodel.cn/api/anthropic</c>.</summary>
     public string BaseUrl { get; set; } = "";
@@ -165,6 +168,18 @@ public class AgentEndpointSettings
 
     /// <summary>Optional model id the gateway expects; blank keeps the agent's default.</summary>
     public string Model { get; set; } = "";
+}
+
+/// <summary>
+/// One agent's saved endpoints and which is in use. Endpoints are per agent because the wire
+/// protocols differ — an Anthropic-compatible gateway is no use to Codex and vice versa.
+/// </summary>
+public class AgentEndpointSettings
+{
+    public List<AgentEndpointProfile> Profiles { get; set; } = [];
+
+    /// <summary>Id of the endpoint in use; blank means the agent's own official API.</summary>
+    public string SelectedId { get; set; } = "";
 }
 
 /// <summary>Settings that are bound to this Windows account and machine.
@@ -268,6 +283,12 @@ public class RoamingAppSettings
 
     /// <summary>AI panel: whether potentially destructive remote commands bypass confirmation.</summary>
     public bool AiAutoApproveDangerousCommands { get; set; }
+
+    /// <summary>
+    /// Custom API endpoints per agent. Roams with the rest of the AI settings: the keys are
+    /// encrypted with the master key, which travels with the connection store already.
+    /// </summary>
+    public Dictionary<string, AgentEndpointSettings> AiEndpoints { get; set; } = [];
 }
 
 /// <summary>Outcome of the Settings dialog. <see cref="Language"/> and <see cref="Theme"/>

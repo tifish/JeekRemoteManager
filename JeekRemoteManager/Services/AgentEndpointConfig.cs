@@ -36,12 +36,12 @@ public static class AgentEndpointConfig
 
     /// <summary>
     /// Environment overrides for launching <paramref name="kind"/>, or an empty map when the
-    /// endpoint is off, unsupported, or incompletely configured. An endpoint with no base URL
-    /// is treated as off rather than half-applied.
+    /// agent is on its official API, unsupported, or the endpoint has no base URL — which is
+    /// treated as unusable rather than half-applied.
     /// </summary>
     public static IReadOnlyDictionary<string, string> BuildEnvironment(
         AgentCliKind kind,
-        AgentEndpointSettings? endpoint)
+        AgentEndpointProfile? endpoint)
     {
         var overrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (!IsUsable(kind, endpoint))
@@ -76,7 +76,7 @@ public static class AgentEndpointConfig
     /// The <c>model_provider</c> block appended to the workspace's <c>.codex/config.toml</c>, or
     /// an empty string when Codex is not redirected. Returns config only — the key stays out.
     /// </summary>
-    public static string BuildCodexProviderToml(AgentEndpointSettings? endpoint)
+    public static string BuildCodexProviderToml(AgentEndpointProfile? endpoint)
     {
         if (!IsUsable(AgentCliKind.Codex, endpoint))
             return "";
@@ -96,15 +96,15 @@ public static class AgentEndpointConfig
     }
 
     /// <summary>
-    /// True when this endpoint is switched on and has the one field it cannot work without.
-    /// A key-less gateway is allowed: some local relays do not authenticate.
+    /// True when an endpoint is selected and has the one field it cannot work without. A
+    /// key-less gateway is allowed: some local relays do not authenticate.
     /// </summary>
-    public static bool IsUsable(AgentCliKind kind, AgentEndpointSettings? endpoint) =>
+    public static bool IsUsable(AgentCliKind kind, AgentEndpointProfile? endpoint) =>
         Supports(kind)
-        && endpoint is { Enabled: true }
+        && endpoint is not null
         && !string.IsNullOrWhiteSpace(endpoint.BaseUrl);
 
-    private static string DecryptKey(AgentEndpointSettings endpoint)
+    private static string DecryptKey(AgentEndpointProfile endpoint)
     {
         if (string.IsNullOrEmpty(endpoint.EncryptedApiKey))
             return "";

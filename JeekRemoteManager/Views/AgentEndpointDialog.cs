@@ -10,8 +10,8 @@ using JeekRemoteManager.Services;
 namespace JeekRemoteManager.Views;
 
 /// <summary>
-/// Edits one agent's custom API endpoint, so Claude or Codex can run against an
-/// Anthropic- or OpenAI-compatible gateway instead of the vendor's own API.
+/// Edits one saved API endpoint, so Claude or Codex can run against an Anthropic- or
+/// OpenAI-compatible gateway instead of the vendor's own API.
 ///
 /// The key is masked and write-only from the dialog's point of view: an existing key is never
 /// shown back, only reported as set, and leaving the box empty keeps whatever is stored. That
@@ -25,14 +25,14 @@ public static class AgentEndpointDialog
     /// Shows the editor for <paramref name="endpoint"/>. Returns true when the user accepted,
     /// with the changes already written into the object; the caller persists them.
     /// </summary>
-    public static Task<bool> ShowAsync(Window? owner, string agentLabel, AgentEndpointSettings endpoint)
+    public static Task<bool> ShowAsync(Window? owner, string agentLabel, AgentEndpointProfile endpoint)
     {
         var tcs = new TaskCompletionSource<bool>();
 
-        var enabled = new CheckBox
+        var name = new TextBox
         {
-            Content = Localizer.Get("AiEndpointEnabled"),
-            IsChecked = endpoint.Enabled,
+            Text = endpoint.Name,
+            PlaceholderText = Localizer.Get("AiEndpointNamePlaceholder"),
         };
         var baseUrl = new TextBox
         {
@@ -95,7 +95,8 @@ public static class AgentEndpointDialog
                         TextWrapping = TextWrapping.Wrap,
                         Opacity = 0.8,
                     },
-                    enabled,
+                    new TextBlock { Text = Localizer.Get("AiEndpointName") },
+                    name,
                     new TextBlock { Text = Localizer.Get("AiEndpointBaseUrl") },
                     baseUrl,
                     new TextBlock { Text = Localizer.Get("AiEndpointKey") },
@@ -123,26 +124,24 @@ public static class AgentEndpointDialog
         ok.Click += (_, _) =>
         {
             var url = (baseUrl.Text ?? "").Trim();
-            // Only block on a URL that cannot work; an endpoint left switched off may stay blank.
-            if (enabled.IsChecked == true)
+            if (url.Length == 0)
             {
-                if (url.Length == 0)
-                {
-                    error.Text = Localizer.Get("AiEndpointBaseUrlRequired");
-                    error.IsVisible = true;
-                    return;
-                }
-
-                if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed)
-                    || (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps))
-                {
-                    error.Text = Localizer.Get("AiEndpointBaseUrlInvalid");
-                    error.IsVisible = true;
-                    return;
-                }
+                error.Text = Localizer.Get("AiEndpointBaseUrlRequired");
+                error.IsVisible = true;
+                return;
             }
 
-            endpoint.Enabled = enabled.IsChecked == true;
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed)
+                || (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps))
+            {
+                error.Text = Localizer.Get("AiEndpointBaseUrlInvalid");
+                error.IsVisible = true;
+                return;
+            }
+
+            // An unnamed endpoint would show as a bare URL in the picker; the host falls back
+            // to that, so a blank name is allowed rather than blocking the save.
+            endpoint.Name = (name.Text ?? "").Trim();
             endpoint.BaseUrl = url;
             endpoint.Model = (model.Text ?? "").Trim();
 
@@ -159,7 +158,7 @@ public static class AgentEndpointDialog
 
         cancel.Click += (_, _) => { tcs.TrySetResult(false); dialog.Close(); };
         dialog.Closed += (_, _) => tcs.TrySetResult(false);
-        dialog.Opened += (_, _) => baseUrl.Focus();
+        dialog.Opened += (_, _) => name.Focus();
 
         if (owner is null)
             dialog.Show();

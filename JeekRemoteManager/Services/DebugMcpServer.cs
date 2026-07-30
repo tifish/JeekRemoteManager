@@ -16,6 +16,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Jeek.Avalonia.Localization;
+using JeekRemoteManager.Models;
 using JeekRemoteManager.ViewModels;
 using JeekTools;
 using JeekRemoteManager.Views;
@@ -1499,66 +1500,141 @@ internal static class DebugMcpServer
         var setBaseUrl = args["set_base_url"]?.GetValue<string>();
         var setApiKey = args["set_api_key"]?.GetValue<string>();
         var setModel = args["set_model"]?.GetValue<string>();
+        var action = args["action"]?.GetValue<string>()?.ToLowerInvariant();
+        var profileId = args["profile_id"]?.GetValue<string>();
+        var name = args["name"]?.GetValue<string>();
 
         var report = new StringBuilder();
+
+        // Mutating actions drive the same list the picker edits, so a test can run the whole
+        // add → select → delete cycle the user performs through the dropdown.
+        if (action is "add" or "select" or "delete")
+        {
+            if (kinds.Count != 1)
+                return ToolText("FAIL: 'agent' is required for add/select/delete.", isError: true);
+
+            var result = await OnUiAsync(() =>
+            {
+                if (ResolveRoot("MainVm") is not MainWindowViewModel vm)
+                    return "FAIL: no MainVm.";
+                if (vm.GetAiEndpoints(kinds[0]) is not { } settings)
+                    return $"FAIL: {kinds[0]} is not redirectable.";
+
+                switch (action)
+                {
+                    case "add":
+                        if (string.IsNullOrWhiteSpace(setBaseUrl))
+                            return "FAIL: add needs set_base_url.";
+                        var added = new AgentEndpointProfile
+                        {
+                            Name = name ?? "",
+                            BaseUrl = setBaseUrl!,
+                            Model = setModel ?? "",
+                            EncryptedApiKey = string.IsNullOrEmpty(setApiKey)
+                                ? ""
+                                : PasswordProtector.Encrypt(setApiKey),
+                        };
+                        settings.Profiles.Add(added);
+                        settings.SelectedId = added.Id;
+                        vm.SaveAiEndpoints();
+                        return $"added id={added.Id}";
+
+                    case "select":
+                        settings.SelectedId = profileId ?? "";
+                        vm.SaveAiEndpoints();
+                        return $"selected={(profileId is null or "" ? "(official API)" : profileId)}";
+
+                    default:
+                        var target = settings.Profiles.FirstOrDefault(p => p.Id == profileId);
+                        if (target is null)
+                            return $"FAIL: no profile with id '{profileId}'.";
+                        settings.Profiles.Remove(target);
+                        if (settings.SelectedId == target.Id)
+                            settings.SelectedId = "";
+                        vm.SaveAiEndpoints();
+                        return $"deleted id={target.Id}";
+                }
+            });
+
+            report.AppendLine(result);
+            if (result.StartsWith("FAIL", StringComparison.Ordinal))
+                return ToolText(report.ToString().TrimEnd(), isError: true);
+
+            // Refresh the live picker the way the view does after its dialogs close.
+            await OnUiAsync(() =>
+            {
+                if (ResolveRoot("MainWindow") is Window window
+                    && FindDescendantByName(window, "AiPanel") is { DataContext: AgentCliPanelViewModel panel })
+                {
+                    panel.ReloadEndpointOptions();
+                    report.AppendLine(
+                        "  picker: " + string.Join(" | ", panel.EndpointOptions.Select(o => o.Label))
+                        + $"  → selected={panel.SelectedEndpointOption?.Label ?? "(none)"}");
+                }
+
+                return 0;
+            });
+        }
 
         if (args["probe_env"]?.GetValue<bool>() == true)
             report.AppendLine(await ProbeEnvironmentBlockAsync());
 
         foreach (var kind in kinds)
         {
-            var endpoint = await OnUiAsync(() =>
-                ResolveRoot("MainVm") is MainWindowViewModel vm ? vm.GetAiEndpoint(kind) : null);
-            if (endpoint is null)
+            if (!AgentEndpointConfig.Supports(kind))
             {
                 report.AppendLine($"{kind}: not redirectable");
                 continue;
             }
 
-            // Apply a throwaway endpoint for the duration of the check, then put it back.
-            var saved = (endpoint.Enabled, endpoint.BaseUrl, endpoint.EncryptedApiKey, endpoint.Model);
-            var temporary = !string.IsNullOrWhiteSpace(setBaseUrl);
-            if (temporary)
-            {
-                endpoint.Enabled = true;
-                endpoint.BaseUrl = setBaseUrl!;
-                endpoint.Model = setModel ?? "";
-                if (!string.IsNullOrEmpty(setApiKey))
-                    endpoint.EncryptedApiKey = PasswordProtector.Encrypt(setApiKey);
-            }
+            var settings = await OnUiAsync(() =>
+                ResolveRoot("MainVm") is MainWindowViewModel vm ? vm.GetAiEndpoints(kind) : null);
+            var saved = await OnUiAsync(() =>
+                ResolveRoot("MainVm") is MainWindowViewModel vm ? vm.GetSelectedAiEndpoint(kind) : null);
 
-            try
+            report.AppendLine(
+                $"{kind}: profiles={settings?.Profiles.Count ?? 0} "
+                + $"selected={(saved is null ? "(official API)" : Describe(saved.Name))}");
+
+            // A throwaway profile when the caller supplied one, so the check never has to write
+            // to — and restore — the user's saved endpoints.
+            var endpoint = string.IsNullOrWhiteSpace(setBaseUrl)
+                ? saved
+                : new AgentEndpointProfile
+                {
+                    Name = "probe",
+                    BaseUrl = setBaseUrl!,
+                    Model = setModel ?? "",
+                    EncryptedApiKey = string.IsNullOrEmpty(setApiKey)
+                        ? ""
+                        : PasswordProtector.Encrypt(setApiKey),
+                };
+
+            if (endpoint is not null)
             {
                 report.AppendLine(
-                    $"{kind}: enabled={endpoint.Enabled} baseUrl={Describe(endpoint.BaseUrl)} "
+                    $"  endpoint: baseUrl={Describe(endpoint.BaseUrl)} "
                     + $"hasApiKey={endpoint.EncryptedApiKey.Length > 0} model={Describe(endpoint.Model)}");
-
-                var environment = AgentEndpointConfig.BuildEnvironment(kind, endpoint);
-                report.AppendLine(environment.Count == 0
-                    ? "  env: (none — agent uses its own API)"
-                    : "  env: " + string.Join(
-                        ", ",
-                        environment.OrderBy(pair => pair.Key, StringComparer.Ordinal)
-                            .Select(pair => $"{pair.Key}={MaskValue(pair.Key, pair.Value)}")));
-
-                if (kind == AgentCliKind.Codex)
-                {
-                    var toml = AgentEndpointConfig.BuildCodexProviderToml(endpoint);
-                    report.AppendLine(toml.Length == 0
-                        ? "  config.toml: (no provider block)"
-                        : "  config.toml: " + toml.Replace("\n", " | ").TrimEnd(' ', '|'));
-                    // The block must name the variable, never carry the secret.
-                    var leaks = !string.IsNullOrEmpty(setApiKey)
-                                && toml.Contains(setApiKey, StringComparison.Ordinal);
-                    report.AppendLine($"  key kept out of config.toml: {(leaks ? "FAIL" : "ok")}");
-                }
             }
-            finally
+
+            var environment = AgentEndpointConfig.BuildEnvironment(kind, endpoint);
+            report.AppendLine(environment.Count == 0
+                ? "  env: (none — agent uses its own API)"
+                : "  env: " + string.Join(
+                    ", ",
+                    environment.OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                        .Select(pair => $"{pair.Key}={MaskValue(pair.Key, pair.Value)}")));
+
+            if (kind == AgentCliKind.Codex)
             {
-                if (temporary)
-                {
-                    (endpoint.Enabled, endpoint.BaseUrl, endpoint.EncryptedApiKey, endpoint.Model) = saved;
-                }
+                var toml = AgentEndpointConfig.BuildCodexProviderToml(endpoint);
+                report.AppendLine(toml.Length == 0
+                    ? "  config.toml: (no provider block)"
+                    : "  config.toml: " + toml.Replace("\n", " | ").TrimEnd(' ', '|'));
+                // The block must name the variable, never carry the secret.
+                var leaks = !string.IsNullOrEmpty(setApiKey)
+                            && toml.Contains(setApiKey, StringComparison.Ordinal);
+                report.AppendLine($"  key kept out of config.toml: {(leaks ? "FAIL" : "ok")}");
             }
         }
 

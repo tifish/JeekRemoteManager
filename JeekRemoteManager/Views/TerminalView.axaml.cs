@@ -1065,8 +1065,8 @@ public partial class TerminalView : UserControl
         vm.ResolveLinkContext = () => ResolveAgentCliLink(vm.AutoRun);
 
         // Custom API endpoint per agent, read fresh at each launch.
-        vm.ResolveEndpoint = kind =>
-            (DataContext as MainWindowViewModel)?.GetAiEndpoint(kind);
+        vm.ResolveEndpoints = kind =>
+            (DataContext as MainWindowViewModel)?.GetAiEndpoints(kind);
         AiPanel.SaveEndpointRequested += (_, _) =>
             (DataContext as MainWindowViewModel)?.SaveAiEndpoints();
 
@@ -1107,7 +1107,7 @@ public partial class TerminalView : UserControl
             SessionNumber,
             mcpToolsAutoApprove: mcpToolsAutoApprove ?? mainVm?.AiAutoRun ?? true,
             // Codex reads its endpoint from the workspace config rather than the environment.
-            codexEndpoint: mainVm?.GetAiEndpoint(AgentCliKind.Codex));
+            codexEndpoint: mainVm?.GetSelectedAiEndpoint(AgentCliKind.Codex));
     }
 
     /// <summary>
