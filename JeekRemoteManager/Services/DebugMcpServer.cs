@@ -103,6 +103,7 @@ internal static class DebugMcpServer
         host.AddTool("terminal_tab_focus_check", _ => TerminalTabFocusCheckAsync());
         host.AddTool("ai_cli_ctrl_c_check", _ => AiCliCtrlCCheckAsync());
         host.AddTool("agent_cli_locate_check", AgentCliLocateCheckAsync);
+        host.AddTool("agent_cli_mcp_config_check", AgentCliMcpConfigCheckAsync);
         host.AddTool("login_menu_select_check", LoginMenuSelectCheckAsync);
         host.AddTool("login_menu_select_probe", LoginMenuSelectProbeAsync);
         host.AddTool("auto_update_stage_check", AutoUpdateStageCheckAsync);
@@ -1242,6 +1243,74 @@ internal static class DebugMcpServer
         if (args["path"]?.GetValue<string>() is { Length: > 0 } path)
             sb.AppendLine($"resolve: {path} -> {AgentCliLocator.ResolveRealPath(path)}");
         return Task.FromResult(ToolText(sb.ToString().TrimEnd()));
+    }
+
+    private static Task<JsonObject> AgentCliMcpConfigCheckAsync(JsonObject args)
+    {
+        var connection = args["connection"]?.GetValue<string>()?.Replace('\\', '/').Trim('/')
+                         ?? "vps/bwg";
+        if (connection.Length == 0)
+            connection = "vps/bwg";
+
+        var root = Path.GetFullPath(AgentCliWorkspace.RootPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var workspace = Path.GetFullPath(Path.Combine(
+            root,
+            connection.Replace('/', Path.DirectorySeparatorChar)));
+        if (!workspace.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            return Task.FromResult(ToolText("FAIL: connection escapes the agent workspace root.", isError: true));
+
+        var adapter = AgentWorkspaceLink.AdapterPath;
+        AgentCliWorkspace.WriteProjectMcpConfigs(workspace, connection);
+        var mcpJsonPath = Path.Combine(workspace, ".mcp.json");
+        var claudeSettingsPath = Path.Combine(workspace, ".claude", "settings.local.json");
+        var codexPath = Path.Combine(workspace, ".codex", "config.toml");
+        var grokPath = Path.Combine(workspace, ".grok", "config.toml");
+
+        var mcpJson = File.Exists(mcpJsonPath) ? File.ReadAllText(mcpJsonPath) : "";
+        var codex = File.Exists(codexPath) ? File.ReadAllText(codexPath) : "";
+        var grok = File.Exists(grokPath) ? File.ReadAllText(grokPath) : "";
+        var claudeApproved = false;
+        if (File.Exists(claudeSettingsPath))
+        {
+            try
+            {
+                claudeApproved = JsonNode.Parse(File.ReadAllText(claudeSettingsPath))
+                    ?["enabledMcpjsonServers"] is JsonArray enabled
+                    && enabled.Any(node =>
+                        string.Equals(
+                            node?.GetValue<string>(),
+                            AgentCliWorkspace.McpServerName,
+                            StringComparison.Ordinal));
+            }
+            catch (JsonException)
+            {
+                // Report the invalid settings as a failed check below.
+            }
+        }
+
+        var escapedAdapter = adapter.Replace("\\", "\\\\", StringComparison.Ordinal);
+        var pinned = $"\"--connection\", \"{connection}\"";
+        var checks = new[]
+        {
+            ("adapter", File.Exists(adapter)),
+            (".mcp.json", mcpJson.Contains(escapedAdapter, StringComparison.Ordinal)
+                          && mcpJson.Contains(pinned, StringComparison.Ordinal)),
+            ("Claude approval", claudeApproved),
+            ("Codex config", codex.Contains(escapedAdapter, StringComparison.Ordinal)
+                             && codex.Contains(pinned, StringComparison.Ordinal)),
+            ("Grok config", grok.Contains(escapedAdapter, StringComparison.Ordinal)
+                            && grok.Contains(pinned, StringComparison.Ordinal)),
+        };
+        var passed = checks.All(check => check.Item2);
+        var report = new StringBuilder()
+            .AppendLine($"{(passed ? "PASS" : "FAIL")}: AI CLI MCP config")
+            .AppendLine($"workspace={workspace}")
+            .AppendLine($"adapter={adapter}");
+        foreach (var (name, ok) in checks)
+            report.AppendLine($"{name}={(ok ? "ok" : "FAIL")}");
+
+        return Task.FromResult(ToolText(report.ToString().TrimEnd(), isError: !passed));
     }
 
     private static TerminalView? _menuProbeView;

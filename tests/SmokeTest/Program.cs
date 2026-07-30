@@ -745,6 +745,9 @@ try
     var grokToml = File.Exists(Path.Combine(workspace, ".grok", "config.toml"))
         ? File.ReadAllText(Path.Combine(workspace, ".grok", "config.toml"))
         : "";
+    var claudeSettings = File.Exists(Path.Combine(workspace, ".claude", "settings.local.json"))
+        ? File.ReadAllText(Path.Combine(workspace, ".claude", "settings.local.json"))
+        : "";
     Check(relative.Replace('\\', '/') == "vps/bwg"
           && workspace.Replace('\\', '/').EndsWith("AgentWorkspaces/vps/bwg", StringComparison.OrdinalIgnoreCase)
           && workspace.StartsWith(Path.GetFullPath(localRoot), StringComparison.OrdinalIgnoreCase)
@@ -763,12 +766,33 @@ try
           && mcpJson.Contains(smokeAdapter, StringComparison.Ordinal)
           && mcpJson.Contains("\"stdio\"", StringComparison.Ordinal)
           && !mcpJson.Contains("http", StringComparison.Ordinal)
+          && claudeSettings.Contains("\"enabledMcpjsonServers\"", StringComparison.Ordinal)
+          && claudeSettings.Contains("\"jrm-remote\"", StringComparison.Ordinal)
           && codexToml.Contains(smokeAdapter, StringComparison.Ordinal)
           && codexToml.Contains("--connection", StringComparison.Ordinal)
           && codexToml.Contains("default_tools_approval_mode = \"approve\"", StringComparison.Ordinal)
           && !codexToml.Contains("transport =", StringComparison.Ordinal)
           && grokToml.Contains(smokeAdapter, StringComparison.Ordinal),
           "AI workspace writes AGENTS.md (full) + CLAUDE.md include + project MCP configs");
+
+    File.WriteAllText(
+        Path.Combine(workspace, ".claude", "settings.local.json"),
+        """
+        {
+          "enabledMcpjsonServers": ["other"],
+          "disabledMcpjsonServers": ["jrm-remote", "blocked"],
+          "customSetting": true
+        }
+        """);
+    AgentCliWorkspace.WriteProjectMcpConfigs(workspace, "vps/bwg");
+    var mergedClaudeSettings = JsonNode.Parse(
+        File.ReadAllText(Path.Combine(workspace, ".claude", "settings.local.json"))) as JsonObject;
+    Check(mergedClaudeSettings?["customSetting"]?.GetValue<bool>() == true
+          && mergedClaudeSettings?["enabledMcpjsonServers"] is JsonArray enabledClaudeServers
+          && enabledClaudeServers.Select(n => n?.GetValue<string>()).SequenceEqual(["other", "jrm-remote"])
+          && mergedClaudeSettings?["disabledMcpjsonServers"] is JsonArray disabledClaudeServers
+          && disabledClaudeServers.Select(n => n?.GetValue<string>()).SequenceEqual(["blocked"]),
+          "Claude local settings approve only jrm-remote while preserving existing project settings");
 
     AgentCliWorkspace.WriteProjectMcpConfigs(workspace, "vps/bwg", mcpToolsAutoApprove: false);
     var codexTomlPrompt = File.ReadAllText(Path.Combine(workspace, ".codex", "config.toml"));

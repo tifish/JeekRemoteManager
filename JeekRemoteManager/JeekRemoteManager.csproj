@@ -85,4 +85,19 @@
     <ProjectReference Include="..\JeekTools.NET\JeekTools.csproj" />
   </ItemGroup>
 
+  <!--
+    JrmMcp is the product MCP stdio adapter referenced by every generated agent
+    workspace. Build the release adapter into the same publish directory so
+    install/update archives cannot omit it.
+  -->
+  <Target Name="PublishJrmMcp" AfterTargets="Publish">
+    <PropertyGroup>
+      <JrmMcpPublishDir>$([System.IO.Path]::GetFullPath('$(PublishDir)', '$(MSBuildProjectDirectory)'))</JrmMcpPublishDir>
+    </PropertyGroup>
+    <MSBuild
+      Projects="..\tools\JrmMcp\JrmMcp.csproj"
+      Targets="Publish"
+      Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishDir=$(JrmMcpPublishDir)" />
+  </Target>
+
 </Project>
