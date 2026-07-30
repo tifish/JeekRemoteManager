@@ -8,8 +8,8 @@ using System.Threading.Tasks;
 namespace JeekRemoteManager.Services;
 
 /// <summary>
-/// Runs the official one-line installers for Claude Code, Codex CLI, and Grok Build
-/// on Windows, then re-probes <see cref="AgentCliLocator"/>.
+/// Runs the official one-line installers for Claude Code, Codex CLI, Grok Build, and
+/// Gemini CLI on Windows, then re-probes <see cref="AgentCliLocator"/>.
 /// </summary>
 public static class AgentCliInstaller
 {
@@ -21,6 +21,7 @@ public static class AgentCliInstaller
         AgentCliKind.Claude => "irm https://claude.ai/install.ps1 | iex",
         AgentCliKind.Codex => "npm install -g @openai/codex",
         AgentCliKind.Grok => "irm https://x.ai/cli/install.ps1 | iex",
+        AgentCliKind.Gemini => "npm install -g @google/gemini-cli",
         _ => "",
     };
 
@@ -70,6 +71,7 @@ public static class AgentCliInstaller
         AgentCliKind.Claude => AgentCliLocator.FindClaude(),
         AgentCliKind.Codex => AgentCliLocator.FindCodex(),
         AgentCliKind.Grok => AgentCliLocator.FindGrok(),
+        AgentCliKind.Gemini => AgentCliLocator.FindGemini(),
         _ => null,
     };
 
@@ -87,6 +89,9 @@ public static class AgentCliInstaller
             AgentCliKind.Grok => (
                 "powershell.exe",
                 "-NoProfile -ExecutionPolicy Bypass -Command \"irm https://x.ai/cli/install.ps1 | iex\""),
+            AgentCliKind.Gemini => (
+                "powershell.exe",
+                "-NoProfile -ExecutionPolicy Bypass -Command \"npm install -g @google/gemini-cli\""),
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
     }

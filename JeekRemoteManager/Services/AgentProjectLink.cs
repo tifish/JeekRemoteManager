@@ -110,13 +110,17 @@ public static class AgentProjectLink
 
         UpsertMarkdownBlock(Path.Combine(projectDirectory, "AGENTS.md"), relative, body);
 
-        // Claude reads CLAUDE.md. Create the same thin include the workspace uses when the
-        // project has none; otherwise only duplicate the block when it does not import AGENTS.md.
-        var claudeMd = Path.Combine(projectDirectory, "CLAUDE.md");
-        if (!File.Exists(claudeMd))
-            File.WriteAllText(claudeMd, "@AGENTS.md\n", Utf8);
-        else if (!ImportsAgentsMd(ReadTextOrEmpty(claudeMd)))
-            UpsertMarkdownBlock(claudeMd, relative, body);
+        // Agents with their own context file name (Claude, Gemini) do not read AGENTS.md by
+        // themselves. Create the same thin include the workspace uses when the project has none;
+        // otherwise only duplicate the block when that file does not already import AGENTS.md.
+        foreach (var include in AgentMcpConfigCatalog.ContextIncludeFiles)
+        {
+            var path = Path.Combine(projectDirectory, include);
+            if (!File.Exists(path))
+                File.WriteAllText(path, AgentMcpConfigCatalog.ContextIncludeBody + "\n", Utf8);
+            else if (!ImportsAgentsMd(ReadTextOrEmpty(path)))
+                UpsertMarkdownBlock(path, relative, body);
+        }
 
         WriteProjectMcpConfigs(link, projectDirectory);
     }
@@ -132,12 +136,15 @@ public static class AgentProjectLink
         RemoveMarkdownBlock(Path.Combine(projectDirectory, "AGENTS.md"), relative);
         DeleteIfEmpty(Path.Combine(projectDirectory, "AGENTS.md"));
 
-        // A CLAUDE.md still holding nothing but the include we created is ours to remove.
-        var claudeMd = Path.Combine(projectDirectory, "CLAUDE.md");
-        RemoveMarkdownBlock(claudeMd, relative);
-        if (ReadTextOrEmpty(claudeMd).Trim() == "@AGENTS.md")
-            TryDeleteFile(claudeMd);
-        DeleteIfEmpty(claudeMd);
+        // An include file still holding nothing but the line we created is ours to remove.
+        foreach (var include in AgentMcpConfigCatalog.ContextIncludeFiles)
+        {
+            var path = Path.Combine(projectDirectory, include);
+            RemoveMarkdownBlock(path, relative);
+            if (ReadTextOrEmpty(path).Trim() == AgentMcpConfigCatalog.ContextIncludeBody)
+                TryDeleteFile(path);
+            DeleteIfEmpty(path);
+        }
 
         foreach (var target in AgentMcpConfigCatalog.All)
         {
@@ -225,7 +232,12 @@ public static class AgentProjectLink
             var path = target.ResolvePath(projectDirectory);
             if (target.Format == AgentMcpConfigCatalog.ConfigFormat.Json)
             {
-                MergeMcpJson(path, target.JsonRootKey!, server, adapter, connection);
+                MergeMcpJson(
+                    path,
+                    target.JsonRootKey!,
+                    server,
+                    AgentMcpConfigCatalog.BuildJsonEntry(
+                        target, adapter, connection, link.McpToolsAutoApprove));
             }
             else
             {
@@ -238,12 +250,7 @@ public static class AgentProjectLink
         }
     }
 
-    private static void MergeMcpJson(
-        string path,
-        string rootKey,
-        string serverName,
-        string adapter,
-        string connection)
+    private static void MergeMcpJson(string path, string rootKey, string serverName, JsonObject entry)
     {
         var root = ParseJsonObject(path) ?? new JsonObject();
         if (root[rootKey] is not JsonObject servers)
@@ -252,7 +259,7 @@ public static class AgentProjectLink
             root[rootKey] = servers;
         }
 
-        servers[serverName] = AgentMcpConfigCatalog.BuildJsonEntry(adapter, connection);
+        servers[serverName] = entry;
         WriteJson(path, root);
     }
 

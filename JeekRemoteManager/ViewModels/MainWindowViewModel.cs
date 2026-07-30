@@ -487,15 +487,19 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>Returns the stored launch mode for the given agent kind.</summary>
     public AgentCliRunMode GetAiRunModeForKind(AgentCliKind kind) =>
-        kind == AgentCliKind.Grok ? AiGrokRunMode : AiRunMode;
+        AgentCliCatalog.SupportsDesktop(kind) ? AiRunMode : AiGrokRunMode;
 
-    /// <summary>Persists the launch mode for the given agent kind into the correct settings slot.</summary>
+    /// <summary>
+    /// Persists the launch mode for the given agent kind into the correct settings slot. The two
+    /// slots are split by whether the agent offers Desktop at all, so choosing CLI for an agent
+    /// without it never clears a Desktop preference for one that has it.
+    /// </summary>
     public void SetAiRunModeForKind(AgentCliKind kind, AgentCliRunMode mode)
     {
-        if (kind == AgentCliKind.Grok)
-            AiGrokRunMode = mode;
-        else
+        if (AgentCliCatalog.SupportsDesktop(kind))
             AiRunMode = mode;
+        else
+            AiGrokRunMode = mode;
     }
 
     /// <summary>Whether the selected agent CLI may invoke JRM remote command tools without

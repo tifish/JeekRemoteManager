@@ -38,12 +38,18 @@ public static class AgentMcpConfigCatalog
     /// <c>codex -c</c> override, because a partial <c>mcp_servers.*</c> patch without
     /// <c>url</c>/<c>command</c> fails to load with "invalid transport".
     /// </param>
+    /// <param name="JsonTrustProperty">
+    /// Boolean property that auto-approves this one server's tools, for agents that scope
+    /// approval in the config rather than on the command line (Gemini's <c>trust</c>). Set only
+    /// when auto-run is on, and never for a whole-agent flag — it must stay scoped to us.
+    /// </param>
     public sealed record Target(
         string Label,
         string RelativePath,
         ConfigFormat Format,
         string? JsonRootKey = null,
-        bool SupportsApprovalMode = false)
+        bool SupportsApprovalMode = false,
+        string? JsonTrustProperty = null)
     {
         /// <summary>True when the config sits in a dedicated folder we may tidy up when empty.</summary>
         public bool HasOwnFolder => RelativePath.Contains('/');
@@ -61,21 +67,50 @@ public static class AgentMcpConfigCatalog
     [
         new("Claude Code / Desktop, Copilot CLI", ".mcp.json", ConfigFormat.Json, "mcpServers"),
         new("VS Code (Copilot)", ".vscode/mcp.json", ConfigFormat.Json, "servers"),
+        new("Cursor", ".cursor/mcp.json", ConfigFormat.Json, "mcpServers"),
+        new(
+            "Gemini CLI",
+            ".gemini/settings.json",
+            ConfigFormat.Json,
+            "mcpServers",
+            JsonTrustProperty: "trust"),
         new("Codex", ".codex/config.toml", ConfigFormat.Toml, SupportsApprovalMode: true),
         new("Grok", ".grok/config.toml", ConfigFormat.Toml),
     ];
 
     /// <summary>
+    /// Context files that only redirect an agent to <c>AGENTS.md</c>, so the operating rules for a
+    /// connection are written once. Claude reads <c>CLAUDE.md</c>; Gemini reads <c>GEMINI.md</c>
+    /// and does <b>not</b> pick up AGENTS.md on its own unless <c>context.fileName</c> says so —
+    /// which is a user setting we must not overwrite in someone else's project.
+    /// </summary>
+    public static IReadOnlyList<string> ContextIncludeFiles { get; } = ["CLAUDE.md", "GEMINI.md"];
+
+    /// <summary>The import line those files hold, understood by both Claude and Gemini.</summary>
+    public const string ContextIncludeBody = "@AGENTS.md";
+
+    /// <summary>
     /// The stdio entry every JSON config uses: launch the local adapter pinned to one connection.
     /// There is no URL, port, or token here, so the file stays valid across app restarts.
     /// </summary>
-    public static JsonObject BuildJsonEntry(string adapterPath, string connectionPath) =>
-        new()
+    public static JsonObject BuildJsonEntry(
+        Target target,
+        string adapterPath,
+        string connectionPath,
+        bool mcpToolsAutoApprove)
+    {
+        var entry = new JsonObject
         {
             ["type"] = "stdio",
             ["command"] = adapterPath,
             ["args"] = new JsonArray("--connection", connectionPath),
         };
+
+        if (target.JsonTrustProperty is { } trust && mcpToolsAutoApprove)
+            entry[trust] = true;
+
+        return entry;
+    }
 
     /// <summary>The same entry as a TOML table body, without any surrounding comments or markers.</summary>
     public static string BuildTomlEntry(

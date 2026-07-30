@@ -78,6 +78,7 @@ public enum AgentCliKind
     Claude,
     Codex,
     Grok,
+    Gemini,
 }
 
 /// <summary>Resolved install path and launch metadata for one agent CLI.</summary>
@@ -125,6 +126,8 @@ public static class AgentCliCatalog
             AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.Codex)),
         new(AgentCliKind.Grok, "Grok", AgentCliLocator.FindGrok(),
             AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.Grok)),
+        new(AgentCliKind.Gemini, "Gemini", AgentCliLocator.FindGemini(),
+            AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.Gemini)),
     ];
 
     /// <summary>
@@ -139,12 +142,13 @@ public static class AgentCliCatalog
             AgentCliKind.Claude => BuildClaudeArguments(autoRun),
             AgentCliKind.Codex => BuildCodexArguments(autoRun),
             AgentCliKind.Grok => BuildGrokArguments(autoRun),
+            AgentCliKind.Gemini => BuildGeminiArguments(autoRun),
             _ => Array.Empty<string>(),
         };
 
     /// <summary>
     /// Desktop protocol launch is only implemented for Claude Code and Codex desktop apps.
-    /// Grok has no registered workspace protocol here.
+    /// Grok and Gemini have no registered workspace protocol here.
     /// </summary>
     public static bool SupportsDesktop(AgentCliKind kind) =>
         kind is AgentCliKind.Claude or AgentCliKind.Codex;
@@ -199,6 +203,16 @@ public static class AgentCliCatalog
         // overrides as a new entry without url/command and fails with "invalid transport".
         _ = autoRun; // Applied when rewriting .codex/config.toml (PrepareWorkspace / Ensure).
         return ["--no-alt-screen"];
+    }
+
+    private static IReadOnlyList<string> BuildGeminiArguments(bool autoRun)
+    {
+        // Approval is scoped in the workspace's .gemini/settings.json ("trust": true on our
+        // server only). Deliberately not --yolo / --approval-mode=yolo: those auto-approve
+        // every tool including local shell and file writes, far wider than the remote tools
+        // the other agents get here.
+        _ = autoRun; // Applied when rewriting .gemini/settings.json (PrepareWorkspace / Ensure).
+        return Array.Empty<string>();
     }
 
     private static IReadOnlyList<string> BuildGrokArguments(bool autoRun)

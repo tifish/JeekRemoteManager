@@ -3,7 +3,10 @@ using System.IO;
 
 namespace JeekRemoteManager.Services;
 
-/// <summary>Finds installed agent CLI executables (<c>claude</c>, <c>codex</c>, <c>grok</c>) on Windows.</summary>
+/// <summary>
+/// Finds installed agent CLI executables (<c>claude</c>, <c>codex</c>, <c>grok</c>,
+/// <c>gemini</c>) on Windows.
+/// </summary>
 public static class AgentCliLocator
 {
     /// <summary>
@@ -54,6 +57,22 @@ public static class AgentCliLocator
         }
 
         var found = FindOnPath("grok.exe") ?? FindOnPath("grok.cmd") ?? FindOnPath("grok");
+        return found is null ? null : ResolveRealPath(found);
+    }
+
+    /// <summary>
+    /// Returns the full path to <c>gemini</c> (Gemini CLI), or <c>null</c> if it is not
+    /// installed. Ships through npm only, so this probes PATH plus the npm global prefix.
+    /// </summary>
+    public static string? FindGemini()
+    {
+        foreach (var candidate in EnumerateGeminiCandidates())
+        {
+            if (File.Exists(candidate))
+                return ResolveRealPath(candidate);
+        }
+
+        var found = FindOnPath("gemini.cmd") ?? FindOnPath("gemini.exe") ?? FindOnPath("gemini");
         return found is null ? null : ResolveRealPath(found);
     }
 
@@ -121,6 +140,13 @@ public static class AgentCliLocator
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         yield return Path.Combine(appData, "npm", "codex.cmd");
         yield return Path.Combine(appData, "npm", "codex.exe");
+    }
+
+    private static System.Collections.Generic.IEnumerable<string> EnumerateGeminiCandidates()
+    {
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        yield return Path.Combine(appData, "npm", "gemini.cmd");
+        yield return Path.Combine(appData, "npm", "gemini.exe");
     }
 
     private static System.Collections.Generic.IEnumerable<string> EnumerateGrokCandidates()

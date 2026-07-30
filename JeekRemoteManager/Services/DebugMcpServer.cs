@@ -1187,7 +1187,16 @@ internal static class DebugMcpServer
             Check("AGENTS.md gains the reference block", agentsMd.Contains("BEGIN JeekRemoteManager link: vps/bwg", StringComparison.Ordinal));
             Check("reference block names the MCP server", agentsMd.Contains(server, StringComparison.Ordinal));
             Check("reference block points at the workspace doc", agentsMd.Contains(Path.Combine(workspace, "AGENTS.md"), StringComparison.Ordinal));
-            Check("CLAUDE.md includes AGENTS.md", File.ReadAllText(Path.Combine(project, "CLAUDE.md")).Contains("@AGENTS.md", StringComparison.Ordinal));
+            foreach (var include in AgentMcpConfigCatalog.ContextIncludeFiles)
+            {
+                var includePath = Path.Combine(project, include);
+                Check(
+                    $"{include} includes AGENTS.md",
+                    File.Exists(includePath)
+                    && File.ReadAllText(includePath).Contains(
+                        AgentMcpConfigCatalog.ContextIncludeBody,
+                        StringComparison.Ordinal));
+            }
             Check(".mcp.json keeps the project's own server", mcpJson.Contains("\"other\"", StringComparison.Ordinal));
             Check(".mcp.json gains this connection as a stdio adapter launch",
                 mcpJson.Contains(server, StringComparison.Ordinal)
@@ -1249,7 +1258,8 @@ internal static class DebugMcpServer
             Check("removal takes the MCP entry out", !mcpJson.Contains(server, StringComparison.Ordinal) && mcpJson.Contains("\"other\"", StringComparison.Ordinal));
             Check(
                 "removal deletes the files it created",
-                !File.Exists(Path.Combine(project, "CLAUDE.md"))
+                AgentMcpConfigCatalog.ContextIncludeFiles.All(
+                    include => !File.Exists(Path.Combine(project, include)))
                 && !Directory.Exists(Path.Combine(project, ".grok")));
             // Configs we created outright go, folder and all; ones we merged into keep
             // whatever the project already had.
@@ -1320,9 +1330,12 @@ internal static class DebugMcpServer
     private static Task<JsonObject> AgentCliLocateCheckAsync(JsonObject args)
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"claude: {AgentCliLocator.FindClaude() ?? "(not found)"}");
-        sb.AppendLine($"codex: {AgentCliLocator.FindCodex() ?? "(not found)"}");
-        sb.AppendLine($"grok: {AgentCliLocator.FindGrok() ?? "(not found)"}");
+        // Drive off the panel's own provider list so a newly added agent cannot be missing here.
+        foreach (var descriptor in AgentCliCatalog.Discover())
+        {
+            sb.AppendLine(
+                $"{descriptor.Label}: {descriptor.ExecutablePath ?? $"(not found — {descriptor.InstallHint})"}");
+        }
         if (args["path"]?.GetValue<string>() is { Length: > 0 } path)
             sb.AppendLine($"resolve: {path} -> {AgentCliLocator.ResolveRealPath(path)}");
         return Task.FromResult(ToolText(sb.ToString().TrimEnd()));
@@ -1425,6 +1438,16 @@ internal static class DebugMcpServer
             checks.Add((
                 $"AGENTS.md lists {target.RelativePath}",
                 agents.Contains($"`{target.RelativePath}`", StringComparison.Ordinal)));
+        }
+
+        // Agents that do not read AGENTS.md by name need their own one-line include.
+        foreach (var include in AgentMcpConfigCatalog.ContextIncludeFiles)
+        {
+            var path = Path.Combine(workspace, include);
+            checks.Add((
+                include,
+                File.Exists(path)
+                && File.ReadAllText(path).Trim() == AgentMcpConfigCatalog.ContextIncludeBody));
         }
         var passed = checks.All(check => check.Item2);
         var report = new StringBuilder()

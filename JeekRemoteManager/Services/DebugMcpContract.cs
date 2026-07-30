@@ -58,7 +58,7 @@ public static class DebugMcpContract
             "Temporarily creates a terminal tab and verifies AI CLI Ctrl+C: copies when text is selected and never sends 0x03 to the CLI.",
             new()),
         Tool("agent_cli_locate_check",
-            "Report the resolved executable paths for the agent CLIs (claude/codex/grok); optionally resolve one path through the locator's link resolution.",
+            "Report the resolved executable path (or install hint) for every agent CLI the AI panel offers; optionally resolve one path through the locator's link resolution.",
             new() { ["path"] = Prop("string", "Optional file path to run through ResolveRealPath.") }),
         Tool("agent_cli_mcp_config_check",
             "Refresh and verify one generated AI workspace has accurate AGENTS.md connection context, the installed JeekRemoteManagerMcp adapter, Claude approval, and every project MCP config in the catalog (.mcp.json, .vscode/mcp.json, .codex, .grok) pinned to the requested connection under the root key each agent reads.",

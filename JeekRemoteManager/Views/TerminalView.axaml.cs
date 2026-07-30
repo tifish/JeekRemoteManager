@@ -1020,12 +1020,15 @@ public partial class TerminalView : UserControl
 
         var preferred = (DataContext as MainWindowViewModel)?.AiProvider;
         var mainVm = DataContext as MainWindowViewModel;
-        // Resolve initial run mode from the slot that matches the preferred provider
-        // (Grok vs Claude/Codex), before the panel may fall back to another available agent.
+        // Resolve initial run mode from the slot that matches the preferred provider (agents
+        // with Desktop vs without), before the panel may fall back to another available agent.
+        var preferredKind = AgentCliCatalog.Discover()
+            .FirstOrDefault(d => d.Label.Equals(preferred, StringComparison.OrdinalIgnoreCase))
+            ?.Kind;
         var preferredRunMode = mainVm is null
             ? AgentCliRunMode.Cli
-            : preferred?.Equals("Grok", StringComparison.OrdinalIgnoreCase) == true
-                ? mainVm.GetAiRunModeForKind(AgentCliKind.Grok)
+            : preferredKind is { } kind
+                ? mainVm.GetAiRunModeForKind(kind)
                 : mainVm.AiRunMode;
         var vm = new AgentCliPanelViewModel(
             workingDir,
