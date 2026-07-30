@@ -109,17 +109,20 @@ public class AppSettings
     /// Null/blank = open with the system file association.</summary>
     public string? FileBrowserEditorPath { get; set; }
 
-    /// <summary>AI panel: last-used provider label ("Claude", "Codex", "Grok"). Null = first available.</summary>
+    /// <summary>AI panel: last-used provider label, as shown in the picker ("Claude", "Antigravity",
+    /// "VS Code", …). Null = first available.</summary>
     public string? AiProvider { get; set; }
 
     /// <summary>
-    /// AI panel launch mode for Claude/Codex (CLI / Windows Terminal / Desktop).
-    /// Grok uses <see cref="AiGrokRunMode"/> so Desktop preferences are not overwritten.
+    /// AI panel launch mode for agents that offer a desktop surface as well (CLI / Windows
+    /// Terminal / Desktop). Agents without one use <see cref="AiGrokRunMode"/> so their choice
+    /// never overwrites a Desktop preference, and single-mode agents store nothing at all.
     /// </summary>
     public AgentCliRunMode AiRunMode { get; set; } = AgentCliRunMode.Cli;
 
     /// <summary>
-    /// AI panel launch mode for Grok (CLI / Windows Terminal only; Desktop is not supported).
+    /// AI panel launch mode for agents with no desktop surface (CLI / Windows Terminal only).
+    /// Named for Grok, the first such agent, and kept under that name so existing settings survive.
     /// Kept separate from <see cref="AiRunMode"/> because the option sets differ.
     /// </summary>
     public AgentCliRunMode AiGrokRunMode { get; set; } = AgentCliRunMode.Cli;

@@ -110,7 +110,7 @@ public static class AgentProjectLink
 
         UpsertMarkdownBlock(Path.Combine(projectDirectory, "AGENTS.md"), relative, body);
 
-        // Agents with their own context file name (Claude, Gemini) do not read AGENTS.md by
+        // Agents with their own context file name (Claude) do not read AGENTS.md by
         // themselves. Create the same thin include the workspace uses when the project has none;
         // otherwise only duplicate the block when that file does not already import AGENTS.md.
         foreach (var include in AgentMcpConfigCatalog.ContextIncludeFiles)
@@ -236,8 +236,7 @@ public static class AgentProjectLink
                     path,
                     target.JsonRootKey!,
                     server,
-                    AgentMcpConfigCatalog.BuildJsonEntry(
-                        target, adapter, connection, link.McpToolsAutoApprove));
+                    AgentMcpConfigCatalog.BuildJsonEntry(adapter, connection));
             }
             else
             {

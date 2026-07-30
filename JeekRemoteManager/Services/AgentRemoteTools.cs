@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using JeekRemoteManager.Models;
 
 namespace JeekRemoteManager.Services;
 
@@ -78,19 +79,40 @@ public enum AgentCliKind
     Claude,
     Codex,
     Grok,
-    Gemini,
+
+    /// <summary>Antigravity's terminal agent (<c>agy</c>), Google's replacement for Gemini CLI.</summary>
+    Antigravity,
+
+    /// <summary>Antigravity 2.0, the standalone agent-orchestration app, opened on a folder.</summary>
+    AntigravityDesktop,
 
     /// <summary>Editors opened on the workspace folder rather than run as a CLI.</summary>
     VsCode,
     Cursor,
+    AntigravityIde,
 }
 
-/// <summary>Resolved install path and launch metadata for one agent CLI.</summary>
+/// <summary>How an agent's non-terminal surface is opened on the workspace folder.</summary>
+public enum AgentDesktopLaunch
+{
+    /// <summary>No desktop surface — CLI-only agents.</summary>
+    None,
+
+    /// <summary>A registered URI the shell hands off (<c>claude://</c>, <c>codex://</c>).
+    /// Needs no local binary, so the panel never asks the user to install anything.</summary>
+    Protocol,
+
+    /// <summary>The app's own executable, given the folder as an argument.</summary>
+    Executable,
+}
+
+/// <summary>Resolved install path and launch metadata for one agent.</summary>
 public sealed record AgentCliDescriptor(
     AgentCliKind Kind,
     string Label,
     string? ExecutablePath,
-    string InstallHint)
+    string InstallHint,
+    bool CanAutoInstall = true)
 {
     public bool IsAvailable => !string.IsNullOrWhiteSpace(ExecutablePath);
 }
@@ -130,21 +152,50 @@ public static class AgentCliCatalog
             AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.Codex)),
         new(AgentCliKind.Grok, "Grok", AgentCliLocator.FindGrok(),
             AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.Grok)),
-        new(AgentCliKind.Gemini, "Gemini", AgentCliLocator.FindGemini(),
-            AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.Gemini)),
+        new(AgentCliKind.Antigravity, "Antigravity", AgentCliLocator.FindAntigravityCli(),
+            AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.Antigravity)),
+        new(AgentCliKind.AntigravityDesktop, "Antigravity 2.0",
+            AgentCliLocator.FindAntigravityDesktop(),
+            AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.AntigravityDesktop),
+            CanAutoInstall: false),
         new(AgentCliKind.VsCode, "VS Code", AgentCliLocator.FindVsCode(),
             AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.VsCode)),
         new(AgentCliKind.Cursor, "Cursor", AgentCliLocator.FindCursor(),
             AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.Cursor)),
+        new(AgentCliKind.AntigravityIde, "Antigravity IDE",
+            AgentCliLocator.FindAntigravityIde(),
+            AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.AntigravityIde),
+            CanAutoInstall: false),
     ];
 
     /// <summary>
     /// Editors, which have exactly one launch shape: open the workspace folder in the editor
-    /// window. They are not run in the side panel or Windows Terminal, and they are not the
-    /// protocol-launched desktop chat apps either, so the run-mode picker offers them no choice.
+    /// window. They are not run in the side panel or Windows Terminal.
     /// </summary>
     public static bool IsIde(AgentCliKind kind) =>
-        kind is AgentCliKind.VsCode or AgentCliKind.Cursor;
+        kind is AgentCliKind.VsCode or AgentCliKind.Cursor or AgentCliKind.AntigravityIde;
+
+    /// <summary>
+    /// Whether this agent runs as a terminal program at all. Editors and the Antigravity
+    /// desktop app do not — they are windows we point at the workspace folder.
+    /// </summary>
+    public static bool IsTerminalAgent(AgentCliKind kind) =>
+        !IsIde(kind) && kind != AgentCliKind.AntigravityDesktop;
+
+    /// <summary>
+    /// The launch modes one agent offers, in picker order. Agents with a single mode make the
+    /// picker a label rather than a choice — and that mode is never worth persisting.
+    /// </summary>
+    public static IReadOnlyList<AgentCliRunMode> RunModesFor(AgentCliKind kind)
+    {
+        if (IsIde(kind))
+            return [AgentCliRunMode.Ide];
+        if (kind == AgentCliKind.AntigravityDesktop)
+            return [AgentCliRunMode.Desktop];
+        return SupportsDesktop(kind)
+            ? [AgentCliRunMode.Cli, AgentCliRunMode.WindowsTerminal, AgentCliRunMode.Desktop]
+            : [AgentCliRunMode.Cli, AgentCliRunMode.WindowsTerminal];
+    }
 
     /// <summary>
     /// Runtime-only CLI flags. Connection context, system guidance, and MCP URL are
@@ -158,16 +209,24 @@ public static class AgentCliCatalog
             AgentCliKind.Claude => BuildClaudeArguments(autoRun),
             AgentCliKind.Codex => BuildCodexArguments(autoRun),
             AgentCliKind.Grok => BuildGrokArguments(autoRun),
-            AgentCliKind.Gemini => BuildGeminiArguments(autoRun),
+            AgentCliKind.Antigravity => BuildAntigravityArguments(autoRun),
             _ => Array.Empty<string>(),
         };
 
     /// <summary>
-    /// Desktop protocol launch is only implemented for Claude Code and Codex desktop apps.
-    /// Grok and Gemini have no registered workspace protocol here.
+    /// How this agent's desktop surface is opened, if it has one. Claude and Codex register a
+    /// URI the shell hands off; Antigravity 2.0 is an app we launch on the folder; everything
+    /// else has no desktop surface at all.
     /// </summary>
+    public static AgentDesktopLaunch DesktopLaunch(AgentCliKind kind) => kind switch
+    {
+        AgentCliKind.Claude or AgentCliKind.Codex => AgentDesktopLaunch.Protocol,
+        AgentCliKind.AntigravityDesktop => AgentDesktopLaunch.Executable,
+        _ => AgentDesktopLaunch.None,
+    };
+
     public static bool SupportsDesktop(AgentCliKind kind) =>
-        kind is AgentCliKind.Claude or AgentCliKind.Codex;
+        DesktopLaunch(kind) != AgentDesktopLaunch.None;
 
     /// <summary>
     /// Builds the registered-protocol URI that opens the workspace in the desktop app.
@@ -221,13 +280,13 @@ public static class AgentCliCatalog
         return ["--no-alt-screen"];
     }
 
-    private static IReadOnlyList<string> BuildGeminiArguments(bool autoRun)
+    private static IReadOnlyList<string> BuildAntigravityArguments(bool autoRun)
     {
-        // Approval is scoped in the workspace's .gemini/settings.json ("trust": true on our
-        // server only). Deliberately not --yolo / --approval-mode=yolo: those auto-approve
-        // every tool including local shell and file writes, far wider than the remote tools
-        // the other agents get here.
-        _ = autoRun; // Applied when rewriting .gemini/settings.json (PrepareWorkspace / Ensure).
+        // No per-server auto-approve is documented for Antigravity's .agents/mcp_config.json,
+        // and its blanket auto-approve would cover local shell and file writes too — far wider
+        // than the remote tools the other agents are granted here. So auto-run adds no flags and
+        // the user confirms tool calls in the agent itself.
+        _ = autoRun;
         return Array.Empty<string>();
     }
 

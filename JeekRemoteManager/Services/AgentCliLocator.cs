@@ -4,8 +4,8 @@ using System.IO;
 namespace JeekRemoteManager.Services;
 
 /// <summary>
-/// Finds installed agent CLI executables (<c>claude</c>, <c>codex</c>, <c>grok</c>,
-/// <c>gemini</c>) on Windows.
+/// Finds the installed agent executables on Windows — CLIs (<c>claude</c>, <c>codex</c>,
+/// <c>grok</c>, <c>agy</c>) and the editors and desktop apps opened on a workspace folder.
 /// </summary>
 public static class AgentCliLocator
 {
@@ -61,19 +61,45 @@ public static class AgentCliLocator
     }
 
     /// <summary>
-    /// Returns the full path to <c>gemini</c> (Gemini CLI), or <c>null</c> if it is not
-    /// installed. Ships through npm only, so this probes PATH plus the npm global prefix.
+    /// Returns the full path to <c>agy.exe</c> (Antigravity CLI), or <c>null</c> if it is not
+    /// installed. The installer drops it under <c>%LOCALAPPDATA%\agy\bin</c>.
     /// </summary>
-    public static string? FindGemini()
+    public static string? FindAntigravityCli()
     {
-        foreach (var candidate in EnumerateGeminiCandidates())
+        foreach (var candidate in EnumerateAntigravityCliCandidates())
         {
             if (File.Exists(candidate))
                 return ResolveRealPath(candidate);
         }
 
-        var found = FindOnPath("gemini.cmd") ?? FindOnPath("gemini.exe") ?? FindOnPath("gemini");
+        var found = FindOnPath("agy.exe") ?? FindOnPath("agy.cmd") ?? FindOnPath("agy");
         return found is null ? null : ResolveRealPath(found);
+    }
+
+    /// <summary>
+    /// Returns the full path to <c>Antigravity.exe</c> (the Antigravity 2.0 desktop app), or
+    /// <c>null</c> if it is not installed. Distinct from the IDE, which installs beside it under
+    /// its own "Antigravity IDE" folder.
+    /// </summary>
+    public static string? FindAntigravityDesktop()
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var candidate = Path.Combine(localAppData, "Programs", "Antigravity", "Antigravity.exe");
+        return File.Exists(candidate) ? ResolveRealPath(candidate) : null;
+    }
+
+    /// <summary>
+    /// Returns the full path to <c>Antigravity IDE.exe</c>, or <c>null</c> if it is not installed.
+    /// </summary>
+    public static string? FindAntigravityIde()
+    {
+        foreach (var candidate in EnumerateAntigravityIdeCandidates())
+        {
+            if (File.Exists(candidate))
+                return ResolveRealPath(candidate);
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -202,11 +228,26 @@ public static class AgentCliLocator
             "Cursor.exe");
     }
 
-    private static System.Collections.Generic.IEnumerable<string> EnumerateGeminiCandidates()
+    private static System.Collections.Generic.IEnumerable<string> EnumerateAntigravityCliCandidates()
     {
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        yield return Path.Combine(appData, "npm", "gemini.cmd");
-        yield return Path.Combine(appData, "npm", "gemini.exe");
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        yield return Path.Combine(localAppData, "agy", "bin", "agy.exe");
+        yield return Path.Combine(localAppData, "agy", "bin", "agy");
+    }
+
+    private static System.Collections.Generic.IEnumerable<string> EnumerateAntigravityIdeCandidates()
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        // Recent builds renamed the per-user folder from "Antigravity" to "Antigravity IDE" when
+        // the 2.0 desktop app took the original name; keep probing both.
+        yield return Path.Combine(localAppData, "Programs", "Antigravity IDE", "Antigravity IDE.exe");
+        yield return Path.Combine(localAppData, "Programs", "Antigravity", "Antigravity IDE.exe");
+
+        yield return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            "Google",
+            "Antigravity",
+            "Antigravity IDE.exe");
     }
 
     private static System.Collections.Generic.IEnumerable<string> EnumerateGrokCandidates()

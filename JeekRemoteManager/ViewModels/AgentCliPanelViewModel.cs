@@ -140,16 +140,24 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     [NotifyCanExecuteChangedFor(nameof(InstallCommand))]
     private bool _isInstalling;
 
-    /// <summary>True when the selected agent is missing and we should show the install panel.
-    /// Desktop mode is exempt: it launches a protocol, not a local binary. IDE mode is not —
-    /// we start the editor's executable, so it has to be there.</summary>
+    /// <summary>
+    /// True when the selected agent is missing and we should show the install panel. Only a
+    /// protocol-launched desktop app is exempt — the shell resolves it, so there is no local
+    /// binary to find. Every other surface, IDE and Antigravity 2.0 included, starts an
+    /// executable that has to be there.
+    /// </summary>
     public bool ShowInstallPrompt =>
         !IsRunning
         && !IsInstalling
-        && RunMode != AgentCliRunMode.Desktop
+        && !LaunchesWithoutLocalBinary
         && !SelectedProvider.IsAvailable;
 
-    /// <summary>Start is only for installed, idle agents (or Desktop Claude/Codex).</summary>
+    /// <summary>Desktop mode on an agent that registers a URI rather than shipping an exe we run.</summary>
+    private bool LaunchesWithoutLocalBinary =>
+        RunMode == AgentCliRunMode.Desktop
+        && AgentCliCatalog.DesktopLaunch(SelectedProvider.Kind) == AgentDesktopLaunch.Protocol;
+
+    /// <summary>Start is only for installed, idle agents (or a protocol-launched desktop app).</summary>
     public bool ShowStartButton =>
         !IsRunning && !IsInstalling && CanStartSelectedProvider();
 
@@ -233,18 +241,6 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         OnPropertyChanged(nameof(ExternalHintText));
     }
 
-    /// <summary>
-    /// The launch modes one agent offers: editors open the workspace folder and nothing else;
-    /// everything else runs as a CLI in the panel or Windows Terminal, plus Desktop when it has
-    /// a registered protocol (Claude/Codex, not Grok or Gemini).
-    /// </summary>
-    private static IReadOnlyList<AgentCliRunMode> ModesFor(AgentCliKind kind) =>
-        AgentCliCatalog.IsIde(kind)
-            ? [AgentCliRunMode.Ide]
-            : AgentCliCatalog.SupportsDesktop(kind)
-                ? [AgentCliRunMode.Cli, AgentCliRunMode.WindowsTerminal, AgentCliRunMode.Desktop]
-                : [AgentCliRunMode.Cli, AgentCliRunMode.WindowsTerminal];
-
     private static string RunModeLabel(AgentCliRunMode mode) => mode switch
     {
         AgentCliRunMode.WindowsTerminal => "Windows Terminal",
@@ -257,7 +253,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     private void PopulateRunModeOptions(AgentCliKind kind)
     {
         RunModeOptions.Clear();
-        foreach (var mode in ModesFor(kind))
+        foreach (var mode in AgentCliCatalog.RunModesFor(kind))
             RunModeOptions.Add(new AgentCliRunModeOption(mode, RunModeLabel(mode)));
     }
 
@@ -270,7 +266,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     /// <returns>True when the selection changed, which has already requested a start.</returns>
     private bool SyncRunModeOptions(AgentCliKind kind, AgentCliRunMode preferred)
     {
-        var wanted = ModesFor(kind);
+        var wanted = AgentCliCatalog.RunModesFor(kind);
 
         foreach (var mode in wanted)
         {
@@ -306,9 +302,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     }
 
     private bool CanStartSelectedProvider() =>
-        RunMode == AgentCliRunMode.Desktop
-            ? AgentCliCatalog.SupportsDesktop(SelectedProvider.Kind)
-            : SelectedProvider.IsAvailable;
+        LaunchesWithoutLocalBinary || SelectedProvider.IsAvailable;
 
     private void RefreshStatusFromProvider()
     {
@@ -322,8 +316,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             return;
         }
 
-        if (RunMode == AgentCliRunMode.Desktop
-            || SelectedProvider.IsAvailable)
+        if (LaunchesWithoutLocalBinary || SelectedProvider.IsAvailable)
         {
             StatusText = IsRunning
                 ? RunMode switch
@@ -378,7 +371,8 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     private bool CanInstall() =>
         !IsInstalling
         && !IsRunning
-        && RunMode != AgentCliRunMode.Desktop
+        && SelectedProvider.CanAutoInstall
+        && !LaunchesWithoutLocalBinary
         && !SelectedProvider.IsAvailable;
 
     [RelayCommand(CanExecute = nameof(CanInstall))]
@@ -484,16 +478,18 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             provider = SelectedProvider;
             runMode = RunMode;
 
-            if (runMode == AgentCliRunMode.Desktop)
+            var desktopLaunch = AgentCliCatalog.DesktopLaunch(provider.Kind);
+            if (runMode == AgentCliRunMode.Desktop && desktopLaunch == AgentDesktopLaunch.None)
             {
-                if (!AgentCliCatalog.SupportsDesktop(provider.Kind))
-                {
-                    StatusText = L("AiCliDesktopUnsupported", provider.Label);
-                    NotifyLayoutFlags();
-                    return;
-                }
+                StatusText = L("AiCliDesktopUnsupported", provider.Label);
+                NotifyLayoutFlags();
+                return;
             }
-            else if (!provider.IsAvailable || provider.ExecutablePath is null)
+
+            // Only a protocol launch works without a local binary; everything else, Antigravity
+            // 2.0 included, needs its executable on disk.
+            if (!(runMode == AgentCliRunMode.Desktop && desktopLaunch == AgentDesktopLaunch.Protocol)
+                && (!provider.IsAvailable || provider.ExecutablePath is null))
             {
                 StatusText = provider.InstallHint;
                 NotifyLayoutFlags();
@@ -511,7 +507,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
                 if (runMode == AgentCliRunMode.Desktop)
                 {
-                    if (!TryStartDesktopApp(provider.Kind))
+                    if (!TryStartDesktopApp(provider))
                     {
                         if (generation != Volatile.Read(ref _startGeneration))
                             return;
@@ -537,7 +533,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
                 if (runMode == AgentCliRunMode.Ide)
                 {
-                    if (!TryStartIde(exePath))
+                    if (!TryStartOnWorkspaceFolder(exePath))
                     {
                         if (generation != Volatile.Read(ref _startGeneration))
                             return;
@@ -875,9 +871,17 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         return Task.CompletedTask;
     }
 
-    private bool TryStartDesktopApp(AgentCliKind kind)
+    /// <summary>
+    /// Opens the workspace in the agent's desktop app, whichever way that agent supports:
+    /// Claude and Codex register a URI the shell hands off, while Antigravity 2.0 is an
+    /// executable we start on the folder like an editor.
+    /// </summary>
+    private bool TryStartDesktopApp(AgentCliDescriptor provider)
     {
-        var uri = AgentCliCatalog.BuildDesktopProtocolUri(kind, _workingDirectory);
+        if (AgentCliCatalog.DesktopLaunch(provider.Kind) == AgentDesktopLaunch.Executable)
+            return provider.ExecutablePath is { } exe && TryStartOnWorkspaceFolder(exe);
+
+        var uri = AgentCliCatalog.BuildDesktopProtocolUri(provider.Kind, _workingDirectory);
         if (uri is null)
             return false;
 
@@ -902,11 +906,12 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     }
 
     /// <summary>
-    /// Opens the workspace folder in an editor. The editor is a long-lived window the user owns,
-    /// not a session we manage: it may already be running (in which case it just opens a new
-    /// window and the process we started exits at once), and stopping the panel never closes it.
+    /// Opens the workspace folder in an editor or desktop app. That app is a long-lived window
+    /// the user owns, not a session we manage: it may already be running (in which case it just
+    /// opens a new window and the process we started exits at once), and stopping the panel
+    /// never closes it.
     /// </summary>
-    private bool TryStartIde(string exePath)
+    private bool TryStartOnWorkspaceFolder(string exePath)
     {
         try
         {

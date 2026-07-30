@@ -8,8 +8,10 @@ using System.Threading.Tasks;
 namespace JeekRemoteManager.Services;
 
 /// <summary>
-/// Runs the official one-line installers for Claude Code, Codex CLI, Grok Build, and
-/// Gemini CLI on Windows, then re-probes <see cref="AgentCliLocator"/>.
+/// Runs the official one-line installers for the agents that have one (Claude Code, Codex CLI,
+/// Grok Build, Antigravity CLI, and the winget-published editors) on Windows, then re-probes
+/// <see cref="AgentCliLocator"/>. Agents whose descriptor sets <c>CanAutoInstall: false</c> only
+/// show a download page and never reach this class.
 /// </summary>
 public static class AgentCliInstaller
 {
@@ -21,9 +23,13 @@ public static class AgentCliInstaller
         AgentCliKind.Claude => "irm https://claude.ai/install.ps1 | iex",
         AgentCliKind.Codex => "npm install -g @openai/codex",
         AgentCliKind.Grok => "irm https://x.ai/cli/install.ps1 | iex",
-        AgentCliKind.Gemini => "npm install -g @google/gemini-cli",
+        AgentCliKind.Antigravity => "irm https://antigravity.google/cli/install.ps1 | iex",
         AgentCliKind.VsCode => "winget install Microsoft.VisualStudioCode",
         AgentCliKind.Cursor => "winget install Anysphere.Cursor",
+        // No winget package to point at, so these show a download page instead of a command
+        // and their descriptors turn auto-install off.
+        AgentCliKind.AntigravityDesktop or AgentCliKind.AntigravityIde =>
+            "https://antigravity.google/download",
         _ => "",
     };
 
@@ -73,7 +79,9 @@ public static class AgentCliInstaller
         AgentCliKind.Claude => AgentCliLocator.FindClaude(),
         AgentCliKind.Codex => AgentCliLocator.FindCodex(),
         AgentCliKind.Grok => AgentCliLocator.FindGrok(),
-        AgentCliKind.Gemini => AgentCliLocator.FindGemini(),
+        AgentCliKind.Antigravity => AgentCliLocator.FindAntigravityCli(),
+        AgentCliKind.AntigravityDesktop => AgentCliLocator.FindAntigravityDesktop(),
+        AgentCliKind.AntigravityIde => AgentCliLocator.FindAntigravityIde(),
         AgentCliKind.VsCode => AgentCliLocator.FindVsCode(),
         AgentCliKind.Cursor => AgentCliLocator.FindCursor(),
         _ => null,
@@ -93,9 +101,10 @@ public static class AgentCliInstaller
             AgentCliKind.Grok => (
                 "powershell.exe",
                 "-NoProfile -ExecutionPolicy Bypass -Command \"irm https://x.ai/cli/install.ps1 | iex\""),
-            AgentCliKind.Gemini => (
+            AgentCliKind.Antigravity => (
                 "powershell.exe",
-                "-NoProfile -ExecutionPolicy Bypass -Command \"npm install -g @google/gemini-cli\""),
+                "-NoProfile -ExecutionPolicy Bypass -Command "
+                + "\"irm https://antigravity.google/cli/install.ps1 | iex\""),
             // Editors ship as winget packages. --accept-*-agreements keeps winget from waiting
             // on a prompt this redirected, non-interactive process can never answer.
             AgentCliKind.VsCode => (
