@@ -24,7 +24,7 @@
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 
-    <PropertyGroup>
+  <PropertyGroup>
     <BeautySharedRuntimeMode>False</BeautySharedRuntimeMode>
     <!-- beauty into sub-directory, default is libs, quote with "" if contains space  -->
     <BeautyLibsDir Condition="$(BeautySharedRuntimeMode) == 'True'">../Libs</BeautyLibsDir>

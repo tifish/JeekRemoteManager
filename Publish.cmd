@@ -26,5 +26,5 @@ if errorlevel 1 (
 echo.
 echo Published -^> "%OUT%"
 echo   Executable : %OUT%\JeekRemoteManager.exe
-echo   Libraries  : %OUT%\libs  (moved there by NetBeauty)
+echo   Libraries  : %OUT%\Libs  (moved there by NetBeauty)
 pause

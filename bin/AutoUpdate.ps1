@@ -36,8 +36,10 @@ try {
     }
 
     Write-Host "[2/3] Installing files..."
-    # Preserve portable user data, legacy top-level user data, and the updater itself.
-    $preserveNames = @("Config", "Connections", "Scripts", "AutoUpdate.ps1")
+    # Preserve portable/user data (Config, Logs), legacy top-level user folders
+    # (Connections/Scripts used to live next to the exe), and this script so it
+    # is not deleted mid-run. Matches install.ps1's robocopy /XD list.
+    $preserveNames = @("Config", "Connections", "Scripts", "Logs", "AutoUpdate.ps1")
     Get-ChildItem -LiteralPath $installDir -Force -ErrorAction SilentlyContinue |
         Where-Object { $preserveNames -notcontains $_.Name } |
         Remove-Item -Recurse -Force -ErrorAction SilentlyContinue

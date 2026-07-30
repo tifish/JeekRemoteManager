@@ -148,8 +148,9 @@ Get-Process -Name $AppName -ErrorAction SilentlyContinue | ForEach-Object {
 }
 
 # 4. Mirror the package into the install directory, cleaning up files the new
-#    version no longer ships while preserving user data folders. The exclusion
-#    list matches the auto-update script (bin/AutoUpdate.ps1).
+#    version no longer ships while preserving user data folders. Keep this
+#    exclusion list in sync with bin/AutoUpdate.ps1 $preserveNames (minus the
+#    updater script itself, which is only needed mid-update).
 Write-Host "Installing to $InstallDir"
 robocopy $stageDir $InstallDir /MIR /XD Config Connections Scripts Logs /NFL /NDL /NJH /NJS /NP | Out-Null
 if ($LASTEXITCODE -ge 8) {
