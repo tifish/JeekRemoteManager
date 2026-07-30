@@ -61,7 +61,7 @@ public static class DebugMcpContract
             "Report the resolved executable paths for the agent CLIs (claude/codex/grok); optionally resolve one path through the locator's link resolution.",
             new() { ["path"] = Prop("string", "Optional file path to run through ResolveRealPath.") }),
         Tool("agent_cli_mcp_config_check",
-            "Refresh and verify one generated AI workspace has accurate AGENTS.md connection context, the installed JeekRemoteManagerMcp adapter, Claude approval, and Claude/Codex/Grok project MCP configs pinned to the requested connection.",
+            "Refresh and verify one generated AI workspace has accurate AGENTS.md connection context, the installed JeekRemoteManagerMcp adapter, Claude approval, and every project MCP config in the catalog (.mcp.json, .vscode/mcp.json, .codex, .grok) pinned to the requested connection under the root key each agent reads.",
             new() { ["connection"] = Prop("string", "Connection tree path under AgentWorkspaces (default vps/bwg).") }),
         Tool("login_menu_select_check",
             "Run the login-command \"#select <name>\" matcher against menu text: reports the parsed menu entries and which number the name would type.",
@@ -88,7 +88,7 @@ public static class DebugMcpContract
             "Connects to the app's own MCP named pipe as a client and runs initialize + tools/list plus a second concurrent session, verifying the pipe transport, its ACL, and the line framing.",
             new()),
         Tool("agent_project_link_check",
-            "Links a throwaway project folder to a synthetic agent workspace and verifies the AGENTS.md/CLAUDE.md reference block plus merged .mcp.json/.codex/.grok configs, then refresh (URL rotation, no duplicates) and unlink (project content restored).",
+            "Links a throwaway project folder to a synthetic agent workspace and verifies the AGENTS.md/CLAUDE.md reference block plus every merged MCP config in the catalog (.mcp.json, .vscode/mcp.json, .codex, .grok), then refresh (no duplicates) and unlink (project content restored, our own files and folders removed).",
             new()
             {
                 ["panel"] = Prop("boolean", "Also drive the live AI panel view model from the open ai_render_probe tab (default false)."),

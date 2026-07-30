@@ -52,8 +52,10 @@ public sealed record AgentWorkspaceLink(
 /// <summary>
 /// Writes a JeekRemoteManager connection into an arbitrary local project folder: a marked
 /// block in the project's <c>AGENTS.md</c> (and <c>CLAUDE.md</c>) pointing at the tab's agent
-/// workspace, plus an MCP server entry in the project's Claude/Codex/Grok configs. Agents
-/// opened in that folder then reach the connection without the user opening the workspace.
+/// workspace, plus an MCP server entry in each config listed in
+/// <see cref="AgentMcpConfigCatalog"/>. Agents opened in that folder then reach the connection
+/// without the user opening the workspace. Unlike the generated workspace, this folder belongs
+/// to the user: entries are merged in and removed again, never written over.
 ///
 /// This is a one-shot write, not an association: the MCP entry launches the local
 /// <c>JeekRemoteManagerMcp</c> adapter over a named pipe, so there is no URL, port, or token that could
@@ -137,12 +139,23 @@ public static class AgentProjectLink
             TryDeleteFile(claudeMd);
         DeleteIfEmpty(claudeMd);
 
-        RemoveTomlBlock(Path.Combine(projectDirectory, ".codex", "config.toml"), relative);
-        DeleteIfEmpty(Path.Combine(projectDirectory, ".codex", "config.toml"), removeEmptyFolder: true);
-        RemoveTomlBlock(Path.Combine(projectDirectory, ".grok", "config.toml"), relative);
-        DeleteIfEmpty(Path.Combine(projectDirectory, ".grok", "config.toml"), removeEmptyFolder: true);
-
-        RemoveMcpJsonServer(Path.Combine(projectDirectory, ".mcp.json"), link.ProjectMcpServerName);
+        foreach (var target in AgentMcpConfigCatalog.All)
+        {
+            var path = target.ResolvePath(projectDirectory);
+            if (target.Format == AgentMcpConfigCatalog.ConfigFormat.Json)
+            {
+                // Drops the file itself when our entry was all it held; the folder may still
+                // be the project's own (.vscode), so only remove it once it is empty.
+                RemoveMcpJsonServer(path, target.JsonRootKey!, link.ProjectMcpServerName);
+                if (target.HasOwnFolder)
+                    TryDeleteEmptyFolder(path);
+            }
+            else
+            {
+                RemoveTomlBlock(path, relative);
+                DeleteIfEmpty(path, removeEmptyFolder: target.HasOwnFolder);
+            }
+        }
     }
 
     #region Reference block
@@ -183,11 +196,8 @@ public static class AgentProjectLink
         sb.Append("- The configs below launch a local adapter that talks to JeekRemoteManager over a ")
           .Append("named pipe; it starts the app if it is closed and survives restarts, so there is ")
           .Append("no URL to expire. JeekRemoteManager rewrites this block — do not edit it by hand.\n\n");
-        sb.Append("| Agent | Config file |\n");
-        sb.Append("|-------|-------------|\n");
-        sb.Append("| Claude Code / Desktop | `.mcp.json` |\n");
-        sb.Append("| Codex | `.codex/config.toml` |\n");
-        sb.Append("| Grok | `.grok/config.toml` |\n");
+        foreach (var line in AgentMcpConfigCatalog.DocTableLines())
+            sb.Append(line).Append('\n');
         return sb.ToString();
     }
 
@@ -210,49 +220,47 @@ public static class AgentProjectLink
         var server = link.ProjectMcpServerName;
         var relative = link.NormalizedRelativePath;
 
-        MergeMcpJson(Path.Combine(projectDirectory, ".mcp.json"), server, adapter, connection);
-
-        var codexApproval = link.McpToolsAutoApprove ? "approve" : "prompt";
-        UpsertTomlBlock(
-            Path.Combine(projectDirectory, ".codex", "config.toml"),
-            relative,
-            $"[mcp_servers.{server}]\n"
-            + $"command = \"{EscapeToml(adapter)}\"\n"
-            + $"args = [\"--connection\", \"{EscapeToml(connection)}\"]\n"
-            + $"default_tools_approval_mode = \"{codexApproval}\"\n");
-
-        UpsertTomlBlock(
-            Path.Combine(projectDirectory, ".grok", "config.toml"),
-            relative,
-            $"[mcp_servers.{server}]\n"
-            + $"command = \"{EscapeToml(adapter)}\"\n"
-            + $"args = [\"--connection\", \"{EscapeToml(connection)}\"]\n");
+        foreach (var target in AgentMcpConfigCatalog.All)
+        {
+            var path = target.ResolvePath(projectDirectory);
+            if (target.Format == AgentMcpConfigCatalog.ConfigFormat.Json)
+            {
+                MergeMcpJson(path, target.JsonRootKey!, server, adapter, connection);
+            }
+            else
+            {
+                UpsertTomlBlock(
+                    path,
+                    relative,
+                    AgentMcpConfigCatalog.BuildTomlEntry(
+                        target, server, adapter, connection, link.McpToolsAutoApprove));
+            }
+        }
     }
 
-    private static void MergeMcpJson(string path, string serverName, string adapter, string connection)
+    private static void MergeMcpJson(
+        string path,
+        string rootKey,
+        string serverName,
+        string adapter,
+        string connection)
     {
         var root = ParseJsonObject(path) ?? new JsonObject();
-        if (root["mcpServers"] is not JsonObject servers)
+        if (root[rootKey] is not JsonObject servers)
         {
             servers = new JsonObject();
-            root["mcpServers"] = servers;
+            root[rootKey] = servers;
         }
 
-        servers[serverName] = new JsonObject
-        {
-            ["type"] = "stdio",
-            ["command"] = adapter,
-            ["args"] = new JsonArray("--connection", connection),
-        };
-
+        servers[serverName] = AgentMcpConfigCatalog.BuildJsonEntry(adapter, connection);
         WriteJson(path, root);
     }
 
-    private static void RemoveMcpJsonServer(string path, string serverName)
+    private static void RemoveMcpJsonServer(string path, string rootKey, string serverName)
     {
         if (ParseJsonObject(path) is not { } root)
             return;
-        if (root["mcpServers"] is not JsonObject servers || !servers.Remove(serverName))
+        if (root[rootKey] is not JsonObject servers || !servers.Remove(serverName))
             return;
 
         // Nothing but the (now empty) server map left: the file only existed for this link.
@@ -421,9 +429,13 @@ public static class AgentProjectLink
             return;
 
         TryDeleteFile(path);
-        if (!removeEmptyFolder)
-            return;
+        if (removeEmptyFolder)
+            TryDeleteEmptyFolder(path);
+    }
 
+    /// <summary>Removes the folder holding <paramref name="path"/> once nothing is left in it.</summary>
+    private static void TryDeleteEmptyFolder(string path)
+    {
         try
         {
             var folder = Path.GetDirectoryName(path);
@@ -480,9 +492,6 @@ public static class AgentProjectLink
         var slug = sb.ToString().Trim('-');
         return slug.Length == 0 ? "connection" : slug;
     }
-
-    private static string EscapeToml(string value) =>
-        value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);
 
     #endregion
 }

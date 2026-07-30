@@ -1206,6 +1206,24 @@ internal static class DebugMcpServer
             Check(".grok/config.toml gains the server table",
                 grokToml.Contains($"[mcp_servers.{server}]", StringComparison.Ordinal)
                 && grokToml.Contains("JeekRemoteManagerMcp.exe", StringComparison.Ordinal));
+
+            // Every catalog config must be written, and each JSON one under the root key its
+            // agent actually reads — VS Code ignores "mcpServers" without reporting anything.
+            foreach (var target in AgentMcpConfigCatalog.All)
+            {
+                var targetPath = target.ResolvePath(project);
+                if (target.Format != AgentMcpConfigCatalog.ConfigFormat.Json)
+                {
+                    Check($"{target.RelativePath} written", File.Exists(targetPath));
+                    continue;
+                }
+
+                Check(
+                    $"{target.RelativePath} holds the entry under \"{target.JsonRootKey}\"",
+                    File.Exists(targetPath)
+                    && TryParseJsonObject(File.ReadAllText(targetPath))
+                        ?[target.JsonRootKey!]?[server] is JsonObject);
+            }
             // Writing again must replace the block in place, not append a second copy.
             AgentProjectLink.WriteInto(link with { Target = "root@10.0.0.2:22" }, project);
 
@@ -1233,6 +1251,22 @@ internal static class DebugMcpServer
                 "removal deletes the files it created",
                 !File.Exists(Path.Combine(project, "CLAUDE.md"))
                 && !Directory.Exists(Path.Combine(project, ".grok")));
+            // Configs we created outright go, folder and all; ones we merged into keep
+            // whatever the project already had.
+            foreach (var target in AgentMcpConfigCatalog.All)
+            {
+                var targetPath = target.ResolvePath(project);
+                var remaining = File.Exists(targetPath) ? File.ReadAllText(targetPath) : "";
+                Check(
+                    $"removal takes this connection out of {target.RelativePath}",
+                    !remaining.Contains(server, StringComparison.Ordinal));
+                if (target is { HasOwnFolder: true, Format: AgentMcpConfigCatalog.ConfigFormat.Json })
+                {
+                    Check(
+                        $"removal drops the folder we created for {target.RelativePath}",
+                        !Directory.Exists(Path.GetDirectoryName(targetPath)!));
+                }
+            }
 
             if (usePanel)
             {
@@ -1334,15 +1368,9 @@ internal static class DebugMcpServer
         }
 
         var agentsPath = Path.Combine(workspace, "AGENTS.md");
-        var mcpJsonPath = Path.Combine(workspace, ".mcp.json");
         var claudeSettingsPath = Path.Combine(workspace, ".claude", "settings.local.json");
-        var codexPath = Path.Combine(workspace, ".codex", "config.toml");
-        var grokPath = Path.Combine(workspace, ".grok", "config.toml");
 
         var agents = File.Exists(agentsPath) ? File.ReadAllText(agentsPath) : "";
-        var mcpJson = File.Exists(mcpJsonPath) ? File.ReadAllText(mcpJsonPath) : "";
-        var codex = File.Exists(codexPath) ? File.ReadAllText(codexPath) : "";
-        var grok = File.Exists(grokPath) ? File.ReadAllText(grokPath) : "";
         var claudeApproved = false;
         if (File.Exists(claudeSettingsPath))
         {
@@ -1364,21 +1392,40 @@ internal static class DebugMcpServer
 
         var escapedAdapter = adapter.Replace("\\", "\\\\", StringComparison.Ordinal);
         var pinned = $"\"--connection\", \"{connection}\"";
-        var checks = new[]
+        var checks = new List<(string Name, bool Ok)>
         {
             ("adapter", File.Exists(adapter)),
             ("AGENTS.md", agents.Contains($"**Adapter:** `{adapter}`", StringComparison.Ordinal)
                           && agents.Contains(
                               $"**Pinned connection:** `{connection}`",
                               StringComparison.Ordinal)),
-            (".mcp.json", mcpJson.Contains(escapedAdapter, StringComparison.Ordinal)
-                          && mcpJson.Contains(pinned, StringComparison.Ordinal)),
             ("Claude approval", claudeApproved),
-            ("Codex config", codex.Contains(escapedAdapter, StringComparison.Ordinal)
-                             && codex.Contains(pinned, StringComparison.Ordinal)),
-            ("Grok config", grok.Contains(escapedAdapter, StringComparison.Ordinal)
-                            && grok.Contains(pinned, StringComparison.Ordinal)),
         };
+
+        // Every config in the catalog must exist, launch the adapter, and be pinned to this
+        // connection. JSON is checked structurally — the entry must sit under the root key
+        // that agent reads, and indented output puts the args on separate lines.
+        foreach (var target in AgentMcpConfigCatalog.All)
+        {
+            var path = target.ResolvePath(workspace);
+            var text = File.Exists(path) ? File.ReadAllText(path) : "";
+            var ok = target.Format == AgentMcpConfigCatalog.ConfigFormat.Json
+                ? TryParseJsonObject(text)?[target.JsonRootKey!]
+                      ?[AgentCliWorkspace.McpServerName] is JsonObject entry
+                  && entry["command"]?.GetValue<string>() == adapter
+                  && entry["args"] is JsonArray entryArgs
+                  && entryArgs.Select(node => node?.GetValue<string>())
+                      .SequenceEqual(["--connection", connection])
+                : text.Contains(escapedAdapter, StringComparison.Ordinal)
+                  && text.Contains(pinned, StringComparison.Ordinal);
+
+            checks.Add((target.RelativePath, ok));
+            // AGENTS.md must tell the agent which file to look at, or the workspace is
+            // silently missing a surface the user thinks is supported.
+            checks.Add((
+                $"AGENTS.md lists {target.RelativePath}",
+                agents.Contains($"`{target.RelativePath}`", StringComparison.Ordinal)));
+        }
         var passed = checks.All(check => check.Item2);
         var report = new StringBuilder()
             .AppendLine($"{(passed ? "PASS" : "FAIL")}: AI CLI MCP config")
@@ -1389,6 +1436,19 @@ internal static class DebugMcpServer
             report.AppendLine($"{name}={(ok ? "ok" : "FAIL")}");
 
         return ToolText(report.ToString().TrimEnd(), isError: !passed);
+    }
+
+    /// <summary>Parses a config file for probing, treating malformed JSON as a failed check.</summary>
+    private static JsonObject? TryParseJsonObject(string text)
+    {
+        try
+        {
+            return JsonNode.Parse(text) as JsonObject;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private static TerminalView? _menuProbeView;
