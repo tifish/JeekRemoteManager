@@ -31,12 +31,33 @@ public enum AgentEndpointAction
 /// <summary>
 /// One row of the endpoint picker: the official API, a saved endpoint, or an action. Actions sit
 /// in the same list so the picker is the single place endpoints are chosen and managed.
+///
+/// Rows hide through <see cref="IsVisible"/> rather than by being added to and removed from the
+/// collection. Mutating the collection while the ComboBox is raising its own selection-changed
+/// notification leaves the control with no selection and the picker renders blank.
 /// </summary>
-public sealed record AgentEndpointOption(
-    AgentEndpointAction Action,
-    string Label,
-    AgentEndpointProfile? Profile = null)
+public sealed partial class AgentEndpointOption : ObservableObject
 {
+    public AgentEndpointOption(
+        AgentEndpointAction action,
+        string label,
+        AgentEndpointProfile? profile = null)
+    {
+        Action = action;
+        Label = label;
+        Profile = profile;
+    }
+
+    public AgentEndpointAction Action { get; }
+
+    public string Label { get; }
+
+    public AgentEndpointProfile? Profile { get; }
+
+    /// <summary>False collapses this row in the drop-down without resizing the collection.</summary>
+    [ObservableProperty]
+    private bool _isVisible = true;
+
     public override string ToString() => Label;
 }
 
@@ -311,10 +332,8 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
                     profile));
             }
 
-            // The three actions are always present. Making them appear and disappear with the
-            // selection would mean rebuilding this collection from inside the ComboBox's own
-            // selection-changed notification, which leaves the control's selection desynced from
-            // ours — the box goes blank. Edit and Delete simply do nothing on the official API.
+            // The three actions are always in the collection; Edit and Delete only hide
+            // themselves when there is nothing to act on. See AgentEndpointOption.IsVisible.
             EndpointOptions.Add(new AgentEndpointOption(AgentEndpointAction.Add, L("AiEndpointAdd")));
             EndpointOptions.Add(new AgentEndpointOption(AgentEndpointAction.Edit, L("AiEndpointEdit")));
             EndpointOptions.Add(new AgentEndpointOption(AgentEndpointAction.Delete, L("AiEndpointDelete")));
@@ -324,6 +343,20 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         finally
         {
             _suppressEndpointSelection = false;
+        }
+    }
+
+    /// <summary>
+    /// Hides Edit and Delete while the official API is in use, where they have nothing to act on.
+    /// Only the rows' visibility changes — the collection itself is never touched.
+    /// </summary>
+    private void SyncEndpointActionVisibility()
+    {
+        var hasProfile = SelectedEndpointProfile is not null;
+        foreach (var option in EndpointOptions)
+        {
+            if (option.Action is AgentEndpointAction.Edit or AgentEndpointAction.Delete)
+                option.IsVisible = hasProfile;
         }
     }
 
@@ -347,6 +380,8 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         {
             _suppressEndpointSelection = wasSuppressed;
         }
+
+        SyncEndpointActionVisibility();
     }
 
     partial void OnSelectedEndpointOptionChanged(AgentEndpointOption? value)
@@ -373,6 +408,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             return;
 
         settings.SelectedId = newId;
+        SyncEndpointActionVisibility();
         EndpointActionRequested?.Invoke(AgentEndpointAction.Select, value.Profile);
         RefreshStatusFromProvider();
         if (IsRunning)

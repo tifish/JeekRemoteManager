@@ -52,6 +52,13 @@
                           ItemsSource="{Binding EndpointOptions}"
                           SelectedItem="{Binding SelectedEndpointOption}"
                           ToolTip.Tip="{l:Localize AiEndpointPicker}">
+                    <!-- Rows collapse through the item container: the collection keeps a stable
+                         size, so hiding Edit/Delete never disturbs the current selection. -->
+                    <ComboBox.Styles>
+                        <Style Selector="ComboBoxItem" x:DataType="vm:AgentEndpointOption">
+                            <Setter Property="IsVisible" Value="{Binding IsVisible}" />
+                        </Style>
+                    </ComboBox.Styles>
                     <ComboBox.ItemTemplate>
                         <DataTemplate>
                             <TextBlock Text="{Binding Label}" />
