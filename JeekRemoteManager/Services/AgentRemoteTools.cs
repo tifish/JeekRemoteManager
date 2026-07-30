@@ -79,6 +79,10 @@ public enum AgentCliKind
     Codex,
     Grok,
     Gemini,
+
+    /// <summary>Editors opened on the workspace folder rather than run as a CLI.</summary>
+    VsCode,
+    Cursor,
 }
 
 /// <summary>Resolved install path and launch metadata for one agent CLI.</summary>
@@ -128,7 +132,19 @@ public static class AgentCliCatalog
             AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.Grok)),
         new(AgentCliKind.Gemini, "Gemini", AgentCliLocator.FindGemini(),
             AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.Gemini)),
+        new(AgentCliKind.VsCode, "VS Code", AgentCliLocator.FindVsCode(),
+            AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.VsCode)),
+        new(AgentCliKind.Cursor, "Cursor", AgentCliLocator.FindCursor(),
+            AgentCliInstaller.GetInstallCommandSummary(AgentCliKind.Cursor)),
     ];
+
+    /// <summary>
+    /// Editors, which have exactly one launch shape: open the workspace folder in the editor
+    /// window. They are not run in the side panel or Windows Terminal, and they are not the
+    /// protocol-launched desktop chat apps either, so the run-mode picker offers them no choice.
+    /// </summary>
+    public static bool IsIde(AgentCliKind kind) =>
+        kind is AgentCliKind.VsCode or AgentCliKind.Cursor;
 
     /// <summary>
     /// Runtime-only CLI flags. Connection context, system guidance, and MCP URL are

@@ -1,4 +1,6 @@
 using System;
+using System.Diagnostics;
+using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -259,6 +261,27 @@ public partial class AgentCliPanelView : UserControl
             $"max={_model.MaxScrollback} alt={_model.Terminal.IsAlternateBufferActive} " +
             $"mouseMode={_model.IsMouseModeActive} atBottom={_model.Terminal.Buffer.IsAtBottom} " +
             $"follow={_followOutput} pin={_pinnedYDisp}";
+    }
+
+    /// <summary>
+    /// Opens this tab's generated workspace in Explorer. It holds AGENTS.md and the project MCP
+    /// configs, and lives under %LOCALAPPDATA% where the user would otherwise have to go looking
+    /// for it — from here they can open it in whatever editor they like.
+    /// </summary>
+    private void OnOpenWorkspaceFolderClick(object? sender, RoutedEventArgs e)
+    {
+        if (_vm is null)
+            return;
+
+        try
+        {
+            Directory.CreateDirectory(_vm.WorkingDirectory);
+            Process.Start(new ProcessStartInfo(_vm.WorkingDirectory) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            _vm.StatusText = string.Format(Localizer.Get("StatusOpenFolderFailed"), ex.Message);
+        }
     }
 
     /// <summary>

@@ -22,6 +22,8 @@ public static class AgentCliInstaller
         AgentCliKind.Codex => "npm install -g @openai/codex",
         AgentCliKind.Grok => "irm https://x.ai/cli/install.ps1 | iex",
         AgentCliKind.Gemini => "npm install -g @google/gemini-cli",
+        AgentCliKind.VsCode => "winget install Microsoft.VisualStudioCode",
+        AgentCliKind.Cursor => "winget install Anysphere.Cursor",
         _ => "",
     };
 
@@ -72,6 +74,8 @@ public static class AgentCliInstaller
         AgentCliKind.Codex => AgentCliLocator.FindCodex(),
         AgentCliKind.Grok => AgentCliLocator.FindGrok(),
         AgentCliKind.Gemini => AgentCliLocator.FindGemini(),
+        AgentCliKind.VsCode => AgentCliLocator.FindVsCode(),
+        AgentCliKind.Cursor => AgentCliLocator.FindCursor(),
         _ => null,
     };
 
@@ -92,6 +96,16 @@ public static class AgentCliInstaller
             AgentCliKind.Gemini => (
                 "powershell.exe",
                 "-NoProfile -ExecutionPolicy Bypass -Command \"npm install -g @google/gemini-cli\""),
+            // Editors ship as winget packages. --accept-*-agreements keeps winget from waiting
+            // on a prompt this redirected, non-interactive process can never answer.
+            AgentCliKind.VsCode => (
+                "winget.exe",
+                "install --id Microsoft.VisualStudioCode --exact --silent "
+                + "--accept-package-agreements --accept-source-agreements"),
+            AgentCliKind.Cursor => (
+                "winget.exe",
+                "install --id Anysphere.Cursor --exact --silent "
+                + "--accept-package-agreements --accept-source-agreements"),
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
     }

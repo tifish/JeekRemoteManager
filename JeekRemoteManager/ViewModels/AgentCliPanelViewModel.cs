@@ -12,16 +12,16 @@ using JeekRemoteManager.Services;
 
 namespace JeekRemoteManager.ViewModels;
 
-/// <summary>One selectable AI panel launch mode (CLI / Windows Terminal / Desktop).</summary>
+/// <summary>One selectable AI panel launch mode (CLI / Windows Terminal / Desktop / IDE).</summary>
 public sealed record AgentCliRunModeOption(AgentCliRunMode Mode, string Label)
 {
     public override string ToString() => Label;
 }
 
 /// <summary>
-/// Drives the AI side panel after the headless-chat rewrite: pick a local agent,
-/// host it in-app (ConPTY), open it in Windows Terminal, or launch Claude/Codex
-/// desktop via registered protocol, and keep the per-tab MCP endpoint available.
+/// Drives the AI side panel after the headless-chat rewrite: pick a local agent, host it in-app
+/// (ConPTY), open it in Windows Terminal, launch Claude/Codex desktop via registered protocol, or
+/// open the workspace folder in an editor — and keep the per-tab MCP endpoint available.
 /// </summary>
 public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDisposable
 {
@@ -32,7 +32,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     private readonly SemaphoreSlim _startGate = new(1, 1);
     private ConPtySession? _session;
     private Process? _externalProcess;
-    private bool _desktopSessionActive;
+    private bool _detachedAppActive;
     private bool _disposed;
     /// <summary>Bumped on every start/stop request so superseded launches dispose their process.</summary>
     private int _startGeneration;
@@ -89,15 +89,11 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             ?? Providers.FirstOrDefault(p => p.IsAvailable)
             ?? Providers[0];
 
-        SyncRunModeOptions(AgentCliCatalog.SupportsDesktop(_selectedProvider.Kind));
+        PopulateRunModeOptions(_selectedProvider.Kind);
 
-        // Prefer the slot for this provider (Grok vs Claude/Codex). Desktop is clamped away
-        // for agents without a protocol so Grok keeps its own CLI/WT preference.
-        var initialMode = preferredRunMode;
-        if (initialMode == AgentCliRunMode.Desktop
-            && !AgentCliCatalog.SupportsDesktop(_selectedProvider.Kind))
-            initialMode = AgentCliRunMode.Cli;
-        _selectedRunModeOption = RunModeOptions.FirstOrDefault(o => o.Mode == initialMode)
+        // Prefer the slot for this provider, clamped to the modes it actually offers, so a
+        // stored Desktop preference cannot select an agent that has no desktop protocol.
+        _selectedRunModeOption = RunModeOptions.FirstOrDefault(o => o.Mode == preferredRunMode)
             ?? RunModeOptions[0];
 
         RefreshStatusFromProvider();
@@ -106,8 +102,9 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     public ObservableCollection<AgentCliDescriptor> Providers { get; } = [];
 
     /// <summary>
-    /// Launch modes for the current provider. Desktop is omitted for agents without a
-    /// desktop protocol (currently Grok).
+    /// Launch modes the current provider offers. Desktop is omitted for agents without a desktop
+    /// protocol, and editors offer IDE alone — so for them this list holds a single item and the
+    /// picker stops being a choice.
     /// </summary>
     public ObservableCollection<AgentCliRunModeOption> RunModeOptions { get; } = [];
 
@@ -117,7 +114,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     [ObservableProperty]
     private AgentCliRunModeOption _selectedRunModeOption;
 
-    /// <summary>Current launch mode (CLI / Windows Terminal / Desktop).</summary>
+    /// <summary>Current launch mode (CLI / Windows Terminal / Desktop / IDE).</summary>
     public AgentCliRunMode RunMode => SelectedRunModeOption?.Mode ?? AgentCliRunMode.Cli;
 
     [ObservableProperty]
@@ -143,15 +140,16 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     [NotifyCanExecuteChangedFor(nameof(InstallCommand))]
     private bool _isInstalling;
 
-    /// <summary>True when the selected CLI is missing and we should show the install panel.
-    /// Desktop mode does not require a local CLI binary (protocol launch).</summary>
+    /// <summary>True when the selected agent is missing and we should show the install panel.
+    /// Desktop mode is exempt: it launches a protocol, not a local binary. IDE mode is not —
+    /// we start the editor's executable, so it has to be there.</summary>
     public bool ShowInstallPrompt =>
         !IsRunning
         && !IsInstalling
         && RunMode != AgentCliRunMode.Desktop
         && !SelectedProvider.IsAvailable;
 
-    /// <summary>Start is only for installed, idle CLIs (or Desktop Claude/Codex).</summary>
+    /// <summary>Start is only for installed, idle agents (or Desktop Claude/Codex).</summary>
     public bool ShowStartButton =>
         !IsRunning && !IsInstalling && CanStartSelectedProvider();
 
@@ -159,15 +157,17 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     public bool ShowEmbeddedTerminal =>
         !ShowInstallPrompt && RunMode == AgentCliRunMode.Cli;
 
-    /// <summary>Placeholder when the agent runs outside the side panel (WT or Desktop).</summary>
+    /// <summary>Placeholder when the agent runs outside the side panel (WT / Desktop / IDE).</summary>
     public bool ShowExternalHint =>
         !ShowInstallPrompt && RunMode != AgentCliRunMode.Cli;
 
-    /// <summary>Localized hint for the external (WT / Desktop) surface.</summary>
-    public string ExternalHintText =>
-        RunMode == AgentCliRunMode.Desktop
-            ? L("AiCliDesktopHint")
-            : L("AiCliExternalHint");
+    /// <summary>Localized hint for the external (WT / Desktop / IDE) surface.</summary>
+    public string ExternalHintText => RunMode switch
+    {
+        AgentCliRunMode.Desktop => L("AiCliDesktopHint"),
+        AgentCliRunMode.Ide => L("AiCliIdeHint"),
+        _ => L("AiCliExternalHint"),
+    };
 
     /// <summary>Raised when the embedded ConPTY session should be wired to a terminal control.</summary>
     public event Action<ConPtySession>? SessionStarted;
@@ -182,40 +182,10 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
     partial void OnSelectedProviderChanged(AgentCliDescriptor value)
     {
-        var supportsDesktop = AgentCliCatalog.SupportsDesktop(value.Kind);
-        var preferred = _resolvePreferredRunMode?.Invoke(value.Kind) ?? RunMode;
-        if (!supportsDesktop && preferred == AgentCliRunMode.Desktop)
-            preferred = AgentCliRunMode.Cli;
-
-        // Leaving Desktop for a non-desktop agent: change mode first so removing Desktop is safe.
-        if (RunMode == AgentCliRunMode.Desktop && !supportsDesktop)
-        {
-            var interim = RunModeOptions.FirstOrDefault(o => o.Mode == preferred)
-                ?? RunModeOptions.First(o => o.Mode == AgentCliRunMode.Cli);
-            SelectedRunModeOption = interim;
-            SyncRunModeOptions(includeDesktop: false);
-            return; // StartAsync already requested via run-mode change.
-        }
-
-        // Rebuild options for the new provider, then restore that family's stored mode
-        // (e.g. Grok CLI/WT → Claude Desktop).
-        SyncRunModeOptions(supportsDesktop);
-
-        var target = RunModeOptions.FirstOrDefault(o => o.Mode == preferred)
-            ?? RunModeOptions[0];
-        if (RunMode != target.Mode)
-        {
-            SelectedRunModeOption = target;
-            return;
-        }
-
-        // Same mode: keep SelectedRunModeOption pointing at an item still in the list.
-        if (RunModeOptions.FirstOrDefault(o => o.Mode == RunMode) is { } match
-            && !ReferenceEquals(match, SelectedRunModeOption))
-        {
-            _selectedRunModeOption = match;
-            OnPropertyChanged(nameof(SelectedRunModeOption));
-        }
+        // Rebuild options for the new provider and restore that family's stored mode
+        // (e.g. Grok CLI/WT → Claude Desktop → VS Code's single IDE mode).
+        if (SyncRunModeOptions(value.Kind, _resolvePreferredRunMode?.Invoke(value.Kind) ?? RunMode))
+            return; // The run-mode change already requested a start.
 
         NotifyLayoutFlags();
         InstallCommand.NotifyCanExecuteChanged();
@@ -264,22 +234,75 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     }
 
     /// <summary>
-    /// Keeps the run-mode picker in sync: CLI + Windows Terminal always; Desktop only when the
-    /// selected agent has a registered desktop protocol (Claude/Codex, not Grok).
+    /// The launch modes one agent offers: editors open the workspace folder and nothing else;
+    /// everything else runs as a CLI in the panel or Windows Terminal, plus Desktop when it has
+    /// a registered protocol (Claude/Codex, not Grok or Gemini).
     /// </summary>
-    private void SyncRunModeOptions(bool includeDesktop)
+    private static IReadOnlyList<AgentCliRunMode> ModesFor(AgentCliKind kind) =>
+        AgentCliCatalog.IsIde(kind)
+            ? [AgentCliRunMode.Ide]
+            : AgentCliCatalog.SupportsDesktop(kind)
+                ? [AgentCliRunMode.Cli, AgentCliRunMode.WindowsTerminal, AgentCliRunMode.Desktop]
+                : [AgentCliRunMode.Cli, AgentCliRunMode.WindowsTerminal];
+
+    private static string RunModeLabel(AgentCliRunMode mode) => mode switch
     {
-        if (RunModeOptions.Count == 0)
+        AgentCliRunMode.WindowsTerminal => "Windows Terminal",
+        AgentCliRunMode.Desktop => "Desktop",
+        AgentCliRunMode.Ide => "IDE",
+        _ => "CLI",
+    };
+
+    /// <summary>Fills an empty picker for the initial provider, without touching any selection.</summary>
+    private void PopulateRunModeOptions(AgentCliKind kind)
+    {
+        RunModeOptions.Clear();
+        foreach (var mode in ModesFor(kind))
+            RunModeOptions.Add(new AgentCliRunModeOption(mode, RunModeLabel(mode)));
+    }
+
+    /// <summary>
+    /// Rebuilds the picker for <paramref name="kind"/> and lands on <paramref name="preferred"/>
+    /// when that agent offers it. Wanted modes are added before stale ones are removed, so the
+    /// bound selection always has an item to point at — clearing the collection would null the
+    /// ComboBox's selection and drop us into a start with the wrong mode.
+    /// </summary>
+    /// <returns>True when the selection changed, which has already requested a start.</returns>
+    private bool SyncRunModeOptions(AgentCliKind kind, AgentCliRunMode preferred)
+    {
+        var wanted = ModesFor(kind);
+
+        foreach (var mode in wanted)
         {
-            RunModeOptions.Add(new AgentCliRunModeOption(AgentCliRunMode.Cli, "CLI"));
-            RunModeOptions.Add(new AgentCliRunModeOption(AgentCliRunMode.WindowsTerminal, "Windows Terminal"));
+            if (RunModeOptions.All(o => o.Mode != mode))
+                RunModeOptions.Add(new AgentCliRunModeOption(mode, RunModeLabel(mode)));
         }
 
-        var desktop = RunModeOptions.FirstOrDefault(o => o.Mode == AgentCliRunMode.Desktop);
-        if (includeDesktop && desktop is null)
-            RunModeOptions.Add(new AgentCliRunModeOption(AgentCliRunMode.Desktop, "Desktop"));
-        else if (!includeDesktop && desktop is not null)
-            RunModeOptions.Remove(desktop);
+        var target = wanted.Contains(preferred) ? preferred : wanted[0];
+        var changed = RunMode != target;
+        if (changed)
+        {
+            SelectedRunModeOption = RunModeOptions.First(o => o.Mode == target);
+        }
+        else if (RunModeOptions.FirstOrDefault(o => o.Mode == target) is { } match
+                 && !ReferenceEquals(match, SelectedRunModeOption))
+        {
+            // Same mode, different option instance: keep the binding on a live item. Assign the
+            // backing field on purpose — going through the property would run the changed handler
+            // and start the agent again, even though the mode did not actually change.
+#pragma warning disable MVVMTK0034
+            _selectedRunModeOption = match;
+#pragma warning restore MVVMTK0034
+            OnPropertyChanged(nameof(SelectedRunModeOption));
+        }
+
+        for (var i = RunModeOptions.Count - 1; i >= 0; i--)
+        {
+            if (!wanted.Contains(RunModeOptions[i].Mode))
+                RunModeOptions.RemoveAt(i);
+        }
+
+        return changed;
     }
 
     private bool CanStartSelectedProvider() =>
@@ -307,6 +330,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
                 {
                     AgentCliRunMode.WindowsTerminal => L("AiCliRunningExternal", SelectedProvider.Label),
                     AgentCliRunMode.Desktop => L("AiCliRunningDesktop", SelectedProvider.Label),
+                    AgentCliRunMode.Ide => L("AiCliRunningIde", SelectedProvider.Label),
                     _ => L("AiCliRunning", SelectedProvider.Label),
                 }
                 : L("AiCliReady", SelectedProvider.Label);
@@ -330,7 +354,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         if (_disposed || IsInstalling)
             return Task.CompletedTask;
         // Already have a live session for the current selection — do not bounce it.
-        if (IsRunning && (_session is not null || _externalProcess is not null || _desktopSessionActive))
+        if (IsRunning && (_session is not null || _externalProcess is not null || _detachedAppActive))
             return Task.CompletedTask;
         if (!CanStartSelectedProvider())
         {
@@ -510,6 +534,31 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
                 }
 
                 var exePath = provider.ExecutablePath!;
+
+                if (runMode == AgentCliRunMode.Ide)
+                {
+                    if (!TryStartIde(exePath))
+                    {
+                        if (generation != Volatile.Read(ref _startGeneration))
+                            return;
+                        StatusText = L("AiCliStartFailed", L("AiCliIdeLaunchFailed", provider.Label));
+                        IsRunning = false;
+                        NotifyLayoutFlags();
+                        return;
+                    }
+
+                    if (_disposed || generation != Volatile.Read(ref _startGeneration))
+                    {
+                        await StopInternalAsync(userStopped: false, replaced: true).ConfigureAwait(true);
+                        return;
+                    }
+
+                    IsRunning = true;
+                    StatusText = L("AiCliRunningIde", provider.Label);
+                    NotifyLayoutFlags();
+                    return;
+                }
+
                 // Runtime flags only (auto-approve tools / scrollback). Server context is in AGENTS.md.
                 var args = AgentCliCatalog.BuildInteractiveArguments(provider.Kind, AutoRun);
 
@@ -719,7 +768,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             try { external.Dispose(); } catch { /* ignore */ }
         }
 
-        if (!IsRunning && _session is null && _externalProcess is null && !_desktopSessionActive)
+        if (!IsRunning && _session is null && _externalProcess is null && !_detachedAppActive)
             return;
 
         IsRunning = false;
@@ -818,7 +867,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         }
 
         // Desktop apps are not owned by this process; only clear our launch marker.
-        _desktopSessionActive = false;
+        _detachedAppActive = false;
 
         IsRunning = false;
         if (userStopped)
@@ -842,12 +891,39 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
                 UseShellExecute = true,
             };
             Process.Start(psi);
-            _desktopSessionActive = true;
+            _detachedAppActive = true;
             return true;
         }
         catch
         {
-            _desktopSessionActive = false;
+            _detachedAppActive = false;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Opens the workspace folder in an editor. The editor is a long-lived window the user owns,
+    /// not a session we manage: it may already be running (in which case it just opens a new
+    /// window and the process we started exits at once), and stopping the panel never closes it.
+    /// </summary>
+    private bool TryStartIde(string exePath)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = exePath,
+                UseShellExecute = false,
+                WorkingDirectory = _workingDirectory,
+            };
+            psi.ArgumentList.Add(_workingDirectory);
+            Process.Start(psi);
+            _detachedAppActive = true;
+            return true;
+        }
+        catch
+        {
+            _detachedAppActive = false;
             return false;
         }
     }

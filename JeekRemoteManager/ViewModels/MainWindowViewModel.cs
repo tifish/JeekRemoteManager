@@ -487,15 +487,23 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>Returns the stored launch mode for the given agent kind.</summary>
     public AgentCliRunMode GetAiRunModeForKind(AgentCliKind kind) =>
-        AgentCliCatalog.SupportsDesktop(kind) ? AiRunMode : AiGrokRunMode;
+        AgentCliCatalog.IsIde(kind)
+            ? AgentCliRunMode.Ide
+            : AgentCliCatalog.SupportsDesktop(kind)
+                ? AiRunMode
+                : AiGrokRunMode;
 
     /// <summary>
     /// Persists the launch mode for the given agent kind into the correct settings slot. The two
     /// slots are split by whether the agent offers Desktop at all, so choosing CLI for an agent
-    /// without it never clears a Desktop preference for one that has it.
+    /// without it never clears a Desktop preference for one that has it. Editors are not stored:
+    /// IDE is their only mode, and writing it into a shared slot would erase a real preference.
     /// </summary>
     public void SetAiRunModeForKind(AgentCliKind kind, AgentCliRunMode mode)
     {
+        if (AgentCliCatalog.IsIde(kind))
+            return;
+
         if (AgentCliCatalog.SupportsDesktop(kind))
             AiRunMode = mode;
         else

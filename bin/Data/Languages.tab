@@ -317,6 +317,8 @@ AiOptionDefault	Default	默认
 AiSettingsChanged	Settings changed; applies to a new conversation.	设置已更改，将用于新对话。
 AiHideSshTerminal	Hide SSH terminal	隐藏 SSH 终端
 AiHideSshTerminalHint	Hide the SSH terminal and let the assistant fill the whole tab. Commands still run on the server.	隐藏 SSH 终端面板，AI 助手占满整个页面。命令仍会在服务器上执行。
+AiOpenWorkspaceFolder	Open the workspace folder	打开工作区目录
+AiOpenWorkspaceFolderHint	Opens this tab's generated agent workspace (AGENTS.md and the project MCP configs) in Explorer, so you can open it in any editor.	在资源管理器中打开本标签页生成的 AI 工作区目录（AGENTS.md 与各项目 MCP 配置），可用任意编辑器打开它。
 AiLinkProject	Let agents in a project folder use this connection…	让项目目录中的 AI 使用此连接…
 AiLinkProjectHint	Writes this connection's notes and MCP config into that folder, so any agent started there can drive this server. Written once; nothing to keep in sync.	会在该目录写入说明和 MCP 配置，在该目录中启动的 AI 就能操作这台服务器。一次写入即可，无需保持同步。
 AiLinkProjectTitle	Choose the project folder whose agents should use this connection	选择要让其中 AI 使用此连接的项目目录
@@ -355,6 +357,9 @@ AiCliExitedWithDetailNoCode	{0} exited: {1}	{0} 已退出：{1}
 AiCliStopped	{0} stopped.	{0} 已停止。
 AiCliExternalHint	The agent CLI is running in Windows Terminal. Remote server tools are provided by JeekRemoteManager over MCP.	Agent CLI 正在 Windows Terminal 中运行。远程服务器工具由 JeekRemoteManager 通过 MCP 提供。
 AiCliDesktopHint	The agent is running in the desktop app. Remote server tools are provided by JeekRemoteManager over MCP (workspace folder).	Agent 正在桌面应用中运行。远程服务器工具由 JeekRemoteManager 通过 MCP 提供（工作区文件夹）。
+AiCliIdeHint	The workspace folder is open in the editor. Remote server tools are provided by JeekRemoteManager over MCP.	工作区目录已在编辑器中打开。远程服务器工具由 JeekRemoteManager 通过 MCP 提供。
+AiCliIdeLaunchFailed	Could not start {0}.	无法启动 {0}。
+AiCliRunningIde	Workspace opened in {0}.	工作区已在 {0} 中打开。
 AiCliDangerTitle	Confirm dangerous command	确认危险命令
 AiCliDangerPrompt	The AI wants to run this on the remote server:{0}{0}{1}{0}{0}Allow it?	AI 想在远程服务器上执行：{0}{0}{1}{0}{0}是否允许？
 AiCliDangerAllow	Allow	允许

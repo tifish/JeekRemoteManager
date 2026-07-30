@@ -77,6 +77,39 @@ public static class AgentCliLocator
     }
 
     /// <summary>
+    /// Returns the full path to <c>Code.exe</c> (Visual Studio Code), or <c>null</c> if it is not
+    /// installed. Prefers the real executable over the <c>code.cmd</c> shim on PATH so the folder
+    /// can be passed as a plain argument.
+    /// </summary>
+    public static string? FindVsCode()
+    {
+        foreach (var candidate in EnumerateVsCodeCandidates())
+        {
+            if (File.Exists(candidate))
+                return ResolveRealPath(candidate);
+        }
+
+        var found = FindOnPath("Code.exe") ?? FindOnPath("code.cmd");
+        return found is null ? null : ResolveRealPath(found);
+    }
+
+    /// <summary>
+    /// Returns the full path to <c>Cursor.exe</c>, or <c>null</c> if it is not installed.
+    /// Same layout as VS Code — Cursor ships as a per-user Programs install by default.
+    /// </summary>
+    public static string? FindCursor()
+    {
+        foreach (var candidate in EnumerateCursorCandidates())
+        {
+            if (File.Exists(candidate))
+                return ResolveRealPath(candidate);
+        }
+
+        var found = FindOnPath("Cursor.exe") ?? FindOnPath("cursor.cmd");
+        return found is null ? null : ResolveRealPath(found);
+    }
+
+    /// <summary>
     /// Resolves symlinks and directory junctions so the CLI runs from its real install
     /// directory. The Codex standalone installer exposes codex.exe through a junction
     /// (%LOCALAPPDATA%\Programs\OpenAI\Codex\bin → ~\.codex\packages\standalone\current\bin),
@@ -140,6 +173,33 @@ public static class AgentCliLocator
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         yield return Path.Combine(appData, "npm", "codex.cmd");
         yield return Path.Combine(appData, "npm", "codex.exe");
+    }
+
+    private static System.Collections.Generic.IEnumerable<string> EnumerateVsCodeCandidates()
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        yield return Path.Combine(localAppData, "Programs", "Microsoft VS Code", "Code.exe");
+
+        // System-wide setup.
+        yield return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            "Microsoft VS Code",
+            "Code.exe");
+        yield return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            "Microsoft VS Code",
+            "Code.exe");
+    }
+
+    private static System.Collections.Generic.IEnumerable<string> EnumerateCursorCandidates()
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        yield return Path.Combine(localAppData, "Programs", "Cursor", "Cursor.exe");
+
+        yield return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            "Cursor",
+            "Cursor.exe");
     }
 
     private static System.Collections.Generic.IEnumerable<string> EnumerateGeminiCandidates()

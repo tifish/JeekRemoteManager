@@ -17,6 +17,12 @@ public enum AgentCliRunMode
     /// <summary>Launch the agent CLI inside Windows Terminal.</summary>
     WindowsTerminal = 1,
 
+    /// <summary>
+    /// Open the workspace folder in an editor (VS Code, Cursor). The only mode those agents
+    /// offer, so it is never a choice the user makes or one worth persisting.
+    /// </summary>
+    Ide = 3,
+
     /// <summary>Open Claude/Codex desktop via protocol URI (not Grok).</summary>
     Desktop = 2,
 }
