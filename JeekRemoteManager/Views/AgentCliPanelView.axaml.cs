@@ -279,14 +279,24 @@ public partial class AgentCliPanelView : UserControl
         if (_vm.ResolveEndpoints?.Invoke(provider.Kind) is not { } settings)
             return;
 
+        // Edit and Delete stay in the list even on the official API, where they have nothing to
+        // act on — removing them per selection would rebuild the list mid-notification and blank
+        // the picker. Say so instead of silently doing nothing.
+        if (action is AgentEndpointAction.Edit or AgentEndpointAction.Delete && target is null)
+        {
+            _vm.StatusText = Localizer.Get("AiEndpointNoneSelected");
+            return;
+        }
+
         var owner = TopLevel.GetTopLevel(this) as Window;
         var changed = false;
 
         switch (action)
         {
             case AgentEndpointAction.Select:
-                changed = true;
-                break;
+                // Only the stored selection changed; the list itself is untouched.
+                SaveEndpointRequested?.Invoke(this, EventArgs.Empty);
+                return;
 
             case AgentEndpointAction.Add:
                 var added = new AgentEndpointProfile();

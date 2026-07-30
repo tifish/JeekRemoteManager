@@ -311,15 +311,33 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
                     profile));
             }
 
+            // The three actions are always present. Making them appear and disappear with the
+            // selection would mean rebuilding this collection from inside the ComboBox's own
+            // selection-changed notification, which leaves the control's selection desynced from
+            // ours — the box goes blank. Edit and Delete simply do nothing on the official API.
             EndpointOptions.Add(new AgentEndpointOption(AgentEndpointAction.Add, L("AiEndpointAdd")));
-            // Edit and delete act on the current selection, so they are pointless on Official.
-            if (SelectedEndpointProfile is not null)
-            {
-                EndpointOptions.Add(new AgentEndpointOption(AgentEndpointAction.Edit, L("AiEndpointEdit")));
-                EndpointOptions.Add(new AgentEndpointOption(AgentEndpointAction.Delete, L("AiEndpointDelete")));
-            }
+            EndpointOptions.Add(new AgentEndpointOption(AgentEndpointAction.Edit, L("AiEndpointEdit")));
+            EndpointOptions.Add(new AgentEndpointOption(AgentEndpointAction.Delete, L("AiEndpointDelete")));
 
-            var selectedId = settings?.SelectedId ?? "";
+            RestoreEndpointSelection();
+        }
+        finally
+        {
+            _suppressEndpointSelection = false;
+        }
+    }
+
+    /// <summary>Points the picker at the endpoint in use, without rebuilding the list.</summary>
+    private void RestoreEndpointSelection()
+    {
+        if (EndpointOptions.Count == 0)
+            return;
+
+        var selectedId = ResolveEndpoints?.Invoke(SelectedProvider.Kind)?.SelectedId ?? "";
+        var wasSuppressed = _suppressEndpointSelection;
+        _suppressEndpointSelection = true;
+        try
+        {
             SelectedEndpointOption = EndpointOptions.FirstOrDefault(o =>
                                          o.Action == AgentEndpointAction.Select
                                          && (o.Profile?.Id ?? "") == selectedId)
@@ -327,7 +345,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         }
         finally
         {
-            _suppressEndpointSelection = false;
+            _suppressEndpointSelection = wasSuppressed;
         }
     }
 
@@ -338,11 +356,11 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
         if (value.Action != AgentEndpointAction.Select)
         {
-            // Actions are not a selection: hand off to the view and put the picker back where
-            // it was, so the box never reads "Add…" as though it were the chosen endpoint.
+            // An action is not a selection. Put the picker back on the endpoint in use before
+            // handing off, so the box never reads "Add…" as though it were the chosen endpoint.
             var action = value.Action;
             var target = SelectedEndpointProfile;
-            ReloadEndpointOptions();
+            RestoreEndpointSelection();
             EndpointActionRequested?.Invoke(action, target);
             return;
         }
@@ -356,8 +374,6 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
         settings.SelectedId = newId;
         EndpointActionRequested?.Invoke(AgentEndpointAction.Select, value.Profile);
-        // Edit/Delete only make sense once something is selected, so the list changes shape.
-        ReloadEndpointOptions();
         RefreshStatusFromProvider();
         if (IsRunning)
             _ = RestartAsync();

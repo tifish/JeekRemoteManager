@@ -342,6 +342,7 @@ AiEndpointAdd	Add endpoint…	添加端点…
 AiEndpointEdit	Edit this endpoint…	编辑当前端点…
 AiEndpointDelete	Delete this endpoint	删除当前端点
 AiEndpointDeleteConfirm	Delete the endpoint "{0}"? The agent goes back to its official API.	确定删除端点“{0}”吗？该 Agent 将回到官方 API。
+AiEndpointNoneSelected	Pick a saved endpoint first — the official API has nothing to edit.	请先选中一个已保存的端点；官方 API 没有可编辑的内容。
 AiEndpointName	Name	名称
 AiEndpointNamePlaceholder	(shown in the picker)	（显示在下拉框中）
 AiEndpointTitle	{0} — custom API endpoint	{0} — 自定义 API 端点

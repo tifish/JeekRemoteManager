@@ -1631,10 +1631,17 @@ internal static class DebugMcpServer
                 report.AppendLine(toml.Length == 0
                     ? "  config.toml: (no provider block)"
                     : "  config.toml: " + toml.Replace("\n", " | ").TrimEnd(' ', '|'));
-                // The block must name the variable, never carry the secret.
-                var leaks = !string.IsNullOrEmpty(setApiKey)
-                            && toml.Contains(setApiKey, StringComparison.Ordinal);
-                report.AppendLine($"  key kept out of config.toml: {(leaks ? "FAIL" : "ok")}");
+                // The block must name the variable, never carry the secret. Short keys are not
+                // worth checking: "KEY" is a substring of JRM_CODEX_API_KEY and would false-fail.
+                if (setApiKey is { Length: >= 12 })
+                {
+                    var leaks = toml.Contains(setApiKey, StringComparison.Ordinal);
+                    report.AppendLine($"  key kept out of config.toml: {(leaks ? "FAIL" : "ok")}");
+                }
+                else if (!string.IsNullOrEmpty(setApiKey))
+                {
+                    report.AppendLine("  key kept out of config.toml: (skipped — test key too short)");
+                }
             }
         }
 
