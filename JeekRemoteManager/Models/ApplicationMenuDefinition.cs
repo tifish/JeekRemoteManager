@@ -9,6 +9,7 @@ public enum ApplicationMenuAction
     ImportFromSecureCrt,
     ImportFromXshell,
     CheckForUpdates,
+    About,
     Exit,
 }
 
@@ -37,6 +38,7 @@ public static class ApplicationMenuDefinition
         new(ApplicationMenuAction.ImportFromSecureCrt, "ImportFromSecureCrt", "\uE8B5"),
         new(ApplicationMenuAction.ImportFromXshell, "ImportFromXshell", "\uE8B5"),
         new(ApplicationMenuAction.CheckForUpdates, "CheckForUpdates", "\uE895", IsAccent: true),
+        new(ApplicationMenuAction.About, "About", "\uE946"),
         new(ApplicationMenuAction.Exit, "TrayExit", "\uE7E8"),
     ];
 }

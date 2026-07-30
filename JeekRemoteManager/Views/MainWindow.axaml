@@ -13,7 +13,7 @@
         Width="1040" Height="680"
         MinWidth="760" MinHeight="500"
         WindowStartupLocation="CenterScreen"
-        Icon="/Assets/icon.ico"
+        Icon="/Assets/Icon.ico"
         Title="{l:Localize WindowTitle}"
         Background="{DynamicResource AppBackgroundBrush}">
 
@@ -516,7 +516,7 @@
             <Grid x:Name="CommandBar" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="18">
                 <StackPanel x:Name="ToolbarBrand" Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                     <Border Width="38" Height="38" Classes="icon-tile">
-                        <Image Source="/Assets/icon.png"
+                        <Image Source="/Assets/Icon.png"
                                Width="30"
                                Height="30"
                                HorizontalAlignment="Center"
@@ -1265,7 +1265,7 @@
             <Grid IsVisible="{Binding ShowPlaceholder}">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14" MaxWidth="360">
                     <Border Width="58" Height="58" Classes="icon-tile">
-                        <Image Source="/Assets/icon.png"
+                        <Image Source="/Assets/Icon.png"
                                Width="44"
                                Height="44"
                                HorizontalAlignment="Center"

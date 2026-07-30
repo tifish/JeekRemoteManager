@@ -1,4 +1,4 @@
-# Launch JeekRemoteManager outside Grok Build's kill-on-close Job Object.
+﻿# Launch JeekRemoteManager outside Grok Build's kill-on-close Job Object.
 # Only Grok has this problem; Claude/Codex/other agents can use normal start.
 # Win32_Process.Create is hosted by WMI and is not job-affiliated.
 param(

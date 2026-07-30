@@ -1,5 +1,5 @@
 [mcp_servers.jrm-debug]
 command = "cmd"
-args = ["/c", ".\\bin\\JrmMcp.exe", "--surface", "debug"]
+args = ["/c", ".\\bin\\JeekRemoteManagerMcp.exe", "--surface", "debug"]
 startup_timeout_sec = 30
 tool_timeout_sec = 70

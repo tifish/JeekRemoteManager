@@ -55,7 +55,7 @@ return exitCode;
 static void PrintUsage()
 {
     Console.WriteLine("Usage:");
-    Console.WriteLine("  dotnet run --project tools\\LegacyPasswordConverter\\LegacyPasswordConverter.csproj -- [connections-root ...]");
+    Console.WriteLine("  dotnet run --project Tools\\LegacyPasswordConverter\\LegacyPasswordConverter.csproj -- [connections-root ...]");
     Console.WriteLine();
     Console.WriteLine("If no roots are passed, the converter updates the two known JeekRemoteManager connection roots.");
 }

@@ -647,35 +647,35 @@ internal static class ProductMcpServer
             switch (source)
             {
                 case "xshell":
-                {
-                    var imported = new XshellImporter(store).Import(path);
-                    result["imported"] = imported.Imported;
-                    result["skipped"] = imported.Skipped;
-                    result["folders"] = imported.Folders;
-                    result["passwordsImported"] = imported.PasswordsImported;
-                    break;
-                }
+                    {
+                        var imported = new XshellImporter(store).Import(path);
+                        result["imported"] = imported.Imported;
+                        result["skipped"] = imported.Skipped;
+                        result["folders"] = imported.Folders;
+                        result["passwordsImported"] = imported.PasswordsImported;
+                        break;
+                    }
 
                 case "securecrt":
-                {
-                    var imported = new SecureCrtImporter(store).Import(path);
-                    result["imported"] = imported.Imported;
-                    result["skipped"] = imported.Skipped;
-                    result["folders"] = imported.Folders;
-                    result["passwordsImported"] = imported.PasswordsImported;
-                    break;
-                }
+                    {
+                        var imported = new SecureCrtImporter(store).Import(path);
+                        result["imported"] = imported.Imported;
+                        result["skipped"] = imported.Skipped;
+                        result["folders"] = imported.Folders;
+                        result["passwordsImported"] = imported.PasswordsImported;
+                        break;
+                    }
 
                 case "finalshell":
-                {
-                    var imported = new FinalShellImporter(store).Import(path);
-                    result["imported"] = imported.Imported;
-                    result["skipped"] = imported.Skipped;
-                    result["folders"] = imported.Folders;
-                    // FinalShell passwords cannot be decrypted; the user fills them in later.
-                    result["passwordsImported"] = 0;
-                    break;
-                }
+                    {
+                        var imported = new FinalShellImporter(store).Import(path);
+                        result["imported"] = imported.Imported;
+                        result["skipped"] = imported.Skipped;
+                        result["folders"] = imported.Folders;
+                        // FinalShell passwords cannot be decrypted; the user fills them in later.
+                        result["passwordsImported"] = 0;
+                        break;
+                    }
 
                 default:
                     throw new InvalidOperationException(

@@ -5,14 +5,16 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>JrmMcp</AssemblyName>
-    <RootNamespace>JrmMcp</RootNamespace>
+    <AssemblyName>JeekRemoteManagerMcp</AssemblyName>
+    <RootNamespace>JeekRemoteManagerMcp</RootNamespace>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>false</SelfContained>
     <PlatformTarget>x64</PlatformTarget>
-    <!-- Ships beside the app: the adapter derives the instance id from its own folder. -->
-    <OutDir>..\..\bin</OutDir>
+    <!-- Publish as one file beside the app so NetBeauty never patches a separate runtimeconfig. -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <OutDir>..\..\artifacts\JeekRemoteManagerMcp</OutDir>
+    <PublishDir>..\..\bin</PublishDir>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 

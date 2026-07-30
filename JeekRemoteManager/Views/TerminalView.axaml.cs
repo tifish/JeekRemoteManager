@@ -1101,7 +1101,7 @@ public partial class TerminalView : UserControl
 
     /// <summary>
     /// This tab's workspace identity for <see cref="AgentProjectLink"/>. Linked projects get
-    /// a stdio launch of the JrmMcp adapter pinned to this connection, so nothing in them
+    /// a stdio launch of the JeekRemoteManagerMcp adapter pinned to this connection, so nothing in them
     /// depends on a listener that is up right now.
     /// </summary>
     private AgentWorkspaceLink ResolveAgentCliLink(bool? mcpToolsAutoApprove = null)

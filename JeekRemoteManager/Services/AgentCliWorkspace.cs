@@ -51,7 +51,7 @@ public static class AgentCliWorkspace
     /// Absolute workspace under <see cref="RootPath"/>/&lt;tree-relative-path&gt;.
     /// Creates the directory, refreshes <c>AGENTS.md</c> (and a <c>CLAUDE.md</c> include), and
     /// writes project MCP configs that desktop and CLI agents load from the working directory
-    /// (no command-line MCP/system flags). Those configs launch <c>JrmMcp.exe</c> pinned to
+    /// (no command-line MCP/system flags). Those configs launch <c>JeekRemoteManagerMcp.exe</c> pinned to
     /// this connection, so nothing in them expires between app runs.
     /// <paramref name="mcpToolsAutoApprove"/> controls Codex
     /// <c>default_tools_approval_mode</c> (approve vs prompt); do not pass this via
@@ -196,7 +196,7 @@ public static class AgentCliWorkspace
     /// <summary>
     /// Writes project-level MCP configs for Claude (`.mcp.json`), Codex (`.codex/config.toml`),
     /// and Grok (`.grok/config.toml`) so any agent that opens this directory reaches this
-    /// connection. Each launches <c>JrmMcp.exe --connection &lt;tree path&gt;</c>, the stdio
+    /// connection. Each launches <c>JeekRemoteManagerMcp.exe --connection &lt;tree path&gt;</c>, the stdio
     /// adapter that talks to the app over a named pipe — there is no port or token here, so
     /// these files stay valid across app restarts and the workspace can be opened cold.
     /// </summary>

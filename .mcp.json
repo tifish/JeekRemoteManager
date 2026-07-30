@@ -5,7 +5,7 @@
       "command": "cmd",
       "args": [
         "/c",
-        ".\\bin\\JrmMcp.exe",
+        ".\\bin\\JeekRemoteManagerMcp.exe",
         "--surface",
         "debug"
       ],

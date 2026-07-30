@@ -46,7 +46,7 @@ public sealed record AgentWorkspaceLink(
     /// once and never goes stale, unlike the loopback URL this replaced.
     /// </summary>
     public static string AdapterPath =>
-        Path.Combine(AppContext.BaseDirectory, "JrmMcp.exe");
+        Path.Combine(AppContext.BaseDirectory, "JeekRemoteManagerMcp.exe");
 }
 
 /// <summary>
@@ -56,7 +56,7 @@ public sealed record AgentWorkspaceLink(
 /// opened in that folder then reach the connection without the user opening the workspace.
 ///
 /// This is a one-shot write, not an association: the MCP entry launches the local
-/// <c>JrmMcp</c> adapter over a named pipe, so there is no URL, port, or token that could
+/// <c>JeekRemoteManagerMcp</c> adapter over a named pipe, so there is no URL, port, or token that could
 /// expire and nothing to keep in sync afterwards.
 /// </summary>
 public static class AgentProjectLink

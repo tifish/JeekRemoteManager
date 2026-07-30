@@ -4,7 +4,7 @@
   - Add any interface it needs for testing to the debug MCP interface.
   - Automatically build and launch the program.
     - If the program from the current worktree is already running, kill only the process whose executable path matches this worktree, then run it again. Leave Debug instances from other worktrees running.
-  - Use the current worktree's Debug MCP (`bin\JrmMcp.exe --surface debug`, which forwards stdio to this worktree's named pipe) to test the feature or bug, if anything wrong, try to fix it and test again, until all done.
+  - Use the current worktree's Debug MCP (`bin\JeekRemoteManagerMcp.exe --surface debug`, which forwards stdio to this worktree's named pipe) to test the feature or bug, if anything wrong, try to fix it and test again, until all done.
 - When reading code, logs and the Debug MCP are not enough to locate a problem, use a debugger:
   - Use netcoredbg on the Debug build to set breakpoints, step, and inspect variables; feed it a command script via stdin, and drive the program to the breakpoint through the Debug MCP.
   - Use dotnet-dump to analyze hangs and crashes.
@@ -16,7 +16,7 @@
 
 ## MCP
 
-Agents talk to a running instance over a Windows named pipe, never a TCP port. `bin\JrmMcp.exe` is the stdio adapter they launch; it derives the pipe name from its own folder, so a worktree's copy only ever reaches that worktree's app, and it reconnects on its own when the app restarts.
+Agents talk to a running instance over a Windows named pipe, never a TCP port. `bin\JeekRemoteManagerMcp.exe` is the stdio adapter they launch; it derives the pipe name from its own folder, so a worktree's copy only ever reaches that worktree's app, and it reconnects on its own when the app restarts.
 
 - **Two surfaces, never merged.** `--surface debug` exposes the object graph, visual tree, and probes, and only listens in Debug builds. `--surface product` exposes connections, sessions, and terminal tools, and ships to users. The debug `invoke` tool can call anything in the process, so it must never be reachable from a user's agent.
 - **Register a tool in two places.** Product: handler in `ProductMcpServer`, schema in `ProductMcpContract`. Debug: handler in `DebugMcpServer`, schema in `DebugMcpContract`. A tool missing from the contract is invisible to clients.

@@ -42,7 +42,7 @@
         <TrayIcons>
             <!-- The right-click menu is built in code (App.axaml.cs) so it can
                  mirror the main window's overflow menu and bind to its commands. -->
-            <TrayIcon Icon="/Assets/icon.ico"
+            <TrayIcon Icon="/Assets/Icon.ico"
                       ToolTipText="Jeek Remote Manager"
                       Clicked="OnTrayIconClicked" />
         </TrayIcons>

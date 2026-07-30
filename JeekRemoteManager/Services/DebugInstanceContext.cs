@@ -94,7 +94,7 @@ public static class DebugInstanceContext
         ? $"{title} [Debug: {InstanceLabel}]"
         : title;
 
-    /// <summary>Shared with the JrmMcp adapter through <see cref="McpPipeNames"/> so both
+    /// <summary>Shared with the JeekRemoteManagerMcp adapter through <see cref="McpPipeNames"/> so both
     /// sides derive the same instance id from the same executable folder.</summary>
     public static string CreateInstanceId(string executableDirectory) =>
         McpPipeNames.InstanceId(executableDirectory);

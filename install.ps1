@@ -1,4 +1,4 @@
-# JeekRemoteManager one-click installer.
+﻿# JeekRemoteManager one-click installer.
 # Usage:
 #   irm https://raw.githubusercontent.com/tifish/JeekRemoteManager/main/install.ps1 | iex
 # Mirror for mainland China:

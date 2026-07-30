@@ -10,7 +10,7 @@ using JeekRemoteManager.Services;
 // to the running app over a named pipe. Nothing here knows about ports, so the client
 // config a user puts in their project never goes stale:
 //
-//   { "command": "C:\\...\\bin\\JrmMcp.exe", "args": ["--connection", "vps/bwg"] }
+//   { "command": "C:\\...\\bin\\JeekRemoteManagerMcp.exe", "args": ["--connection", "vps/bwg"] }
 //
 // The adapter lives beside the app, so it derives the same instance id from its own folder
 // and talks to the instance it shipped with — parallel Debug worktrees stay separate.

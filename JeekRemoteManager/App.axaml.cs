@@ -78,7 +78,7 @@ public partial class App : Application
             desktop.Exit += (_, _) => DebugMcpServer.Stop();
 
             // Product surface (all builds), on its own named pipe. Agents reach it through
-            // bin\JrmMcp.exe; tools that need the window report awaiting_user until it is up.
+            // bin\JeekRemoteManagerMcp.exe; tools that need the window report awaiting_user until it is up.
             ProductMcpServer.Start();
             desktop.Exit += (_, _) => ProductMcpServer.Stop();
 
@@ -358,6 +358,8 @@ public partial class App : Application
                     CommandItem(Localizer.Get(entry.LocalizationKey), vm.ImportXshellCommand),
                 ApplicationMenuAction.CheckForUpdates =>
                     CommandItem(Localizer.Get(entry.LocalizationKey), vm.CheckForUpdatesCommand),
+                ApplicationMenuAction.About =>
+                    ActionItem(Localizer.Get(entry.LocalizationKey), ShowAboutDialog),
                 ApplicationMenuAction.Exit => ActionItem(Localizer.Get(entry.LocalizationKey), RequestExit),
                 _ => throw new ArgumentOutOfRangeException(),
             };
@@ -386,6 +388,19 @@ public partial class App : Application
                 command.Execute(null);
         };
         return item;
+    }
+
+    private void ShowAboutDialog()
+    {
+        if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop
+            || desktop.MainWindow is not MainWindow window)
+            return;
+
+        window.Show();
+        if (window.WindowState == WindowState.Minimized)
+            window.WindowState = WindowState.Normal;
+        window.Activate();
+        _ = window.ShowAboutDialogAsync();
     }
 
     private static NativeMenuItem ActionItem(string header, Action action)

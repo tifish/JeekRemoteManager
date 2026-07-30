@@ -1,5 +1,5 @@
 <Solution>
   <Project Path="JeekRemoteManager/JeekRemoteManager.csproj" />
   <Project Path="JeekTools.NET/JeekTools.csproj" />
-  <Project Path="tools/JrmMcp/JrmMcp.csproj" />
+  <Project Path="Tools/JeekRemoteManagerMcp/JeekRemoteManagerMcp.csproj" />
 </Solution>

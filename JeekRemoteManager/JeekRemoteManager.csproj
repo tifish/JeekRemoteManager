@@ -8,8 +8,8 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <LangVersion>latest</LangVersion>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
+    <ApplicationManifest>App.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\Icon.ico</ApplicationIcon>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <RootNamespace>JeekRemoteManager</RootNamespace>
     <AssemblyName>JeekRemoteManager</AssemblyName>
@@ -66,10 +66,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Avalonia" Version="12.1.0" />
-    <PackageReference Include="Avalonia.Desktop" Version="12.1.0" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.0" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.0" />
+    <PackageReference Include="Avalonia" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.1" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Jeek.Avalonia.Localization" Version="12.0.2" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.10" />
@@ -86,18 +86,34 @@
   </ItemGroup>
 
   <!--
-    JrmMcp is the product MCP stdio adapter referenced by every generated agent
+    JeekRemoteManagerMcp is the product MCP stdio adapter referenced by every generated agent
     workspace. Build the release adapter into the same publish directory so
     install/update archives cannot omit it.
   -->
-  <Target Name="PublishJrmMcp" AfterTargets="Publish">
+  <Target
+    Name="PublishJeekRemoteManagerMcpAfterBuild"
+    AfterTargets="Build"
+    Condition="'$(DesignTimeBuild)' != 'true' and '$(PublishDir)' == '$(OutDir)'">
     <PropertyGroup>
-      <JrmMcpPublishDir>$([System.IO.Path]::GetFullPath('$(PublishDir)', '$(MSBuildProjectDirectory)'))</JrmMcpPublishDir>
+      <JeekRemoteManagerMcpBuildDir>$([System.IO.Path]::GetFullPath('$(OutDir)', '$(MSBuildProjectDirectory)'))</JeekRemoteManagerMcpBuildDir>
     </PropertyGroup>
     <MSBuild
-      Projects="..\tools\JrmMcp\JrmMcp.csproj"
+      Projects="..\Tools\JeekRemoteManagerMcp\JeekRemoteManagerMcp.csproj"
       Targets="Publish"
-      Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishDir=$(JrmMcpPublishDir)" />
+      Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishSingleFile=true;PublishDir=$(JeekRemoteManagerMcpBuildDir)" />
+  </Target>
+
+  <Target
+    Name="PublishJeekRemoteManagerMcpAfterPublish"
+    AfterTargets="Publish"
+    Condition="'$(DesignTimeBuild)' != 'true' and '$(PublishDir)' != '$(OutDir)'">
+    <PropertyGroup>
+      <JeekRemoteManagerMcpPublishDir>$([System.IO.Path]::GetFullPath('$(PublishDir)', '$(MSBuildProjectDirectory)'))</JeekRemoteManagerMcpPublishDir>
+    </PropertyGroup>
+    <MSBuild
+      Projects="..\Tools\JeekRemoteManagerMcp\JeekRemoteManagerMcp.csproj"
+      Targets="Publish"
+      Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishSingleFile=true;PublishDir=$(JeekRemoteManagerMcpPublishDir)" />
   </Target>
 
 </Project>

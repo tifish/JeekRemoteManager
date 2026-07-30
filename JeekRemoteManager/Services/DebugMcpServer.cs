@@ -15,6 +15,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Jeek.Avalonia.Localization;
 using JeekTools;
 using JeekRemoteManager.Views;
 using Microsoft.Extensions.Logging;
@@ -28,7 +29,7 @@ namespace JeekRemoteManager.Services;
 /// visual-tree lookup, the Avalonia tools (visual_tree, screenshot), the app
 /// probe tools, and the instance discovery file. Compiled into all
 /// configurations so Debug and Release behave identically, but the listener
-/// only starts in Debug builds. Agents reach it through <c>bin\JrmMcp.exe
+/// only starts in Debug builds. Agents reach it through <c>bin\JeekRemoteManagerMcp.exe
 /// --surface debug</c>, which forwards stdio to this instance's named pipe —
 /// the pipe name carries the worktree's instance id, so parallel Debug builds
 /// never answer for each other and there is no port to collide over.
@@ -99,6 +100,7 @@ internal static class DebugMcpServer
 
         host.AddTool("visual_tree", VisualTreeAsync);
         host.AddTool("screenshot", _ => ScreenshotAsync());
+        host.AddTool("about_dialog_probe", _ => AboutDialogProbeAsync());
         host.AddTool("ai_runtime_snapshot", _ => AiRuntimeSnapshotAsync());
         host.AddTool("terminal_tab_focus_check", _ => TerminalTabFocusCheckAsync());
         host.AddTool("ai_cli_ctrl_c_check", _ => AiCliCtrlCCheckAsync());
@@ -371,6 +373,52 @@ internal static class DebugMcpServer
         };
     }
 
+    private static async Task<JsonObject> AboutDialogProbeAsync()
+    {
+        var (passed, report) = await OnUiAsync(() =>
+        {
+            if (Desktop?.MainWindow is not Views.MainWindow main)
+                return (false, "FAIL: MainWindow is not available.");
+
+            var dialog = main.CreateAboutDialog();
+            try
+            {
+                dialog.Show(main);
+                var descendants = dialog.GetVisualDescendants().OfType<StyledElement>().ToArray();
+                var version = descendants
+                    .OfType<TextBlock>()
+                    .FirstOrDefault(control => control.Name == "AboutVersionText")
+                    ?.Text ?? "";
+                var homepage = descendants
+                    .OfType<SelectableTextBlock>()
+                    .FirstOrDefault(control => control.Name == "AboutHomepageText")
+                    ?.Text ?? "";
+                var homepageButton = descendants
+                    .OfType<Button>()
+                    .FirstOrDefault(control => control.Name == "AboutHomepageButton");
+                var title = dialog.Title ?? "";
+                var ok = dialog.IsVisible
+                         && title == Localizer.Get("About")
+                         && version.Length > 0
+                         && homepage == Views.MainWindow.ProjectHomepage
+                         && homepageButton?.Content?.ToString() == Localizer.Get("ProjectHomepage");
+
+                return (ok,
+                    $"{(ok ? "PASS" : "FAIL")}: About dialog\n"
+                    + $"title: {title}\n"
+                    + $"version: {version}\n"
+                    + $"homepage: {homepage}\n"
+                    + $"visible: {dialog.IsVisible}");
+            }
+            finally
+            {
+                dialog.Close();
+            }
+        });
+
+        return ToolText(report, isError: !passed);
+    }
+
     #endregion
 
     #region App probe tools
@@ -615,35 +663,35 @@ internal static class DebugMcpServer
         switch (action)
         {
             case "open":
-            {
-                var text = await OnUiAsync(() =>
                 {
-                    if (Desktop?.MainWindow is not Views.MainWindow main)
-                        throw new InvalidOperationException("MainWindow is not available.");
-                    if (_renderProbeView is not null)
-                        return "already open";
-
-                    var tabs = main.FindControl<TabControl>("RightTabs")
-                               ?? throw new InvalidOperationException("RightTabs not found.");
-                    _renderProbeView = new TerminalView();
-                    _renderProbeTab = new TabItem { Header = "AI render probe", Content = _renderProbeView };
-                    tabs.Items.Add(_renderProbeTab);
-                    tabs.SelectedItem = _renderProbeTab;
-                    return "opened";
-                });
-                if (text == "opened")
-                {
-                    // Let the tab load before opening the AI panel (auto-starts the CLI).
-                    await Task.Delay(200);
-                    await OnUiAsync(() =>
+                    var text = await OnUiAsync(() =>
                     {
-                        _renderProbeView!.ToggleAiPanel();
-                        return true;
-                    });
-                }
+                        if (Desktop?.MainWindow is not Views.MainWindow main)
+                            throw new InvalidOperationException("MainWindow is not available.");
+                        if (_renderProbeView is not null)
+                            return "already open";
 
-                return ToolText(text);
-            }
+                        var tabs = main.FindControl<TabControl>("RightTabs")
+                                   ?? throw new InvalidOperationException("RightTabs not found.");
+                        _renderProbeView = new TerminalView();
+                        _renderProbeTab = new TabItem { Header = "AI render probe", Content = _renderProbeView };
+                        tabs.Items.Add(_renderProbeTab);
+                        tabs.SelectedItem = _renderProbeTab;
+                        return "opened";
+                    });
+                    if (text == "opened")
+                    {
+                        // Let the tab load before opening the AI panel (auto-starts the CLI).
+                        await Task.Delay(200);
+                        await OnUiAsync(() =>
+                        {
+                            _renderProbeView!.ToggleAiPanel();
+                            return true;
+                        });
+                    }
+
+                    return ToolText(text);
+                }
 
             case "close":
                 return ToolText(await OnUiAsync(() =>
@@ -660,18 +708,18 @@ internal static class DebugMcpServer
                 }));
 
             default:
-            {
-                return ToolText(await OnUiAsync(() =>
                 {
-                    if (_renderProbeView is null)
-                        return "not open";
-                    var panel = _renderProbeView.DebugAiPanel;
-                    var vm = _renderProbeView.AiViewModel;
-                    return $"provider={vm?.SelectedProvider.Label} running={vm?.IsRunning} "
-                           + $"status={vm?.StatusText}\ncapture={vm?.CaptureFilePath ?? "(off)"}\n"
-                           + $"stats: {panel.DebugOutputStats}\n--- visible ---\n{panel.DebugVisibleText}";
-                }));
-            }
+                    return ToolText(await OnUiAsync(() =>
+                    {
+                        if (_renderProbeView is null)
+                            return "not open";
+                        var panel = _renderProbeView.DebugAiPanel;
+                        var vm = _renderProbeView.AiViewModel;
+                        return $"provider={vm?.SelectedProvider.Label} running={vm?.IsRunning} "
+                               + $"status={vm?.StatusText}\ncapture={vm?.CaptureFilePath ?? "(off)"}\n"
+                               + $"stats: {panel.DebugOutputStats}\n--- visible ---\n{panel.DebugVisibleText}";
+                    }));
+                }
         }
     }
 
@@ -1143,7 +1191,7 @@ internal static class DebugMcpServer
             Check(".mcp.json gains this connection as a stdio adapter launch",
                 mcpJson.Contains(server, StringComparison.Ordinal)
                 && mcpJson.Contains("\"stdio\"", StringComparison.Ordinal)
-                && mcpJson.Contains("JrmMcp.exe", StringComparison.Ordinal)
+                && mcpJson.Contains("JeekRemoteManagerMcp.exe", StringComparison.Ordinal)
                 && mcpJson.Contains("--connection", StringComparison.Ordinal));
             Check(".mcp.json entry carries no URL, port, or token",
                 JsonNode.Parse(mcpJson)?["mcpServers"]?[server] is JsonObject entry
@@ -1151,12 +1199,12 @@ internal static class DebugMcpServer
             Check(".codex/config.toml keeps existing keys", codexToml.Contains("model = \"gpt-5\"", StringComparison.Ordinal));
             Check(".codex/config.toml gains the server table",
                 codexToml.Contains($"[mcp_servers.{server}]", StringComparison.Ordinal)
-                && codexToml.Contains("JrmMcp.exe", StringComparison.Ordinal)
+                && codexToml.Contains("JeekRemoteManagerMcp.exe", StringComparison.Ordinal)
                 && codexToml.Contains("--connection", StringComparison.Ordinal));
             Check(".codex approval mode follows auto-run", codexToml.Contains("default_tools_approval_mode = \"approve\"", StringComparison.Ordinal));
             Check(".grok/config.toml gains the server table",
                 grokToml.Contains($"[mcp_servers.{server}]", StringComparison.Ordinal)
-                && grokToml.Contains("JrmMcp.exe", StringComparison.Ordinal));
+                && grokToml.Contains("JeekRemoteManagerMcp.exe", StringComparison.Ordinal));
             // Writing again must replace the block in place, not append a second copy.
             AgentProjectLink.WriteInto(link with { Target = "root@10.0.0.2:22" }, project);
 
@@ -1379,37 +1427,37 @@ internal static class DebugMcpServer
         switch (action)
         {
             case "open":
-            {
-                var view = await OnUiAsync(() =>
                 {
-                    if (Desktop?.MainWindow is not Views.MainWindow main)
-                        throw new InvalidOperationException("MainWindow is not available.");
-                    if (_menuProbeView is not null)
-                        return null;
+                    var view = await OnUiAsync(() =>
+                    {
+                        if (Desktop?.MainWindow is not Views.MainWindow main)
+                            throw new InvalidOperationException("MainWindow is not available.");
+                        if (_menuProbeView is not null)
+                            return null;
 
-                    var tabs = main.FindControl<TabControl>("RightTabs")
-                               ?? throw new InvalidOperationException("RightTabs not found.");
-                    _menuProbeView = new TerminalView();
-                    _menuProbeTab = new TabItem { Header = "Login menu probe", Content = _menuProbeView };
-                    tabs.Items.Add(_menuProbeTab);
-                    tabs.SelectedItem = _menuProbeTab;
-                    return _menuProbeView;
-                });
-                if (view is null)
-                    return ToolText("already open");
+                        var tabs = main.FindControl<TabControl>("RightTabs")
+                                   ?? throw new InvalidOperationException("RightTabs not found.");
+                        _menuProbeView = new TerminalView();
+                        _menuProbeTab = new TabItem { Header = "Login menu probe", Content = _menuProbeView };
+                        tabs.Items.Add(_menuProbeTab);
+                        tabs.SelectedItem = _menuProbeTab;
+                        return _menuProbeView;
+                    });
+                    if (view is null)
+                        return ToolText("already open");
 
-                var shell = BuildMenuProbeShell(args["scenario"]?.GetValue<string>() ?? "single");
-                var loginCommands = args["login_commands"]?.GetValue<string>() is { Length: > 0 } custom
-                    ? custom
-                    : shell.LoginCommands;
-                // Let the tab lay out so the terminal has a real size before the PTY starts.
-                await Task.Delay(200);
-                await OnUiAsync(() => view.DebugStartLocalShellAsync(
-                    new Models.Connection { Name = "login menu probe", LoginCommands = loginCommands },
-                    shell.ExePath,
-                    shell.Arguments));
-                return ToolText("opened");
-            }
+                    var shell = BuildMenuProbeShell(args["scenario"]?.GetValue<string>() ?? "single");
+                    var loginCommands = args["login_commands"]?.GetValue<string>() is { Length: > 0 } custom
+                        ? custom
+                        : shell.LoginCommands;
+                    // Let the tab lay out so the terminal has a real size before the PTY starts.
+                    await Task.Delay(200);
+                    await OnUiAsync(() => view.DebugStartLocalShellAsync(
+                        new Models.Connection { Name = "login menu probe", LoginCommands = loginCommands },
+                        shell.ExePath,
+                        shell.Arguments));
+                    return ToolText("opened");
+                }
 
             case "close":
                 return ToolText(await OnUiAsync(() =>
@@ -1426,12 +1474,12 @@ internal static class DebugMcpServer
                 }));
 
             default:
-            {
-                return ToolText(await OnUiAsync(() =>
-                    _menuProbeView is null
-                        ? "not open"
-                        : "--- visible ---\n" + _menuProbeView.DebugVisibleTerminalText));
-            }
+                {
+                    return ToolText(await OnUiAsync(() =>
+                        _menuProbeView is null
+                            ? "not open"
+                            : "--- visible ---\n" + _menuProbeView.DebugVisibleTerminalText));
+                }
         }
     }
 

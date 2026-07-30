@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 $appName = "JeekRemoteManager"
 
 # The app has already downloaded, extracted, and verified the update package

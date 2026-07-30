@@ -6,7 +6,7 @@ using System.Text;
 namespace JeekRemoteManager.Services;
 
 /// <summary>
-/// Named-pipe naming convention shared by the app and the <c>JrmMcp</c> stdio adapter.
+/// Named-pipe naming convention shared by the app and the <c>JeekRemoteManagerMcp</c> stdio adapter.
 /// Compiled into both (the adapter links this file), so the two sides can never drift.
 ///
 /// A pipe replaces the loopback HTTP endpoint for MCP: nothing to allocate, so the name is

@@ -1,4 +1,4 @@
-#
+﻿#
 # Copyright (c) .NET Foundation and contributors. All rights reserved.
 # Licensed under the MIT license. See LICENSE file in the project root for full license information.
 #
@@ -29,9 +29,9 @@
     Note: The version parameter overrides the channel parameter when any version other than 'latest' is used.
 .PARAMETER Quality
     Download the latest build of specified quality in the channel. The possible values are: daily, preview, GA.
-    Works only in combination with channel. Not applicable for STS and LTS channels and will be ignored if those channels are used. 
+    Works only in combination with channel. Not applicable for STS and LTS channels and will be ignored if those channels are used.
     Supported since 5.0 release.
-    Note: The version parameter overrides the channel parameter when any version other than 'latest' is used, and therefore overrides the quality.     
+    Note: The version parameter overrides the channel parameter when any version other than 'latest' is used, and therefore overrides the quality.
 .PARAMETER Version
     Default: latest
     Represents a build version on specific channel. Possible values:
@@ -189,7 +189,7 @@ function Get-Remote-File-Size($zipUri) {
         $fileSize = $response.Headers["Content-Length"]
         if ((![string]::IsNullOrEmpty($fileSize))) {
             Say "Remote file $zipUri size is $fileSize bytes."
-        
+
             return $fileSize
         }
     }
@@ -241,11 +241,11 @@ function Get-Machine-Architecture() {
         return $ENV:PROCESSOR_ARCHITEW6432
     }
 
-    try {        
+    try {
         if ( ((Get-CimInstance -ClassName CIM_OperatingSystem).OSArchitecture) -like "ARM*") {
             if ( [Environment]::Is64BitOperatingSystem ) {
                 return "arm64"
-            }  
+            }
             return "arm"
         }
     }
@@ -282,7 +282,7 @@ function ValidateFeedCredential([string] $FeedCredential) {
             throw "$message"
         }
     }
-    
+
     #FeedCredential should start with "?", for it to be added to the end of the link.
     #adding "?" at the beginning of the FeedCredential if needed.
     if ((![string]::IsNullOrWhitespace($FeedCredential)) -and ($FeedCredential[0] -ne '?')) {
@@ -440,7 +440,7 @@ function GetHTTPResponse([Uri] $Uri, [bool]$HeaderOnly, [bool]$DisableRedirect, 
                     UseDefaultCredentials = $ProxyUseDefaultCredentials;
                     BypassList            = $ProxyBypassList;
                 }
-            }       
+            }
             if ($DisableRedirect) {
                 $HttpClientHandler.AllowAutoRedirect = $false
             }
@@ -610,7 +610,7 @@ function Get-Specific-Version-From-Version([string]$AzureFeed, [string]$Channel,
             return $LatestVersionInfo.Version
         }
         else {
-            return $Version 
+            return $Version
         }
     }
     else {
@@ -679,7 +679,7 @@ function Get-Product-Version([string]$AzureFeed, [string]$SpecificVersion, [stri
     # Try to get the version number, using the productVersion.txt file located next to the installer file.
     $ProductVersionTxtURLs = (Get-Product-Version-Url $AzureFeed $SpecificVersion $PackageDownloadLink -Flattened $true),
                              (Get-Product-Version-Url $AzureFeed $SpecificVersion $PackageDownloadLink -Flattened $false)
-    
+
     Foreach ($ProductVersionTxtURL in $ProductVersionTxtURLs) {
         Say-Verbose "Checking for the existence of $ProductVersionTxtURL"
 
@@ -696,7 +696,7 @@ function Get-Product-Version([string]$AzureFeed, [string]$SpecificVersion, [stri
             else {
                 Say-Verbose "Got StatusCode $($productVersionResponse.StatusCode) when trying to get productVersion.txt at $productVersionTxtUrl."
             }
-        } 
+        }
         catch {
             Say-Verbose "Could not read productVersion.txt at $productVersionTxtUrl (Exception: '$($_.Exception.Message)'. )"
         }
@@ -778,7 +778,7 @@ function Get-ProductVersionFromDownloadLink([string]$PackageDownloadLink, [strin
         Say-Verbose "Using the default value '$SpecificVersion' as the product version."
         $productVersion = $SpecificVersion
     }
-    return $productVersion 
+    return $productVersion
 }
 
 function Get-User-Share-Path() {
@@ -998,7 +998,7 @@ function DownloadFile($Source, [string]$OutPath) {
     }
 
     $Stream = $null
-    
+
     try {
         $Response = GetHTTPResponse -Uri $Source
         $Stream = $Response.Content.ReadAsStreamAsync().Result
@@ -1020,14 +1020,14 @@ function ValidateRemoteLocalFileSizes([string]$LocalFileOutPath, $SourceUri) {
         $remoteFileSize = Get-Remote-File-Size -zipUri $SourceUri
         $fileSize = [long](Get-Item $LocalFileOutPath).Length
         Say "Downloaded file $SourceUri size is $fileSize bytes."
-    
+
         if ((![string]::IsNullOrEmpty($remoteFileSize)) -and !([string]::IsNullOrEmpty($fileSize)) ) {
             if ($remoteFileSize -ne $fileSize) {
                 Say "The remote and local file sizes are not equal. Remote file size is $remoteFileSize bytes and local size is $fileSize bytes. The local package may be corrupted."
             }
             else {
                 Say "The remote and local file sizes are equal."
-            }   
+            }
         }
         else {
             Say "Either downloaded or local package size can not be measured. One of them may be corrupted."
@@ -1072,7 +1072,7 @@ function Prepend-Sdk-InstallRoot-To-Path([string]$InstallRoot) {
 
 function PrintDryRunOutput($Invocation, $DownloadLinks) {
     Say "Payload URLs:"
-    
+
     for ($linkIndex = 0; $linkIndex -lt $DownloadLinks.count; $linkIndex++) {
         Say "URL #$linkIndex - $($DownloadLinks[$linkIndex].type): $($DownloadLinks[$linkIndex].downloadLink)"
     }
@@ -1099,15 +1099,15 @@ function PrintDryRunOutput($Invocation, $DownloadLinks) {
 }
 
 function Get-AkaMSDownloadLink([string]$Channel, [string]$Quality, [bool]$Internal, [string]$Product, [string]$Architecture, [string]$FileExtension = ".zip") {
-    Say-Invocation $MyInvocation 
+    Say-Invocation $MyInvocation
 
     #quality is not supported for LTS or STS channel
     if (![string]::IsNullOrEmpty($Quality) -and (@("LTS", "STS") -contains $Channel)) {
         $Quality = ""
         Say-Warning "Specifying quality for STS or LTS channel is not supported, the quality will be ignored."
     }
-    Say-Verbose "Retrieving primary payload URL from aka.ms link for channel: '$Channel', quality: '$Quality' product: '$Product', os: 'win', architecture: '$Architecture'." 
-   
+    Say-Verbose "Retrieving primary payload URL from aka.ms link for channel: '$Channel', quality: '$Quality' product: '$Product', os: 'win', architecture: '$Architecture'."
+
     #construct aka.ms link
     $akaMsLink = "https://aka.ms/dotnet"
     if ($Internal) {
@@ -1186,7 +1186,7 @@ function Get-AkaMsLink-And-Version([string] $NormalizedChannel, [string] $Normal
         }
         Say-Verbose "aka.ms link resolution with '$ext' extension failed, trying next format."
     }
-   
+
     if ([string]::IsNullOrEmpty($AkaMsDownloadLink)) {
         if (-not [string]::IsNullOrEmpty($NormalizedQuality)) {
             # if quality is specified - exit with error - there is no fallback approach
@@ -1203,7 +1203,7 @@ function Get-AkaMsLink-And-Version([string] $NormalizedChannel, [string] $Normal
 
         #get version from the path
         $pathParts = $AkaMsDownloadLink.Split('/')
-        if ($pathParts.Length -ge 2) { 
+        if ($pathParts.Length -ge 2) {
             $SpecificVersion = $pathParts[$pathParts.Length - 2]
             Say-Verbose "Version: '$SpecificVersion'."
         }
@@ -1240,7 +1240,7 @@ function Get-Feeds-To-Use() {
 }
 
 function Resolve-AssetName-And-RelativePath([string] $Runtime) {
-    
+
     if ($Runtime -eq "dotnet") {
         $assetName = ".NET Core Runtime"
         $dotnetPackageRelativePath = "shared\Microsoft.NETCore.App"
@@ -1337,11 +1337,11 @@ if ($Version.ToLowerInvariant() -ne "latest" -and -not [string]::IsNullOrEmpty($
 # aka.ms links can only be used if the user did not request a specific version via the command line or a global.json file.
 if ([string]::IsNullOrEmpty($JSonFile) -and ($Version -eq "latest")) {
     ($DownloadLink, $SpecificVersion, $EffectiveVersion) = Get-AkaMsLink-And-Version $NormalizedChannel $NormalizedQuality $Internal $NormalizedProduct $CLIArchitecture
-    
+
     if ($null -ne $DownloadLink) {
         $DownloadLinks += New-Object PSObject -Property @{downloadLink = "$DownloadLink"; specificVersion = "$SpecificVersion"; effectiveVersion = "$EffectiveVersion"; type = 'aka.ms' }
         Say-Verbose "Generated aka.ms link $DownloadLink with version $EffectiveVersion"
-        
+
         if (-Not $DryRun) {
             Say-Verbose "Checking if the version $EffectiveVersion is already installed"
             if (Is-Dotnet-Package-Installed -InstallRoot $InstallRoot -RelativePathToPackage $dotnetPackageRelativePath -SpecificVersion $EffectiveVersion) {
@@ -1361,15 +1361,15 @@ if ([string]::IsNullOrEmpty($NormalizedQuality) -and 0 -eq $DownloadLinks.count)
             $SpecificVersion = Get-Specific-Version-From-Version -AzureFeed $feed -Channel $Channel -Version $Version -JSonFile $JSonFile
             $DownloadLink, $EffectiveVersion = Get-Download-Link -AzureFeed $feed -SpecificVersion $SpecificVersion -CLIArchitecture $CLIArchitecture
             $LegacyDownloadLink = Get-LegacyDownload-Link -AzureFeed $feed -SpecificVersion $SpecificVersion -CLIArchitecture $CLIArchitecture
-            
+
             $DownloadLinks += New-Object PSObject -Property @{downloadLink = "$DownloadLink"; specificVersion = "$SpecificVersion"; effectiveVersion = "$EffectiveVersion"; type = 'primary' }
             Say-Verbose "Generated primary link $DownloadLink with version $EffectiveVersion"
-    
+
             if (-not [string]::IsNullOrEmpty($LegacyDownloadLink)) {
                 $DownloadLinks += New-Object PSObject -Property @{downloadLink = "$LegacyDownloadLink"; specificVersion = "$SpecificVersion"; effectiveVersion = "$EffectiveVersion"; type = 'legacy' }
                 Say-Verbose "Generated legacy link $LegacyDownloadLink with version $EffectiveVersion"
             }
-    
+
             if (-Not $DryRun) {
                 Say-Verbose "Checking if the version $EffectiveVersion is already installed"
                 if (Is-Dotnet-Package-Installed -InstallRoot $InstallRoot -RelativePathToPackage $dotnetPackageRelativePath -SpecificVersion $EffectiveVersion) {
@@ -1419,7 +1419,7 @@ foreach ($link in $DownloadLinks) {
         if ($PSItem.Exception.Data.Contains("StatusCode")) {
             $StatusCode = $PSItem.Exception.Data["StatusCode"]
         }
-    
+
         if ($PSItem.Exception.Data.Contains("ErrorMessage")) {
             $ErrorMessage = $PSItem.Exception.Data["ErrorMessage"]
         }

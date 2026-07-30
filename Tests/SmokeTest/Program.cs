@@ -46,6 +46,7 @@ try
               ApplicationMenuAction.ImportFromSecureCrt,
               ApplicationMenuAction.ImportFromXshell,
               ApplicationMenuAction.CheckForUpdates,
+              ApplicationMenuAction.About,
               ApplicationMenuAction.Exit,
           ]),
           "Window and tray menus share one ordered common-action definition");
@@ -721,7 +722,7 @@ try
               StringComparison.OrdinalIgnoreCase),
           "AI CLI workspace root is %LOCALAPPDATA%\\JeekRemoteManager\\AgentWorkspaces");
     // The workspace now points agents at the local stdio adapter instead of a loopback URL.
-    const string smokeAdapter = "JrmMcp.exe";
+    const string smokeAdapter = "JeekRemoteManagerMcp.exe";
     var workspace = AgentCliWorkspace.Ensure(
         connectionsRoot,
         bwgFile,
@@ -976,15 +977,23 @@ try
 
     var ssh = new Connection
     {
-        Type = ConnectionType.Ssh, Name = "web01", Host = "10.0.0.1",
-        Port = 22, Username = "root", EncryptedPassword = enc,
+        Type = ConnectionType.Ssh,
+        Name = "web01",
+        Host = "10.0.0.1",
+        Port = 22,
+        Username = "root",
+        EncryptedPassword = enc,
     };
     var sshPath = store.Save(ssh, folder);
 
     var rdp = new Connection
     {
-        Type = ConnectionType.Rdp, Name = "win-box", Host = "10.0.0.2",
-        Port = 3389, Username = "admin", EncryptedPassword = enc,
+        Type = ConnectionType.Rdp,
+        Name = "win-box",
+        Host = "10.0.0.2",
+        Port = 3389,
+        Username = "admin",
+        EncryptedPassword = enc,
     };
     var rdpPath = store.Save(rdp, folder);
 

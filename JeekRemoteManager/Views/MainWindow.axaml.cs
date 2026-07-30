@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -22,6 +23,8 @@ namespace JeekRemoteManager.Views;
 
 public partial class MainWindow : Window
 {
+    internal const string ProjectHomepage = "https://github.com/tifish/JeekRemoteManager";
+
     private TreeNodeViewModel? _lastToggledFolder;
     private bool _lastToggledFolderExpanded;
     private bool _windowSizeRestored;
@@ -216,6 +219,9 @@ public partial class MainWindow : Window
                 case ApplicationMenuAction.CheckForUpdates:
                     item.Command = vm.CheckForUpdatesCommand;
                     break;
+                case ApplicationMenuAction.About:
+                    item.Click += async (_, _) => await ShowAboutDialogAsync();
+                    break;
                 case ApplicationMenuAction.Exit:
                     item.Click += (_, _) => (Application.Current as App)?.RequestExit();
                     break;
@@ -225,6 +231,78 @@ public partial class MainWindow : Window
         }
 
         MoreActionsButton.Flyout = menu;
+    }
+
+    public async Task ShowAboutDialogAsync()
+    {
+        var dialog = CreateAboutDialog();
+        await dialog.ShowDialog(this);
+    }
+
+    internal Window CreateAboutDialog()
+    {
+        var versionText = new TextBlock
+        {
+            Name = "AboutVersionText",
+            Text = (DataContext as MainWindowViewModel)?.VersionDisplay ?? Localizer.Get("StatusDevBuild"),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Foreground = Brushes.Gray,
+        };
+        var homepageText = new SelectableTextBlock
+        {
+            Name = "AboutHomepageText",
+            Text = ProjectHomepage,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            TextWrapping = TextWrapping.Wrap,
+        };
+        var homepageButton = new Button
+        {
+            Name = "AboutHomepageButton",
+            Content = Localizer.Get("ProjectHomepage"),
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        homepageButton.Click += (_, _) => Process.Start(new ProcessStartInfo
+        {
+            FileName = ProjectHomepage,
+            UseShellExecute = true,
+        });
+
+        var closeButton = new Button
+        {
+            Content = Localizer.Get("DialogOk"),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            MinWidth = 88,
+        };
+        var dialog = new Window
+        {
+            Title = Localizer.Get("About"),
+            Width = 440,
+            Height = 300,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = new StackPanel
+            {
+                Margin = new Thickness(28),
+                Spacing = 14,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = Localizer.Get("WindowTitle"),
+                        FontSize = 24,
+                        FontWeight = FontWeight.SemiBold,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                    },
+                    versionText,
+                    homepageText,
+                    homepageButton,
+                    closeButton,
+                },
+            },
+        };
+        closeButton.Click += (_, _) => dialog.Close();
+        return dialog;
     }
 
     public void FlushCurrentSettingsState()
