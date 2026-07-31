@@ -21,6 +21,7 @@ namespace JeekRemoteManager.Services;
 public static class AgentCliWorkspace
 {
     public const string RootFolderName = "AgentWorkspaces";
+    public const string ApplicationWorkspaceFolderName = "_application";
     public const string McpServerName = "jrm-remote";
 
     /// <summary>
@@ -79,6 +80,25 @@ public static class AgentCliWorkspace
         Directory.CreateDirectory(absolute);
         WriteAgentDocs(absolute, relative, connection, sourcePath, connectionPath, sessionNumber);
         WriteProjectMcpConfigs(absolute, connectionPath, mcpToolsAutoApprove);
+        return absolute;
+    }
+
+    /// <summary>
+    /// Durable application-wide workspace for the global agent. Unlike <see cref="Ensure"/>,
+    /// its MCP adapter is not pinned with <c>--connection</c>, so the agent can browse the
+    /// connection tree and address any saved or open session through the product surface.
+    /// </summary>
+    public static string EnsureApplication(
+        bool mcpToolsAutoApprove = true,
+        string? workspaceRoot = null)
+    {
+        var root = string.IsNullOrWhiteSpace(workspaceRoot)
+            ? RootPath
+            : Path.GetFullPath(workspaceRoot);
+        var absolute = Path.GetFullPath(Path.Combine(root, ApplicationWorkspaceFolderName));
+
+        Directory.CreateDirectory(absolute);
+        AgentProjectLink.WriteApplicationWorkspace(absolute, mcpToolsAutoApprove);
         return absolute;
     }
 

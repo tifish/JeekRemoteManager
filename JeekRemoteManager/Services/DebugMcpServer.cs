@@ -115,6 +115,7 @@ internal static class DebugMcpServer
         host.AddTool("ai_render_probe", AiRenderProbeAsync);
         host.AddTool("agent_project_link_check", AgentProjectLinkCheckAsync);
         host.AddTool("agent_application_link_check", AgentApplicationLinkCheckAsync);
+        host.AddTool("global_agent_check", _ => GlobalAgentCheckAsync());
         host.AddTool("mcp_transport_check", _ => McpTransportCheckAsync());
         host.AddTool("product_mcp_check", _ => ProductMcpCheckAsync());
         return host;
@@ -988,6 +989,23 @@ internal static class DebugMcpServer
                 batch.Contains("\"total\": 2", StringComparison.Ordinal)
                 && batch.Contains("has no open session", StringComparison.Ordinal));
 
+            var commandBatch = ExtractToolText(await session.CallAsync(ToolCall(
+                32,
+                "terminal_run_batch",
+                new JsonObject
+                {
+                    ["connections"] = new JsonArray(connection, "nope/missing"),
+                    ["command"] = "echo global-agent-probe",
+                    ["open_missing"] = false,
+                    ["max_parallel"] = 2,
+                })).ConfigureAwait(false));
+            Check("terminal_run_batch reports one result per connection",
+                JsonNode.Parse(commandBatch)?["results"] is JsonArray { Count: 2 });
+            Check("terminal_run_batch keeps going after a failed connection",
+                commandBatch.Contains("\"total\": 2", StringComparison.Ordinal)
+                && commandBatch.Contains("\"status\": \"error\"", StringComparison.Ordinal)
+                && commandBatch.Contains("has no open session", StringComparison.Ordinal));
+
             var keyMissing = ExtractToolText(await session.CallAsync(ToolCall(27, "public_key_install", new JsonObject
             {
                 ["connection"] = connection,
@@ -1579,6 +1597,92 @@ internal static class DebugMcpServer
                 try { Directory.Delete(project, recursive: true); }
                 catch { /* best-effort cleanup */ }
             }
+        }
+    }
+
+    private static async Task<JsonObject> GlobalAgentCheckAsync()
+    {
+        var report = new StringBuilder();
+        var failures = new List<string>();
+
+        void Check(string name, bool ok)
+        {
+            report.AppendLine($"{(ok ? "ok  " : "FAIL")}: {name}");
+            if (!ok)
+                failures.Add(name);
+        }
+
+        try
+        {
+            var snapshot = await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main)
+                    throw new InvalidOperationException("The main window is not available.");
+
+                var wasActive = main.IsGlobalAgentTabActive;
+                var vm = main.GlobalAgentViewModel;
+                return (
+                    main.GlobalAgentWorkspacePath,
+                    vm.Providers.Count,
+                    vm.ShowConnectionOptions,
+                    WasActive: wasActive,
+                    IsActive: main.IsGlobalAgentTabActive);
+            }).ConfigureAwait(false);
+
+            var workspace = snapshot.GlobalAgentWorkspacePath;
+            var agentsPath = Path.Combine(workspace, "AGENTS.md");
+            var jsonPath = Path.Combine(workspace, ".mcp.json");
+            var codexPath = Path.Combine(workspace, ".codex", "config.toml");
+            var agentsMd = File.Exists(agentsPath) ? File.ReadAllText(agentsPath) : "";
+            var json = File.Exists(jsonPath)
+                ? TryParseJsonObject(File.ReadAllText(jsonPath))
+                : null;
+            var entry = json?["mcpServers"]?[AgentProjectLink.ApplicationMcpServerName] as JsonObject;
+            var codex = File.Exists(codexPath) ? File.ReadAllText(codexPath) : "";
+            var productToolNames = ProductMcpContract.BuildToolList()
+                .Select(tool => tool?["name"]?.GetValue<string>() ?? "")
+                .ToHashSet(StringComparer.Ordinal);
+
+            Check(
+                "workspace uses the reserved application directory",
+                Path.GetFileName(workspace) == AgentCliWorkspace.ApplicationWorkspaceFolderName);
+            Check(
+                "workspace documents application-wide control",
+                agentsMd.Contains("whole application", StringComparison.Ordinal)
+                && agentsMd.Contains("connection_list", StringComparison.Ordinal));
+            Check(
+                "JSON MCP config launches the product adapter without a connection pin",
+                entry?["command"]?.GetValue<string>() == McpAdapterRegistry.AdapterPath
+                && entry["url"] is null
+                && !(entry["args"]?.ToJsonString() ?? "")
+                    .Contains("--connection", StringComparison.Ordinal));
+            Check(
+                "Codex MCP config is application-wide",
+                codex.Contains(
+                    $"[mcp_servers.{AgentProjectLink.ApplicationMcpServerName}]",
+                    StringComparison.Ordinal)
+                && !codex.Contains("--connection", StringComparison.Ordinal));
+            Check("agent providers are available to the global panel", snapshot.Count > 0);
+            Check("connection-only panel options are hidden", !snapshot.ShowConnectionOptions);
+            Check(
+                "product MCP advertises safe and dangerous batch command tools",
+                productToolNames.Contains("terminal_run_batch")
+                && productToolNames.Contains("terminal_run_batch_danger"));
+            Check(
+                "probe does not change the selected tab",
+                snapshot.WasActive == snapshot.IsActive);
+
+            var passed = failures.Count == 0;
+            return ToolText(
+                $"{(passed ? "PASS" : "FAIL")}: global AI Agent ({workspace})\n"
+                + report.ToString().TrimEnd(),
+                isError: !passed);
+        }
+        catch (Exception ex)
+        {
+            return ToolText(
+                $"FAIL: global AI Agent check threw {ex.GetType().Name}: {ex.Message}\n{report}",
+                isError: true);
         }
     }
 

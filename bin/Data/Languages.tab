@@ -142,6 +142,8 @@ DialogDeleteTitle	Delete	删除
 DialogDeleteFolderPrompt	Delete folder '{0}' and all its contents?	删除文件夹“{0}”及其所有内容？
 DialogDeleteConnectionPrompt	Delete connection '{0}'?	删除连接“{0}”？
 DialogDeleteMultiplePrompt	Delete {0} selected items?	删除选中的 {0} 项？
+DialogAgentBatchCommandTitle	Confirm batch command	确认批量命令
+DialogAgentBatchCommandPrompt	Run this command on {0} connections?\n\nCommand:\n{1}\n\nTargets:\n{2}	是否在 {0} 个连接上运行此命令？\n\n命令：\n{1}\n\n目标：\n{2}
 DialogRenameTitle	Rename	重命名
 DialogRenamePrompt	New name:	新名称：
 DialogUpdateAvailableTitle	Update available	发现新版本
@@ -338,6 +340,9 @@ AiUnlinkApplicationProject	Stop agents in a project folder from controlling Jeek
 AiUnlinkApplicationProjectHint	Removes JeekRemoteManager's application-wide MCP notes and config from that folder. Existing project content is preserved.	从该目录移除 JeekRemoteManager 的全局 MCP 说明和配置，项目原有内容不受影响。
 AiUnlinkApplicationProjectTitle	Choose the project folder that should stop controlling JeekRemoteManager	选择要停止控制 JeekRemoteManager 的项目目录
 AiUnlinkApplicationProjectDone	Agents in {0} no longer control JeekRemoteManager.	{0} 中的 AI 不再控制 JeekRemoteManager。
+GlobalAiAgent	Global AI Agent	全局 AI Agent
+GlobalAiAgentShort	Global AI	全局 AI
+GlobalAiAgentTooltip	Use an AI agent to manage connections and operate multiple terminal sessions.	使用 AI Agent 管理连接并操作多个终端会话。
 AiCliStart	Start	启动
 AiCliRestart	Restart	重启
 AiCliStop	Stop	停止

@@ -100,6 +100,9 @@ public static class DebugMcpContract
         Tool("agent_application_link_check",
             "Drives the main window's application-wide MCP link and unlink actions against a throwaway project. Verifies the menu entries, unpinned adapter config, global operating notes, preservation of existing project config, and cleanup.",
             new() { ["keep"] = Prop("boolean", "Keep the temporary project folder instead of deleting it (default false).") }),
+        Tool("global_agent_check",
+            "Creates the in-app global AI Agent surface without launching a third-party CLI, then verifies its application-wide workspace, unpinned MCP config, connection-only options, and multi-connection product tools.",
+            new()),
         Tool("auto_update_stage_check",
             "Runs the in-app update downloader end-to-end (real network): downloads the release package, extracts and verifies it in the staging folder, then cleans up.",
             new()

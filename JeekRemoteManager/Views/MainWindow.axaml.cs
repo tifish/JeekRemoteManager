@@ -43,6 +43,7 @@ public partial class MainWindow : Window
     private Point _treeDragStart;
     private bool _isTreeDragging;
     private TreeNodeViewModel? _treeDropTarget;
+    private AgentCliPanelViewModel? _globalAgentViewModel;
 
     // Set when a plain press lands on a node that is part of the current
     // multi-selection: the press is swallowed to keep the selection intact for
@@ -67,6 +68,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        GlobalAgentPanel.CloseRequested += (_, _) => RightTabs.SelectedItem = EditorTab;
         UpdateWindowTitle();
         _defaultMinWidth = MinWidth;
         _defaultMinHeight = MinHeight;
@@ -146,7 +148,11 @@ public partial class MainWindow : Window
             FocusSelectedTreeItem();
         };
         Closing += (_, _) =>
+        {
             FlushCurrentSettingsState();
+            if (_globalAgentViewModel is not null)
+                _ = _globalAgentViewModel.DisposeAsync();
+        };
     }
 
     private void UpdateWindowTitle() =>
@@ -177,6 +183,13 @@ public partial class MainWindow : Window
             .OfType<MenuItem>()
             .Select(item => item.Header?.ToString() ?? string.Empty)
             .ToArray() ?? [];
+
+    /// <summary>Application-wide agent surface exposed to the Debug MCP runtime probe.</summary>
+    internal AgentCliPanelViewModel GlobalAgentViewModel => GetOrCreateGlobalAgentViewModel();
+
+    internal string GlobalAgentWorkspacePath => GlobalAgentViewModel.WorkingDirectory;
+
+    internal bool IsGlobalAgentTabActive => ReferenceEquals(RightTabs.SelectedItem, GlobalAgentTab);
 
     private void BuildMoreActionsMenu()
     {
@@ -815,8 +828,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Moves one terminal tab to a zero-based position among terminal tabs. The fixed editor tab
-    /// and the current selection stay untouched. Used by the product MCP surface.
+    /// Moves one terminal tab to a zero-based position among terminal tabs. The fixed editor and
+    /// global-agent tabs and the current selection stay untouched. Used by the product MCP surface.
     /// </summary>
     internal void MoveTerminalSession(TabItem tab, int position)
     {
@@ -1473,7 +1486,8 @@ public partial class MainWindow : Window
     private int FirstTerminalTabIndex()
     {
         var editorIndex = RightTabs.Items.IndexOf(EditorTab);
-        return editorIndex >= 0 ? editorIndex + 1 : 0;
+        var globalAgentIndex = RightTabs.Items.IndexOf(GlobalAgentTab);
+        return Math.Max(editorIndex, globalAgentIndex) + 1;
     }
 
     private bool TryGetTabBoundsInRightTabs(TabItem tab, out Rect bounds)
@@ -1500,6 +1514,74 @@ public partial class MainWindow : Window
     private static bool IsTerminalTabDragBlockedBySource(object? source) =>
         source is Avalonia.Visual visual
         && visual.FindAncestorOfType<Button>(includeSelf: true) is not null;
+
+    private AgentCliPanelViewModel GetOrCreateGlobalAgentViewModel()
+    {
+        if (_globalAgentViewModel is not null)
+            return _globalAgentViewModel;
+
+        var mainVm = DataContext as MainWindowViewModel;
+        var workingDirectory = AgentCliWorkspace.EnsureApplication(
+            mcpToolsAutoApprove: mainVm?.AiAutoRun ?? true);
+        var preferred = mainVm?.AiProvider;
+        var preferredKind = AgentCliCatalog.Discover()
+            .FirstOrDefault(descriptor =>
+                descriptor.Label.Equals(preferred, StringComparison.OrdinalIgnoreCase))
+            ?.Kind;
+        var preferredRunMode = mainVm is null
+            ? AgentCliRunMode.Cli
+            : preferredKind is { } kind
+                ? mainVm.GetAiRunModeForKind(kind)
+                : mainVm.AiRunMode;
+
+        var vm = new AgentCliPanelViewModel(
+            workingDirectory,
+            preferred,
+            autoRun: mainVm?.AiAutoRun ?? true,
+            autoApproveDangerousCommands: mainVm?.AiAutoApproveDangerousCommands ?? false,
+            hideSshTerminal: false,
+            onSafetyOptionsChanged: (autoRun, autoApprove) =>
+            {
+                if (DataContext is not MainWindowViewModel ownerVm)
+                    return;
+                ownerVm.AiAutoRun = autoRun;
+                ownerVm.AiAutoApproveDangerousCommands = autoApprove;
+            },
+            preferredRunMode: preferredRunMode,
+            resolvePreferredRunMode: kind =>
+                (DataContext as MainWindowViewModel)?.GetAiRunModeForKind(kind)
+                ?? AgentCliRunMode.Cli,
+            showConnectionOptions: false);
+
+        vm.PrepareWorkspace = () => AgentCliWorkspace.EnsureApplication(vm.AutoRun);
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (DataContext is not MainWindowViewModel ownerVm)
+                return;
+            if (e.PropertyName == nameof(AgentCliPanelViewModel.SelectedProvider))
+                ownerVm.AiProvider = vm.SelectedProvider.Label;
+            else if (e.PropertyName is nameof(AgentCliPanelViewModel.SelectedRunModeOption)
+                     or nameof(AgentCliPanelViewModel.RunMode))
+                ownerVm.SetAiRunModeForKind(vm.SelectedProvider.Kind, vm.RunMode);
+        };
+
+        GlobalAgentPanel.DataContext = vm;
+        _globalAgentViewModel = vm;
+        return vm;
+    }
+
+    /// <summary>
+    /// Selects the global agent tab and starts its configured surface. The Debug MCP uses
+    /// <see cref="GlobalAgentViewModel"/> directly so it can verify the workspace without
+    /// launching a third-party CLI.
+    /// </summary>
+    internal void OpenGlobalAgent()
+    {
+        var vm = GetOrCreateGlobalAgentViewModel();
+        RightTabs.SelectedItem = GlobalAgentTab;
+        GlobalAgentPanel.NotifyHostLayoutChanged();
+        _ = vm.EnsureStartedAsync();
+    }
 
     private void CloseTerminalTab(TabItem tab)
     {
@@ -1534,6 +1616,13 @@ public partial class MainWindow : Window
         // The font-size buttons are only relevant while a terminal tab is active.
         if (DataContext is MainWindowViewModel vm)
             vm.IsTerminalActive = view is not null;
+
+        if (ReferenceEquals((sender as TabControl)?.SelectedItem, GlobalAgentTab))
+        {
+            var globalVm = GetOrCreateGlobalAgentViewModel();
+            _ = globalVm.EnsureStartedAsync();
+            GlobalAgentPanel.NotifyHostLayoutChanged();
+        }
 
         UpdateTerminalPanelToggleStates();
         view?.RestoreLastFocus();
@@ -1580,6 +1669,12 @@ public partial class MainWindow : Window
     {
         if (RightTabs.SelectedItem is TabItem { Content: TerminalView } tab)
             DuplicateTerminalTab(tab);
+        e.Handled = true;
+    }
+
+    private void OnGlobalAgentToolbarClick(object? sender, RoutedEventArgs e)
+    {
+        OpenGlobalAgent();
         e.Handled = true;
     }
 

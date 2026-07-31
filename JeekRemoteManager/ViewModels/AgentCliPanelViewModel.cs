@@ -58,8 +58,14 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     /// </summary>
     public Func<AgentWorkspaceLink?>? ResolveLinkContext { get; set; }
 
-    /// <summary>Absolute local workspace for this connection (%LOCALAPPDATA%\JeekRemoteManager\AgentWorkspaces\...).</summary>
+    /// <summary>Absolute local workspace used by this agent surface.</summary>
     public string WorkingDirectory => _workingDirectory;
+
+    /// <summary>
+    /// Connection-only options are hidden by the application-wide agent, whose workspace is
+    /// not attached to one SSH terminal and whose project linking lives in the main menu.
+    /// </summary>
+    public bool ShowConnectionOptions { get; }
 
     public AgentCliPanelViewModel(
         string workingDirectory,
@@ -70,7 +76,8 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         Action<bool, bool>? onSafetyOptionsChanged = null,
         Action<bool>? onHideSshTerminalChanged = null,
         AgentCliRunMode preferredRunMode = AgentCliRunMode.Cli,
-        Func<AgentCliKind, AgentCliRunMode>? resolvePreferredRunMode = null)
+        Func<AgentCliKind, AgentCliRunMode>? resolvePreferredRunMode = null,
+        bool showConnectionOptions = true)
     {
         _workingDirectory = workingDirectory;
         _onHideSshTerminalChanged = onHideSshTerminalChanged;
@@ -79,6 +86,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         _autoRun = autoRun;
         _autoApproveDangerousCommands = autoApproveDangerousCommands;
         _hideSshTerminal = hideSshTerminal;
+        ShowConnectionOptions = showConnectionOptions;
         Directory.CreateDirectory(_workingDirectory);
 
         foreach (var descriptor in AgentCliCatalog.Discover())

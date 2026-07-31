@@ -119,16 +119,19 @@
                                 <MenuItem Header="{l:Localize AiHideSshTerminal}"
                                           ToggleType="CheckBox"
                                           IsChecked="{Binding HideSshTerminal, Mode=TwoWay}"
+                                          IsVisible="{Binding ShowConnectionOptions}"
                                           ToolTip.Tip="{l:Localize AiHideSshTerminalHint}" />
-                                <Separator />
+                                <Separator IsVisible="{Binding ShowConnectionOptions}" />
                                 <MenuItem Header="{l:Localize AiOpenWorkspaceFolder}"
                                           Click="OnOpenWorkspaceFolderClick"
                                           ToolTip.Tip="{l:Localize AiOpenWorkspaceFolderHint}" />
                                 <MenuItem Header="{l:Localize AiLinkProject}"
                                           Click="OnWriteToProjectClick"
+                                          IsVisible="{Binding ShowConnectionOptions}"
                                           ToolTip.Tip="{l:Localize AiLinkProjectHint}" />
                                 <MenuItem Header="{l:Localize AiUnlinkProject}"
                                           Click="OnRemoveFromProjectClick"
+                                          IsVisible="{Binding ShowConnectionOptions}"
                                           ToolTip.Tip="{l:Localize AiUnlinkProjectHint}" />
                                 <Separator />
                                 <MenuItem Header="{l:Localize FontDecrease}"

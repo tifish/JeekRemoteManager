@@ -10,7 +10,7 @@
 
 - 以文件夹树的方式管理 SSH 和 RDP 连接
 - 内置 SSH 终端，支持多标签页、拖拽排序，以及 ZMODEM（rz/sz）文件传输
-- 集成 AI Agent，支持使用 Claude/Codex/Grok/GitHub Copilot/OpenCode/Pi/OMP/Cursor CLI/Antigravity 操作当前 SSH 终端；Copilot 同时支持 Desktop，也可将生成的工作区在 VS Code、Cursor、Zed 或 Antigravity IDE 中打开
+- 集成 AI Agent，支持使用 Claude/Codex/Grok/GitHub Copilot/OpenCode/Pi/OMP/Cursor CLI/Antigravity 操作当前 SSH 终端，也可通过全局 AI Agent 管理整个软件并操作多个连接；Copilot 同时支持 Desktop，也可将生成的工作区在 VS Code、Cursor、Zed 或 Antigravity IDE 中打开
 - SFTP 远程文件浏览器
 - 支持 WSL：可打开本地 WSL 发行版的终端并浏览其文件
 - 远程脚本：定义带参数的可复用脚本，在连接上一键执行

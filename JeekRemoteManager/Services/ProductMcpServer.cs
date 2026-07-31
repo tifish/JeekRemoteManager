@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -102,6 +103,8 @@ internal static class ProductMcpServer
         host.AddTool("terminal_status", args => InSessionAsync(args, (tools, _) => tools.GetStatusAsync()));
         host.AddTool("terminal_run", args => RunCommandAsync(args, forceDanger: false));
         host.AddTool("terminal_run_danger", args => RunCommandAsync(args, forceDanger: true));
+        host.AddTool("terminal_run_batch", args => RunCommandBatchAsync(args, forceDanger: false));
+        host.AddTool("terminal_run_batch_danger", args => RunCommandBatchAsync(args, forceDanger: true));
         host.AddTool("terminal_interrupt", args => InSessionAsync(args,
             (tools, _) => tools.RunTerminalActionAsync(AgentTerminalAction.ForceInterrupt)));
         host.AddTool("terminal_reconnect", args => InSessionAsync(args,
@@ -141,6 +144,7 @@ internal static class ProductMcpServer
         sb.AppendLine();
         sb.AppendLine("Start with connection_list to see saved connections, session_open to get a shell,");
         sb.AppendLine("then terminal_run and friends against the returned session id.");
+        sb.AppendLine("Use terminal_run_batch with explicit connection paths for multi-server work.");
         sb.AppendLine();
         sb.AppendLine(ProductMcpContract.SessionHelp);
         sb.AppendLine();
@@ -1181,6 +1185,84 @@ internal static class ProductMcpServer
         }
 
         return ToolText(await tools.RunCommandAsync(command, timeout).ConfigureAwait(false));
+    }
+
+    private static async Task<JsonObject> RunCommandBatchAsync(JsonObject args, bool forceDanger)
+    {
+        var command = McpHost.RequiredString(args, "command");
+        int? timeout = args["timeout_seconds"] is { } timeoutNode
+            ? timeoutNode.GetValue<int>()
+            : null;
+        var openMissing = args["open_missing"]?.GetValue<bool>() ?? true;
+        var maxParallel = Math.Clamp(args["max_parallel"]?.GetValue<int>() ?? 4, 1, 16);
+        var connections = (args["connections"] as JsonArray)?
+            .Select(node => NormalizeTreePath(node?.GetValue<string>()))
+            .Where(path => path.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? [];
+        if (connections.Count == 0)
+            return ToolText("'connections' must list at least one connection tree path.", isError: true);
+
+        var dangerous = forceDanger || DangerousCommandDetector.IsDangerous(command);
+        if (dangerous)
+        {
+            var autoApprove = await OnUiAsync(() =>
+                (Desktop?.MainWindow?.DataContext as MainWindowViewModel)
+                    ?.AiAutoApproveDangerousCommands ?? false).ConfigureAwait(false);
+            if (!autoApprove)
+            {
+                var targets = string.Join(Environment.NewLine, connections.Select(path => "- " + path));
+                var message = string.Format(
+                    Localizer.Get("DialogAgentBatchCommandPrompt"),
+                    connections.Count,
+                    command,
+                    targets);
+                if (!await ConfirmInWindowAsync(
+                        Localizer.Get("DialogAgentBatchCommandTitle"),
+                        message).ConfigureAwait(false))
+                {
+                    return ToolText(
+                        "The user declined this batch command in the JeekRemoteManager window.",
+                        isError: true);
+                }
+            }
+        }
+
+        using var gate = new SemaphoreSlim(maxParallel, maxParallel);
+        async Task<JsonObject> RunOneAsync(string connection)
+        {
+            var result = new JsonObject { ["connection"] = connection };
+            await gate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                var view = await ResolveOrOpenSessionAsync(connection, openMissing).ConfigureAwait(false);
+                result["output"] = await view.AgentRemoteTools
+                    .RunCommandAsync(command, timeout)
+                    .ConfigureAwait(false);
+                result["status"] = "ok";
+            }
+            catch (Exception ex)
+            {
+                result["status"] = "error";
+                result["error"] = ex.Message;
+            }
+            finally
+            {
+                gate.Release();
+            }
+
+            return result;
+        }
+
+        var results = await Task.WhenAll(connections.Select(RunOneAsync)).ConfigureAwait(false);
+        return ToolText(new JsonObject
+        {
+            ["command"] = command,
+            ["dangerous"] = dangerous,
+            ["succeeded"] = results.Count(result => result["status"]?.GetValue<string>() == "ok"),
+            ["total"] = results.Length,
+            ["results"] = new JsonArray(results.Cast<JsonNode>().ToArray()),
+        }.ToJsonString(PrettyOptions));
     }
 
     private static async Task<JsonObject> TransferAsync(JsonObject args, bool isUpload)

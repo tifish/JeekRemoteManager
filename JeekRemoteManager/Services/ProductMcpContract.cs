@@ -242,6 +242,18 @@ public static class ProductMcpContract
                 ["timeout_seconds"] = Prop("integer", "Auto-interrupt after this many seconds."),
             }),
             ["command"]),
+        Tool("terminal_run_batch",
+            "Run the same non-interactive command across several SSH/WSL connections. Sessions are "
+            + "opened as needed, concurrency is bounded, one failure does not stop the rest, and the "
+            + "result includes output or an error for every connection. Dangerous commands are "
+            + "confirmed once in the JeekRemoteManager window with the complete target list.",
+            BatchCommandArgs(),
+            ["connections", "command"]),
+        Tool("terminal_run_batch_danger",
+            "Same as terminal_run_batch, but always treats the command as destructive and asks for "
+            + "one confirmation covering the command and every target connection.",
+            BatchCommandArgs(),
+            ["connections", "command"]),
         Tool("terminal_interrupt",
             "Force-interrupt the running command. Safe to call while terminal_run is still in flight.",
             SessionArgs()),
@@ -330,6 +342,19 @@ public static class ProductMcpContract
 
         return properties;
     }
+
+    private static JsonObject BatchCommandArgs() => new()
+    {
+        ["connections"] = new JsonObject
+        {
+            ["type"] = "array",
+            ["description"] = "Explicit connection tree paths to run on.",
+        },
+        ["command"] = Prop("string", "Command line to run on every connection."),
+        ["timeout_seconds"] = Prop("integer", "Per-connection auto-interrupt timeout."),
+        ["open_missing"] = Prop("boolean", "Open sessions for connections that have none (default true)."),
+        ["max_parallel"] = Prop("integer", "Maximum simultaneous commands (default 4, range 1-16)."),
+    };
 
     private static JsonObject Tool(string name, string description, JsonObject properties, string[]? required = null)
     {

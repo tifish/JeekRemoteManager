@@ -116,6 +116,22 @@ public static class AgentProjectLink
     {
         var project = NormalizeDirectory(projectDirectory);
         ValidateProjectDirectory(project);
+        WriteApplicationWorkspace(project, mcpToolsAutoApprove);
+        return project;
+    }
+
+    /// <summary>
+    /// Writes the same application-wide context into a directory owned by
+    /// <see cref="AgentCliWorkspace"/>. Kept internal so external project-link actions still
+    /// reject generated workspace paths and cannot accidentally link a workspace to itself.
+    /// </summary>
+    internal static void WriteApplicationWorkspace(
+        string workspaceDirectory,
+        bool mcpToolsAutoApprove)
+    {
+        var project = NormalizeDirectory(workspaceDirectory);
+        if (!Directory.Exists(project))
+            throw new DirectoryNotFoundException(project);
         Apply(
             project,
             ApplicationMarker,
@@ -123,7 +139,6 @@ public static class AgentProjectLink
             BuildApplicationReferenceBlock(),
             connectionPath: null,
             mcpToolsAutoApprove);
-        return project;
     }
 
     /// <summary>Removes only the application-wide block and MCP entry from a project.</summary>
@@ -257,6 +272,7 @@ public static class AgentProjectLink
         sb.AppendLine();
         sb.AppendLine("- Start with `connection_list` to inspect saved SSH, WSL, and RDP connections.");
         sb.AppendLine("- Use `session_list` and `session_open` to find or open terminal tabs, then pass the returned session or connection to `terminal_status`, `terminal_run`, file-transfer, and monitor tools.");
+        sb.AppendLine("- Use `terminal_run_batch` with explicit connection paths when the same command must run across several SSH/WSL connections; use `terminal_run_batch_danger` for destructive batch work.");
         sb.AppendLine("- This application-wide server is not pinned to one connection. It can manage the connection tree and control any open or saved connection, subject to the tool's confirmation rules.");
         sb.AppendLine("- Use `terminal_run_danger` for destructive work so the user is asked to confirm in the JeekRemoteManager window.");
         sb.AppendLine("- Passwords and two-factor codes are entered in that window and are never returned by MCP tools.");

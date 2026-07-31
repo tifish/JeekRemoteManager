@@ -586,6 +586,15 @@
                 </StackPanel>
 
                 <StackPanel x:Name="ToolbarTerminal" Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button x:Name="GlobalAgentToolbarButton"
+                            Click="OnGlobalAgentToolbarClick"
+                            ToolTip.Tip="{l:Localize GlobalAiAgentTooltip}"
+                            Classes="toolbar">
+                        <StackPanel Orientation="Horizontal" Spacing="7">
+                            <TextBlock Classes="toolbar-action-icon ai" Text="&#xE99A;" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize GlobalAiAgentShort}" />
+                        </StackPanel>
+                    </Button>
                     <Button Click="OnDuplicateSessionToolbarClick"
                             ToolTip.Tip="{l:Localize DuplicateSession}"
                             IsVisible="{Binding IsTerminalActive}"
@@ -1019,7 +1028,7 @@
             <GridSplitter x:Name="TreeSplitter" Grid.Column="1" Width="5" ResizeDirection="Columns"
                           Background="Transparent" />
 
-            <!-- Right pane: fixed editor tab + terminal tabs added in code-behind -->
+            <!-- Right pane: fixed editor/global-agent tabs + terminal tabs added in code-behind -->
             <Border Grid.Column="2" Classes="panel" Padding="6" ClipToBounds="True">
             <TabControl x:Name="RightTabs"
                         SelectionChanged="OnRightTabsSelectionChanged">
@@ -1283,6 +1292,17 @@
                 </StackPanel>
             </Grid>
                     </Grid>
+                </TabItem>
+                <TabItem x:Name="GlobalAgentTab">
+                    <TabItem.Header>
+                        <Border Classes="tab-pill">
+                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                <TextBlock Classes="toolbar-action-icon ai" Text="&#xE99A;" />
+                                <TextBlock Classes="tab-label" Text="{l:Localize GlobalAiAgent}" />
+                            </StackPanel>
+                        </Border>
+                    </TabItem.Header>
+                    <views:AgentCliPanelView x:Name="GlobalAgentPanel" />
                 </TabItem>
             </TabControl>
             </Border>

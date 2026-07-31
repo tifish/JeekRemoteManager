@@ -116,6 +116,34 @@ try
               StringComparison.Ordinal),
           "Application-wide project MCP link uses the fixed adapter and preserves existing config");
 
+    var generatedGlobalRoot = Path.Combine(root, "agent-workspaces");
+    var generatedGlobalWorkspace = AgentCliWorkspace.EnsureApplication(
+        mcpToolsAutoApprove: false,
+        workspaceRoot: generatedGlobalRoot);
+    var generatedGlobalAgents = File.ReadAllText(
+        Path.Combine(generatedGlobalWorkspace, "AGENTS.md"));
+    var generatedGlobalJson = JsonNode.Parse(File.ReadAllText(
+        Path.Combine(generatedGlobalWorkspace, ".mcp.json"))) as JsonObject;
+    var generatedGlobalEntry =
+        generatedGlobalJson?["mcpServers"]?[AgentProjectLink.ApplicationMcpServerName]
+            as JsonObject;
+    var generatedGlobalCodex = File.ReadAllText(
+        Path.Combine(generatedGlobalWorkspace, ".codex", "config.toml"));
+    Check(Path.GetFileName(generatedGlobalWorkspace)
+              == AgentCliWorkspace.ApplicationWorkspaceFolderName
+          && generatedGlobalAgents.Contains("whole application", StringComparison.Ordinal)
+          && generatedGlobalEntry?["command"]?.GetValue<string>() == McpAdapterRegistry.AdapterPath
+          && !(generatedGlobalEntry["args"]?.ToJsonString() ?? "")
+              .Contains("--connection", StringComparison.Ordinal)
+          && generatedGlobalCodex.Contains(
+              $"[mcp_servers.{AgentProjectLink.ApplicationMcpServerName}]",
+              StringComparison.Ordinal)
+          && generatedGlobalCodex.Contains(
+              "default_tools_approval_mode = \"prompt\"",
+              StringComparison.Ordinal)
+          && !generatedGlobalCodex.Contains("--connection", StringComparison.Ordinal),
+          "Generated global AI workspace uses an unpinned application MCP configuration");
+
     var releaseDefaultEntry = AgentMcpConfigCatalog.BuildJsonEntry(
         McpAdapterRegistry.AdapterPath,
         connectionPath: null,
@@ -175,6 +203,17 @@ try
     Check(mainWindowXaml.IndexOf("x:Name=\"AiPanelToolbarButton\"", StringComparison.Ordinal)
               < mainWindowXaml.IndexOf("x:Name=\"MonitorToolbarButton\"", StringComparison.Ordinal),
           "Terminal toolbar places AI before monitor");
+    Check(mainWindowXaml.Contains("x:Name=\"GlobalAgentToolbarButton\"", StringComparison.Ordinal)
+          && mainWindowXaml.Contains("x:Name=\"GlobalAgentTab\"", StringComparison.Ordinal)
+          && mainWindowXaml.Contains("x:Name=\"GlobalAgentPanel\"", StringComparison.Ordinal)
+          && mainWindowCode.Contains("AgentCliWorkspace.EnsureApplication", StringComparison.Ordinal)
+          && mainWindowCode.Contains(
+              "Math.Max(editorIndex, globalAgentIndex) + 1",
+              StringComparison.Ordinal)
+          && agentPanelXaml.Contains(
+              "IsVisible=\"{Binding ShowConnectionOptions}\"",
+              StringComparison.Ordinal),
+          "Main window exposes a fixed global AI Agent surface with connection-only options hidden");
     Check(mainWindowCode.IndexOf("menu.Items.Add(aiPanel);", StringComparison.Ordinal)
               < mainWindowCode.IndexOf("menu.Items.Add(monitor);", StringComparison.Ordinal),
           "Terminal tab menu places AI before monitor");
@@ -204,6 +243,9 @@ try
     Check(DebugMcpContract.BuildToolList()
               .Any(tool => tool?["name"]?.GetValue<string>() == "terminal_tab_title_check"),
           "Debug MCP advertises terminal-tab title verification");
+    Check(DebugMcpContract.BuildToolList()
+              .Any(tool => tool?["name"]?.GetValue<string>() == "global_agent_check"),
+          "Debug MCP advertises global AI Agent verification");
     Check(!agentPanelXaml.Contains("AiEndpoint", StringComparison.Ordinal)
           && typeof(AppSettings).GetProperty("AiEndpoints") is null
           && !DebugMcpContract.BuildToolList()
@@ -1183,16 +1225,24 @@ try
             ',', first.Select(t => t?["name"]?.GetValue<string>() ?? "?"));
         var sessionMove = first.FirstOrDefault(
             t => t?["name"]?.GetValue<string>() == "session_move");
+        var terminalRunBatch = first.FirstOrDefault(
+            t => t?["name"]?.GetValue<string>() == "terminal_run_batch");
         productToolsOk = first.Count > 0
                          && first.Count == second.Count
                          && first.Any(t => t?["name"]?.GetValue<string>() == "terminal_run")
                          && first.Any(t => t?["name"]?.GetValue<string>() == "terminal_run_danger")
+                         && first.Any(t => t?["name"]?.GetValue<string>() == "terminal_run_batch_danger")
                          && first.Any(t => t?["name"]?.GetValue<string>() == "session_open")
                          && sessionMove?["inputSchema"]?["properties"]?["position"]?["type"]
                              ?.GetValue<string>() == "integer"
                          && sessionMove["inputSchema"]?["required"] is JsonArray moveRequired
                          && moveRequired.Select(node => node?.GetValue<string>())
                              .SequenceEqual(["session", "position"])
+                         && terminalRunBatch?["inputSchema"]?["properties"]?["max_parallel"]?["type"]
+                             ?.GetValue<string>() == "integer"
+                         && terminalRunBatch["inputSchema"]?["required"] is JsonArray batchRequired
+                         && batchRequired.Select(node => node?.GetValue<string>())
+                             .SequenceEqual(["connections", "command"])
                          && first.All(t => t?["inputSchema"]?["properties"] is JsonObject);
     }
     catch (Exception ex)
