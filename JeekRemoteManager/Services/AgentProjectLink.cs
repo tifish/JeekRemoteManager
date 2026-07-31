@@ -41,12 +41,15 @@ public sealed record AgentWorkspaceLink(
         $"{AgentCliWorkspace.McpServerName}-{AgentProjectLink.Slugify(NormalizedRelativePath)}";
 
     /// <summary>
-    /// The stdio adapter agents launch. It sits beside the app, derives the pipe name from
-    /// its own folder, and reconnects on its own — so a linked project's config is written
-    /// once and never goes stale, unlike the loopback URL this replaced.
+    /// The stdio adapter agents launch from its fixed per-user location. It resolves the registered
+    /// application instance and reconnects on its own, so project configs never contain an install
+    /// directory and remain valid when the application moves.
     /// </summary>
     public static string AdapterPath =>
-        Path.Combine(AppContext.BaseDirectory, "JeekRemoteManagerMcp.exe");
+        McpAdapterRegistry.AdapterPath;
+
+    /// <summary>Debug worktrees route through their path-derived instance; Release is the default.</summary>
+    public static string? AdapterInstanceId => McpAdapterRegistration.ConfigInstanceId;
 }
 
 /// <summary>
@@ -294,7 +297,10 @@ public static class AgentProjectLink
                     path,
                     target.JsonRootKey!,
                     serverName,
-                    AgentMcpConfigCatalog.BuildJsonEntry(adapter, connectionPath));
+                    AgentMcpConfigCatalog.BuildJsonEntry(
+                        adapter,
+                        connectionPath,
+                        AgentWorkspaceLink.AdapterInstanceId));
             }
             else
             {
@@ -306,7 +312,8 @@ public static class AgentProjectLink
                         serverName,
                         adapter,
                         connectionPath,
-                        mcpToolsAutoApprove));
+                        mcpToolsAutoApprove,
+                        AgentWorkspaceLink.AdapterInstanceId));
             }
         }
     }

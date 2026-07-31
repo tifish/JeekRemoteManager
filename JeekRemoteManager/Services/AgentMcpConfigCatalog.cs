@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -82,15 +83,19 @@ public static class AgentMcpConfigCatalog
     /// connection. Omitting <paramref name="connectionPath"/> exposes the application-wide product
     /// MCP surface. There is no URL, port, or token here, so the file stays valid across restarts.
     /// </summary>
-    public static JsonObject BuildJsonEntry(string adapterPath, string? connectionPath)
+    public static JsonObject BuildJsonEntry(
+        string adapterPath,
+        string? connectionPath,
+        string? instanceId = null)
     {
         var entry = new JsonObject
         {
             ["type"] = "stdio",
             ["command"] = adapterPath,
         };
-        if (!string.IsNullOrWhiteSpace(connectionPath))
-            entry["args"] = new JsonArray("--connection", connectionPath);
+        var args = BuildAdapterArguments(connectionPath, instanceId);
+        if (args.Count > 0)
+            entry["args"] = args;
         return entry;
     }
 
@@ -100,16 +105,25 @@ public static class AgentMcpConfigCatalog
         string serverName,
         string adapterPath,
         string? connectionPath,
-        bool mcpToolsAutoApprove)
+        bool mcpToolsAutoApprove,
+        string? instanceId = null)
     {
         var sb = new StringBuilder();
         sb.Append("[mcp_servers.").Append(serverName).Append("]\n");
         sb.Append("command = \"").Append(EscapeToml(adapterPath)).Append("\"\n");
-        if (!string.IsNullOrWhiteSpace(connectionPath))
+        var args = BuildAdapterArguments(connectionPath, instanceId)
+            .Select(node => node?.GetValue<string>() ?? "")
+            .ToArray();
+        if (args.Length > 0)
         {
-            sb.Append("args = [\"--connection\", \"")
-              .Append(EscapeToml(connectionPath))
-              .Append("\"]\n");
+            sb.Append("args = [");
+            for (var i = 0; i < args.Length; i++)
+            {
+                if (i > 0)
+                    sb.Append(", ");
+                sb.Append('"').Append(EscapeToml(args[i])).Append('"');
+            }
+            sb.Append("]\n");
         }
         if (target.SupportsApprovalMode)
         {
@@ -119,6 +133,22 @@ public static class AgentMcpConfigCatalog
         }
 
         return sb.ToString();
+    }
+
+    private static JsonArray BuildAdapterArguments(string? connectionPath, string? instanceId)
+    {
+        var args = new JsonArray();
+        if (!string.IsNullOrWhiteSpace(instanceId))
+        {
+            args.Add("--instance");
+            args.Add(instanceId);
+        }
+        if (!string.IsNullOrWhiteSpace(connectionPath))
+        {
+            args.Add("--connection");
+            args.Add(connectionPath);
+        }
+        return args;
     }
 
     /// <summary>

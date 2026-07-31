@@ -42,6 +42,17 @@ public partial class App : Application
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            try
+            {
+                McpAdapterRegistration.RegisterCurrentInstance();
+            }
+            catch (Exception ex)
+            {
+                // The GUI remains usable, but generated agent configs will report the missing
+                // fixed adapter through the Debug MCP verification tool.
+                Log.ZLogWarning(ex, $"Could not register the fixed MCP adapter");
+            }
+
             // Closing the main window only hides it to the tray; exit happens
             // via the tray's Exit menu.
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
@@ -77,8 +88,9 @@ public partial class App : Application
             DebugMcpServer.Start();
             desktop.Exit += (_, _) => DebugMcpServer.Stop();
 
-            // Product surface (all builds), on its own named pipe. Agents reach it through
-            // bin\JeekRemoteManagerMcp.exe; tools that need the window report awaiting_user until it is up.
+            // Product surface (all builds), on its own named pipe. Agents reach it through the
+            // fixed per-user JeekRemoteManagerMcp.exe; tools that need the window report
+            // awaiting_user until it is up.
             ProductMcpServer.Start();
             desktop.Exit += (_, _) => ProductMcpServer.Stop();
 

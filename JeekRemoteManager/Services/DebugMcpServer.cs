@@ -1494,6 +1494,17 @@ internal static class DebugMcpServer
             var root = TryParseJsonObject(File.ReadAllText(Path.Combine(project, ".mcp.json")));
             var entry = root?["mcpServers"]?[AgentProjectLink.ApplicationMcpServerName] as JsonObject;
             var codex = File.ReadAllText(Path.Combine(project, ".codex", "config.toml"));
+            var instanceId = AgentWorkspaceLink.AdapterInstanceId;
+            var jsonRouteOk = instanceId is null
+                ? entry?["args"] is null
+                : entry?["args"] is JsonArray routeArgs
+                  && routeArgs.Select(node => node?.GetValue<string>())
+                      .SequenceEqual(["--instance", instanceId]);
+            var codexRouteOk = instanceId is null
+                ? !codex.Contains("--instance", StringComparison.Ordinal)
+                : codex.Contains(
+                    $"args = [\"--instance\", \"{instanceId}\"]",
+                    StringComparison.Ordinal);
 
             Check(
                 "AGENTS.md describes global application control",
@@ -1501,18 +1512,21 @@ internal static class DebugMcpServer
                 && agentsMd.Contains("connection_list", StringComparison.Ordinal)
                 && agentsMd.Contains("whole application", StringComparison.Ordinal));
             Check(
-                "JSON config launches the local adapter without a connection pin",
-                entry?["command"]?.GetValue<string>().EndsWith(
-                    "JeekRemoteManagerMcp.exe",
-                    StringComparison.OrdinalIgnoreCase) == true
-                && entry["args"] is null
+                "JSON config launches the fixed adapter with only the required instance route",
+                entry?["command"]?.GetValue<string>() == McpAdapterRegistry.AdapterPath
+                && jsonRouteOk
                 && entry["url"] is null);
             Check(
                 "Codex config is application-wide",
                 codex.Contains(
                     $"[mcp_servers.{AgentProjectLink.ApplicationMcpServerName}]",
                     StringComparison.Ordinal)
-                && !codex.Contains("--connection", StringComparison.Ordinal));
+                && !codex.Contains("--connection", StringComparison.Ordinal)
+                && codexRouteOk);
+            Check(
+                "fixed adapter and current instance registration exist",
+                File.Exists(McpAdapterRegistry.AdapterPath)
+                && McpAdapterRegistration.IsCurrentInstanceRegistered());
             Check(
                 "existing project configuration is preserved",
                 root?["mcpServers"]?["other"] is not null
@@ -1663,11 +1677,27 @@ internal static class DebugMcpServer
             }
         }
 
-        var escapedAdapter = adapter.Replace("\\", "\\\\", StringComparison.Ordinal);
-        var pinned = $"\"--connection\", \"{connection}\"";
+        var expectedArguments = new List<string>();
+        if (AgentWorkspaceLink.AdapterInstanceId is { } instanceId)
+        {
+            expectedArguments.Add("--instance");
+            expectedArguments.Add(instanceId);
+        }
+        expectedArguments.Add("--connection");
+        expectedArguments.Add(connection);
+        static string EscapeTomlValue(string value) =>
+            value.Replace("\\", "\\\\", StringComparison.Ordinal)
+                .Replace("\"", "\\\"", StringComparison.Ordinal);
+        var escapedAdapter = EscapeTomlValue(adapter);
+        var expectedTomlArgs = "args = ["
+                               + string.Join(
+                                   ", ",
+                                   expectedArguments.Select(value => $"\"{EscapeTomlValue(value)}\""))
+                               + "]";
         var checks = new List<(string Name, bool Ok)>
         {
             ("adapter", File.Exists(adapter)),
+            ("instance registration", McpAdapterRegistration.IsCurrentInstanceRegistered()),
             ("AGENTS.md", agents.Contains($"**Adapter:** `{adapter}`", StringComparison.Ordinal)
                           && agents.Contains(
                               $"**Pinned connection:** `{connection}`",
@@ -1688,9 +1718,9 @@ internal static class DebugMcpServer
                   && entry["command"]?.GetValue<string>() == adapter
                   && entry["args"] is JsonArray entryArgs
                   && entryArgs.Select(node => node?.GetValue<string>())
-                      .SequenceEqual(["--connection", connection])
+                      .SequenceEqual(expectedArguments)
                 : text.Contains(escapedAdapter, StringComparison.Ordinal)
-                  && text.Contains(pinned, StringComparison.Ordinal);
+                  && text.Contains(expectedTomlArgs, StringComparison.Ordinal);
 
             checks.Add((target.RelativePath, ok));
             // AGENTS.md must tell the agent which file to look at, or the workspace is
@@ -1714,7 +1744,8 @@ internal static class DebugMcpServer
             .AppendLine($"{(passed ? "PASS" : "FAIL")}: AI CLI MCP config")
             .AppendLine($"workspace={workspace}")
             .AppendLine($"connectionFile={(File.Exists(sourcePath) ? sourcePath : "(not found)")}")
-            .AppendLine($"adapter={adapter}");
+            .AppendLine($"adapter={adapter}")
+            .AppendLine($"instance={AgentWorkspaceLink.AdapterInstanceId ?? "release (default)"}");
         foreach (var (name, ok) in checks)
             report.AppendLine($"{name}={(ok ? "ok" : "FAIL")}");
 

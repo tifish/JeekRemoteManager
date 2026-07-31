@@ -11,7 +11,7 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>false</SelfContained>
     <PlatformTarget>x64</PlatformTarget>
-    <!-- Publish as one file beside the app so NetBeauty never patches a separate runtimeconfig. -->
+    <!-- Publish as one file beside the app; startup installs that file at the stable per-user path. -->
     <PublishSingleFile>true</PublishSingleFile>
     <OutDir>..\..\artifacts\JeekRemoteManagerMcp</OutDir>
     <PublishDir>..\..\bin</PublishDir>
@@ -21,6 +21,7 @@
   <ItemGroup>
     <!-- Single source of truth for pipe names, shared with the app. -->
     <Compile Include="..\..\JeekRemoteManager\Services\McpPipeNames.cs" Link="McpPipeNames.cs" />
+    <Compile Include="..\..\JeekRemoteManager\Services\McpAdapterRegistry.cs" Link="McpAdapterRegistry.cs" />
   </ItemGroup>
 
 </Project>

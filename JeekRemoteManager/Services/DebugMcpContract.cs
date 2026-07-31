@@ -64,7 +64,7 @@ public static class DebugMcpContract
             "Report the resolved executable path (or install hint) for every agent CLI the AI panel offers; optionally resolve one path through the locator's link resolution.",
             new() { ["path"] = Prop("string", "Optional file path to run through ResolveRealPath.") }),
         Tool("agent_cli_mcp_config_check",
-            "Refresh and verify one generated AI workspace has accurate AGENTS.md connection context, the installed JeekRemoteManagerMcp adapter, Claude approval, and every project MCP config in the catalog (.mcp.json, .vscode/mcp.json, .codex, .grok) pinned to the requested connection under the root key each agent reads.",
+            "Refresh and verify one generated AI workspace has accurate AGENTS.md connection context, the fixed JeekRemoteManagerMcp.exe, a valid registry route to this instance, Claude approval, and every project MCP config in the catalog (.mcp.json, .vscode/mcp.json, .codex, .grok) pinned to the requested connection under the root key each agent reads.",
             new() { ["connection"] = Prop("string", "Connection tree path under AgentWorkspaces (default vps/bwg).") }),
         Tool("agent_endpoint_check",
             "Verify custom API endpoints end to end without revealing the key: reports the agent's saved endpoints (hasApiKey only) and the environment variables its launch would set, with secret values masked to their length. Can also add, select, and delete saved endpoints to exercise the picker.",

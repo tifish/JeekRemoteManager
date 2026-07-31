@@ -87,22 +87,47 @@ try
     var globalEntry = globalJson?["mcpServers"]?[AgentProjectLink.ApplicationMcpServerName] as JsonObject;
     var globalCodex = File.ReadAllText(
         Path.Combine(globalMcpProject, ".codex", "config.toml"));
+    var expectedGlobalInstance = AgentWorkspaceLink.AdapterInstanceId;
+    var globalJsonRouteOk = expectedGlobalInstance is null
+        ? globalEntry?["args"] is null
+        : globalEntry?["args"] is JsonArray globalArgs
+          && globalArgs.Select(node => node?.GetValue<string>())
+              .SequenceEqual(["--instance", expectedGlobalInstance]);
+    var globalCodexRouteOk = expectedGlobalInstance is null
+        ? !globalCodex.Contains("--instance", StringComparison.Ordinal)
+        : globalCodex.Contains(
+            $"args = [\"--instance\", \"{expectedGlobalInstance}\"]",
+            StringComparison.Ordinal);
     Check(globalAgents.Contains("BEGIN JeekRemoteManager link: application", StringComparison.Ordinal)
           && globalAgents.Contains("connection_list", StringComparison.Ordinal)
           && globalAgents.Contains("whole application", StringComparison.Ordinal)
-          && globalEntry?["command"]?.GetValue<string>().EndsWith(
-              "JeekRemoteManagerMcp.exe", StringComparison.OrdinalIgnoreCase) == true
-          && globalEntry["args"] is null
+          && globalEntry?["command"]?.GetValue<string>() == McpAdapterRegistry.AdapterPath
+          && globalJsonRouteOk
           && globalEntry["url"] is null
           && globalJson?["mcpServers"]?["other"] is not null
           && globalCodex.Contains(
               $"[mcp_servers.{AgentProjectLink.ApplicationMcpServerName}]",
               StringComparison.Ordinal)
           && !globalCodex.Contains("--connection", StringComparison.Ordinal)
+          && globalCodexRouteOk
           && globalCodex.Contains(
               "default_tools_approval_mode = \"approve\"",
               StringComparison.Ordinal),
-          "Application-wide project MCP link is unpinned and preserves existing project config");
+          "Application-wide project MCP link uses the fixed adapter and preserves existing config");
+
+    var releaseDefaultEntry = AgentMcpConfigCatalog.BuildJsonEntry(
+        McpAdapterRegistry.AdapterPath,
+        connectionPath: null,
+        instanceId: null);
+    var debugRouteEntry = AgentMcpConfigCatalog.BuildJsonEntry(
+        McpAdapterRegistry.AdapterPath,
+        connectionPath: null,
+        instanceId: "0123456789ab");
+    Check(releaseDefaultEntry["args"] is null
+          && debugRouteEntry["args"] is JsonArray debugRouteArgs
+          && debugRouteArgs.Select(node => node?.GetValue<string>())
+              .SequenceEqual(["--instance", "0123456789ab"]),
+          "Release omits --instance while Debug configurations include their instance id");
 
     AgentProjectLink.WriteApplicationInto(globalMcpProject, mcpToolsAutoApprove: false);
     globalAgents = File.ReadAllText(Path.Combine(globalMcpProject, "AGENTS.md"));
