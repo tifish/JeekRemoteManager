@@ -1823,13 +1823,20 @@ try
           "Atomic settings replacement leaves valid JSON and no temporary file");
 
     var alternateDebugPath = Path.Combine(root, "other-worktree", "bin");
-    Check(DebugInstanceContext.IsDebugBuild
-          && DebugInstanceContext.InstanceId.Length == 12
+    var buildInstanceIdentityOk = DebugInstanceContext.IsDebugBuild
+        ? DebugInstanceContext.InstanceId.Length == 12
           && DebugInstanceContext.CreateInstanceId(AppContext.BaseDirectory)
              != DebugInstanceContext.CreateInstanceId(alternateDebugPath)
-          && DebugInstanceContext.RuntimeTempRoot.Contains(DebugInstanceContext.InstanceId,
-              StringComparison.OrdinalIgnoreCase),
-          "Debug worktrees receive stable distinct identities and runtime temp roots");
+          && DebugInstanceContext.RuntimeTempRoot.Contains(
+              DebugInstanceContext.InstanceId,
+              StringComparison.OrdinalIgnoreCase)
+        : DebugInstanceContext.InstanceId == "release"
+          && string.Equals(
+              DebugInstanceContext.RuntimeTempRoot,
+              Path.Combine(Path.GetTempPath(), "JeekRemoteManager"),
+              StringComparison.OrdinalIgnoreCase);
+    Check(buildInstanceIdentityOk,
+          "Debug worktrees are isolated while Release uses the stable default identity");
     Check(!Path.GetFullPath(DebugInstanceContext.Info.ConfigRoot).StartsWith(
               Path.GetFullPath(DebugInstanceContext.RuntimeTempRoot),
               StringComparison.OrdinalIgnoreCase)
@@ -1864,8 +1871,9 @@ try
     var autoUpdateScript = File.Exists(autoUpdateScriptPath)
         ? File.ReadAllText(autoUpdateScriptPath)
         : "";
-    Check(autoUpdateScript.Contains("$preserveNames = @(\"Config\", \"Connections\", \"Scripts\", \"AutoUpdate.ps1\")"),
-          "Auto-update preserves Config and legacy top-level user data");
+    Check(autoUpdateScript.Contains(
+              "$preserveNames = @(\"Config\", \"Connections\", \"Scripts\", \"Logs\", \"AutoUpdate.ps1\")"),
+          "Auto-update preserves Config, Logs, and legacy top-level user data");
     Check(!autoUpdateScript.Contains("HttpClient")
           && !autoUpdateScript.Contains("Download-FileWithProgress"),
           "Auto-update script no longer downloads; the app stages the package before launching it");
