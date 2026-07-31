@@ -57,6 +57,8 @@ public class SettingsService
         _roamingSettingsPathOverride = roamingSettingsPath;
         RoamingSettingsPath = roamingSettingsPath
             ?? ResolveSettingsPath(Storage.ResolveEffectiveLocation(machineSettings.StorageLocation), machineSettings.CustomStoragePath);
+        var legacyClaudeEndpointsPresent =
+            TryReadJsonObject(RoamingSettingsPath)?.ContainsKey("AiEndpoints") == true;
         var roamingSettings = LoadRoamingSettings(RoamingSettingsPath, fallbackRoamingSettings);
         NormalizeRoamingSettings(roamingSettings);
 
@@ -83,9 +85,14 @@ public class SettingsService
         _baseRoamingSettings = JsonSettingsFile.Clone(ToRoamingSettings(Settings));
         _lastSavedMachineJson = JsonSettingsFile.Serialize(_baseMachineSettings);
         _lastSavedRoamingPath = CurrentRoamingSettingsPath();
-        _lastSavedRoamingJson = JsonSettingsFile.Serialize(_baseRoamingSettings);
+        // Force one normalized rewrite when an older build left Claude gateway credentials
+        // behind. The typed settings model already ignores that retired field; the rewrite
+        // removes its orphaned encrypted keys from disk while preserving current preferences.
+        _lastSavedRoamingJson = legacyClaudeEndpointsPresent
+            ? ""
+            : JsonSettingsFile.Serialize(_baseRoamingSettings);
 
-        if (migratedMachineSettings is not null)
+        if (migratedMachineSettings is not null || legacyClaudeEndpointsPresent)
             SaveIfChanged();
     }
 
@@ -226,7 +233,6 @@ public class SettingsService
             AiProvider = roamingSettings.AiProvider,
             AiAutoRun = roamingSettings.AiAutoRun,
             AiAutoApproveDangerousCommands = roamingSettings.AiAutoApproveDangerousCommands,
-            AiEndpoints = roamingSettings.AiEndpoints,
         };
 
     private static MachineAppSettings ToMachineSettings(AppSettings settings)
@@ -271,7 +277,6 @@ public class SettingsService
             AiProvider = settings.AiProvider,
             AiAutoRun = settings.AiAutoRun,
             AiAutoApproveDangerousCommands = settings.AiAutoApproveDangerousCommands,
-            AiEndpoints = settings.AiEndpoints,
         };
         NormalizeRoamingSettings(roamingSettings);
         return roamingSettings;
@@ -312,7 +317,6 @@ public class SettingsService
         settings.AiProvider = normalized.AiProvider;
         settings.AiAutoRun = normalized.AiAutoRun;
         settings.AiAutoApproveDangerousCommands = normalized.AiAutoApproveDangerousCommands;
-        settings.AiEndpoints = normalized.AiEndpoints;
     }
 
     private static void NormalizeMachineSettings(MachineAppSettings settings)
@@ -371,16 +375,6 @@ public class SettingsService
         if (string.IsNullOrWhiteSpace(settings.AiProvider))
             settings.AiProvider = null;
 
-        // Drop endpoints saved for agents that no longer offer them, so the file does not keep
-        // carrying a section nothing reads. Codex was removed once it dropped Chat Completions.
-        foreach (var key in settings.AiEndpoints.Keys.ToList())
-        {
-            if (!Enum.TryParse<AgentCliKind>(key, ignoreCase: true, out var kind)
-                || !AgentEndpointConfig.Supports(kind))
-            {
-                settings.AiEndpoints.Remove(key);
-            }
-        }
     }
 
     private static bool IsValidWindowDimension(double? value) =>

@@ -164,6 +164,8 @@ try
         repoRoot, "JeekRemoteManager", "Views", "MainWindow.axaml"));
     var mainWindowCode = File.ReadAllText(Path.Combine(
         repoRoot, "JeekRemoteManager", "Views", "MainWindow.axaml.cs"));
+    var agentPanelXaml = File.ReadAllText(Path.Combine(
+        repoRoot, "JeekRemoteManager", "Views", "AgentCliPanelView.axaml"));
     Check(terminalViewXaml.IndexOf("x:Name=\"AiPanelHost\"", StringComparison.Ordinal)
               < terminalViewXaml.IndexOf("x:Name=\"MonitorPanelHost\"", StringComparison.Ordinal)
           && terminalViewXaml.Contains("x:Name=\"AiPanelHost\"\n                Grid.Column=\"0\"", StringComparison.Ordinal)
@@ -201,6 +203,11 @@ try
     Check(DebugMcpContract.BuildToolList()
               .Any(tool => tool?["name"]?.GetValue<string>() == "terminal_tab_title_check"),
           "Debug MCP advertises terminal-tab title verification");
+    Check(!agentPanelXaml.Contains("AiEndpoint", StringComparison.Ordinal)
+          && typeof(AppSettings).GetProperty("AiEndpoints") is null
+          && !DebugMcpContract.BuildToolList()
+              .Any(tool => tool?["name"]?.GetValue<string>() == "agent_endpoint_check"),
+          "Claude exposes no custom API endpoint UI, persisted setting, or Debug MCP tool");
 
     var functionKeySequences = new[]
     {
@@ -1700,6 +1707,39 @@ try
     Check(tempSettings.SaveIfChanged(), "Unchanged settings flush succeeds");
     Check(!File.Exists(tempMachineSettingsPath) && !File.Exists(tempRoamingSettingsPath),
           "Unchanged settings flush does not write settings.json");
+
+    var legacyEndpointMachinePath = Path.Combine(root, "LegacyEndpoint", "Local", "settings.json");
+    var legacyEndpointRoamingPath = Path.Combine(root, "LegacyEndpoint", "Roaming", "settings.json");
+    Directory.CreateDirectory(Path.GetDirectoryName(legacyEndpointRoamingPath)!);
+    File.WriteAllText(
+        legacyEndpointRoamingPath,
+        """
+        {
+          "Theme": "Dark",
+          "AiEndpoints": {
+            "Claude": {
+              "Profiles": [
+                {
+                  "Id": "legacy",
+                  "Name": "gateway",
+                  "BaseUrl": "https://gateway.example",
+                  "EncryptedApiKey": "retired-secret",
+                  "Model": "legacy-model"
+                }
+              ],
+              "SelectedId": "legacy"
+            }
+          }
+        }
+        """);
+    var migratedEndpointSettings = new SettingsService(
+        legacyEndpointMachinePath,
+        legacyEndpointRoamingPath);
+    var migratedEndpointJson = File.ReadAllText(legacyEndpointRoamingPath);
+    Check(migratedEndpointSettings.Settings.Theme == "Dark"
+          && !migratedEndpointJson.Contains("AiEndpoints", StringComparison.Ordinal)
+          && !migratedEndpointJson.Contains("retired-secret", StringComparison.Ordinal),
+          "Loading old settings removes retired Claude endpoints and their encrypted keys");
     tempSettings.Settings.Language = "zh";
     tempSettings.Settings.AiAutoRun = false;
     tempSettings.Settings.AiAutoApproveDangerousCommands = true;

@@ -18,49 +18,6 @@ public sealed record AgentCliRunModeOption(AgentCliRunMode Mode, string Label)
     public override string ToString() => Label;
 }
 
-/// <summary>What an entry in the endpoint picker does when chosen.</summary>
-public enum AgentEndpointAction
-{
-    /// <summary>Use the agent's own API, or one of the saved endpoints.</summary>
-    Select,
-    Add,
-    Edit,
-    Delete,
-}
-
-/// <summary>
-/// One row of the endpoint picker: the official API, a saved endpoint, or an action. Actions sit
-/// in the same list so the picker is the single place endpoints are chosen and managed.
-///
-/// Rows hide through <see cref="IsVisible"/> rather than by being added to and removed from the
-/// collection. Mutating the collection while the ComboBox is raising its own selection-changed
-/// notification leaves the control with no selection and the picker renders blank.
-/// </summary>
-public sealed partial class AgentEndpointOption : ObservableObject
-{
-    public AgentEndpointOption(
-        AgentEndpointAction action,
-        string label,
-        AgentEndpointProfile? profile = null)
-    {
-        Action = action;
-        Label = label;
-        Profile = profile;
-    }
-
-    public AgentEndpointAction Action { get; }
-
-    public string Label { get; }
-
-    public AgentEndpointProfile? Profile { get; }
-
-    /// <summary>False collapses this row in the drop-down without resizing the collection.</summary>
-    [ObservableProperty]
-    private bool _isVisible = true;
-
-    public override string ToString() => Label;
-}
-
 /// <summary>
 /// Drives the AI side panel after the headless-chat rewrite: pick a local agent, host it in-app
 /// (ConPTY), open it in Windows Terminal, launch Claude/Codex desktop via registered protocol, or
@@ -77,8 +34,6 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     private Process? _externalProcess;
     private bool _detachedAppActive;
     private bool _disposed;
-    /// <summary>Set while the picker is rebuilt, so repopulating it does not look like a choice.</summary>
-    private bool _suppressEndpointSelection;
     /// <summary>Bumped on every start/stop request so superseded launches dispose their process.</summary>
     private int _startGeneration;
     private readonly object _captureGate = new();
@@ -102,29 +57,6 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     /// endpoint, used when linking the connection into the user's own project folders.
     /// </summary>
     public Func<AgentWorkspaceLink?>? ResolveLinkContext { get; set; }
-
-    /// <summary>
-    /// Optional hook from the view: this agent's saved endpoints and current selection, or null
-    /// for agents that cannot be redirected. Read at launch so edits apply to the next start.
-    /// </summary>
-    public Func<AgentCliKind, AgentEndpointSettings?>? ResolveEndpoints { get; set; }
-
-    /// <summary>
-    /// Raised when the user picks an action from the endpoint picker. The view owns the dialogs,
-    /// so it edits the settings and calls <see cref="ReloadEndpointOptions"/> when done.
-    /// </summary>
-    public event Action<AgentEndpointAction, AgentEndpointProfile?>? EndpointActionRequested;
-
-    /// <summary>The endpoint the next launch will use, or null for the agent's official API.</summary>
-    public AgentEndpointProfile? SelectedEndpointProfile
-    {
-        get
-        {
-            if (ResolveEndpoints?.Invoke(SelectedProvider.Kind) is not { } settings)
-                return null;
-            return settings.Profiles.FirstOrDefault(p => p.Id == settings.SelectedId);
-        }
-    }
 
     /// <summary>Absolute local workspace for this connection (%LOCALAPPDATA%\JeekRemoteManager\AgentWorkspaces\...).</summary>
     public string WorkingDirectory => _workingDirectory;
@@ -181,24 +113,6 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
     [ObservableProperty]
     private AgentCliRunModeOption _selectedRunModeOption;
-
-    /// <summary>
-    /// Official API, then each saved endpoint, then add/edit/delete. Rebuilt whenever the agent,
-    /// the mode, or the saved list changes.
-    /// </summary>
-    public ObservableCollection<AgentEndpointOption> EndpointOptions { get; } = [];
-
-    [ObservableProperty]
-    private AgentEndpointOption? _selectedEndpointOption;
-
-    /// <summary>
-    /// Endpoints only apply to the terminal surfaces we launch ourselves. A desktop app or editor
-    /// is started by the shell or already running with its own settings, so the picker hides
-    /// rather than implying a redirect that will not happen.
-    /// </summary>
-    public bool ShowEndpointPicker =>
-        AgentEndpointConfig.Supports(SelectedProvider.Kind)
-        && AgentCliCatalog.SurfaceKindFor(RunMode) == AgentSurfaceKind.Terminal;
 
     /// <summary>Current launch mode (CLI / Windows Terminal / Desktop / IDE).</summary>
     public AgentCliRunMode RunMode => SelectedRunModeOption?.Mode ?? AgentCliRunMode.Cli;
@@ -288,7 +202,6 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         if (SyncRunModeOptions(value.Kind, _resolvePreferredRunMode?.Invoke(value.Kind) ?? RunMode))
             return; // The run-mode change already requested a start.
 
-        ReloadEndpointOptions();
         NotifyLayoutFlags();
         InstallCommand.NotifyCanExecuteChanged();
         RefreshStatusFromProvider();
@@ -298,121 +211,10 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     partial void OnSelectedRunModeOptionChanged(AgentCliRunModeOption value)
     {
         OnPropertyChanged(nameof(RunMode));
-        ReloadEndpointOptions();
         NotifyLayoutFlags();
         InstallCommand.NotifyCanExecuteChanged();
         RefreshStatusFromProvider();
         ApplySelection();
-    }
-
-    /// <summary>
-    /// Rebuilds the endpoint picker from the saved list and lands on the selected endpoint.
-    /// Called by the view after it adds, edits, or deletes one.
-    /// </summary>
-    public void ReloadEndpointOptions()
-    {
-        _suppressEndpointSelection = true;
-        try
-        {
-            EndpointOptions.Clear();
-            OnPropertyChanged(nameof(ShowEndpointPicker));
-            if (!ShowEndpointPicker)
-            {
-                SelectedEndpointOption = null;
-                return;
-            }
-
-            var settings = ResolveEndpoints?.Invoke(SelectedProvider.Kind);
-            EndpointOptions.Add(new AgentEndpointOption(AgentEndpointAction.Select, L("AiEndpointOfficial")));
-            foreach (var profile in settings?.Profiles ?? [])
-            {
-                EndpointOptions.Add(new AgentEndpointOption(
-                    AgentEndpointAction.Select,
-                    profile.Name.Length > 0 ? profile.Name : profile.BaseUrl,
-                    profile));
-            }
-
-            // The three actions are always in the collection; Edit and Delete only hide
-            // themselves when there is nothing to act on. See AgentEndpointOption.IsVisible.
-            EndpointOptions.Add(new AgentEndpointOption(AgentEndpointAction.Add, L("AiEndpointAdd")));
-            EndpointOptions.Add(new AgentEndpointOption(AgentEndpointAction.Edit, L("AiEndpointEdit")));
-            EndpointOptions.Add(new AgentEndpointOption(AgentEndpointAction.Delete, L("AiEndpointDelete")));
-
-            RestoreEndpointSelection();
-        }
-        finally
-        {
-            _suppressEndpointSelection = false;
-        }
-    }
-
-    /// <summary>
-    /// Hides Edit and Delete while the official API is in use, where they have nothing to act on.
-    /// Only the rows' visibility changes — the collection itself is never touched.
-    /// </summary>
-    private void SyncEndpointActionVisibility()
-    {
-        var hasProfile = SelectedEndpointProfile is not null;
-        foreach (var option in EndpointOptions)
-        {
-            if (option.Action is AgentEndpointAction.Edit or AgentEndpointAction.Delete)
-                option.IsVisible = hasProfile;
-        }
-    }
-
-    /// <summary>Points the picker at the endpoint in use, without rebuilding the list.</summary>
-    private void RestoreEndpointSelection()
-    {
-        if (EndpointOptions.Count == 0)
-            return;
-
-        var selectedId = ResolveEndpoints?.Invoke(SelectedProvider.Kind)?.SelectedId ?? "";
-        var wasSuppressed = _suppressEndpointSelection;
-        _suppressEndpointSelection = true;
-        try
-        {
-            SelectedEndpointOption = EndpointOptions.FirstOrDefault(o =>
-                                         o.Action == AgentEndpointAction.Select
-                                         && (o.Profile?.Id ?? "") == selectedId)
-                                     ?? EndpointOptions[0];
-        }
-        finally
-        {
-            _suppressEndpointSelection = wasSuppressed;
-        }
-
-        SyncEndpointActionVisibility();
-    }
-
-    partial void OnSelectedEndpointOptionChanged(AgentEndpointOption? value)
-    {
-        if (_suppressEndpointSelection || value is null || _disposed)
-            return;
-
-        if (value.Action != AgentEndpointAction.Select)
-        {
-            // An action is not a selection. Put the picker back on the endpoint in use before
-            // handing off, so the box never reads "Add…" as though it were the chosen endpoint.
-            var action = value.Action;
-            var target = SelectedEndpointProfile;
-            RestoreEndpointSelection();
-            EndpointActionRequested?.Invoke(action, target);
-            return;
-        }
-
-        if (ResolveEndpoints?.Invoke(SelectedProvider.Kind) is not { } settings)
-            return;
-
-        var newId = value.Profile?.Id ?? "";
-        if (settings.SelectedId == newId)
-            return;
-
-        settings.SelectedId = newId;
-        SyncEndpointActionVisibility();
-        EndpointActionRequested?.Invoke(AgentEndpointAction.Select, value.Profile);
-        RefreshStatusFromProvider();
-        if (IsRunning)
-            _ = RestartAsync();
     }
 
     /// <summary>
@@ -476,7 +278,6 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
     private void NotifyLayoutFlags()
     {
-        OnPropertyChanged(nameof(ShowEndpointPicker));
         OnPropertyChanged(nameof(ShowInstallPrompt));
         OnPropertyChanged(nameof(ShowStartButton));
         OnPropertyChanged(nameof(ShowEmbeddedTerminal));
@@ -805,15 +606,10 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
                 // Runtime flags only (auto-approve tools / scrollback). Server context is in AGENTS.md.
                 var args = AgentCliCatalog.BuildInteractiveArguments(provider.Kind, AutoRun);
-                // Custom endpoint, when the user configured one: base URL and key reach the agent
-                // as environment variables so the key never lands in a config file.
-                var environment = AgentEndpointConfig.BuildEnvironment(
-                    provider.Kind,
-                    SelectedEndpointProfile);
 
                 if (runMode == AgentCliRunMode.WindowsTerminal)
                 {
-                    if (!TryStartWindowsTerminal(exePath, args, environment))
+                    if (!TryStartWindowsTerminal(exePath, args))
                     {
                         if (generation != Volatile.Read(ref _startGeneration))
                             return;
@@ -845,8 +641,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
                         args,
                         cols,
                         rows,
-                        _workingDirectory,
-                        environment)).ConfigureAwait(true);
+                        _workingDirectory)).ConfigureAwait(true);
 
                 if (_disposed || generation != Volatile.Read(ref _startGeneration))
                 {
@@ -1189,8 +984,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
     private bool TryStartWindowsTerminal(
         string exePath,
-        IReadOnlyList<string> args,
-        IReadOnlyDictionary<string, string> environment)
+        IReadOnlyList<string> args)
     {
         var wt = FindWindowsTerminal();
         if (wt is null)
@@ -1205,9 +999,6 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        // wt passes its environment down to the console process it launches.
-        foreach (var (name, value) in environment)
-            psi.Environment[name] = value;
         psi.ArgumentList.Add("-d");
         psi.ArgumentList.Add(_workingDirectory);
         psi.ArgumentList.Add("--");

@@ -345,26 +345,6 @@ AiCliInstall	Install	安装
 AiCliOptions	AI panel options	AI 面板选项
 AiCliInstallNow	Install now	立即安装
 AiCliInstallHint	Uses the official installer. Requires network access. You may need to log in after install.	将运行官方安装命令，需要联网。安装后可能还需要登录。
-AiEndpointPicker	API endpoint	API 端点
-AiEndpointOfficial	Official API	官方 API
-AiEndpointAdd	Add endpoint…	添加端点…
-AiEndpointEdit	Edit this endpoint…	编辑当前端点…
-AiEndpointDelete	Delete this endpoint	删除当前端点
-AiEndpointDeleteConfirm	Delete the endpoint "{0}"? The agent goes back to its official API.	确定删除端点“{0}”吗？该 Agent 将回到官方 API。
-AiEndpointNoneSelected	Pick a saved endpoint first — the official API has nothing to edit.	请先选中一个已保存的端点；官方 API 没有可编辑的内容。
-AiEndpointName	Name	名称
-AiEndpointNamePlaceholder	(shown in the picker)	（显示在下拉框中）
-AiEndpointTitle	{0} — custom API endpoint	{0} — 自定义 API 端点
-AiEndpointHint	The key is stored encrypted and handed to the agent as an environment variable; it is never written into a config file.	密钥加密保存，仅以环境变量传给 Agent 进程，不会写入任何配置文件。
-AiEndpointBaseUrl	Base URL	接口地址（Base URL）
-AiEndpointBaseUrlRequired	Enter a base URL.	请填写接口地址。
-AiEndpointBaseUrlInvalid	The base URL must be a full http:// or https:// address.	接口地址必须是完整的 http:// 或 https:// 地址。
-AiEndpointKey	API key	API 密钥
-AiEndpointKeyKeep	(unchanged — type to replace)	（保持不变，输入即替换）
-AiEndpointKeyEmpty	(none)	（未设置）
-AiEndpointKeyClear	Clear key	清除密钥
-AiEndpointModel	Model (optional)	模型（可选）
-AiEndpointModelDefault	(agent's default)	（使用 Agent 默认值）
 AiCliNotInstalled	{0} is not installed.{2}{2}Install command:{2}{1}	未安装 {0}。{2}{2}安装命令：{2}{1}
 AiCliNotInstalledDownload	{0} is not installed.{2}{2}Download it from:{2}{1}	未安装 {0}。{2}{2}请从以下地址下载：{2}{1}
 AiCliInstalling	Installing {0}…{2}{1}	正在安装 {0}…{2}{1}
