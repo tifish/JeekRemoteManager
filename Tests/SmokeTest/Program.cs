@@ -1082,6 +1082,40 @@ try
     var copilotDesktop = providers.First(p => p.Kind == AgentCliKind.Copilot)
         .Surfaces[AgentSurfaceKind.Desktop];
     var antigravityProvider = providers.First(p => p.Kind == AgentCliKind.Antigravity);
+    var preferredAgentInstallActions =
+        new Dictionary<(AgentCliKind Kind, AgentSurfaceKind Surface), string>
+        {
+            [(AgentCliKind.Claude, AgentSurfaceKind.Terminal)] =
+                "irm https://claude.ai/install.ps1 | iex",
+            [(AgentCliKind.Claude, AgentSurfaceKind.Desktop)] =
+                "https://claude.com/download",
+            [(AgentCliKind.Codex, AgentSurfaceKind.Terminal)] =
+                "irm https://chatgpt.com/codex/install.ps1 | iex",
+            [(AgentCliKind.Codex, AgentSurfaceKind.Desktop)] =
+                "irm https://chatgpt.com/codex/install.ps1 | iex",
+            [(AgentCliKind.Grok, AgentSurfaceKind.Terminal)] =
+                "irm https://x.ai/cli/install.ps1 | iex",
+            [(AgentCliKind.Copilot, AgentSurfaceKind.Terminal)] =
+                "winget install GitHub.Copilot",
+            [(AgentCliKind.Copilot, AgentSurfaceKind.Desktop)] =
+                "https://github.com/copilot/app",
+            [(AgentCliKind.OpenCode, AgentSurfaceKind.Terminal)] =
+                "npm install -g opencode-ai",
+            [(AgentCliKind.Pi, AgentSurfaceKind.Terminal)] =
+                "npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
+            [(AgentCliKind.Omp, AgentSurfaceKind.Terminal)] =
+                "irm https://omp.sh/install.ps1 | iex",
+            [(AgentCliKind.Antigravity, AgentSurfaceKind.Terminal)] =
+                "irm https://antigravity.google/cli/install.ps1 | iex",
+            [(AgentCliKind.Antigravity, AgentSurfaceKind.Desktop)] =
+                "https://antigravity.google/download",
+            [(AgentCliKind.Antigravity, AgentSurfaceKind.Ide)] =
+                "https://antigravity.google/download",
+            [(AgentCliKind.VsCode, AgentSurfaceKind.Ide)] =
+                "https://code.visualstudio.com/Download",
+            [(AgentCliKind.Cursor, AgentSurfaceKind.Ide)] =
+                "https://cursor.com/download",
+        };
     Check(
         new[]
         {
@@ -1098,16 +1132,9 @@ try
             ])
         && AgentCliCatalog.RunModesFor(AgentCliKind.OpenCode)
             .SequenceEqual([AgentCliRunMode.Cli, AgentCliRunMode.WindowsTerminal])
-        && AgentCliInstaller.GetInstallCommandSummary(
-            AgentCliKind.Copilot, AgentSurfaceKind.Terminal) == "winget install GitHub.Copilot"
-        && AgentCliInstaller.GetInstallCommandSummary(
-            AgentCliKind.OpenCode, AgentSurfaceKind.Terminal) == "npm install -g opencode-ai"
-        && AgentCliInstaller.GetInstallCommandSummary(
-            AgentCliKind.Pi, AgentSurfaceKind.Terminal)
-            .Contains("@earendil-works/pi-coding-agent", StringComparison.Ordinal)
-        && AgentCliInstaller.GetInstallCommandSummary(
-            AgentCliKind.Omp, AgentSurfaceKind.Terminal)
-            == "npm install -g @oh-my-pi/pi-coding-agent"
+        && preferredAgentInstallActions.All(pair =>
+            AgentCliInstaller.GetInstallCommandSummary(pair.Key.Kind, pair.Key.Surface)
+                == pair.Value)
         && allMissingSurfacesHaveAction
         && !claudeDesktop.CanAutoInstall
         && claudeDesktop.InstallHint == "https://claude.com/download"

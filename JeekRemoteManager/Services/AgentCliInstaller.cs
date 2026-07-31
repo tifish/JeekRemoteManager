@@ -8,10 +8,9 @@ using System.Threading.Tasks;
 namespace JeekRemoteManager.Services;
 
 /// <summary>
-/// Runs the official one-line installers for the agent surfaces that have one (Claude Code,
-/// Codex CLI, Grok Build, Antigravity CLI, and the winget-published editors) on Windows, then
-/// re-probes <see cref="AgentCliLocator"/>. Surfaces that <see cref="CanAutoInstall"/> rejects
-/// only show a download page and never start a process here.
+/// Runs the official preferred one-line installers for agent surfaces that publish one on
+/// Windows, then re-probes <see cref="AgentCliLocator"/>. Surfaces whose official guidance
+/// prefers a graphical installer show the vendor's download page instead.
 /// </summary>
 public static class AgentCliInstaller
 {
@@ -19,6 +18,8 @@ public static class AgentCliInstaller
 
     private const string AntigravityDownload = "https://antigravity.google/download";
     private const string ClaudeDownload = "https://claude.com/download";
+    private const string CursorDownload = "https://cursor.com/download";
+    private const string VsCodeDownload = "https://code.visualstudio.com/Download";
 
     /// <summary>
     /// Official install line for one surface of an agent, shown to the user before and while it
@@ -30,7 +31,8 @@ public static class AgentCliInstaller
         {
             (AgentCliKind.Claude, AgentSurfaceKind.Desktop) => ClaudeDownload,
             (AgentCliKind.Claude, _) => "irm https://claude.ai/install.ps1 | iex",
-            (AgentCliKind.Codex, _) => "npm install -g @openai/codex",
+            (AgentCliKind.Codex, _) =>
+                "irm https://chatgpt.com/codex/install.ps1 | iex",
             (AgentCliKind.Grok, _) => "irm https://x.ai/cli/install.ps1 | iex",
             (AgentCliKind.Copilot, AgentSurfaceKind.Terminal) =>
                 "winget install GitHub.Copilot",
@@ -39,13 +41,14 @@ public static class AgentCliInstaller
             (AgentCliKind.OpenCode, _) => "npm install -g opencode-ai",
             (AgentCliKind.Pi, _) =>
                 "npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
-            (AgentCliKind.Omp, _) => "npm install -g @oh-my-pi/pi-coding-agent",
+            (AgentCliKind.Omp, _) => "irm https://omp.sh/install.ps1 | iex",
             (AgentCliKind.Antigravity, AgentSurfaceKind.Terminal) =>
                 "irm https://antigravity.google/cli/install.ps1 | iex",
             // The 2.0 desktop app and the IDE are downloads, not winget packages.
             (AgentCliKind.Antigravity, _) => AntigravityDownload,
-            (AgentCliKind.VsCode, _) => "winget install Microsoft.VisualStudioCode",
-            (AgentCliKind.Cursor, _) => "winget install Anysphere.Cursor",
+            // Both editors recommend their graphical Windows user installer.
+            (AgentCliKind.VsCode, _) => VsCodeDownload,
+            (AgentCliKind.Cursor, _) => CursorDownload,
             _ => "",
         };
 
@@ -164,7 +167,8 @@ public static class AgentCliInstaller
                 "-NoProfile -ExecutionPolicy Bypass -Command \"irm https://claude.ai/install.ps1 | iex\""),
             AgentCliKind.Codex => (
                 "powershell.exe",
-                "-NoProfile -ExecutionPolicy Bypass -Command \"npm install -g @openai/codex\""),
+                "-NoProfile -ExecutionPolicy Bypass -Command "
+                + "\"irm https://chatgpt.com/codex/install.ps1 | iex\""),
             AgentCliKind.Grok => (
                 "powershell.exe",
                 "-NoProfile -ExecutionPolicy Bypass -Command \"irm https://x.ai/cli/install.ps1 | iex\""),
@@ -182,21 +186,11 @@ public static class AgentCliInstaller
             AgentCliKind.Omp => (
                 "powershell.exe",
                 "-NoProfile -ExecutionPolicy Bypass -Command "
-                + "\"npm install -g @oh-my-pi/pi-coding-agent\""),
+                + "\"irm https://omp.sh/install.ps1 | iex\""),
             AgentCliKind.Antigravity => (
                 "powershell.exe",
                 "-NoProfile -ExecutionPolicy Bypass -Command "
                 + "\"irm https://antigravity.google/cli/install.ps1 | iex\""),
-            // Editors ship as winget packages. --accept-*-agreements keeps winget from waiting
-            // on a prompt this redirected, non-interactive process can never answer.
-            AgentCliKind.VsCode => (
-                "winget.exe",
-                "install --id Microsoft.VisualStudioCode --exact --silent "
-                + "--accept-package-agreements --accept-source-agreements"),
-            AgentCliKind.Cursor => (
-                "winget.exe",
-                "install --id Anysphere.Cursor --exact --silent "
-                + "--accept-package-agreements --accept-source-agreements"),
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
     }

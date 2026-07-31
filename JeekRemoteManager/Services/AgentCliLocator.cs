@@ -110,7 +110,17 @@ public static class AgentCliLocator
 
     public static string? FindPi() => FindNpmOrPathCommand("pi");
 
-    public static string? FindOmp() => FindNpmOrPathCommand("omp");
+    public static string? FindOmp()
+    {
+        // The recommended Windows installer places its standalone binary here when Bun is not
+        // already available. Probe it directly because the child installer cannot update this
+        // running app's inherited PATH.
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var native = Path.Combine(localAppData, "omp", "omp.exe");
+        return File.Exists(native)
+            ? ResolveRealPath(native)
+            : FindNpmOrPathCommand("omp");
+    }
 
     /// <summary>
     /// Returns the full path to <c>agy.exe</c> (Antigravity CLI), or <c>null</c> if it is not
