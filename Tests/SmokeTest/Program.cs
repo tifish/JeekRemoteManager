@@ -1043,20 +1043,45 @@ try
         AgentCliKind.Copilot, desktopPath);
     var grokDesktopUri = AgentCliCatalog.BuildDesktopProtocolUri(AgentCliKind.Grok, desktopPath);
     var encodedDesktopPath = Uri.EscapeDataString(Path.GetFullPath(desktopPath));
+    var codexDesktopArgs = AgentCliCatalog.BuildDesktopArguments(AgentCliKind.Codex, desktopPath);
+    var antigravityDesktopArgs =
+        AgentCliCatalog.BuildDesktopArguments(AgentCliKind.Antigravity, desktopPath);
     Check(AgentCliCatalog.SupportsDesktop(AgentCliKind.Claude)
           && AgentCliCatalog.SupportsDesktop(AgentCliKind.Codex)
           && AgentCliCatalog.SupportsDesktop(AgentCliKind.Copilot)
           && !AgentCliCatalog.SupportsDesktop(AgentCliKind.Grok)
           && claudeDesktopUri == $"claude://code/new?folder={encodedDesktopPath}"
-          && codexDesktopUri == $"codex://threads/new?path={encodedDesktopPath}"
+          && codexDesktopUri is null
           && copilotDesktopUri
               == "https://github.com/copilot/app/launch?open=ghapp%3A%2F%2F"
           && grokDesktopUri is null
           && claudeDesktopUri.Contains("folder=", StringComparison.Ordinal)
-          && codexDesktopUri.Contains("path=", StringComparison.Ordinal),
-          "Desktop mode protocol URIs cover Claude, Codex, and Copilot");
+          && codexDesktopArgs.SequenceEqual(["app", desktopPath])
+          && antigravityDesktopArgs.SequenceEqual([desktopPath]),
+          "Desktop mode uses Claude/Copilot handoff and executable arguments for Codex/Antigravity");
 
     var providers = AgentCliCatalog.Discover();
+    var allMissingSurfacesHaveAction = providers.All(provider =>
+        AgentCliCatalog.RunModesFor(provider.Kind)
+            .Select(AgentCliCatalog.SurfaceKindFor)
+            .Distinct()
+            .All(surfaceKind =>
+            {
+                var surface = provider.Surfaces.GetValueOrDefault(surfaceKind);
+                return surface is not null
+                       && (surface.IsAvailable
+                           || (surface.InstallHint.Length > 0
+                               && (surface.CanAutoInstall
+                                   || AgentCliInstaller.IsDownloadPage(surface.InstallHint))));
+            }));
+    var claudeDesktop = providers.First(p => p.Kind == AgentCliKind.Claude)
+        .Surfaces[AgentSurfaceKind.Desktop];
+    var codexProvider = providers.First(p => p.Kind == AgentCliKind.Codex);
+    var codexTerminal = codexProvider.Surfaces[AgentSurfaceKind.Terminal];
+    var codexDesktop = codexProvider.Surfaces[AgentSurfaceKind.Desktop];
+    var copilotDesktop = providers.First(p => p.Kind == AgentCliKind.Copilot)
+        .Surfaces[AgentSurfaceKind.Desktop];
+    var antigravityProvider = providers.First(p => p.Kind == AgentCliKind.Antigravity);
     Check(
         new[]
         {
@@ -1082,8 +1107,20 @@ try
             .Contains("@earendil-works/pi-coding-agent", StringComparison.Ordinal)
         && AgentCliInstaller.GetInstallCommandSummary(
             AgentCliKind.Omp, AgentSurfaceKind.Terminal)
-            == "npm install -g @oh-my-pi/pi-coding-agent",
-        "Copilot, OpenCode, Pi, and OMP providers expose their intended surfaces and installers");
+            == "npm install -g @oh-my-pi/pi-coding-agent"
+        && allMissingSurfacesHaveAction
+        && !claudeDesktop.CanAutoInstall
+        && claudeDesktop.InstallHint == "https://claude.com/download"
+        && codexDesktop.CanAutoInstall
+        && codexDesktop.ExecutablePath == codexTerminal.ExecutablePath
+        && copilotDesktop.IsAvailable
+        && copilotDesktop.IsAvailableWithoutExecutable
+        && !antigravityProvider.Surfaces[AgentSurfaceKind.Desktop].CanAutoInstall
+        && !antigravityProvider.Surfaces[AgentSurfaceKind.Ide].CanAutoInstall
+        && AgentCliInstaller.IsDownloadPage(
+            antigravityProvider.Surfaces[AgentSurfaceKind.Desktop].InstallHint)
+        && AgentCliLocator.FindProtocolHandler("bad scheme!") is null,
+        "Every agent surface is installed, command-installable, or linked to an official download");
 
     Check(DangerousCommandDetector.IsDangerous("rm -rf /tmp/jrm-smoke")
           && !DangerousCommandDetector.IsDangerous("echo safe"),

@@ -83,7 +83,7 @@
                     <Button Classes="toolbar icon-button"
                             Command="{Binding InstallCommand}"
                             IsVisible="{Binding ShowInstallPrompt}"
-                            ToolTip.Tip="{l:Localize AiCliInstall}"
+                            ToolTip.Tip="{Binding InstallActionText}"
                             MinHeight="28"
                             MinWidth="28"
                             Padding="0">
@@ -169,13 +169,13 @@
                                TextWrapping="Wrap"
                                TextAlignment="Center"
                                FontSize="13" />
-                    <Button Content="{l:Localize AiCliInstallNow}"
+                    <Button Content="{Binding InstallActionText}"
                             Command="{Binding InstallCommand}"
                             HorizontalAlignment="Center"
                             MinHeight="32"
                             Padding="16,6"
                             IsDefault="True" />
-                    <TextBlock Text="{l:Localize AiCliInstallHint}"
+                    <TextBlock Text="{Binding InstallHelpText}"
                                TextWrapping="Wrap"
                                TextAlignment="Center"
                                FontSize="11"

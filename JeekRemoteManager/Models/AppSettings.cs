@@ -7,7 +7,7 @@ namespace JeekRemoteManager.Models;
 /// How the AI panel launches the selected agent.
 /// <see cref="Cli"/> embeds ConPTY in the side panel (default);
 /// <see cref="WindowsTerminal"/> opens the CLI in Windows Terminal;
-/// <see cref="Desktop"/> opens Claude/Codex via registered protocol handlers.
+/// <see cref="Desktop"/> opens the agent's native desktop surface.
 /// </summary>
 public enum AgentCliRunMode
 {

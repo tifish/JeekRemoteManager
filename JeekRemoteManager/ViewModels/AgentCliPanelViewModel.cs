@@ -20,8 +20,8 @@ public sealed record AgentCliRunModeOption(AgentCliRunMode Mode, string Label)
 
 /// <summary>
 /// Drives the AI side panel after the headless-chat rewrite: pick a local agent, host it in-app
-/// (ConPTY), open it in Windows Terminal, launch Claude/Codex desktop via registered protocol, or
-/// open the workspace folder in an editor — and keep the per-tab MCP endpoint available.
+/// (ConPTY), open it in Windows Terminal, launch a desktop app, or open the workspace folder in
+/// an editor — and keep the per-tab MCP endpoint available.
 /// </summary>
 public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDisposable
 {
@@ -141,15 +141,12 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     private bool _isInstalling;
 
     /// <summary>
-    /// True when the selected agent is missing and we should show the install panel. Only a
-    /// protocol-launched desktop app is exempt — the shell resolves it, so there is no local
-    /// binary to find. Every other surface, IDE and Antigravity 2.0 included, starts an
-    /// executable that has to be there.
+    /// True when the selected surface is missing and we should offer either its official install
+    /// command or its download page.
     /// </summary>
     public bool ShowInstallPrompt =>
         !IsRunning
         && !IsInstalling
-        && !LaunchesWithoutLocalBinary
         && SelectedSurface?.IsAvailable != true;
 
     /// <summary>
@@ -159,14 +156,17 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     /// </summary>
     private AgentSurface? SelectedSurface => SelectedProvider.SurfaceFor(RunMode);
 
-    /// <summary>Desktop mode on an agent that registers a URI rather than shipping an exe we run.</summary>
-    private bool LaunchesWithoutLocalBinary =>
-        RunMode == AgentCliRunMode.Desktop
-        && AgentCliCatalog.DesktopLaunch(SelectedProvider.Kind) == AgentDesktopLaunch.Protocol;
-
-    /// <summary>Start is only for installed, idle agents (or a protocol-launched desktop app).</summary>
+    /// <summary>Start is only for available, idle surfaces.</summary>
     public bool ShowStartButton =>
         !IsRunning && !IsInstalling && CanStartSelectedProvider();
+
+    /// <summary>Label for the missing-surface action: run an installer or open its website.</summary>
+    public string InstallActionText =>
+        L(SelectedSurface?.CanAutoInstall == true ? "AiCliInstallNow" : "AiCliOpenDownload");
+
+    /// <summary>Explanation below the missing-surface action.</summary>
+    public string InstallHelpText =>
+        L(SelectedSurface?.CanAutoInstall == true ? "AiCliInstallHint" : "AiCliDownloadHint");
 
     /// <summary>Embedded ConPTY surface (CLI mode only; hidden while the install prompt is up).</summary>
     public bool ShowEmbeddedTerminal =>
@@ -285,6 +285,8 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         OnPropertyChanged(nameof(ShowEmbeddedTerminal));
         OnPropertyChanged(nameof(ShowExternalHint));
         OnPropertyChanged(nameof(ExternalHintText));
+        OnPropertyChanged(nameof(InstallActionText));
+        OnPropertyChanged(nameof(InstallHelpText));
     }
 
     private static string RunModeLabel(AgentCliRunMode mode) => mode switch
@@ -348,7 +350,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     }
 
     private bool CanStartSelectedProvider() =>
-        LaunchesWithoutLocalBinary || SelectedSurface?.IsAvailable == true;
+        SelectedSurface?.IsAvailable == true;
 
     private void RefreshStatusFromProvider()
     {
@@ -362,7 +364,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             return;
         }
 
-        if (LaunchesWithoutLocalBinary || SelectedSurface?.IsAvailable == true)
+        if (SelectedSurface?.IsAvailable == true)
         {
             StatusText = IsRunning
                 ? RunMode switch
@@ -418,8 +420,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     private bool CanInstall() =>
         !IsInstalling
         && !IsRunning
-        && SelectedSurface is { CanAutoInstall: true, IsAvailable: false }
-        && !LaunchesWithoutLocalBinary;
+        && SelectedSurface is { IsAvailable: false, InstallHint.Length: > 0 };
 
     [RelayCommand(CanExecute = nameof(CanInstall))]
     private async Task InstallAsync()
@@ -439,6 +440,23 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         var surface = AgentCliCatalog.SurfaceKindFor(RunMode);
         try
         {
+            if (SelectedSurface?.CanAutoInstall != true)
+            {
+                if (AgentCliInstaller.TryOpenDownloadPage(SelectedSurface?.InstallHint, out var error))
+                {
+                    StatusText = L("AiCliDownloadOpened", SelectedProvider.Label);
+                }
+                else
+                {
+                    StatusText = string.Format(
+                        L("AiCliDownloadFailed"),
+                        SelectedProvider.Label,
+                        error,
+                        Environment.NewLine);
+                }
+                return;
+            }
+
             var progress = new Progress<string>(line =>
             {
                 if (_disposed || !IsInstalling)
@@ -536,11 +554,10 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
                 return;
             }
 
-            // Only a protocol launch works without a local binary; every other surface needs its
-            // own executable on disk, and which one that is depends on the mode.
+            // Every offered surface has an explicit availability result. Protocol handlers are
+            // discovered from the registry; Copilot's hosted launcher is always available.
             var surface = provider.SurfaceFor(runMode);
-            if (!(runMode == AgentCliRunMode.Desktop && desktopLaunch == AgentDesktopLaunch.Protocol)
-                && surface?.ExecutablePath is null)
+            if (surface?.IsAvailable != true)
             {
                 StatusText = surface?.InstallHint ?? L("AiCliDesktopUnsupported", provider.Label);
                 NotifyLayoutFlags();
@@ -924,14 +941,19 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
     /// <summary>
     /// Opens the workspace in the agent's desktop app, whichever way that agent supports:
-    /// Claude and Codex register folder-aware URIs; Copilot uses its official app launcher
-    /// (its documented deep links cannot carry arbitrary local folders); Antigravity 2.0 is
-    /// an executable we start on the folder like an editor.
+    /// Claude registers a folder-aware URI; Copilot uses its official app launcher (its
+    /// documented deep links cannot carry arbitrary local folders); Codex uses
+    /// <c>codex app [PATH]</c>; Antigravity 2.0 starts on the folder like an editor.
     /// </summary>
     private bool TryStartDesktopApp(AgentCliDescriptor provider, AgentSurface? surface)
     {
         if (AgentCliCatalog.DesktopLaunch(provider.Kind) == AgentDesktopLaunch.Executable)
-            return surface?.ExecutablePath is { } exe && TryStartOnWorkspaceFolder(exe);
+        {
+            return surface?.ExecutablePath is { } exe
+                   && TryStartDetached(
+                       exe,
+                       AgentCliCatalog.BuildDesktopArguments(provider.Kind, _workingDirectory));
+        }
 
         var uri = AgentCliCatalog.BuildDesktopProtocolUri(provider.Kind, _workingDirectory);
         if (uri is null)
@@ -964,6 +986,9 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     /// never closes it.
     /// </summary>
     private bool TryStartOnWorkspaceFolder(string exePath)
+        => TryStartDetached(exePath, [_workingDirectory]);
+
+    private bool TryStartDetached(string exePath, IReadOnlyList<string> arguments)
     {
         try
         {
@@ -973,7 +998,8 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
                 UseShellExecute = false,
                 WorkingDirectory = _workingDirectory,
             };
-            psi.ArgumentList.Add(_workingDirectory);
+            foreach (var argument in arguments)
+                psi.ArgumentList.Add(argument);
             Process.Start(psi);
             _detachedAppActive = true;
             return true;

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using Microsoft.Win32;
 
 namespace JeekRemoteManager.Services;
 
@@ -9,6 +10,41 @@ namespace JeekRemoteManager.Services;
 /// </summary>
 public static class AgentCliLocator
 {
+    /// <summary>
+    /// Returns the registered shell command for a URI scheme, or <c>null</c> when Windows has
+    /// no handler. Desktop protocol availability must be checked explicitly: ShellExecute can
+    /// be invoked for any URI, but an unregistered scheme only fails after the user clicks it.
+    /// </summary>
+    public static string? FindProtocolHandler(string scheme)
+    {
+        if (string.IsNullOrWhiteSpace(scheme)
+            || scheme.Any(ch => !char.IsLetterOrDigit(ch) && ch is not '+' and not '-' and not '.'))
+        {
+            return null;
+        }
+
+        var subKey = $@"{scheme}\shell\open\command";
+        try
+        {
+            using var currentUser = Registry.CurrentUser.OpenSubKey($@"Software\Classes\{subKey}");
+            if (currentUser?.GetValue(null) is string userCommand
+                && !string.IsNullOrWhiteSpace(userCommand))
+            {
+                return userCommand;
+            }
+
+            using var classesRoot = Registry.ClassesRoot.OpenSubKey(subKey);
+            return classesRoot?.GetValue(null) is string machineCommand
+                   && !string.IsNullOrWhiteSpace(machineCommand)
+                ? machineCommand
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>
     /// Returns the full path to <c>claude.exe</c> (or the native launcher), or <c>null</c> if
     /// it is not installed. Probes PATH plus the native installer's default location

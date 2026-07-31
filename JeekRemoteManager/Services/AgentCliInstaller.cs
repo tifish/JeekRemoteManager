@@ -18,6 +18,7 @@ public static class AgentCliInstaller
     public sealed record InstallResult(bool Success, string Message, string? ExecutablePath);
 
     private const string AntigravityDownload = "https://antigravity.google/download";
+    private const string ClaudeDownload = "https://claude.com/download";
 
     /// <summary>
     /// Official install line for one surface of an agent, shown to the user before and while it
@@ -27,6 +28,7 @@ public static class AgentCliInstaller
     public static string GetInstallCommandSummary(AgentCliKind kind, AgentSurfaceKind surface) =>
         (kind, surface) switch
         {
+            (AgentCliKind.Claude, AgentSurfaceKind.Desktop) => ClaudeDownload,
             (AgentCliKind.Claude, _) => "irm https://claude.ai/install.ps1 | iex",
             (AgentCliKind.Codex, _) => "npm install -g @openai/codex",
             (AgentCliKind.Grok, _) => "irm https://x.ai/cli/install.ps1 | iex",
@@ -52,7 +54,37 @@ public static class AgentCliInstaller
     /// </summary>
     public static bool CanAutoInstall(AgentCliKind kind, AgentSurfaceKind surface) =>
         GetInstallCommandSummary(kind, surface) is { Length: > 0 } hint
-        && !hint.StartsWith("http", StringComparison.OrdinalIgnoreCase);
+        && !IsDownloadPage(hint);
+
+    public static bool IsDownloadPage(string? hint) =>
+        Uri.TryCreate(hint, UriKind.Absolute, out var uri)
+        && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+
+    /// <summary>Opens an official download page through the user's default browser.</summary>
+    public static bool TryOpenDownloadPage(string? url, out string error)
+    {
+        error = "";
+        if (!IsDownloadPage(url))
+        {
+            error = "The download URL is invalid.";
+            return false;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = url!,
+                UseShellExecute = true,
+            });
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            return false;
+        }
+    }
 
     public static async Task<InstallResult> InstallAsync(
         AgentCliKind kind,

@@ -1586,28 +1586,30 @@ internal static class DebugMcpServer
     {
         var sb = new StringBuilder();
         // Drive off the panel's own provider list so a newly added agent cannot be missing here,
-        // and report every surface — an agent can have its CLI installed but not its IDE.
+        // and report every surface plus its missing-state action. An agent can have its CLI
+        // installed but not its desktop app or IDE.
         foreach (var descriptor in AgentCliCatalog.Discover())
         {
-            var protocolDesktop =
-                AgentCliCatalog.DesktopLaunch(descriptor.Kind) == AgentDesktopLaunch.Protocol;
             var surfaceKinds = AgentCliCatalog.RunModesFor(descriptor.Kind)
                 .Select(AgentCliCatalog.SurfaceKindFor)
                 .Distinct()
-                // A protocol desktop has no executable to report — the shell resolves it.
-                .Where(kind => !(kind == AgentSurfaceKind.Desktop && protocolDesktop))
                 .ToList();
 
             foreach (var kind in surfaceKinds)
             {
                 var surface = descriptor.Surfaces.GetValueOrDefault(kind);
                 var label = surfaceKinds.Count > 1 ? $"{descriptor.Label} [{kind}]" : descriptor.Label;
-                sb.AppendLine(
-                    $"{label}: {surface?.ExecutablePath ?? $"(not found — {surface?.InstallHint})"}");
+                var availability = surface switch
+                {
+                    null => "(surface missing from catalog)",
+                    { ExecutablePath: { Length: > 0 } executablePath } => executablePath,
+                    { IsAvailableWithoutExecutable: true } => "available via official web launcher",
+                    { CanAutoInstall: true } =>
+                        $"not found — install command: {surface.InstallHint}",
+                    _ => $"not found — download page: {surface.InstallHint}",
+                };
+                sb.AppendLine($"{label}: {availability}");
             }
-
-            if (protocolDesktop)
-                sb.AppendLine($"{descriptor.Label} [Desktop]: registered protocol");
         }
         if (args["path"]?.GetValue<string>() is { Length: > 0 } path)
             sb.AppendLine($"resolve: {path} -> {AgentCliLocator.ResolveRealPath(path)}");

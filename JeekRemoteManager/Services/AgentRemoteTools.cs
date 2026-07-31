@@ -113,8 +113,7 @@ public enum AgentDesktopLaunch
     /// <summary>No desktop surface at all.</summary>
     None,
 
-    /// <summary>A registered URI the shell hands off (<c>claude://</c>, <c>codex://</c>).
-    /// Needs no local binary, so the panel never asks the user to install anything.</summary>
+    /// <summary>A registered URI (or official web-to-app launcher) handed to the shell.</summary>
     Protocol,
 
     /// <summary>The app's own executable, given the folder as an argument.</summary>
@@ -125,9 +124,11 @@ public enum AgentDesktopLaunch
 public sealed record AgentSurface(
     string? ExecutablePath,
     string InstallHint,
-    bool CanAutoInstall = true)
+    bool CanAutoInstall = true,
+    bool IsAvailableWithoutExecutable = false)
 {
-    public bool IsAvailable => !string.IsNullOrWhiteSpace(ExecutablePath);
+    public bool IsAvailable =>
+        IsAvailableWithoutExecutable || !string.IsNullOrWhiteSpace(ExecutablePath);
 }
 
 /// <summary>
@@ -177,10 +178,34 @@ public static class AgentCliCatalog
 
     public static IReadOnlyList<AgentCliDescriptor> Discover() =>
     [
-        Terminal(AgentCliKind.Claude, "Claude", AgentCliLocator.FindClaude()),
-        Terminal(AgentCliKind.Codex, "Codex", AgentCliLocator.FindCodex()),
+        new(AgentCliKind.Claude, "Claude", new Dictionary<AgentSurfaceKind, AgentSurface>
+        {
+            [AgentSurfaceKind.Terminal] = Surface(
+                AgentCliKind.Claude, AgentSurfaceKind.Terminal, AgentCliLocator.FindClaude()),
+            [AgentSurfaceKind.Desktop] = Surface(
+                AgentCliKind.Claude, AgentSurfaceKind.Desktop,
+                AgentCliLocator.FindProtocolHandler("claude")),
+        }),
+        new(AgentCliKind.Codex, "Codex", new Dictionary<AgentSurfaceKind, AgentSurface>
+        {
+            [AgentSurfaceKind.Terminal] = Surface(
+                AgentCliKind.Codex, AgentSurfaceKind.Terminal, AgentCliLocator.FindCodex()),
+            // The current official entry point is `codex app [PATH]`. The CLI opens the app
+            // and starts its installer when the app is missing.
+            [AgentSurfaceKind.Desktop] = Surface(
+                AgentCliKind.Codex, AgentSurfaceKind.Desktop, AgentCliLocator.FindCodex()),
+        }),
         Terminal(AgentCliKind.Grok, "Grok", AgentCliLocator.FindGrok()),
-        Terminal(AgentCliKind.Copilot, "GitHub Copilot", AgentCliLocator.FindCopilot()),
+        new(AgentCliKind.Copilot, "GitHub Copilot", new Dictionary<AgentSurfaceKind, AgentSurface>
+        {
+            [AgentSurfaceKind.Terminal] = Surface(
+                AgentCliKind.Copilot, AgentSurfaceKind.Terminal, AgentCliLocator.FindCopilot()),
+            // GitHub's hosted launcher opens the app when installed and otherwise presents the
+            // download page, so this surface is useful without a locally discoverable binary.
+            [AgentSurfaceKind.Desktop] = Surface(
+                AgentCliKind.Copilot, AgentSurfaceKind.Desktop, path: null,
+                isAvailableWithoutExecutable: true),
+        }),
         Terminal(AgentCliKind.OpenCode, "OpenCode", AgentCliLocator.FindOpenCode()),
         Terminal(AgentCliKind.Pi, "Pi", AgentCliLocator.FindPi()),
         Terminal(AgentCliKind.Omp, "OMP", AgentCliLocator.FindOmp()),
@@ -212,11 +237,16 @@ public static class AgentCliCatalog
             [AgentSurfaceKind.Ide] = Surface(kind, AgentSurfaceKind.Ide, path),
         });
 
-    private static AgentSurface Surface(AgentCliKind kind, AgentSurfaceKind surface, string? path) =>
+    private static AgentSurface Surface(
+        AgentCliKind kind,
+        AgentSurfaceKind surface,
+        string? path,
+        bool isAvailableWithoutExecutable = false) =>
         new(
             path,
             AgentCliInstaller.GetInstallCommandSummary(kind, surface),
-            AgentCliInstaller.CanAutoInstall(kind, surface));
+            AgentCliInstaller.CanAutoInstall(kind, surface),
+            isAvailableWithoutExecutable);
 
     /// <summary>Which program a run mode starts. CLI and Windows Terminal share one.</summary>
     public static AgentSurfaceKind SurfaceKindFor(AgentCliRunMode mode) => mode switch
@@ -264,15 +294,14 @@ public static class AgentCliCatalog
         };
 
     /// <summary>
-    /// How this agent's desktop surface is opened, if it has one. Claude and Codex register a
-    /// URI the shell hands off; Antigravity 2.0 is an app we launch on the folder; everything
-    /// else has no desktop surface at all.
+    /// How this agent's desktop surface is opened, if it has one. Claude registers a URI,
+    /// Copilot has an official hosted app launcher, and Codex/Antigravity are launched through
+    /// their executables.
     /// </summary>
     public static AgentDesktopLaunch DesktopLaunch(AgentCliKind kind) => kind switch
     {
-        AgentCliKind.Claude or AgentCliKind.Codex or AgentCliKind.Copilot =>
-            AgentDesktopLaunch.Protocol,
-        AgentCliKind.Antigravity => AgentDesktopLaunch.Executable,
+        AgentCliKind.Claude or AgentCliKind.Copilot => AgentDesktopLaunch.Protocol,
+        AgentCliKind.Codex or AgentCliKind.Antigravity => AgentDesktopLaunch.Executable,
         _ => AgentDesktopLaunch.None,
     };
 
@@ -281,9 +310,9 @@ public static class AgentCliCatalog
 
     /// <summary>
     /// Builds the registered-protocol URI that opens the workspace in the desktop app.
-    /// Claude: <c>claude://code/new?folder=...</c>; Codex: <c>codex://threads/new?path=...</c>.
-    /// Copilot's documented deep links cannot carry an arbitrary local path, so its official
-    /// web launcher opens the app home; the generated workspace is still prepared first.
+    /// Claude: <c>claude://code/new?folder=...</c>. Copilot's documented deep links cannot carry
+    /// an arbitrary local path, so its official web launcher opens the app home; the generated
+    /// workspace is still prepared first. Codex uses <c>codex app [PATH]</c>, not a protocol.
     /// Returns null when the kind has no desktop protocol.
     /// </summary>
     public static string? BuildDesktopProtocolUri(AgentCliKind kind, string workspacePath)
@@ -305,10 +334,25 @@ public static class AgentCliCatalog
         return kind switch
         {
             AgentCliKind.Claude => $"claude://code/new?folder={encoded}",
-            AgentCliKind.Codex => $"codex://threads/new?path={encoded}",
             AgentCliKind.Copilot =>
                 "https://github.com/copilot/app/launch?open=ghapp%3A%2F%2F",
             _ => null,
+        };
+    }
+
+    /// <summary>Arguments for executable-backed desktop surfaces.</summary>
+    public static IReadOnlyList<string> BuildDesktopArguments(
+        AgentCliKind kind,
+        string workspacePath)
+    {
+        if (string.IsNullOrWhiteSpace(workspacePath))
+            return Array.Empty<string>();
+
+        return kind switch
+        {
+            AgentCliKind.Codex => ["app", workspacePath],
+            AgentCliKind.Antigravity => [workspacePath],
+            _ => Array.Empty<string>(),
         };
     }
 
