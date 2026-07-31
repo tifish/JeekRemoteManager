@@ -10,7 +10,7 @@ Built with .NET 10 and Avalonia. Windows only.
 
 - Manage SSH and RDP connections in a folder tree
 - Built-in SSH terminal with tabs, drag-to-reorder, and ZMODEM (rz/sz) file transfer
-- Integrated AI agents: use Claude, Codex, Grok, or Antigravity to operate the current SSH terminal, or open the generated workspace in VS Code, Cursor, or Antigravity IDE
+- Integrated AI agents: use Claude, Codex, Grok, GitHub Copilot, OpenCode, Pi, OMP, or Antigravity to operate the current SSH terminal; Copilot also supports its desktop app, and generated workspaces open in VS Code, Cursor, or Antigravity IDE
 - SFTP file browser for remote hosts
 - WSL support: open terminals and browse files in local WSL distros
 - Remote scripts: define reusable scripts with parameters and run them on connections

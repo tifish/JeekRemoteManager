@@ -179,6 +179,8 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     /// <summary>Localized hint for the external (WT / Desktop / IDE) surface.</summary>
     public string ExternalHintText => RunMode switch
     {
+        AgentCliRunMode.Desktop when SelectedProvider.Kind == AgentCliKind.Copilot =>
+            L("AiCliCopilotDesktopHint", _workingDirectory),
         AgentCliRunMode.Desktop => L("AiCliDesktopHint"),
         AgentCliRunMode.Ide => L("AiCliIdeHint"),
         _ => L("AiCliExternalHint"),
@@ -922,8 +924,9 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
     /// <summary>
     /// Opens the workspace in the agent's desktop app, whichever way that agent supports:
-    /// Claude and Codex register a URI the shell hands off, while Antigravity 2.0 is an
-    /// executable we start on the folder like an editor.
+    /// Claude and Codex register folder-aware URIs; Copilot uses its official app launcher
+    /// (its documented deep links cannot carry arbitrary local folders); Antigravity 2.0 is
+    /// an executable we start on the folder like an editor.
     /// </summary>
     private bool TryStartDesktopApp(AgentCliDescriptor provider, AgentSurface? surface)
     {
@@ -936,8 +939,8 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
         try
         {
-            // Registered protocol (claude:// / codex://). ShellExecute hands off to the
-            // desktop app; the returned process (if any) is not the agent and exits quickly.
+            // Registered protocol (or Copilot's official web-to-app launcher). ShellExecute
+            // hands off to the desktop app; the returned process is not the agent.
             var psi = new ProcessStartInfo
             {
                 FileName = uri,

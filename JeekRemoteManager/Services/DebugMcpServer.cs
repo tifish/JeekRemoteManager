@@ -1696,6 +1696,12 @@ internal static class DebugMcpServer
         var checks = new List<(string Name, bool Ok)>
         {
             ("adapter", File.Exists(adapter)),
+            ("Pi MCP extension", File.Exists(Path.Combine(
+                AppContext.BaseDirectory,
+                "Data",
+                "AgentSupport",
+                "Pi",
+                "jrm-mcp.ts"))),
             ("instance registration", McpAdapterRegistration.IsCurrentInstanceRegistered()),
             ("AGENTS.md", agents.Contains($"**Adapter:** `{adapter}`", StringComparison.Ordinal)
                           && agents.Contains(
@@ -1711,13 +1717,23 @@ internal static class DebugMcpServer
         {
             var path = target.ResolvePath(workspace);
             var text = File.Exists(path) ? File.ReadAllText(path) : "";
+            var jsonRoot = target.Format == AgentMcpConfigCatalog.ConfigFormat.Json
+                ? TryParseJsonObject(text)
+                : null;
+            var entry = jsonRoot?[target.JsonRootKey!]?[AgentCliWorkspace.McpServerName] as JsonObject;
             var ok = target.Format == AgentMcpConfigCatalog.ConfigFormat.Json
-                ? TryParseJsonObject(text)?[target.JsonRootKey!]
-                      ?[AgentCliWorkspace.McpServerName] is JsonObject entry
-                  && entry["command"]?.GetValue<string>() == adapter
-                  && entry["args"] is JsonArray entryArgs
-                  && entryArgs.Select(node => node?.GetValue<string>())
-                      .SequenceEqual(expectedArguments)
+                ? target.JsonStyle == AgentMcpConfigCatalog.JsonEntryStyle.OpenCodeLocal
+                    ? entry?["type"]?.GetValue<string>() == "local"
+                      && entry["command"] is JsonArray command
+                      && command.Select(node => node?.GetValue<string>())
+                          .SequenceEqual(new[] { adapter }.Concat(expectedArguments))
+                      && entry["enabled"]?.GetValue<bool>() == true
+                      && jsonRoot?["permission"]?[$"{AgentCliWorkspace.McpServerName}_*"]
+                          ?.GetValue<string>() == "allow"
+                    : entry?["command"]?.GetValue<string>() == adapter
+                      && entry["args"] is JsonArray entryArgs
+                      && entryArgs.Select(node => node?.GetValue<string>())
+                          .SequenceEqual(expectedArguments)
                 : text.Contains(escapedAdapter, StringComparison.Ordinal)
                   && text.Contains(expectedTomlArgs, StringComparison.Ordinal);
 

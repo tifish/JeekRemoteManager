@@ -30,6 +30,14 @@ public static class AgentCliInstaller
             (AgentCliKind.Claude, _) => "irm https://claude.ai/install.ps1 | iex",
             (AgentCliKind.Codex, _) => "npm install -g @openai/codex",
             (AgentCliKind.Grok, _) => "irm https://x.ai/cli/install.ps1 | iex",
+            (AgentCliKind.Copilot, AgentSurfaceKind.Terminal) =>
+                "winget install GitHub.Copilot",
+            (AgentCliKind.Copilot, AgentSurfaceKind.Desktop) =>
+                "https://github.com/copilot/app",
+            (AgentCliKind.OpenCode, _) => "npm install -g opencode-ai",
+            (AgentCliKind.Pi, _) =>
+                "npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
+            (AgentCliKind.Omp, _) => "npm install -g @oh-my-pi/pi-coding-agent",
             (AgentCliKind.Antigravity, AgentSurfaceKind.Terminal) =>
                 "irm https://antigravity.google/cli/install.ps1 | iex",
             // The 2.0 desktop app and the IDE are downloads, not winget packages.
@@ -94,6 +102,10 @@ public static class AgentCliInstaller
         (AgentCliKind.Claude, _) => AgentCliLocator.FindClaude(),
         (AgentCliKind.Codex, _) => AgentCliLocator.FindCodex(),
         (AgentCliKind.Grok, _) => AgentCliLocator.FindGrok(),
+        (AgentCliKind.Copilot, AgentSurfaceKind.Terminal) => AgentCliLocator.FindCopilot(),
+        (AgentCliKind.OpenCode, _) => AgentCliLocator.FindOpenCode(),
+        (AgentCliKind.Pi, _) => AgentCliLocator.FindPi(),
+        (AgentCliKind.Omp, _) => AgentCliLocator.FindOmp(),
         (AgentCliKind.Antigravity, AgentSurfaceKind.Terminal) => AgentCliLocator.FindAntigravityCli(),
         (AgentCliKind.Antigravity, AgentSurfaceKind.Desktop) => AgentCliLocator.FindAntigravityDesktop(),
         (AgentCliKind.Antigravity, AgentSurfaceKind.Ide) => AgentCliLocator.FindAntigravityIde(),
@@ -124,6 +136,21 @@ public static class AgentCliInstaller
             AgentCliKind.Grok => (
                 "powershell.exe",
                 "-NoProfile -ExecutionPolicy Bypass -Command \"irm https://x.ai/cli/install.ps1 | iex\""),
+            AgentCliKind.Copilot => (
+                "winget.exe",
+                "install --id GitHub.Copilot --exact --silent "
+                + "--accept-package-agreements --accept-source-agreements"),
+            AgentCliKind.OpenCode => (
+                "powershell.exe",
+                "-NoProfile -ExecutionPolicy Bypass -Command \"npm install -g opencode-ai\""),
+            AgentCliKind.Pi => (
+                "powershell.exe",
+                "-NoProfile -ExecutionPolicy Bypass -Command "
+                + "\"npm install -g --ignore-scripts @earendil-works/pi-coding-agent\""),
+            AgentCliKind.Omp => (
+                "powershell.exe",
+                "-NoProfile -ExecutionPolicy Bypass -Command "
+                + "\"npm install -g @oh-my-pi/pi-coding-agent\""),
             AgentCliKind.Antigravity => (
                 "powershell.exe",
                 "-NoProfile -ExecutionPolicy Bypass -Command "

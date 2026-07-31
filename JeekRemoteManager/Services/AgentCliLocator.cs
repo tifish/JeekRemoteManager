@@ -60,6 +60,22 @@ public static class AgentCliLocator
         return found is null ? null : ResolveRealPath(found);
     }
 
+    public static string? FindCopilot() =>
+        FindNpmOrPathCommand("copilot", includeWinGetLink: true);
+
+    public static string? FindOpenCode()
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var native = Path.Combine(home, ".opencode", "bin", "opencode.exe");
+        return File.Exists(native)
+            ? ResolveRealPath(native)
+            : FindNpmOrPathCommand("opencode");
+    }
+
+    public static string? FindPi() => FindNpmOrPathCommand("pi");
+
+    public static string? FindOmp() => FindNpmOrPathCommand("omp");
+
     /// <summary>
     /// Returns the full path to <c>agy.exe</c> (Antigravity CLI), or <c>null</c> if it is not
     /// installed. The installer drops it under <c>%LOCALAPPDATA%\agy\bin</c>.
@@ -283,5 +299,35 @@ public static class AgentCliLocator
         }
 
         return null;
+    }
+
+    private static string? FindNpmOrPathCommand(string name, bool includeWinGetLink = false)
+    {
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var candidates = new System.Collections.Generic.List<string>
+        {
+            Path.Combine(appData, "npm", name + ".cmd"),
+            Path.Combine(appData, "npm", name + ".exe"),
+        };
+        if (includeWinGetLink)
+        {
+            candidates.Add(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Microsoft",
+                "WinGet",
+                "Links",
+                name + ".exe"));
+        }
+
+        foreach (var candidate in candidates)
+        {
+            if (File.Exists(candidate))
+                return ResolveRealPath(candidate);
+        }
+
+        var found = FindOnPath(name + ".exe")
+                    ?? FindOnPath(name + ".cmd")
+                    ?? FindOnPath(name);
+        return found is null ? null : ResolveRealPath(found);
     }
 }

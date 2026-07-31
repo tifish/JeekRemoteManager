@@ -453,8 +453,8 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Launch mode for Claude/Codex (CLI / Windows Terminal / Desktop).
-    /// Grok uses <see cref="AiGrokRunMode"/> so the two option sets do not overwrite each other.
+    /// Launch mode shared by agents with a desktop surface.
+    /// Terminal-only agents use <see cref="AiGrokRunMode"/> so the option sets do not collide.
     /// </summary>
     public AgentCliRunMode AiRunMode
     {
@@ -469,8 +469,8 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Launch mode for Grok (CLI / Windows Terminal only).
-    /// Kept separate from <see cref="AiRunMode"/> because Grok has no Desktop option.
+    /// Shared launch mode for providers with CLI / Windows Terminal only.
+    /// The persisted name predates OpenCode, Pi, and OMP.
     /// </summary>
     public AgentCliRunMode AiGrokRunMode
     {

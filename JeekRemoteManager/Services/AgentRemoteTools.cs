@@ -79,6 +79,10 @@ public enum AgentCliKind
     Claude,
     Codex,
     Grok,
+    Copilot,
+    OpenCode,
+    Pi,
+    Omp,
 
     /// <summary>
     /// Google's replacement for Gemini CLI. One agent shipping three programs — the
@@ -176,6 +180,10 @@ public static class AgentCliCatalog
         Terminal(AgentCliKind.Claude, "Claude", AgentCliLocator.FindClaude()),
         Terminal(AgentCliKind.Codex, "Codex", AgentCliLocator.FindCodex()),
         Terminal(AgentCliKind.Grok, "Grok", AgentCliLocator.FindGrok()),
+        Terminal(AgentCliKind.Copilot, "GitHub Copilot", AgentCliLocator.FindCopilot()),
+        Terminal(AgentCliKind.OpenCode, "OpenCode", AgentCliLocator.FindOpenCode()),
+        Terminal(AgentCliKind.Pi, "Pi", AgentCliLocator.FindPi()),
+        Terminal(AgentCliKind.Omp, "OMP", AgentCliLocator.FindOmp()),
         new(AgentCliKind.Antigravity, "Antigravity", new Dictionary<AgentSurfaceKind, AgentSurface>
         {
             [AgentSurfaceKind.Terminal] = Surface(
@@ -232,7 +240,7 @@ public static class AgentCliCatalog
             AgentCliRunMode.Desktop,
             AgentCliRunMode.Ide,
         ],
-        AgentCliKind.Claude or AgentCliKind.Codex =>
+        AgentCliKind.Claude or AgentCliKind.Codex or AgentCliKind.Copilot =>
             [AgentCliRunMode.Cli, AgentCliRunMode.WindowsTerminal, AgentCliRunMode.Desktop],
         _ => [AgentCliRunMode.Cli, AgentCliRunMode.WindowsTerminal],
     };
@@ -249,6 +257,8 @@ public static class AgentCliCatalog
             AgentCliKind.Claude => BuildClaudeArguments(autoRun),
             AgentCliKind.Codex => BuildCodexArguments(autoRun),
             AgentCliKind.Grok => BuildGrokArguments(autoRun),
+            AgentCliKind.Copilot => BuildCopilotArguments(autoRun),
+            AgentCliKind.Pi => BuildPiArguments(autoRun),
             AgentCliKind.Antigravity => BuildAntigravityArguments(autoRun),
             _ => Array.Empty<string>(),
         };
@@ -260,7 +270,8 @@ public static class AgentCliCatalog
     /// </summary>
     public static AgentDesktopLaunch DesktopLaunch(AgentCliKind kind) => kind switch
     {
-        AgentCliKind.Claude or AgentCliKind.Codex => AgentDesktopLaunch.Protocol,
+        AgentCliKind.Claude or AgentCliKind.Codex or AgentCliKind.Copilot =>
+            AgentDesktopLaunch.Protocol,
         AgentCliKind.Antigravity => AgentDesktopLaunch.Executable,
         _ => AgentDesktopLaunch.None,
     };
@@ -271,6 +282,8 @@ public static class AgentCliCatalog
     /// <summary>
     /// Builds the registered-protocol URI that opens the workspace in the desktop app.
     /// Claude: <c>claude://code/new?folder=...</c>; Codex: <c>codex://threads/new?path=...</c>.
+    /// Copilot's documented deep links cannot carry an arbitrary local path, so its official
+    /// web launcher opens the app home; the generated workspace is still prepared first.
     /// Returns null when the kind has no desktop protocol.
     /// </summary>
     public static string? BuildDesktopProtocolUri(AgentCliKind kind, string workspacePath)
@@ -293,6 +306,8 @@ public static class AgentCliCatalog
         {
             AgentCliKind.Claude => $"claude://code/new?folder={encoded}",
             AgentCliKind.Codex => $"codex://threads/new?path={encoded}",
+            AgentCliKind.Copilot =>
+                "https://github.com/copilot/app/launch?open=ghapp%3A%2F%2F",
             _ => null,
         };
     }
@@ -318,6 +333,32 @@ public static class AgentCliCatalog
         // overrides as a new entry without url/command and fails with "invalid transport".
         _ = autoRun; // Applied when rewriting .codex/config.toml (PrepareWorkspace / Ensure).
         return ["--no-alt-screen"];
+    }
+
+    private static IReadOnlyList<string> BuildCopilotArguments(bool autoRun)
+    {
+        if (!autoRun)
+            return Array.Empty<string>();
+
+        // Copilot CLI accepts an MCP server name here and grants all tools from that one server.
+        // This is narrower than --yolo, which would also auto-approve local shell/file work.
+        return ["--allow-tool=jrm-remote"];
+    }
+
+    private static IReadOnlyList<string> BuildPiArguments(bool autoRun)
+    {
+        // Upstream Pi deliberately has no built-in MCP client. JeekRemoteManager ships a small
+        // first-party extension that reads this workspace's .mcp.json and exposes only that
+        // server's tools. Keeping the extension under bin/Data makes it part of the runtime.
+        var extension = Path.Combine(
+            AppContext.BaseDirectory,
+            "Data",
+            "AgentSupport",
+            "Pi",
+            "jrm-mcp.ts");
+        return autoRun
+            ? ["--extension", extension, "--jrm-auto-run"]
+            : ["--extension", extension];
     }
 
     private static IReadOnlyList<string> BuildAntigravityArguments(bool autoRun)

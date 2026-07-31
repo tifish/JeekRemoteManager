@@ -27,6 +27,15 @@ public static class AgentMcpConfigCatalog
         Toml,
     }
 
+    public enum JsonEntryStyle
+    {
+        /// <summary><c>{ type: "stdio", command, args }</c>.</summary>
+        Stdio,
+
+        /// <summary>OpenCode's <c>{ type: "local", command: [exe, ...args] }</c>.</summary>
+        OpenCodeLocal,
+    }
+
     /// <param name="Label">Agent names shown in the generated AGENTS.md table.</param>
     /// <param name="RelativePath">Config path relative to the project/workspace root, forward-slashed.</param>
     /// <param name="JsonRootKey">
@@ -44,7 +53,9 @@ public static class AgentMcpConfigCatalog
         string RelativePath,
         ConfigFormat Format,
         string? JsonRootKey = null,
-        bool SupportsApprovalMode = false)
+        bool SupportsApprovalMode = false,
+        JsonEntryStyle JsonStyle = JsonEntryStyle.Stdio,
+        bool IncludeAllTools = false)
     {
         /// <summary>True when the config sits in a dedicated folder we may tidy up when empty.</summary>
         public bool HasOwnFolder => RelativePath.Contains('/');
@@ -60,7 +71,11 @@ public static class AgentMcpConfigCatalog
     /// </summary>
     public static IReadOnlyList<Target> All { get; } =
     [
-        new("Claude Code / Desktop, Copilot CLI", ".mcp.json", ConfigFormat.Json, "mcpServers"),
+        new("Claude Code / Desktop, Copilot CLI / Desktop, Pi extension", ".mcp.json",
+            ConfigFormat.Json, "mcpServers", IncludeAllTools: true),
+        new("OpenCode", "opencode.json", ConfigFormat.Json, "mcp",
+            JsonStyle: JsonEntryStyle.OpenCodeLocal),
+        new("OMP", ".omp/mcp.json", ConfigFormat.Json, "mcpServers"),
         new("VS Code (Copilot)", ".vscode/mcp.json", ConfigFormat.Json, "servers"),
         new("Cursor", ".cursor/mcp.json", ConfigFormat.Json, "mcpServers"),
         new("Antigravity (CLI / 2.0 / IDE)", ".agents/mcp_config.json", ConfigFormat.Json, "mcpServers"),
@@ -97,6 +112,72 @@ public static class AgentMcpConfigCatalog
         if (args.Count > 0)
             entry["args"] = args;
         return entry;
+    }
+
+    /// <summary>Builds the spelling required by one JSON target.</summary>
+    public static JsonObject BuildJsonEntry(
+        Target target,
+        string adapterPath,
+        string? connectionPath,
+        string? instanceId = null)
+    {
+        if (target.JsonStyle == JsonEntryStyle.Stdio)
+        {
+            var entry = BuildJsonEntry(adapterPath, connectionPath, instanceId);
+            // Copilot CLI requires a tool filter. Claude accepts the same field, so the shared
+            // .mcp.json can explicitly enable this server without widening other configs.
+            if (target.IncludeAllTools)
+                entry["tools"] = new JsonArray("*");
+            return entry;
+        }
+
+        var command = new JsonArray { adapterPath };
+        foreach (var argument in BuildAdapterArguments(connectionPath, instanceId))
+            command.Add(argument?.DeepClone());
+        return new JsonObject
+        {
+            ["type"] = "local",
+            ["command"] = command,
+            ["enabled"] = true,
+        };
+    }
+
+    /// <summary>
+    /// Adds target-specific root settings without widening approval to the agent's local tools.
+    /// OpenCode prefixes MCP tools with the server name, so only that prefix is allowed.
+    /// </summary>
+    public static void ApplyJsonRootSettings(
+        Target target,
+        JsonObject root,
+        string serverName,
+        bool mcpToolsAutoApprove)
+    {
+        if (target.JsonStyle != JsonEntryStyle.OpenCodeLocal)
+            return;
+
+        if (root["permission"] is not JsonObject permission)
+        {
+            permission = new JsonObject();
+            root["permission"] = permission;
+        }
+        permission[$"{serverName}_*"] = mcpToolsAutoApprove ? "allow" : "ask";
+    }
+
+    /// <summary>Removes only the root setting written for one server.</summary>
+    public static void RemoveJsonRootSettings(
+        Target target,
+        JsonObject root,
+        string serverName)
+    {
+        if (target.JsonStyle != JsonEntryStyle.OpenCodeLocal
+            || root["permission"] is not JsonObject permission)
+        {
+            return;
+        }
+
+        permission.Remove($"{serverName}_*");
+        if (permission.Count == 0)
+            root.Remove("permission");
     }
 
     /// <summary>The same entry as a TOML table body, without any surrounding comments or markers.</summary>

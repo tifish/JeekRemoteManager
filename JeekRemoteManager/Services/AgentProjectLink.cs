@@ -191,7 +191,7 @@ public static class AgentProjectLink
             {
                 // Drops the file itself when our entry was all it held; the folder may still
                 // be the project's own (.vscode), so only remove it once it is empty.
-                RemoveMcpJsonServer(path, target.JsonRootKey!, serverName);
+                RemoveMcpJsonServer(path, target, serverName);
                 if (target.HasOwnFolder)
                     TryDeleteEmptyFolder(path);
             }
@@ -295,12 +295,14 @@ public static class AgentProjectLink
             {
                 MergeMcpJson(
                     path,
-                    target.JsonRootKey!,
+                    target,
                     serverName,
                     AgentMcpConfigCatalog.BuildJsonEntry(
+                        target,
                         adapter,
                         connectionPath,
-                        AgentWorkspaceLink.AdapterInstanceId));
+                        AgentWorkspaceLink.AdapterInstanceId),
+                    mcpToolsAutoApprove);
             }
             else
             {
@@ -318,25 +320,39 @@ public static class AgentProjectLink
         }
     }
 
-    private static void MergeMcpJson(string path, string rootKey, string serverName, JsonObject entry)
+    private static void MergeMcpJson(
+        string path,
+        AgentMcpConfigCatalog.Target target,
+        string serverName,
+        JsonObject entry,
+        bool mcpToolsAutoApprove)
     {
         var root = ParseJsonObject(path) ?? new JsonObject();
-        if (root[rootKey] is not JsonObject servers)
+        if (root[target.JsonRootKey!] is not JsonObject servers)
         {
             servers = new JsonObject();
-            root[rootKey] = servers;
+            root[target.JsonRootKey!] = servers;
         }
 
         servers[serverName] = entry;
+        AgentMcpConfigCatalog.ApplyJsonRootSettings(
+            target,
+            root,
+            serverName,
+            mcpToolsAutoApprove);
         WriteJson(path, root);
     }
 
-    private static void RemoveMcpJsonServer(string path, string rootKey, string serverName)
+    private static void RemoveMcpJsonServer(
+        string path,
+        AgentMcpConfigCatalog.Target target,
+        string serverName)
     {
         if (ParseJsonObject(path) is not { } root)
             return;
-        if (root[rootKey] is not JsonObject servers || !servers.Remove(serverName))
+        if (root[target.JsonRootKey!] is not JsonObject servers || !servers.Remove(serverName))
             return;
+        AgentMcpConfigCatalog.RemoveJsonRootSettings(target, root, serverName);
 
         // Nothing but the (now empty) server map left: the file only existed for this link.
         if (servers.Count == 0 && root.Count == 1)

@@ -886,6 +886,18 @@ try
     var grokToml = File.Exists(Path.Combine(workspace, ".grok", "config.toml"))
         ? File.ReadAllText(Path.Combine(workspace, ".grok", "config.toml"))
         : "";
+    var openCodeJson = JsonNode.Parse(
+        File.ReadAllText(Path.Combine(workspace, "opencode.json"))) as JsonObject;
+    var ompJson = JsonNode.Parse(
+        File.ReadAllText(Path.Combine(workspace, ".omp", "mcp.json"))) as JsonObject;
+    var expectedOpenCodeCommand = new List<string> { AgentWorkspaceLink.AdapterPath };
+    if (AgentWorkspaceLink.AdapterInstanceId is { } smokeInstanceId)
+    {
+        expectedOpenCodeCommand.Add("--instance");
+        expectedOpenCodeCommand.Add(smokeInstanceId);
+    }
+    expectedOpenCodeCommand.Add("--connection");
+    expectedOpenCodeCommand.Add("vps/bwg");
     var claudeSettings = File.Exists(Path.Combine(workspace, ".claude", "settings.local.json"))
         ? File.ReadAllText(Path.Combine(workspace, ".claude", "settings.local.json"))
         : "";
@@ -906,6 +918,8 @@ try
           && !agentsMd.Contains("--append-system-prompt", StringComparison.Ordinal)
           && mcpJson.Contains(smokeAdapter, StringComparison.Ordinal)
           && mcpJson.Contains("\"stdio\"", StringComparison.Ordinal)
+          && mcpJson.Contains("\"tools\"", StringComparison.Ordinal)
+          && mcpJson.Contains("\"*\"", StringComparison.Ordinal)
           && !mcpJson.Contains("http", StringComparison.Ordinal)
           && claudeSettings.Contains("\"enabledMcpjsonServers\"", StringComparison.Ordinal)
           && claudeSettings.Contains("\"jrm-remote\"", StringComparison.Ordinal)
@@ -913,8 +927,15 @@ try
           && codexToml.Contains("--connection", StringComparison.Ordinal)
           && codexToml.Contains("default_tools_approval_mode = \"approve\"", StringComparison.Ordinal)
           && !codexToml.Contains("transport =", StringComparison.Ordinal)
-          && grokToml.Contains(smokeAdapter, StringComparison.Ordinal),
-          "AI workspace writes AGENTS.md (full) + CLAUDE.md include + project MCP configs");
+          && grokToml.Contains(smokeAdapter, StringComparison.Ordinal)
+          && openCodeJson?["mcp"]?["jrm-remote"]?["type"]?.GetValue<string>() == "local"
+          && openCodeJson["mcp"]?["jrm-remote"]?["command"] is JsonArray openCodeCommand
+          && openCodeCommand.Select(node => node?.GetValue<string>())
+              .SequenceEqual(expectedOpenCodeCommand)
+          && openCodeJson["permission"]?["jrm-remote_*"]?.GetValue<string>() == "allow"
+          && ompJson?["mcpServers"]?["jrm-remote"]?["command"]?.GetValue<string>()
+              == AgentWorkspaceLink.AdapterPath,
+          "AI workspace writes shared context and native MCP configs for every supported agent");
 
     File.WriteAllText(
         Path.Combine(workspace, ".claude", "settings.local.json"),
@@ -937,9 +958,12 @@ try
 
     AgentCliWorkspace.WriteProjectMcpConfigs(workspace, "vps/bwg", mcpToolsAutoApprove: false);
     var codexTomlPrompt = File.ReadAllText(Path.Combine(workspace, ".codex", "config.toml"));
+    var openCodePrompt = JsonNode.Parse(
+        File.ReadAllText(Path.Combine(workspace, "opencode.json"))) as JsonObject;
     Check(codexTomlPrompt.Contains("default_tools_approval_mode = \"prompt\"", StringComparison.Ordinal)
-          && codexTomlPrompt.Contains(smokeAdapter, StringComparison.Ordinal),
-          "Codex project MCP config stores prompt approval mode without CLI -c overrides");
+          && codexTomlPrompt.Contains(smokeAdapter, StringComparison.Ordinal)
+          && openCodePrompt?["permission"]?["jrm-remote_*"]?.GetValue<string>() == "ask",
+          "Codex and OpenCode store per-server prompt mode without broad CLI overrides");
     AgentCliWorkspace.WriteProjectMcpConfigs(workspace, "vps/bwg", mcpToolsAutoApprove: true);
 
     var connectionForWorkspace = new Connection
@@ -976,6 +1000,12 @@ try
     var codexAutoArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Codex, autoRun: true);
     var codexPromptArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Codex, autoRun: false);
     var grokAutoArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Grok, autoRun: true);
+    var copilotAutoArgs = AgentCliCatalog.BuildInteractiveArguments(
+        AgentCliKind.Copilot, autoRun: true);
+    var copilotPromptArgs = AgentCliCatalog.BuildInteractiveArguments(
+        AgentCliKind.Copilot, autoRun: false);
+    var piAutoArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Pi, autoRun: true);
+    var piPromptArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Pi, autoRun: false);
     Check(claudeAutoArgs.Contains("--allowedTools")
           && !claudeAutoArgs.Contains("--mcp-config")
           && !claudeAutoArgs.Contains("--append-system-prompt")
@@ -989,7 +1019,16 @@ try
           && codexAutoArgs.SequenceEqual(codexPromptArgs)
           && grokAutoArgs.Contains("MCPTool(jrm-remote__terminal_run)")
           && grokAutoArgs.Contains("MCPTool(jrm-remote__terminal_status)")
-          && grokAutoArgs.Contains("MCPTool(jrm-remote__terminal_run_danger)"),
+          && grokAutoArgs.Contains("MCPTool(jrm-remote__terminal_run_danger)")
+          && copilotAutoArgs.SequenceEqual(["--allow-tool=jrm-remote"])
+          && copilotPromptArgs.Count == 0
+          && piAutoArgs.Contains("--extension")
+          && piAutoArgs.Contains("--jrm-auto-run")
+          && piPromptArgs.Contains("--extension")
+          && !piPromptArgs.Contains("--jrm-auto-run")
+          && piAutoArgs.Any(arg => arg.EndsWith(
+              "Data\\AgentSupport\\Pi\\jrm-mcp.ts",
+              StringComparison.OrdinalIgnoreCase)),
           "AI CLI args are runtime-only; MCP URL/context and Codex approval live in workspace");
 
     var desktopPath = Path.Combine(
@@ -1000,17 +1039,51 @@ try
         "bwg");
     var claudeDesktopUri = AgentCliCatalog.BuildDesktopProtocolUri(AgentCliKind.Claude, desktopPath);
     var codexDesktopUri = AgentCliCatalog.BuildDesktopProtocolUri(AgentCliKind.Codex, desktopPath);
+    var copilotDesktopUri = AgentCliCatalog.BuildDesktopProtocolUri(
+        AgentCliKind.Copilot, desktopPath);
     var grokDesktopUri = AgentCliCatalog.BuildDesktopProtocolUri(AgentCliKind.Grok, desktopPath);
     var encodedDesktopPath = Uri.EscapeDataString(Path.GetFullPath(desktopPath));
     Check(AgentCliCatalog.SupportsDesktop(AgentCliKind.Claude)
           && AgentCliCatalog.SupportsDesktop(AgentCliKind.Codex)
+          && AgentCliCatalog.SupportsDesktop(AgentCliKind.Copilot)
           && !AgentCliCatalog.SupportsDesktop(AgentCliKind.Grok)
           && claudeDesktopUri == $"claude://code/new?folder={encodedDesktopPath}"
           && codexDesktopUri == $"codex://threads/new?path={encodedDesktopPath}"
+          && copilotDesktopUri
+              == "https://github.com/copilot/app/launch?open=ghapp%3A%2F%2F"
           && grokDesktopUri is null
           && claudeDesktopUri.Contains("folder=", StringComparison.Ordinal)
           && codexDesktopUri.Contains("path=", StringComparison.Ordinal),
-          "Desktop mode protocol URIs cover Claude/Codex only");
+          "Desktop mode protocol URIs cover Claude, Codex, and Copilot");
+
+    var providers = AgentCliCatalog.Discover();
+    Check(
+        new[]
+        {
+            AgentCliKind.Copilot,
+            AgentCliKind.OpenCode,
+            AgentCliKind.Pi,
+            AgentCliKind.Omp,
+        }.All(kind => providers.Any(provider => provider.Kind == kind))
+        && AgentCliCatalog.RunModesFor(AgentCliKind.Copilot)
+            .SequenceEqual([
+                AgentCliRunMode.Cli,
+                AgentCliRunMode.WindowsTerminal,
+                AgentCliRunMode.Desktop,
+            ])
+        && AgentCliCatalog.RunModesFor(AgentCliKind.OpenCode)
+            .SequenceEqual([AgentCliRunMode.Cli, AgentCliRunMode.WindowsTerminal])
+        && AgentCliInstaller.GetInstallCommandSummary(
+            AgentCliKind.Copilot, AgentSurfaceKind.Terminal) == "winget install GitHub.Copilot"
+        && AgentCliInstaller.GetInstallCommandSummary(
+            AgentCliKind.OpenCode, AgentSurfaceKind.Terminal) == "npm install -g opencode-ai"
+        && AgentCliInstaller.GetInstallCommandSummary(
+            AgentCliKind.Pi, AgentSurfaceKind.Terminal)
+            .Contains("@earendil-works/pi-coding-agent", StringComparison.Ordinal)
+        && AgentCliInstaller.GetInstallCommandSummary(
+            AgentCliKind.Omp, AgentSurfaceKind.Terminal)
+            == "npm install -g @oh-my-pi/pi-coding-agent",
+        "Copilot, OpenCode, Pi, and OMP providers expose their intended surfaces and installers");
 
     Check(DangerousCommandDetector.IsDangerous("rm -rf /tmp/jrm-smoke")
           && !DangerousCommandDetector.IsDangerous("echo safe"),
