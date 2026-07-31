@@ -61,7 +61,7 @@ public static class DebugMcpContract
             "Temporarily creates a terminal tab and verifies AI CLI Ctrl+C: copies when text is selected and never sends 0x03 to the CLI.",
             new()),
         Tool("agent_cli_locate_check",
-            "Report every AI panel surface as installed, available through an official web launcher, installable by command, or downloadable from a website; optionally resolve one path through the locator's link resolution.",
+            "Report every AI panel surface as installed, available through an official web launcher, installable in a visible external console, or downloadable from a website; optionally resolve one path through the locator's link resolution.",
             new() { ["path"] = Prop("string", "Optional file path to run through ResolveRealPath.") }),
         Tool("agent_cli_mcp_config_check",
             "Refresh and verify one generated AI workspace has accurate AGENTS.md connection context, the fixed JeekRemoteManagerMcp.exe, a valid registry route to this instance, Claude approval, the bundled Pi extension, and every project MCP config in the catalog pinned to the requested connection under the exact shape each agent reads.",

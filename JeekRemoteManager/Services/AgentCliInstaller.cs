@@ -1,7 +1,5 @@
 using System;
 using System.Diagnostics;
-using System.IO;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -99,8 +97,11 @@ public static class AgentCliInstaller
 
         try
         {
-            var (fileName, arguments) = BuildProcess(kind, surface);
-            var output = await RunProcessAsync(fileName, arguments, progress, cancellationToken)
+            var startInfo = CreateInstallProcessStartInfo(kind, surface);
+            var output = await RunProcessInExternalConsoleAsync(
+                    startInfo,
+                    progress,
+                    cancellationToken)
                 .ConfigureAwait(false);
 
             // PATH may have changed in the child process only; probe known install locations too.
@@ -149,7 +150,12 @@ public static class AgentCliInstaller
         _ => null,
     };
 
-    private static (string FileName, string Arguments) BuildProcess(
+    /// <summary>
+    /// Builds the visible external PowerShell process used for installation. Output remains in
+    /// that console instead of being redirected into the app, so users can follow prompts,
+    /// progress, and errors directly.
+    /// </summary>
+    public static ProcessStartInfo CreateInstallProcessStartInfo(
         AgentCliKind kind,
         AgentSurfaceKind surface)
     {
@@ -159,112 +165,53 @@ public static class AgentCliInstaller
                 $"{kind} ({surface}) has no install command; it is a download.");
         }
 
-        // Use powershell.exe so install.ps1 scripts and npm.cmd all work on stock Windows.
-        return kind switch
+        var command = GetInstallCommandSummary(kind, surface);
+        return new ProcessStartInfo
         {
-            AgentCliKind.Claude => (
-                "powershell.exe",
-                "-NoProfile -ExecutionPolicy Bypass -Command \"irm https://claude.ai/install.ps1 | iex\""),
-            AgentCliKind.Codex => (
-                "powershell.exe",
-                "-NoProfile -ExecutionPolicy Bypass -Command "
-                + "\"irm https://chatgpt.com/codex/install.ps1 | iex\""),
-            AgentCliKind.Grok => (
-                "powershell.exe",
-                "-NoProfile -ExecutionPolicy Bypass -Command \"irm https://x.ai/cli/install.ps1 | iex\""),
-            AgentCliKind.Copilot => (
-                "winget.exe",
-                "install --id GitHub.Copilot --exact --silent "
-                + "--accept-package-agreements --accept-source-agreements"),
-            AgentCliKind.OpenCode => (
-                "powershell.exe",
-                "-NoProfile -ExecutionPolicy Bypass -Command \"npm install -g opencode-ai\""),
-            AgentCliKind.Pi => (
-                "powershell.exe",
-                "-NoProfile -ExecutionPolicy Bypass -Command "
-                + "\"npm install -g --ignore-scripts @earendil-works/pi-coding-agent\""),
-            AgentCliKind.Omp => (
-                "powershell.exe",
-                "-NoProfile -ExecutionPolicy Bypass -Command "
-                + "\"irm https://omp.sh/install.ps1 | iex\""),
-            AgentCliKind.Antigravity => (
-                "powershell.exe",
-                "-NoProfile -ExecutionPolicy Bypass -Command "
-                + "\"irm https://antigravity.google/cli/install.ps1 | iex\""),
-            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+            // A single external shell handles install.ps1, npm, and winget consistently.
+            FileName = "powershell.exe",
+            Arguments =
+                $"-NoProfile -ExecutionPolicy Bypass -Command \"{command.Replace("\"", "\\\"")}\"",
+            UseShellExecute = true,
+            CreateNoWindow = false,
+            WindowStyle = ProcessWindowStyle.Normal,
+            WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
         };
     }
 
-    private static async Task<string> RunProcessAsync(
-        string fileName,
-        string arguments,
+    private static async Task<string> RunProcessInExternalConsoleAsync(
+        ProcessStartInfo startInfo,
         IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
-        var psi = new ProcessStartInfo
+        using var process = new Process
         {
-            FileName = fileName,
-            Arguments = arguments,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true,
-            // Inherit user PATH so npm / irm resolve correctly.
-            WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            StartInfo = startInfo,
+            EnableRaisingEvents = true,
         };
 
-        using var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
-        var log = new StringBuilder();
-        var tcs = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        void Append(string? line)
-        {
-            if (string.IsNullOrWhiteSpace(line))
-                return;
-            lock (log)
-                log.AppendLine(line);
-            progress?.Report(line.Trim());
-        }
-
-        process.OutputDataReceived += (_, e) => Append(e.Data);
-        process.ErrorDataReceived += (_, e) => Append(e.Data);
-        process.Exited += (_, _) => tcs.TrySetResult(process.ExitCode);
-
         if (!process.Start())
-            throw new InvalidOperationException($"Failed to start {fileName}.");
+            throw new InvalidOperationException($"Failed to start {startInfo.FileName}.");
 
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-
-        await using (cancellationToken.Register(() =>
+        progress?.Report("Installer opened in an external command window.");
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
         {
             try
             {
                 if (!process.HasExited)
                     process.Kill(entireProcessTree: true);
             }
-            catch
-            {
-                // ignore
-            }
-
-            tcs.TrySetCanceled(cancellationToken);
-        }))
-        {
-            var exit = await tcs.Task.ConfigureAwait(false);
-            // Drain a moment for late stderr lines.
-            try { await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false); }
             catch { /* already exited */ }
-
-            lock (log)
-            {
-                if (exit != 0 && log.Length == 0)
-                    log.AppendLine($"Installer exited with code {exit}.");
-                else if (exit != 0)
-                    log.AppendLine($"(exit code {exit})");
-                return log.ToString();
-            }
+            throw;
         }
+
+        return process.ExitCode == 0
+            ? ""
+            : $"Installer exited with code {process.ExitCode}. See the external command window for details.";
     }
 
     private static string Truncate(string text, int max)

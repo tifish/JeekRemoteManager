@@ -1605,7 +1605,7 @@ internal static class DebugMcpServer
                     { ExecutablePath: { Length: > 0 } executablePath } => executablePath,
                     { IsAvailableWithoutExecutable: true } => "available via official web launcher",
                     { CanAutoInstall: true } =>
-                        $"not found — install command: {surface.InstallHint}",
+                        DescribeAgentInstaller(descriptor.Kind, kind, surface.InstallHint),
                     _ => $"not found — download page: {surface.InstallHint}",
                 };
                 sb.AppendLine($"{label}: {availability}");
@@ -1614,6 +1614,23 @@ internal static class DebugMcpServer
         if (args["path"]?.GetValue<string>() is { Length: > 0 } path)
             sb.AppendLine($"resolve: {path} -> {AgentCliLocator.ResolveRealPath(path)}");
         return Task.FromResult(ToolText(sb.ToString().TrimEnd()));
+    }
+
+    private static string DescribeAgentInstaller(
+        AgentCliKind agentKind,
+        AgentSurfaceKind surfaceKind,
+        string command)
+    {
+        var startInfo = AgentCliInstaller.CreateInstallProcessStartInfo(agentKind, surfaceKind);
+        var isVisibleExternalConsole =
+            startInfo.UseShellExecute
+            && !startInfo.CreateNoWindow
+            && !startInfo.RedirectStandardOutput
+            && !startInfo.RedirectStandardError
+            && startInfo.WindowStyle == ProcessWindowStyle.Normal;
+        return isVisibleExternalConsole
+            ? $"not found — external console install command: {command}"
+            : $"not found — INVALID hidden installer configuration: {command}";
     }
 
     private static async Task<JsonObject> AgentCliMcpConfigCheckAsync(JsonObject args)

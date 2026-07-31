@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -1116,6 +1117,21 @@ try
             [(AgentCliKind.Cursor, AgentSurfaceKind.Ide)] =
                 "https://cursor.com/download",
         };
+    var commandInstallersUseExternalConsole = preferredAgentInstallActions
+        .Where(pair => !AgentCliInstaller.IsDownloadPage(pair.Value))
+        .All(pair =>
+        {
+            var startInfo = AgentCliInstaller.CreateInstallProcessStartInfo(
+                pair.Key.Kind,
+                pair.Key.Surface);
+            return startInfo.FileName == "powershell.exe"
+                   && startInfo.UseShellExecute
+                   && !startInfo.CreateNoWindow
+                   && !startInfo.RedirectStandardOutput
+                   && !startInfo.RedirectStandardError
+                   && startInfo.WindowStyle == ProcessWindowStyle.Normal
+                   && startInfo.Arguments.Contains(pair.Value, StringComparison.Ordinal);
+        });
     Check(
         new[]
         {
@@ -1135,6 +1151,7 @@ try
         && preferredAgentInstallActions.All(pair =>
             AgentCliInstaller.GetInstallCommandSummary(pair.Key.Kind, pair.Key.Surface)
                 == pair.Value)
+        && commandInstallersUseExternalConsole
         && allMissingSurfacesHaveAction
         && !claudeDesktop.CanAutoInstall
         && claudeDesktop.InstallHint == "https://claude.com/download"
@@ -1147,7 +1164,7 @@ try
         && AgentCliInstaller.IsDownloadPage(
             antigravityProvider.Surfaces[AgentSurfaceKind.Desktop].InstallHint)
         && AgentCliLocator.FindProtocolHandler("bad scheme!") is null,
-        "Every agent surface is installed, command-installable, or linked to an official download");
+        "Every agent surface is installed, externally command-installable, or linked to an official download");
 
     Check(DangerousCommandDetector.IsDangerous("rm -rf /tmp/jrm-smoke")
           && !DangerousCommandDetector.IsDangerous("echo safe"),
