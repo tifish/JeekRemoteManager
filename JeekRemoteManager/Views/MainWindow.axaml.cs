@@ -152,7 +152,7 @@ public partial class MainWindow : Window
     private void UpdateWindowTitle() =>
         Title = DebugInstanceContext.DecorateTitle(Localizer.Get("WindowTitle"));
 
-    /// <summary>Localized common-menu labels exposed for Debug MCP verification.</summary>
+    /// <summary>Localized main-menu labels exposed for Debug MCP verification.</summary>
     public IReadOnlyList<string> MoreActionsMenuHeaders =>
         (MoreActionsButton.Flyout as MenuFlyout)?.Items
         .OfType<MenuItem>()
@@ -184,7 +184,7 @@ public partial class MainWindow : Window
             return;
 
         var menu = new MenuFlyout();
-        foreach (var entry in ApplicationMenuDefinition.CommonItems)
+        foreach (var entry in ApplicationMenuDefinition.MainWindowItems)
         {
             if (menu.Items.Count > 0)
                 menu.Items.Add(new Separator());
@@ -206,6 +206,12 @@ public partial class MainWindow : Window
             {
                 case ApplicationMenuAction.Settings:
                     item.Command = vm.OpenSettingsCommand;
+                    break;
+                case ApplicationMenuAction.LinkApplicationToProject:
+                    item.Click += async (_, _) => await PickApplicationProjectFolderAsync(remove: false);
+                    break;
+                case ApplicationMenuAction.UnlinkApplicationFromProject:
+                    item.Click += async (_, _) => await PickApplicationProjectFolderAsync(remove: true);
                     break;
                 case ApplicationMenuAction.ImportFromFinalShell:
                     item.Command = vm.ImportFinalShellCommand;
@@ -231,6 +237,57 @@ public partial class MainWindow : Window
         }
 
         MoreActionsButton.Flyout = menu;
+    }
+
+    private async Task PickApplicationProjectFolderAsync(bool remove)
+    {
+        if (DataContext is not MainWindowViewModel vm)
+            return;
+
+        try
+        {
+            var project = await PickFolderAsync(
+                string.Empty,
+                Localizer.Get(remove
+                    ? "AiUnlinkApplicationProjectTitle"
+                    : "AiLinkApplicationProjectTitle"));
+            if (project is null)
+                return;
+
+            if (remove)
+                RemoveApplicationMcpFromProject(project);
+            else
+                WriteApplicationMcpToProject(project);
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = string.Format(
+                Localizer.Get("AiLinkApplicationProjectFailed"),
+                ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Writes the application-wide product MCP entry into a project folder. Public so Debug MCP
+    /// can exercise the exact main-menu action after bypassing only the native folder picker.
+    /// </summary>
+    public string WriteApplicationMcpToProject(string projectDirectory)
+    {
+        var project = AgentProjectLink.WriteApplicationInto(
+            projectDirectory,
+            (DataContext as MainWindowViewModel)?.AiAutoApproveDangerousCommands ?? false);
+        if (DataContext is MainWindowViewModel vm)
+            vm.StatusMessage = string.Format(Localizer.Get("AiLinkApplicationProjectDone"), project);
+        return project;
+    }
+
+    /// <summary>Removes the application-wide product MCP entry written by the main menu.</summary>
+    public string RemoveApplicationMcpFromProject(string projectDirectory)
+    {
+        var project = AgentProjectLink.RemoveApplicationFrom(projectDirectory);
+        if (DataContext is MainWindowViewModel vm)
+            vm.StatusMessage = string.Format(Localizer.Get("AiUnlinkApplicationProjectDone"), project);
+        return project;
     }
 
     public async Task ShowAboutDialogAsync()

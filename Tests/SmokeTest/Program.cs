@@ -53,6 +53,83 @@ try
     Check(ApplicationMenuDefinition.CommonItems.Select(item => item.LocalizationKey).Distinct().Count()
           == ApplicationMenuDefinition.CommonItems.Count,
           "Shared application-menu actions use unique localization keys");
+    Check(ApplicationMenuDefinition.MainWindowItems.Select(item => item.Action).SequenceEqual(
+          [
+              ApplicationMenuAction.Settings,
+              ApplicationMenuAction.LinkApplicationToProject,
+              ApplicationMenuAction.UnlinkApplicationFromProject,
+              ApplicationMenuAction.ImportFromFinalShell,
+              ApplicationMenuAction.ImportFromSecureCrt,
+              ApplicationMenuAction.ImportFromXshell,
+              ApplicationMenuAction.CheckForUpdates,
+              ApplicationMenuAction.About,
+              ApplicationMenuAction.Exit,
+          ]),
+          "Main menu adds application-wide MCP link actions without adding them to the tray");
+
+    var globalMcpProject = Path.Combine(root, "global-mcp-project");
+    Directory.CreateDirectory(globalMcpProject);
+    Directory.CreateDirectory(Path.Combine(globalMcpProject, ".codex"));
+    File.WriteAllText(
+        Path.Combine(globalMcpProject, "AGENTS.md"),
+        "# Existing project rules\n");
+    File.WriteAllText(
+        Path.Combine(globalMcpProject, ".mcp.json"),
+        "{ \"mcpServers\": { \"other\": { \"url\": \"http://example/other\" } } }");
+    File.WriteAllText(
+        Path.Combine(globalMcpProject, ".codex", "config.toml"),
+        "model = \"gpt-5\"\n");
+
+    AgentProjectLink.WriteApplicationInto(globalMcpProject, mcpToolsAutoApprove: true);
+    var globalAgents = File.ReadAllText(Path.Combine(globalMcpProject, "AGENTS.md"));
+    var globalJson = JsonNode.Parse(
+        File.ReadAllText(Path.Combine(globalMcpProject, ".mcp.json"))) as JsonObject;
+    var globalEntry = globalJson?["mcpServers"]?[AgentProjectLink.ApplicationMcpServerName] as JsonObject;
+    var globalCodex = File.ReadAllText(
+        Path.Combine(globalMcpProject, ".codex", "config.toml"));
+    Check(globalAgents.Contains("BEGIN JeekRemoteManager link: application", StringComparison.Ordinal)
+          && globalAgents.Contains("connection_list", StringComparison.Ordinal)
+          && globalAgents.Contains("whole application", StringComparison.Ordinal)
+          && globalEntry?["command"]?.GetValue<string>().EndsWith(
+              "JeekRemoteManagerMcp.exe", StringComparison.OrdinalIgnoreCase) == true
+          && globalEntry["args"] is null
+          && globalEntry["url"] is null
+          && globalJson?["mcpServers"]?["other"] is not null
+          && globalCodex.Contains(
+              $"[mcp_servers.{AgentProjectLink.ApplicationMcpServerName}]",
+              StringComparison.Ordinal)
+          && !globalCodex.Contains("--connection", StringComparison.Ordinal)
+          && globalCodex.Contains(
+              "default_tools_approval_mode = \"approve\"",
+              StringComparison.Ordinal),
+          "Application-wide project MCP link is unpinned and preserves existing project config");
+
+    AgentProjectLink.WriteApplicationInto(globalMcpProject, mcpToolsAutoApprove: false);
+    globalAgents = File.ReadAllText(Path.Combine(globalMcpProject, "AGENTS.md"));
+    globalCodex = File.ReadAllText(Path.Combine(globalMcpProject, ".codex", "config.toml"));
+    Check(globalAgents.Split(
+              "BEGIN JeekRemoteManager link: application",
+              StringSplitOptions.None).Length == 2
+          && globalCodex.Split(
+              $"[mcp_servers.{AgentProjectLink.ApplicationMcpServerName}]",
+              StringSplitOptions.None).Length == 2
+          && globalCodex.Contains(
+              "default_tools_approval_mode = \"prompt\"",
+              StringComparison.Ordinal),
+          "Refreshing the application-wide MCP link replaces its marked blocks");
+
+    AgentProjectLink.RemoveApplicationFrom(globalMcpProject);
+    globalAgents = File.ReadAllText(Path.Combine(globalMcpProject, "AGENTS.md"));
+    globalJson = JsonNode.Parse(
+        File.ReadAllText(Path.Combine(globalMcpProject, ".mcp.json"))) as JsonObject;
+    globalCodex = File.ReadAllText(Path.Combine(globalMcpProject, ".codex", "config.toml"));
+    Check(!globalAgents.Contains("JeekRemoteManager link: application", StringComparison.Ordinal)
+          && globalAgents.Contains("Existing project rules", StringComparison.Ordinal)
+          && globalJson?["mcpServers"]?[AgentProjectLink.ApplicationMcpServerName] is null
+          && globalJson?["mcpServers"]?["other"] is not null
+          && !globalCodex.Contains(AgentProjectLink.ApplicationMcpServerName, StringComparison.Ordinal)
+          && globalCodex.Contains("model = \"gpt-5\"", StringComparison.Ordinal),
+          "Removing the application-wide MCP link restores the project's own content");
 
     var repoRoot = FindRepoRoot();
     var terminalViewXaml = File.ReadAllText(Path.Combine(

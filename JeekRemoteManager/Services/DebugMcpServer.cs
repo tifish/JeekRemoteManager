@@ -114,6 +114,7 @@ internal static class DebugMcpServer
         host.AddTool("auto_update_stage_check", AutoUpdateStageCheckAsync);
         host.AddTool("ai_render_probe", AiRenderProbeAsync);
         host.AddTool("agent_project_link_check", AgentProjectLinkCheckAsync);
+        host.AddTool("agent_application_link_check", AgentApplicationLinkCheckAsync);
         host.AddTool("mcp_transport_check", _ => McpTransportCheckAsync());
         host.AddTool("product_mcp_check", _ => ProductMcpCheckAsync());
         return host;
@@ -1324,6 +1325,132 @@ internal static class DebugMcpServer
             if (!keep)
             {
                 try { Directory.Delete(root, recursive: true); }
+                catch { /* best-effort cleanup */ }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Exercises the public methods used by the main-menu application-wide MCP actions, bypassing
+    /// only the native folder picker so the generated files can be inspected deterministically.
+    /// </summary>
+    private static async Task<JsonObject> AgentApplicationLinkCheckAsync(JsonObject args)
+    {
+        var keep = args["keep"]?.GetValue<bool>() ?? false;
+        var project = Path.Combine(
+            Path.GetTempPath(),
+            "jrm-application-link-check-" + Guid.NewGuid().ToString("N")[..8]);
+        var report = new StringBuilder();
+        var failures = new List<string>();
+
+        void Check(string name, bool ok)
+        {
+            report.AppendLine($"{(ok ? "ok  " : "FAIL")}: {name}");
+            if (!ok)
+                failures.Add(name);
+        }
+
+        try
+        {
+            Directory.CreateDirectory(project);
+            Directory.CreateDirectory(Path.Combine(project, ".codex"));
+            File.WriteAllText(Path.Combine(project, "AGENTS.md"), "# Existing rules\n");
+            File.WriteAllText(
+                Path.Combine(project, ".mcp.json"),
+                "{ \"mcpServers\": { \"other\": { \"url\": \"http://example/other\" } } }");
+            File.WriteAllText(
+                Path.Combine(project, ".codex", "config.toml"),
+                "model = \"gpt-5\"\n");
+
+            var menuHeaders = await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main)
+                    throw new InvalidOperationException("The main window is not available.");
+                main.WriteApplicationMcpToProject(project);
+                return main.MoreActionsMenuHeaders.ToArray();
+            });
+
+            Check(
+                "main menu exposes application-wide link",
+                menuHeaders.Contains(Localizer.Get("AiLinkApplicationProject")));
+            Check(
+                "main menu exposes application-wide unlink",
+                menuHeaders.Contains(Localizer.Get("AiUnlinkApplicationProject")));
+
+            var agentsMd = File.ReadAllText(Path.Combine(project, "AGENTS.md"));
+            var root = TryParseJsonObject(File.ReadAllText(Path.Combine(project, ".mcp.json")));
+            var entry = root?["mcpServers"]?[AgentProjectLink.ApplicationMcpServerName] as JsonObject;
+            var codex = File.ReadAllText(Path.Combine(project, ".codex", "config.toml"));
+
+            Check(
+                "AGENTS.md describes global application control",
+                agentsMd.Contains("BEGIN JeekRemoteManager link: application", StringComparison.Ordinal)
+                && agentsMd.Contains("connection_list", StringComparison.Ordinal)
+                && agentsMd.Contains("whole application", StringComparison.Ordinal));
+            Check(
+                "JSON config launches the local adapter without a connection pin",
+                entry?["command"]?.GetValue<string>().EndsWith(
+                    "JeekRemoteManagerMcp.exe",
+                    StringComparison.OrdinalIgnoreCase) == true
+                && entry["args"] is null
+                && entry["url"] is null);
+            Check(
+                "Codex config is application-wide",
+                codex.Contains(
+                    $"[mcp_servers.{AgentProjectLink.ApplicationMcpServerName}]",
+                    StringComparison.Ordinal)
+                && !codex.Contains("--connection", StringComparison.Ordinal));
+            Check(
+                "existing project configuration is preserved",
+                root?["mcpServers"]?["other"] is not null
+                && codex.Contains("model = \"gpt-5\"", StringComparison.Ordinal)
+                && agentsMd.Contains("Existing rules", StringComparison.Ordinal));
+
+            await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main)
+                    throw new InvalidOperationException("The main window is not available.");
+                main.RemoveApplicationMcpFromProject(project);
+                return true;
+            });
+
+            agentsMd = File.ReadAllText(Path.Combine(project, "AGENTS.md"));
+            root = TryParseJsonObject(File.ReadAllText(Path.Combine(project, ".mcp.json")));
+            codex = File.ReadAllText(Path.Combine(project, ".codex", "config.toml"));
+            Check(
+                "unlink removes only JeekRemoteManager's application entry",
+                !agentsMd.Contains("JeekRemoteManager link: application", StringComparison.Ordinal)
+                && root?["mcpServers"]?[AgentProjectLink.ApplicationMcpServerName] is null
+                && root?["mcpServers"]?["other"] is not null
+                && !codex.Contains(AgentProjectLink.ApplicationMcpServerName, StringComparison.Ordinal)
+                && codex.Contains("model = \"gpt-5\"", StringComparison.Ordinal));
+
+            if (keep)
+            {
+                await OnUiAsync(() =>
+                {
+                    ((Views.MainWindow)Desktop!.MainWindow!).WriteApplicationMcpToProject(project);
+                    return true;
+                });
+            }
+
+            var passed = failures.Count == 0;
+            return ToolText(
+                $"{(passed ? "PASS" : "FAIL")}: application-wide project MCP link ({project})\n"
+                + report.ToString().TrimEnd(),
+                isError: !passed);
+        }
+        catch (Exception ex)
+        {
+            return ToolText(
+                $"FAIL: application-wide project MCP link threw {ex.GetType().Name}: {ex.Message}\n{report}",
+                isError: true);
+        }
+        finally
+        {
+            if (!keep)
+            {
+                try { Directory.Delete(project, recursive: true); }
                 catch { /* best-effort cleanup */ }
             }
         }

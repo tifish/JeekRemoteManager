@@ -78,29 +78,39 @@ public static class AgentMcpConfigCatalog
     public const string ContextIncludeBody = "@AGENTS.md";
 
     /// <summary>
-    /// The stdio entry every JSON config uses: launch the local adapter pinned to one connection.
-    /// There is no URL, port, or token here, so the file stays valid across app restarts.
+    /// The stdio entry every JSON config uses: launch the local adapter, optionally pinned to one
+    /// connection. Omitting <paramref name="connectionPath"/> exposes the application-wide product
+    /// MCP surface. There is no URL, port, or token here, so the file stays valid across restarts.
     /// </summary>
-    public static JsonObject BuildJsonEntry(string adapterPath, string connectionPath) =>
-        new()
+    public static JsonObject BuildJsonEntry(string adapterPath, string? connectionPath)
+    {
+        var entry = new JsonObject
         {
             ["type"] = "stdio",
             ["command"] = adapterPath,
-            ["args"] = new JsonArray("--connection", connectionPath),
         };
+        if (!string.IsNullOrWhiteSpace(connectionPath))
+            entry["args"] = new JsonArray("--connection", connectionPath);
+        return entry;
+    }
 
     /// <summary>The same entry as a TOML table body, without any surrounding comments or markers.</summary>
     public static string BuildTomlEntry(
         Target target,
         string serverName,
         string adapterPath,
-        string connectionPath,
+        string? connectionPath,
         bool mcpToolsAutoApprove)
     {
         var sb = new StringBuilder();
         sb.Append("[mcp_servers.").Append(serverName).Append("]\n");
         sb.Append("command = \"").Append(EscapeToml(adapterPath)).Append("\"\n");
-        sb.Append("args = [\"--connection\", \"").Append(EscapeToml(connectionPath)).Append("\"]\n");
+        if (!string.IsNullOrWhiteSpace(connectionPath))
+        {
+            sb.Append("args = [\"--connection\", \"")
+              .Append(EscapeToml(connectionPath))
+              .Append("\"]\n");
+        }
         if (target.SupportsApprovalMode)
         {
             sb.Append("default_tools_approval_mode = \"")

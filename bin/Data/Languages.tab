@@ -329,6 +329,15 @@ AiUnlinkProject	Stop agents in a project folder from using this connection…	�
 AiUnlinkProjectHint	Removes this connection's notes and MCP config from that folder. Anything the project had before is left untouched.	从该目录移除本连接的说明和 MCP 配置，项目原有内容不受影响。
 AiUnlinkProjectTitle	Choose the project folder that should stop using this connection	选择要停止使用此连接的项目目录
 AiUnlinkProjectDone	Agents in {0} no longer use this connection.	{0} 中的 AI 不再使用此连接。
+AiLinkApplicationProject	Let agents in a project folder control JeekRemoteManager…	让项目目录中的 AI 控制整个软件…
+AiLinkApplicationProjectHint	Writes JeekRemoteManager's application-wide MCP config into that folder, so agents can manage connections and control any terminal session.	在该目录写入 JeekRemoteManager 的全局 MCP 配置，让 AI 可以管理连接并控制任意终端会话。
+AiLinkApplicationProjectTitle	Choose the project folder whose agents should control JeekRemoteManager	选择要让其中 AI 控制 JeekRemoteManager 的项目目录
+AiLinkApplicationProjectDone	Agents started in {0} can now control JeekRemoteManager.	在 {0} 中启动的 AI 现在可以控制 JeekRemoteManager。
+AiLinkApplicationProjectFailed	Could not update the project folder: {0}	更新项目目录失败：{0}
+AiUnlinkApplicationProject	Stop agents in a project folder from controlling JeekRemoteManager…	不再让项目目录中的 AI 控制整个软件…
+AiUnlinkApplicationProjectHint	Removes JeekRemoteManager's application-wide MCP notes and config from that folder. Existing project content is preserved.	从该目录移除 JeekRemoteManager 的全局 MCP 说明和配置，项目原有内容不受影响。
+AiUnlinkApplicationProjectTitle	Choose the project folder that should stop controlling JeekRemoteManager	选择要停止控制 JeekRemoteManager 的项目目录
+AiUnlinkApplicationProjectDone	Agents in {0} no longer control JeekRemoteManager.	{0} 中的 AI 不再控制 JeekRemoteManager。
 AiCliStart	Start	启动
 AiCliRestart	Restart	重启
 AiCliStop	Stop	停止

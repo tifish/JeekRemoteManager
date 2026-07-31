@@ -1,10 +1,13 @@
 using System.Collections.Generic;
+using System.Linq;
 
 namespace JeekRemoteManager.Models;
 
 public enum ApplicationMenuAction
 {
     Settings,
+    LinkApplicationToProject,
+    UnlinkApplicationFromProject,
     ImportFromFinalShell,
     ImportFromSecureCrt,
     ImportFromXshell,
@@ -40,5 +43,25 @@ public static class ApplicationMenuDefinition
         new(ApplicationMenuAction.CheckForUpdates, "CheckForUpdates", "\uE895", IsAccent: true),
         new(ApplicationMenuAction.About, "About", "\uE946"),
         new(ApplicationMenuAction.Exit, "TrayExit", "\uE7E8"),
+    ];
+
+    /// <summary>
+    /// Main-window menu actions. Application-wide MCP linking belongs here rather than in the
+    /// tray menu because it opens a project-folder picker owned by the main window.
+    /// </summary>
+    public static IReadOnlyList<ApplicationMenuEntry> MainWindowItems { get; } =
+    [
+        CommonItems[0],
+        new(
+            ApplicationMenuAction.LinkApplicationToProject,
+            "AiLinkApplicationProject",
+            "\uE8B7",
+            ToolTipLocalizationKey: "AiLinkApplicationProjectHint"),
+        new(
+            ApplicationMenuAction.UnlinkApplicationFromProject,
+            "AiUnlinkApplicationProject",
+            "\uE74D",
+            ToolTipLocalizationKey: "AiUnlinkApplicationProjectHint"),
+        .. CommonItems.Skip(1),
     ];
 }

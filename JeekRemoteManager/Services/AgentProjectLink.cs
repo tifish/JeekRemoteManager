@@ -66,6 +66,10 @@ public static class AgentProjectLink
     private static readonly ILogger Log = LogManager.CreateLogger(nameof(AgentProjectLink));
 
     private const string BlockLabel = "JeekRemoteManager link";
+    private const string ApplicationMarker = "application";
+
+    /// <summary>MCP server name used for the unpinned, application-wide product surface.</summary>
+    public const string ApplicationMcpServerName = "jeek-remote-manager";
 
     private static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false);
 
@@ -76,18 +80,15 @@ public static class AgentProjectLink
     public static string WriteInto(AgentWorkspaceLink link, string projectDirectory)
     {
         var project = NormalizeDirectory(projectDirectory);
-        if (!Directory.Exists(project))
-            throw new DirectoryNotFoundException(project);
-
         var workspace = NormalizeDirectory(link.WorkspaceDirectory);
-        if (string.Equals(project, workspace, StringComparison.OrdinalIgnoreCase)
-            || IsInsideWorkspaceRoot(project))
-        {
-            throw new InvalidOperationException(
-                "Pick a project folder outside the JeekRemoteManager agent workspaces.");
-        }
-
-        Apply(link, project);
+        ValidateProjectDirectory(project, workspace);
+        Apply(
+            project,
+            link.NormalizedRelativePath,
+            link.ProjectMcpServerName,
+            BuildReferenceBlock(link),
+            link.NormalizedConnectionPath,
+            link.McpToolsAutoApprove);
         return project;
     }
 
@@ -99,16 +100,47 @@ public static class AgentProjectLink
     {
         var project = NormalizeDirectory(projectDirectory);
         if (Directory.Exists(project))
-            RemoveBlocks(link, project);
+            RemoveBlocks(project, link.NormalizedRelativePath, link.ProjectMcpServerName);
         return project;
     }
 
-    private static void Apply(AgentWorkspaceLink link, string projectDirectory)
+    /// <summary>
+    /// Writes the application-wide product MCP entry into a local project. Unlike
+    /// <see cref="WriteInto"/>, the adapter is not pinned to a connection, so the agent can browse
+    /// and manage the whole connection tree and address any terminal session.
+    /// </summary>
+    public static string WriteApplicationInto(string projectDirectory, bool mcpToolsAutoApprove)
     {
-        var relative = link.NormalizedRelativePath;
-        var body = BuildReferenceBlock(link);
+        var project = NormalizeDirectory(projectDirectory);
+        ValidateProjectDirectory(project);
+        Apply(
+            project,
+            ApplicationMarker,
+            ApplicationMcpServerName,
+            BuildApplicationReferenceBlock(),
+            connectionPath: null,
+            mcpToolsAutoApprove);
+        return project;
+    }
 
-        UpsertMarkdownBlock(Path.Combine(projectDirectory, "AGENTS.md"), relative, body);
+    /// <summary>Removes only the application-wide block and MCP entry from a project.</summary>
+    public static string RemoveApplicationFrom(string projectDirectory)
+    {
+        var project = NormalizeDirectory(projectDirectory);
+        if (Directory.Exists(project))
+            RemoveBlocks(project, ApplicationMarker, ApplicationMcpServerName);
+        return project;
+    }
+
+    private static void Apply(
+        string projectDirectory,
+        string marker,
+        string serverName,
+        string body,
+        string? connectionPath,
+        bool mcpToolsAutoApprove)
+    {
+        UpsertMarkdownBlock(Path.Combine(projectDirectory, "AGENTS.md"), marker, body);
 
         // Agents with their own context file name (Claude) do not read AGENTS.md by
         // themselves. Create the same thin include the workspace uses when the project has none;
@@ -119,28 +151,31 @@ public static class AgentProjectLink
             if (!File.Exists(path))
                 File.WriteAllText(path, AgentMcpConfigCatalog.ContextIncludeBody + "\n", Utf8);
             else if (!ImportsAgentsMd(ReadTextOrEmpty(path)))
-                UpsertMarkdownBlock(path, relative, body);
+                UpsertMarkdownBlock(path, marker, body);
         }
 
-        WriteProjectMcpConfigs(link, projectDirectory);
+        WriteProjectMcpConfigs(
+            projectDirectory,
+            marker,
+            serverName,
+            connectionPath,
+            mcpToolsAutoApprove);
     }
 
     /// <summary>
     /// Leaves the project as it was before: the block and MCP entry go, and files or folders
     /// that exist only because we wrote them are deleted instead of left behind empty.
     /// </summary>
-    private static void RemoveBlocks(AgentWorkspaceLink link, string projectDirectory)
+    private static void RemoveBlocks(string projectDirectory, string marker, string serverName)
     {
-        var relative = link.NormalizedRelativePath;
-
-        RemoveMarkdownBlock(Path.Combine(projectDirectory, "AGENTS.md"), relative);
+        RemoveMarkdownBlock(Path.Combine(projectDirectory, "AGENTS.md"), marker);
         DeleteIfEmpty(Path.Combine(projectDirectory, "AGENTS.md"));
 
         // An include file still holding nothing but the line we created is ours to remove.
         foreach (var include in AgentMcpConfigCatalog.ContextIncludeFiles)
         {
             var path = Path.Combine(projectDirectory, include);
-            RemoveMarkdownBlock(path, relative);
+            RemoveMarkdownBlock(path, marker);
             if (ReadTextOrEmpty(path).Trim() == AgentMcpConfigCatalog.ContextIncludeBody)
                 TryDeleteFile(path);
             DeleteIfEmpty(path);
@@ -153,13 +188,13 @@ public static class AgentProjectLink
             {
                 // Drops the file itself when our entry was all it held; the folder may still
                 // be the project's own (.vscode), so only remove it once it is empty.
-                RemoveMcpJsonServer(path, target.JsonRootKey!, link.ProjectMcpServerName);
+                RemoveMcpJsonServer(path, target.JsonRootKey!, serverName);
                 if (target.HasOwnFolder)
                     TryDeleteEmptyFolder(path);
             }
             else
             {
-                RemoveTomlBlock(path, relative);
+                RemoveTomlBlock(path, marker);
                 DeleteIfEmpty(path, removeEmptyFolder: target.HasOwnFolder);
             }
         }
@@ -208,6 +243,27 @@ public static class AgentProjectLink
         return sb.ToString();
     }
 
+    private static string BuildApplicationReferenceBlock()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("## Control JeekRemoteManager through MCP");
+        sb.AppendLine();
+        sb.Append("JeekRemoteManager exposes its whole application through the **")
+          .Append(ApplicationMcpServerName)
+          .AppendLine("** MCP server configured in this project.");
+        sb.AppendLine();
+        sb.AppendLine("- Start with `connection_list` to inspect saved SSH, WSL, and RDP connections.");
+        sb.AppendLine("- Use `session_list` and `session_open` to find or open terminal tabs, then pass the returned session or connection to `terminal_status`, `terminal_run`, file-transfer, and monitor tools.");
+        sb.AppendLine("- This application-wide server is not pinned to one connection. It can manage the connection tree and control any open or saved connection, subject to the tool's confirmation rules.");
+        sb.AppendLine("- Use `terminal_run_danger` for destructive work so the user is asked to confirm in the JeekRemoteManager window.");
+        sb.AppendLine("- Passwords and two-factor codes are entered in that window and are never returned by MCP tools.");
+        sb.AppendLine("- The local adapter starts JeekRemoteManager if needed and talks to it over a named pipe; there is no URL, port, or token to expire.");
+        sb.AppendLine();
+        foreach (var line in AgentMcpConfigCatalog.DocTableLines())
+            sb.AppendLine(line);
+        return sb.ToString();
+    }
+
     private static bool ImportsAgentsMd(string claudeMd) =>
         claudeMd.Contains("@AGENTS.md", StringComparison.OrdinalIgnoreCase);
 
@@ -220,12 +276,14 @@ public static class AgentProjectLink
     /// entries the project already had. The entry is a stdio launch of the adapter pinned to
     /// this connection — no URL, no port, no token, so nothing here expires between app runs.
     /// </summary>
-    private static void WriteProjectMcpConfigs(AgentWorkspaceLink link, string projectDirectory)
+    private static void WriteProjectMcpConfigs(
+        string projectDirectory,
+        string marker,
+        string serverName,
+        string? connectionPath,
+        bool mcpToolsAutoApprove)
     {
         var adapter = AgentWorkspaceLink.AdapterPath;
-        var connection = link.NormalizedConnectionPath;
-        var server = link.ProjectMcpServerName;
-        var relative = link.NormalizedRelativePath;
 
         foreach (var target in AgentMcpConfigCatalog.All)
         {
@@ -235,16 +293,20 @@ public static class AgentProjectLink
                 MergeMcpJson(
                     path,
                     target.JsonRootKey!,
-                    server,
-                    AgentMcpConfigCatalog.BuildJsonEntry(adapter, connection));
+                    serverName,
+                    AgentMcpConfigCatalog.BuildJsonEntry(adapter, connectionPath));
             }
             else
             {
                 UpsertTomlBlock(
                     path,
-                    relative,
+                    marker,
                     AgentMcpConfigCatalog.BuildTomlEntry(
-                        target, server, adapter, connection, link.McpToolsAutoApprove));
+                        target,
+                        serverName,
+                        adapter,
+                        connectionPath,
+                        mcpToolsAutoApprove));
             }
         }
     }
@@ -474,6 +536,20 @@ public static class AgentProjectLink
     private static string NormalizeDirectory(string path) =>
         Path.GetFullPath(path.Trim())
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+    private static void ValidateProjectDirectory(string project, string? generatedWorkspace = null)
+    {
+        if (!Directory.Exists(project))
+            throw new DirectoryNotFoundException(project);
+
+        if ((generatedWorkspace is not null
+             && string.Equals(project, generatedWorkspace, StringComparison.OrdinalIgnoreCase))
+            || IsInsideWorkspaceRoot(project))
+        {
+            throw new InvalidOperationException(
+                "Pick a project folder outside the JeekRemoteManager agent workspaces.");
+        }
+    }
 
     private static bool IsInsideWorkspaceRoot(string path)
     {

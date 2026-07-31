@@ -107,6 +107,9 @@ public static class DebugMcpContract
                 ["panel"] = Prop("boolean", "Also drive the live AI panel view model from the open ai_render_probe tab (default false)."),
                 ["keep"] = Prop("boolean", "Keep the temporary project folder instead of deleting it (default false)."),
             }),
+        Tool("agent_application_link_check",
+            "Drives the main window's application-wide MCP link and unlink actions against a throwaway project. Verifies the menu entries, unpinned adapter config, global operating notes, preservation of existing project config, and cleanup.",
+            new() { ["keep"] = Prop("boolean", "Keep the temporary project folder instead of deleting it (default false).") }),
         Tool("auto_update_stage_check",
             "Runs the in-app update downloader end-to-end (real network): downloads the release package, extracts and verifies it in the staging folder, then cleans up.",
             new()
