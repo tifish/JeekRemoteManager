@@ -34,6 +34,12 @@ public static class AgentMcpConfigCatalog
 
         /// <summary>OpenCode's <c>{ type: "local", command: [exe, ...args] }</c>.</summary>
         OpenCodeLocal,
+
+        /// <summary>
+        /// Zed's <c>context_servers</c> entry: <c>{ command, args }</c> with no discriminator —
+        /// the variant is chosen by shape, and <c>type</c> is not part of the settings schema.
+        /// </summary>
+        ZedContextServer,
     }
 
     /// <param name="Label">Agent names shown in the generated AGENTS.md table.</param>
@@ -77,7 +83,9 @@ public static class AgentMcpConfigCatalog
             JsonStyle: JsonEntryStyle.OpenCodeLocal),
         new("OMP", ".omp/mcp.json", ConfigFormat.Json, "mcpServers"),
         new("VS Code (Copilot)", ".vscode/mcp.json", ConfigFormat.Json, "servers"),
-        new("Cursor", ".cursor/mcp.json", ConfigFormat.Json, "mcpServers"),
+        new("Cursor (IDE / CLI)", ".cursor/mcp.json", ConfigFormat.Json, "mcpServers"),
+        new("Zed", ".zed/settings.json", ConfigFormat.Json, "context_servers",
+            JsonStyle: JsonEntryStyle.ZedContextServer),
         new("Antigravity (CLI / 2.0 / IDE)", ".agents/mcp_config.json", ConfigFormat.Json, "mcpServers"),
         new("Codex", ".codex/config.toml", ConfigFormat.Toml, SupportsApprovalMode: true),
         new("Grok", ".grok/config.toml", ConfigFormat.Toml),
@@ -131,6 +139,15 @@ public static class AgentMcpConfigCatalog
             return entry;
         }
 
+        if (target.JsonStyle == JsonEntryStyle.ZedContextServer)
+        {
+            var entry = new JsonObject { ["command"] = adapterPath };
+            var zedArgs = BuildAdapterArguments(connectionPath, instanceId);
+            if (zedArgs.Count > 0)
+                entry["args"] = zedArgs;
+            return entry;
+        }
+
         var command = new JsonArray { adapterPath };
         foreach (var argument in BuildAdapterArguments(connectionPath, instanceId))
             command.Add(argument?.DeepClone());
@@ -144,7 +161,8 @@ public static class AgentMcpConfigCatalog
 
     /// <summary>
     /// Adds target-specific root settings without widening approval to the agent's local tools.
-    /// OpenCode prefixes MCP tools with the server name, so only that prefix is allowed.
+    /// OpenCode prefixes MCP tools with the server name, so only that prefix is allowed; Zed has
+    /// no per-server wildcard, so its remote tools are listed one by one.
     /// </summary>
     public static void ApplyJsonRootSettings(
         Target target,
@@ -152,15 +170,24 @@ public static class AgentMcpConfigCatalog
         string serverName,
         bool mcpToolsAutoApprove)
     {
-        if (target.JsonStyle != JsonEntryStyle.OpenCodeLocal)
-            return;
-
-        if (root["permission"] is not JsonObject permission)
+        switch (target.JsonStyle)
         {
-            permission = new JsonObject();
-            root["permission"] = permission;
+            case JsonEntryStyle.OpenCodeLocal:
+                EnsureObject(root, "permission")[$"{serverName}_*"] =
+                    mcpToolsAutoApprove ? "allow" : "ask";
+                break;
+
+            case JsonEntryStyle.ZedContextServer:
+                var tools = EnsureObject(
+                    EnsureObject(EnsureObject(root, "agent"), "tool_permissions"),
+                    "tools");
+                foreach (var tool in AgentCliCatalog.AutoRunSafeToolNames)
+                {
+                    EnsureObject(tools, ZedToolKey(serverName, tool))["default"] =
+                        mcpToolsAutoApprove ? "allow" : "confirm";
+                }
+                break;
         }
-        permission[$"{serverName}_*"] = mcpToolsAutoApprove ? "allow" : "ask";
     }
 
     /// <summary>Removes only the root setting written for one server.</summary>
@@ -169,15 +196,48 @@ public static class AgentMcpConfigCatalog
         JsonObject root,
         string serverName)
     {
-        if (target.JsonStyle != JsonEntryStyle.OpenCodeLocal
-            || root["permission"] is not JsonObject permission)
+        switch (target.JsonStyle)
         {
-            return;
-        }
+            case JsonEntryStyle.OpenCodeLocal:
+                if (root["permission"] is not JsonObject permission)
+                    return;
+                permission.Remove($"{serverName}_*");
+                if (permission.Count == 0)
+                    root.Remove("permission");
+                break;
 
-        permission.Remove($"{serverName}_*");
-        if (permission.Count == 0)
-            root.Remove("permission");
+            case JsonEntryStyle.ZedContextServer:
+                if (root["agent"] is not JsonObject agent
+                    || agent["tool_permissions"] is not JsonObject permissions
+                    || permissions["tools"] is not JsonObject tools)
+                {
+                    return;
+                }
+
+                foreach (var tool in AgentCliCatalog.AutoRunSafeToolNames)
+                    tools.Remove(ZedToolKey(serverName, tool));
+                if (tools.Count == 0)
+                    permissions.Remove("tools");
+                if (permissions.Count == 0)
+                    agent.Remove("tool_permissions");
+                if (agent.Count == 0)
+                    root.Remove("agent");
+                break;
+        }
+    }
+
+    /// <summary>Zed's per-tool approval key for one MCP server tool.</summary>
+    public static string ZedToolKey(string serverName, string toolName) =>
+        $"mcp:{serverName}:{toolName}";
+
+    private static JsonObject EnsureObject(JsonObject parent, string key)
+    {
+        if (parent[key] is JsonObject existing)
+            return existing;
+
+        var created = new JsonObject();
+        parent[key] = created;
+        return created;
     }
 
     /// <summary>The same entry as a TOML table body, without any surrounding comments or markers.</summary>

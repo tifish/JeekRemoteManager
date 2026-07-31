@@ -1695,6 +1695,16 @@ internal static class DebugMcpServer
             }
         }
 
+        var cursorPermissionsPath = Path.Combine(workspace, ".cursor", "cli.json");
+        var cursorAllowed =
+            File.Exists(cursorPermissionsPath)
+            && TryParseJsonObject(File.ReadAllText(cursorPermissionsPath))
+                ?["permissions"]?["allow"] is JsonArray cursorAllow
+            && cursorAllow.Any(node => string.Equals(
+                node?.GetValue<string>(),
+                $"Mcp({AgentCliWorkspace.McpServerName}:*)",
+                StringComparison.Ordinal));
+
         var expectedArguments = new List<string>();
         if (AgentWorkspaceLink.AdapterInstanceId is { } instanceId)
         {
@@ -1727,6 +1737,7 @@ internal static class DebugMcpServer
                               $"**Pinned connection:** `{connection}`",
                               StringComparison.Ordinal)),
             ("Claude approval", claudeApproved),
+            ("Cursor CLI permission", cursorAllowed),
         };
 
         // Every config in the catalog must exist, launch the adapter, and be pinned to this
@@ -1741,18 +1752,35 @@ internal static class DebugMcpServer
                 : null;
             var entry = jsonRoot?[target.JsonRootKey!]?[AgentCliWorkspace.McpServerName] as JsonObject;
             var ok = target.Format == AgentMcpConfigCatalog.ConfigFormat.Json
-                ? target.JsonStyle == AgentMcpConfigCatalog.JsonEntryStyle.OpenCodeLocal
-                    ? entry?["type"]?.GetValue<string>() == "local"
-                      && entry["command"] is JsonArray command
-                      && command.Select(node => node?.GetValue<string>())
-                          .SequenceEqual(new[] { adapter }.Concat(expectedArguments))
-                      && entry["enabled"]?.GetValue<bool>() == true
-                      && jsonRoot?["permission"]?[$"{AgentCliWorkspace.McpServerName}_*"]
-                          ?.GetValue<string>() == "allow"
-                    : entry?["command"]?.GetValue<string>() == adapter
-                      && entry["args"] is JsonArray entryArgs
-                      && entryArgs.Select(node => node?.GetValue<string>())
-                          .SequenceEqual(expectedArguments)
+                ? target.JsonStyle switch
+                {
+                    AgentMcpConfigCatalog.JsonEntryStyle.OpenCodeLocal =>
+                        entry?["type"]?.GetValue<string>() == "local"
+                        && entry["command"] is JsonArray command
+                        && command.Select(node => node?.GetValue<string>())
+                            .SequenceEqual(new[] { adapter }.Concat(expectedArguments))
+                        && entry["enabled"]?.GetValue<bool>() == true
+                        && jsonRoot?["permission"]?[$"{AgentCliWorkspace.McpServerName}_*"]
+                            ?.GetValue<string>() == "allow",
+                    // Zed picks the transport by shape, so a "type" key would not be schema-valid,
+                    // and it approves per tool because it has no per-server wildcard.
+                    AgentMcpConfigCatalog.JsonEntryStyle.ZedContextServer =>
+                        entry?["command"]?.GetValue<string>() == adapter
+                        && entry["type"] is null
+                        && entry["args"] is JsonArray zedArgs
+                        && zedArgs.Select(node => node?.GetValue<string>())
+                            .SequenceEqual(expectedArguments)
+                        && AgentCliCatalog.AutoRunSafeToolNames.All(tool =>
+                            jsonRoot?["agent"]?["tool_permissions"]?["tools"]?[
+                                    AgentMcpConfigCatalog.ZedToolKey(
+                                        AgentCliWorkspace.McpServerName,
+                                        tool)]
+                                ?["default"]?.GetValue<string>() == "allow"),
+                    _ => entry?["command"]?.GetValue<string>() == adapter
+                         && entry["args"] is JsonArray entryArgs
+                         && entryArgs.Select(node => node?.GetValue<string>())
+                             .SequenceEqual(expectedArguments),
+                }
                 : text.Contains(escapedAdapter, StringComparison.Ordinal)
                   && text.Contains(expectedTomlArgs, StringComparison.Ordinal);
 

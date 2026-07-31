@@ -289,6 +289,11 @@ public static class AgentCliWorkspace
         // settings. Without this, a fresh connection silently starts Claude without any
         // jrm-remote tools even though --allowedTools contains their names.
         WriteClaudeMcpApproval(workspaceDir, utf8);
+
+        // Cursor's CLI has no flag that grants one MCP server's tools, and a project-level
+        // server is not auto-approved the way a user-level one is. Its project permission file
+        // covers both without the blanket shell access --force would hand out.
+        WriteCursorCliPermissions(workspaceDir, mcpToolsAutoApprove, utf8);
     }
 
     private static void WriteClaudeMcpApproval(string workspaceDir, Encoding utf8)
@@ -297,23 +302,7 @@ public static class AgentCliWorkspace
         var settingsPath = Path.Combine(claudeDir, "settings.local.json");
         Directory.CreateDirectory(claudeDir);
 
-        JsonObject root;
-        try
-        {
-            root = File.Exists(settingsPath)
-                ? JsonNode.Parse(
-                    File.ReadAllText(settingsPath),
-                    documentOptions: new JsonDocumentOptions
-                    {
-                        CommentHandling = JsonCommentHandling.Skip,
-                        AllowTrailingCommas = true,
-                    }) as JsonObject ?? new JsonObject()
-                : new JsonObject();
-        }
-        catch (JsonException)
-        {
-            root = new JsonObject();
-        }
+        var root = ReadJsonObject(settingsPath);
 
         var enabled = root["enabledMcpjsonServers"] as JsonArray ?? new JsonArray();
         if (!enabled.Any(node =>
@@ -341,6 +330,68 @@ public static class AgentCliWorkspace
             settingsPath,
             root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n",
             utf8);
+    }
+
+    /// <summary>
+    /// Allows exactly this connection's remote tools in the Cursor CLI, through the only
+    /// project-scoped setting it accepts. Auto-approve off removes the token again, so the CLI
+    /// asks before each call instead of inheriting a stale allowance.
+    /// </summary>
+    private static void WriteCursorCliPermissions(
+        string workspaceDir,
+        bool mcpToolsAutoApprove,
+        Encoding utf8)
+    {
+        var cursorDir = Path.Combine(workspaceDir, ".cursor");
+        var permissionsPath = Path.Combine(cursorDir, "cli.json");
+        Directory.CreateDirectory(cursorDir);
+
+        var token = $"Mcp({McpServerName}:*)";
+        var root = ReadJsonObject(permissionsPath);
+        if (root["permissions"] is not JsonObject permissions)
+        {
+            permissions = new JsonObject();
+            root["permissions"] = permissions;
+        }
+
+        var allow = permissions["allow"] as JsonArray ?? new JsonArray();
+        for (var i = allow.Count - 1; i >= 0; i--)
+        {
+            if (string.Equals(allow[i]?.GetValue<string>(), token, StringComparison.Ordinal))
+                allow.RemoveAt(i);
+        }
+        if (mcpToolsAutoApprove)
+            allow.Add(token);
+        permissions["allow"] = allow;
+
+        File.WriteAllText(
+            permissionsPath,
+            root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n",
+            utf8);
+    }
+
+    /// <summary>
+    /// Reads a JSON settings file an agent also writes to, so our entry is merged rather than
+    /// stamped over its state. Missing or corrupt files start empty.
+    /// </summary>
+    private static JsonObject ReadJsonObject(string path)
+    {
+        try
+        {
+            return File.Exists(path)
+                ? JsonNode.Parse(
+                    File.ReadAllText(path),
+                    documentOptions: new JsonDocumentOptions
+                    {
+                        CommentHandling = JsonCommentHandling.Skip,
+                        AllowTrailingCommas = true,
+                    }) as JsonObject ?? new JsonObject()
+                : new JsonObject();
+        }
+        catch (JsonException)
+        {
+            return new JsonObject();
+        }
     }
 
     private static string BuildAgentDocBody(

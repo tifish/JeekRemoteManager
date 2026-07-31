@@ -44,9 +44,14 @@ public static class AgentCliInstaller
                 "irm https://antigravity.google/cli/install.ps1 | iex",
             // The 2.0 desktop app and the IDE are downloads, not winget packages.
             (AgentCliKind.Antigravity, _) => AntigravityDownload,
-            // Both editors recommend their graphical Windows user installer.
-            (AgentCliKind.VsCode, _) => VsCodeDownload,
+            // The Cursor CLI has an official PowerShell installer of its own; the editor is a
+            // graphical download, so the two surfaces do not share an install action.
+            (AgentCliKind.Cursor, AgentSurfaceKind.Terminal) =>
+                "irm 'https://cursor.com/install?win32=true' | iex",
             (AgentCliKind.Cursor, _) => CursorDownload,
+            // VS Code recommends its graphical Windows user installer; Zed publishes a winget package.
+            (AgentCliKind.VsCode, _) => VsCodeDownload,
+            (AgentCliKind.Zed, _) => "winget install -e --id ZedIndustries.Zed",
             _ => "",
         };
 
@@ -145,8 +150,10 @@ public static class AgentCliInstaller
         (AgentCliKind.Antigravity, AgentSurfaceKind.Terminal) => AgentCliLocator.FindAntigravityCli(),
         (AgentCliKind.Antigravity, AgentSurfaceKind.Desktop) => AgentCliLocator.FindAntigravityDesktop(),
         (AgentCliKind.Antigravity, AgentSurfaceKind.Ide) => AgentCliLocator.FindAntigravityIde(),
-        (AgentCliKind.VsCode, _) => AgentCliLocator.FindVsCode(),
+        (AgentCliKind.Cursor, AgentSurfaceKind.Terminal) => AgentCliLocator.FindCursorCli(),
         (AgentCliKind.Cursor, _) => AgentCliLocator.FindCursor(),
+        (AgentCliKind.VsCode, _) => AgentCliLocator.FindVsCode(),
+        (AgentCliKind.Zed, _) => AgentCliLocator.FindZed(),
         _ => null,
     };
 

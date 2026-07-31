@@ -91,9 +91,16 @@ public enum AgentCliKind
     /// </summary>
     Antigravity,
 
+    /// <summary>
+    /// Cursor ships a terminal agent (<c>agent</c>, formerly <c>cursor-agent</c>) beside the
+    /// editor. Both read the same <c>.cursor/mcp.json</c> and the same rules, so this is one
+    /// provider whose run mode picks the surface.
+    /// </summary>
+    Cursor,
+
     /// <summary>Editors opened on the workspace folder rather than run as a CLI.</summary>
     VsCode,
-    Cursor,
+    Zed,
 }
 
 /// <summary>
@@ -150,7 +157,7 @@ public sealed record AgentCliDescriptor(
 }
 
 /// <summary>
-/// Locates the three supported agent CLIs and builds launch argument lists.
+/// Locates every supported agent surface and builds launch argument lists.
 /// Remote-server context and MCP endpoints live in the workspace (<c>AGENTS.md</c>,
 /// project MCP configs) — not on the command line.
 /// </summary>
@@ -221,8 +228,15 @@ public static class AgentCliCatalog
                 AgentCliKind.Antigravity, AgentSurfaceKind.Ide,
                 AgentCliLocator.FindAntigravityIde()),
         }),
+        new(AgentCliKind.Cursor, "Cursor", new Dictionary<AgentSurfaceKind, AgentSurface>
+        {
+            [AgentSurfaceKind.Terminal] = Surface(
+                AgentCliKind.Cursor, AgentSurfaceKind.Terminal, AgentCliLocator.FindCursorCli()),
+            [AgentSurfaceKind.Ide] = Surface(
+                AgentCliKind.Cursor, AgentSurfaceKind.Ide, AgentCliLocator.FindCursor()),
+        }),
         Editor(AgentCliKind.VsCode, "VS Code", AgentCliLocator.FindVsCode()),
-        Editor(AgentCliKind.Cursor, "Cursor", AgentCliLocator.FindCursor()),
+        Editor(AgentCliKind.Zed, "Zed", AgentCliLocator.FindZed()),
     ];
 
     private static AgentCliDescriptor Terminal(AgentCliKind kind, string label, string? path) =>
@@ -262,7 +276,9 @@ public static class AgentCliCatalog
     /// </summary>
     public static IReadOnlyList<AgentCliRunMode> RunModesFor(AgentCliKind kind) => kind switch
     {
-        AgentCliKind.VsCode or AgentCliKind.Cursor => [AgentCliRunMode.Ide],
+        AgentCliKind.VsCode or AgentCliKind.Zed => [AgentCliRunMode.Ide],
+        AgentCliKind.Cursor =>
+            [AgentCliRunMode.Cli, AgentCliRunMode.WindowsTerminal, AgentCliRunMode.Ide],
         AgentCliKind.Antigravity =>
         [
             AgentCliRunMode.Cli,
@@ -288,6 +304,7 @@ public static class AgentCliCatalog
             AgentCliKind.Codex => BuildCodexArguments(autoRun),
             AgentCliKind.Grok => BuildGrokArguments(autoRun),
             AgentCliKind.Copilot => BuildCopilotArguments(autoRun),
+            AgentCliKind.Cursor => BuildCursorArguments(autoRun),
             AgentCliKind.Pi => BuildPiArguments(autoRun),
             AgentCliKind.Antigravity => BuildAntigravityArguments(autoRun),
             _ => Array.Empty<string>(),
@@ -387,6 +404,20 @@ public static class AgentCliCatalog
         // Copilot CLI accepts an MCP server name here and grants all tools from that one server.
         // This is narrower than --yolo, which would also auto-approve local shell/file work.
         return ["--allow-tool=jrm-remote"];
+    }
+
+    private static IReadOnlyList<string> BuildCursorArguments(bool autoRun)
+    {
+        if (!autoRun)
+            return Array.Empty<string>();
+
+        // Cursor auto-approves MCP servers coming from the user's own global config, but a
+        // project-level .cursor/mcp.json — which is what this workspace holds — still has to be
+        // approved. The workspace declares exactly one server (ours), so this approves nothing
+        // else, and it stays far narrower than --force/--yolo, which would also allow local
+        // shell work. Which of that server's tools may then run unattended is decided by the
+        // Mcp(jrm-remote:*) permission written into .cursor/cli.json.
+        return ["--approve-mcps"];
     }
 
     private static IReadOnlyList<string> BuildPiArguments(bool autoRun)

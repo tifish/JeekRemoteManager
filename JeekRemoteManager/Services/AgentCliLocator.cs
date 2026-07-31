@@ -6,7 +6,8 @@ namespace JeekRemoteManager.Services;
 
 /// <summary>
 /// Finds the installed agent executables on Windows — CLIs (<c>claude</c>, <c>codex</c>,
-/// <c>grok</c>, <c>agy</c>) and the editors and desktop apps opened on a workspace folder.
+/// <c>grok</c>, <c>agy</c>, Cursor's <c>agent.cmd</c>) and the editors and desktop apps opened
+/// on a workspace folder.
 /// </summary>
 public static class AgentCliLocator
 {
@@ -198,6 +199,44 @@ public static class AgentCliLocator
     }
 
     /// <summary>
+    /// Returns the full path to the Cursor CLI agent launcher, or <c>null</c> if it is not
+    /// installed. The official installer writes only <c>agent.cmd</c>/<c>agent.ps1</c> (plus the
+    /// legacy <c>cursor-agent</c> spelling) under <c>%LOCALAPPDATA%\cursor-agent</c>; there is no
+    /// <c>.exe</c> entry point, and CreateProcess resolves the batch launcher on its own.
+    /// PATH is probed under the unambiguous <c>cursor-agent</c> name only — a bare <c>agent</c>
+    /// collides with other vendors (Grok ships <c>agent.exe</c> in its own bin directory).
+    /// </summary>
+    public static string? FindCursorCli()
+    {
+        foreach (var candidate in EnumerateCursorCliCandidates())
+        {
+            if (File.Exists(candidate))
+                return ResolveRealPath(candidate);
+        }
+
+        var found = FindOnPath("cursor-agent.cmd");
+        return found is null ? null : ResolveRealPath(found);
+    }
+
+    /// <summary>
+    /// Returns the full path to <c>Zed.exe</c>, or <c>null</c> if it is not installed. Prefers the
+    /// GUI executable, which the installer also registers as the shell open command for a folder:
+    /// the <c>bin\zed.exe</c> CLI shim is only added to PATH when the user ticks that optional
+    /// install task, so it cannot be relied on.
+    /// </summary>
+    public static string? FindZed()
+    {
+        foreach (var candidate in EnumerateZedCandidates())
+        {
+            if (File.Exists(candidate))
+                return ResolveRealPath(candidate);
+        }
+
+        var found = FindOnPath("zed.exe");
+        return found is null ? null : ResolveRealPath(found);
+    }
+
+    /// <summary>
     /// Resolves symlinks and directory junctions so the CLI runs from its real install
     /// directory. The Codex standalone installer exposes codex.exe through a junction
     /// (%LOCALAPPDATA%\Programs\OpenAI\Codex\bin → ~\.codex\packages\standalone\current\bin),
@@ -288,6 +327,28 @@ public static class AgentCliLocator
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
             "Cursor",
             "Cursor.exe");
+    }
+
+    private static System.Collections.Generic.IEnumerable<string> EnumerateCursorCliCandidates()
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        yield return Path.Combine(localAppData, "cursor-agent", "agent.cmd");
+        yield return Path.Combine(localAppData, "cursor-agent", "cursor-agent.cmd");
+    }
+
+    private static System.Collections.Generic.IEnumerable<string> EnumerateZedCandidates()
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        // The installer requires no elevation, so the per-user layout is the common one.
+        yield return Path.Combine(localAppData, "Programs", "Zed", "Zed.exe");
+        yield return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            "Zed",
+            "Zed.exe");
+        // Preview and nightly channels install beside stable under their own product names.
+        yield return Path.Combine(localAppData, "Programs", "Zed Preview", "Zed.exe");
+        // Last resort: the CLI shim, which also opens a folder and lives inside the same install.
+        yield return Path.Combine(localAppData, "Programs", "Zed", "bin", "zed.exe");
     }
 
     private static System.Collections.Generic.IEnumerable<string> EnumerateAntigravityCliCandidates()

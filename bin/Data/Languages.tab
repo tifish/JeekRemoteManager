@@ -373,6 +373,7 @@ AiCliExternalHint	The agent CLI is running in Windows Terminal. Remote server to
 AiCliDesktopHint	The agent is running in the desktop app. Remote server tools are provided by JeekRemoteManager over MCP (workspace folder).	Agent 正在桌面应用中运行。远程服务器工具由 JeekRemoteManager 通过 MCP 提供（工作区文件夹）。
 AiCliCopilotDesktopHint	Copilot is open. Its deep links cannot select a local folder; open this prepared workspace in the app: {0}	Copilot 已打开。其 Deep Link 无法选择本地目录，请在应用中打开已准备好的工作区：{0}
 AiCliIdeHint	The workspace folder is open in the editor. Remote server tools are provided by JeekRemoteManager over MCP.	工作区目录已在编辑器中打开。远程服务器工具由 JeekRemoteManager 通过 MCP 提供。
+AiCliZedIdeHint	The workspace folder is open in Zed. Trust the folder in Zed (shield icon in the title bar) so its project settings load — until then Zed ignores the JeekRemoteManager MCP server.	工作区目录已在 Zed 中打开。请在 Zed 中信任该目录（标题栏盾牌图标），其项目设置才会生效——在此之前 Zed 会忽略 JeekRemoteManager 的 MCP 服务器。
 AiCliIdeLaunchFailed	Could not start {0}.	无法启动 {0}。
 AiCliRunningIde	Workspace opened in {0}.	工作区已在 {0} 中打开。
 AiCliDangerTitle	Confirm dangerous command	确认危险命令
