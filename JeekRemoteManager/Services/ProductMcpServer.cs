@@ -97,6 +97,7 @@ internal static class ProductMcpServer
         host.AddTool("session_open", SessionOpenAsync);
         host.AddTool("session_close", args => SessionCommandAsync(args, close: true));
         host.AddTool("session_activate", args => SessionCommandAsync(args, close: false));
+        host.AddTool("session_move", SessionMoveAsync);
 
         host.AddTool("terminal_status", args => InSessionAsync(args, (tools, _) => tools.GetStatusAsync()));
         host.AddTool("terminal_run", args => RunCommandAsync(args, forceDanger: false));
@@ -1071,6 +1072,38 @@ internal static class ProductMcpServer
         }).ConfigureAwait(false);
 
         return ToolText(report);
+    }
+
+    private static async Task<JsonObject> SessionMoveAsync(JsonObject args)
+    {
+        var id = McpHost.RequiredString(args, "session");
+        var position = args["position"]?.GetValue<int>()
+                       ?? throw new InvalidOperationException("'position' is required.");
+
+        var result = await OnUiAsync(() =>
+        {
+            var sessions = MainWindow.EnumerateTerminalSessions();
+            if (sessions.FirstOrDefault(s => s.SessionId == id) is not { View: not null } session)
+                throw new InvalidOperationException($"No open session '{id}'. Call session_list.");
+            if (position < 0 || position >= sessions.Count)
+            {
+                throw new InvalidOperationException(
+                    $"'position' must be between 0 and {sessions.Count - 1}.");
+            }
+
+            MainWindow.MoveTerminalSession(session.Tab, position);
+            var reordered = MainWindow.EnumerateTerminalSessions();
+            return new JsonObject
+            {
+                ["session"] = id,
+                ["position"] = position,
+                ["active"] = ReferenceEquals(session.Tab, MainWindow.SelectedTerminalTab),
+                ["sessions"] = new JsonArray(
+                    reordered.Select(item => JsonValue.Create(item.SessionId)).ToArray()),
+            };
+        }).ConfigureAwait(false);
+
+        return ToolText(result.ToJsonString(PrettyOptions));
     }
 
     private static async Task<IAgentRemoteTools> ResolveToolsAsync(JsonObject args) =>

@@ -209,6 +209,17 @@ public static class ProductMcpContract
             new() { ["session"] = Prop("string", "Session id to show.") },
             ["session"]),
 
+        Tool("session_move",
+            "Move an open terminal tab to a new position. Positions are zero-based in session_list "
+            + "order and include terminal sessions only; the fixed editor tab is not moved. "
+            + "The currently active tab remains active.",
+            new()
+            {
+                ["session"] = Prop("string", "Session id to move."),
+                ["position"] = Prop("integer", "Zero-based target position among open terminal sessions."),
+            },
+            ["session", "position"]),
+
         // --- Inside a session ---
         Tool("terminal_status",
             "Read-only snapshot of a session: connected? shell lock free? command or transfer running?",

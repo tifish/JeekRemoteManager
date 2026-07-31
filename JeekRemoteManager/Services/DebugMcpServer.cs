@@ -815,6 +815,9 @@ internal static class DebugMcpServer
                 .ConfigureAwait(false);
             var toolCount = JsonNode.Parse(toolList)?["result"]?["tools"] is JsonArray tools ? tools.Count : 0;
             Check("tools/list advertises the connection surface", toolCount >= 18);
+            Check("tools/list advertises terminal-tab reordering",
+                toolList.Contains("\"session_move\"", StringComparison.Ordinal)
+                && toolList.Contains("\"position\"", StringComparison.Ordinal));
             Check("debug tools stay off the product surface", !toolList.Contains("\"get_value\"", StringComparison.Ordinal));
 
             var created = ExtractToolText(await session.CallAsync(ToolCall(3, "connection_create", new JsonObject
@@ -992,6 +995,42 @@ internal static class DebugMcpServer
                 .ConfigureAwait(false));
             Check("session_list shows the new session", listed.Contains(connection, StringComparison.Ordinal));
 
+            var openedSecond = ExtractToolText(await session.CallAsync(ToolCall(32, "session_open", new JsonObject
+            {
+                ["connection"] = connection,
+                ["activate"] = false,
+                ["wait_seconds"] = 1,
+            })).ConfigureAwait(false));
+            var secondSession = connection + " (2)";
+            Check("session_open creates an addressable second tab",
+                openedSecond.Contains($"\"session\": \"{secondSession}\"", StringComparison.Ordinal));
+
+            var sessionMoved = ExtractToolText(await session.CallAsync(ToolCall(33, "session_move", new JsonObject
+            {
+                ["session"] = secondSession,
+                ["position"] = 0,
+            })).ConfigureAwait(false));
+            var movedNode = JsonNode.Parse(sessionMoved);
+            Check("session_move returns the new terminal-tab order",
+                movedNode?["position"]?.GetValue<int>() == 0
+                && movedNode?["sessions"] is JsonArray movedSessions
+                && movedSessions.FirstOrDefault()?.GetValue<string>() == secondSession);
+
+            var listedAfterMove = ExtractToolText(
+                await session.CallAsync(ToolCall(34, "session_list", new JsonObject()))
+                    .ConfigureAwait(false));
+            Check("session_list reflects the moved tab",
+                JsonNode.Parse(listedAfterMove)?["sessions"] is JsonArray reorderedSessions
+                && reorderedSessions.FirstOrDefault()?["session"]?.GetValue<string>() == secondSession);
+
+            var invalidMove = ExtractToolText(await session.CallAsync(ToolCall(35, "session_move", new JsonObject
+            {
+                ["session"] = secondSession,
+                ["position"] = 999,
+            })).ConfigureAwait(false));
+            Check("session_move rejects an out-of-range position",
+                invalidMove.Contains("must be between", StringComparison.Ordinal));
+
             var status = ExtractToolText(await session.CallAsync(ToolCall(11, "terminal_status", new JsonObject
             {
                 ["session"] = connection,
@@ -1011,6 +1050,13 @@ internal static class DebugMcpServer
                 ["session"] = connection,
             })).ConfigureAwait(false));
             Check("session_close closes the tab", closed.Contains("Closed session", StringComparison.Ordinal));
+
+            var closedSecond = ExtractToolText(await session.CallAsync(ToolCall(36, "session_close", new JsonObject
+            {
+                ["session"] = secondSession,
+            })).ConfigureAwait(false));
+            Check("session_close closes the reordered tab",
+                closedSecond.Contains("Closed session", StringComparison.Ordinal));
 
             var afterClose = ExtractToolText(await session.CallAsync(ToolCall(14, "session_list", new JsonObject()))
                 .ConfigureAwait(false));

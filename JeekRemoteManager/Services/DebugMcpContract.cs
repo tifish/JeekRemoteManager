@@ -95,7 +95,7 @@ public static class DebugMcpContract
             "Persistent AI-panel rendering probe: action 'open' adds a local terminal tab with the embedded agent CLI started, 'status' reports feed/scroll state plus visible viewport text, 'close' removes the tab.",
             new() { ["action"] = Prop("string", "open | status | close (default status).") }),
         Tool("product_mcp_check",
-            "Drives the product MCP surface over its own pipe the way a user's agent would: create a throwaway connection, verify passwords are write-only (hasPassword only, never the value or blob), set one, check in-session tools refuse clearly with no session, then delete the connection.",
+            "Drives the product MCP surface over its own pipe the way a user's agent would: create a throwaway connection, verify passwords are write-only, exercise session open/list/move/close and in-session addressing, then delete the connection.",
             new()),
         Tool("mcp_transport_check",
             "Connects to the app's own MCP named pipe as a client and runs initialize + tools/list plus a second concurrent session, verifying the pipe transport, its ACL, and the line framing.",

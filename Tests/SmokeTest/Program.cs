@@ -969,11 +969,18 @@ try
         var second = ProductMcpContract.BuildToolList();
         productToolNames = string.Join(
             ',', first.Select(t => t?["name"]?.GetValue<string>() ?? "?"));
+        var sessionMove = first.FirstOrDefault(
+            t => t?["name"]?.GetValue<string>() == "session_move");
         productToolsOk = first.Count > 0
                          && first.Count == second.Count
                          && first.Any(t => t?["name"]?.GetValue<string>() == "terminal_run")
                          && first.Any(t => t?["name"]?.GetValue<string>() == "terminal_run_danger")
                          && first.Any(t => t?["name"]?.GetValue<string>() == "session_open")
+                         && sessionMove?["inputSchema"]?["properties"]?["position"]?["type"]
+                             ?.GetValue<string>() == "integer"
+                         && sessionMove["inputSchema"]?["required"] is JsonArray moveRequired
+                         && moveRequired.Select(node => node?.GetValue<string>())
+                             .SequenceEqual(["session", "position"])
                          && first.All(t => t?["inputSchema"]?["properties"] is JsonObject);
     }
     catch (Exception ex)

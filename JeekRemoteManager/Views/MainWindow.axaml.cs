@@ -814,6 +814,42 @@ public partial class MainWindow : Window
         view.FocusTerminal();
     }
 
+    /// <summary>
+    /// Moves one terminal tab to a zero-based position among terminal tabs. The fixed editor tab
+    /// and the current selection stay untouched. Used by the product MCP surface.
+    /// </summary>
+    internal void MoveTerminalSession(TabItem tab, int position)
+    {
+        var terminalTabs = RightTabs.Items
+            .OfType<TabItem>()
+            .Where(item => item.Content is TerminalView)
+            .ToList();
+        var currentPosition = terminalTabs.IndexOf(tab);
+        if (currentPosition < 0)
+            throw new InvalidOperationException("The terminal tab is not open.");
+        if (position < 0 || position >= terminalTabs.Count)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(position),
+                position,
+                $"Position must be between 0 and {terminalTabs.Count - 1}.");
+        }
+        if (position == currentPosition)
+            return;
+
+        var selectedItem = RightTabs.SelectedItem;
+        RightTabs.Items.Remove(tab);
+        terminalTabs.Remove(tab);
+
+        var insertIndex = position >= terminalTabs.Count
+            ? terminalTabs.Count == 0
+                ? FirstTerminalTabIndex()
+                : RightTabs.Items.IndexOf(terminalTabs[^1]) + 1
+            : RightTabs.Items.IndexOf(terminalTabs[position]);
+        RightTabs.Items.Insert(insertIndex, tab);
+        RightTabs.SelectedItem = selectedItem;
+    }
+
     private void ActivateWindow()
     {
         if (WindowState == WindowState.Minimized)
