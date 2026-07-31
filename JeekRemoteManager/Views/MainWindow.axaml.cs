@@ -1135,14 +1135,8 @@ public partial class MainWindow : Window
     // Tab title stays the connection name; the remote OSC title does not override it.
     private static Control BuildTerminalTabHeader(Connection connection, int sessionNumber, out Button closeButton)
     {
-        var title = new TextBlock
-        {
-            Text = string.IsNullOrWhiteSpace(connection.Name) ? connection.Host : connection.Name,
-            MaxWidth = 180,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        title.Classes.Add("tab-label");
+        var fullTitle = string.IsNullOrWhiteSpace(connection.Name) ? connection.Host : connection.Name;
+        var title = BuildTerminalTabTitle(fullTitle);
 
         // Session number sits outside the trimmed title so it stays visible
         // even when a long connection name gets ellipsized.
@@ -1194,6 +1188,40 @@ public partial class MainWindow : Window
         var pill = new Border { Child = content };
         pill.Classes.Add("tab-pill");
         return pill;
+    }
+
+    internal static Grid BuildTerminalTabTitle(string fullTitle)
+    {
+        var titleParts = TerminalTabTitle.Split(fullTitle);
+        var leadingTitle = new TextBlock
+        {
+            Text = titleParts.LeadingText,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        leadingTitle.Classes.Add("tab-label");
+
+        var trailingTitle = new TextBlock
+        {
+            Text = titleParts.TrailingText,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        trailingTitle.Classes.Add("tab-label");
+
+        // The first column is trimmed to the remaining width while the second
+        // column always keeps the last few characters visible.
+        var title = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+            MaxWidth = 180,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        Grid.SetColumn(leadingTitle, 0);
+        Grid.SetColumn(trailingTitle, 1);
+        title.Children.Add(leadingTitle);
+        title.Children.Add(trailingTitle);
+        ToolTip.SetTip(title, fullTitle);
+        return title;
     }
 
     private static Control CreateConnectionTypeIcon(ConnectionType type)

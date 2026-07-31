@@ -104,6 +104,7 @@ internal static class DebugMcpServer
         host.AddTool("screenshot", _ => ScreenshotAsync());
         host.AddTool("about_dialog_probe", _ => AboutDialogProbeAsync());
         host.AddTool("ai_runtime_snapshot", _ => AiRuntimeSnapshotAsync());
+        host.AddTool("terminal_tab_title_check", _ => TerminalTabTitleCheckAsync());
         host.AddTool("terminal_tab_focus_check", _ => TerminalTabFocusCheckAsync());
         host.AddTool("ai_cli_ctrl_c_check", _ => AiCliCtrlCCheckAsync());
         host.AddTool("agent_cli_locate_check", AgentCliLocateCheckAsync);
@@ -495,6 +496,48 @@ internal static class DebugMcpServer
         });
 
         return ToolText(text);
+    }
+
+    private static async Task<JsonObject> TerminalTabTitleCheckAsync()
+    {
+        const string fullTitle = "production-cluster-singapore-api-node-末尾六个字符";
+        var (passed, report) = await OnUiAsync(() =>
+        {
+            var title = Views.MainWindow.BuildTerminalTabTitle(fullTitle);
+            title.Measure(new Size(180, 32));
+            title.Arrange(new Rect(0, 0, 180, 32));
+
+            var leading = title.Children.OfType<TextBlock>().ElementAtOrDefault(0);
+            var trailing = title.Children.OfType<TextBlock>().ElementAtOrDefault(1);
+            var parts = TerminalTabTitle.Split(fullTitle);
+
+            var shortTitle = Views.MainWindow.BuildTerminalTabTitle("server");
+            var shortParts = shortTitle.Children.OfType<TextBlock>().ToArray();
+
+            var tooltip = ToolTip.GetTip(title)?.ToString() ?? "";
+            var ok = leading?.Text == parts.LeadingText
+                     && trailing?.Text == parts.TrailingText
+                     && parts.LeadingText + parts.TrailingText == fullTitle
+                     && parts.TrailingText == "末尾六个字符"
+                     && tooltip == fullTitle
+                     && title.MaxWidth == 180
+                     && leading.TextTrimming == Avalonia.Media.TextTrimming.CharacterEllipsis
+                     && trailing.Bounds.Width > 0
+                     && trailing.Bounds.Right <= 180.01
+                     && shortParts.Length == 2
+                     && shortParts[0].Text == "server"
+                     && shortParts[1].Text == "";
+
+            return (ok,
+                $"{(ok ? "PASS" : "FAIL")}: terminal-tab long-name title\n"
+                + $"leading: {leading?.Text}\n"
+                + $"trailing: {trailing?.Text}\n"
+                + $"tooltip: {tooltip}\n"
+                + $"bounds: leading={leading?.Bounds}, trailing={trailing?.Bounds}\n"
+                + $"maxWidth: {title.MaxWidth}");
+        });
+
+        return ToolText(report, isError: !passed);
     }
 
     private static async Task<JsonObject> TerminalTabFocusCheckAsync()

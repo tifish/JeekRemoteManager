@@ -151,6 +151,21 @@ try
               < mainWindowCode.IndexOf("menu.Items.Add(monitor);", StringComparison.Ordinal),
           "Terminal tab menu places AI before monitor");
 
+    var longTabTitle = "production-cluster-singapore-api-node-末尾六个字符";
+    var longTabTitleParts = TerminalTabTitle.Split(longTabTitle);
+    Check(longTabTitleParts.LeadingText + longTabTitleParts.TrailingText == longTabTitle
+          && longTabTitleParts.TrailingText == "末尾六个字符",
+          "Long terminal-tab titles reserve their last six characters");
+    var shortTabTitleParts = TerminalTabTitle.Split("server");
+    Check(shortTabTitleParts.LeadingText == "server" && shortTabTitleParts.TrailingText == "",
+          "Short terminal-tab titles remain unchanged");
+    var emojiTabTitleParts = TerminalTabTitle.Split("cluster-prefix-👨‍👩‍👧‍👦12345");
+    Check(emojiTabTitleParts.TrailingText == "👨‍👩‍👧‍👦12345",
+          "Terminal-tab title splitting preserves Unicode text elements");
+    Check(DebugMcpContract.BuildToolList()
+              .Any(tool => tool?["name"]?.GetValue<string>() == "terminal_tab_title_check"),
+          "Debug MCP advertises terminal-tab title verification");
+
     var functionKeySequences = new[]
     {
         "\u001bOP", "\u001bOQ", "\u001bOR", "\u001bOS",
