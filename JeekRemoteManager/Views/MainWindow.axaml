@@ -422,6 +422,10 @@
             <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
+        <Style Selector="TextBlock.tab-title-emphasis">
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
         <Style Selector="MenuFlyoutPresenter">
             <Setter Property="Background" Value="{DynamicResource PopupSurfaceBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource PopupBorderBrush}" />

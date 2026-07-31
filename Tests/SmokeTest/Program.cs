@@ -162,6 +162,17 @@ try
     var emojiTabTitleParts = TerminalTabTitle.Split("cluster-prefix-👨‍👩‍👧‍👦12345");
     Check(emojiTabTitleParts.TrailingText == "👨‍👩‍👧‍👦12345",
           "Terminal-tab title splitting preserves Unicode text elements");
+    const string similarTabTitle = "production-api-node-02-singapore";
+    var similarTabEmphasis = TerminalTabTitle.FindEmphasis(
+        similarTabTitle,
+        ["production-api-node-01-singapore", "production-api-node-03-singapore"]);
+    Check(!similarTabEmphasis.IsEmpty
+          && similarTabTitle.Substring(similarTabEmphasis.Start, similarTabEmphasis.Length) == "2",
+          "Terminal tabs isolate the differing part of similar adjacent server names");
+    Check(TerminalTabTitle.FindEmphasis(
+              similarTabTitle,
+              ["unrelated-development-machine", "totally-different-host"]).IsEmpty,
+          "Terminal tabs do not emphasize names that are not sufficiently similar");
     Check(DebugMcpContract.BuildToolList()
               .Any(tool => tool?["name"]?.GetValue<string>() == "terminal_tab_title_check"),
           "Debug MCP advertises terminal-tab title verification");

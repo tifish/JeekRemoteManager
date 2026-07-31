@@ -863,11 +863,12 @@ public partial class MainWindow : Window
     private (TerminalView View, TabItem Tab) CreateTerminalTab(Connection connection, string? sourcePath, bool select = true)
     {
         var sessionNumber = NextTerminalSessionNumber(connection, sourcePath);
+        var adjacentTitles = FindAdjacentConnectionTitles(sourcePath);
         var view = new TerminalView { SessionNumber = sessionNumber };
         view.PanelStateChanged += (_, _) => UpdateTerminalPanelToggleStates();
         var tab = new TabItem
         {
-            Header = BuildTerminalTabHeader(connection, sessionNumber, out var closeButton),
+            Header = BuildTerminalTabHeader(connection, sessionNumber, adjacentTitles, out var closeButton),
             Content = view,
             Tag = sessionNumber,
         };
@@ -1133,10 +1134,15 @@ public partial class MainWindow : Window
     }
 
     // Tab title stays the connection name; the remote OSC title does not override it.
-    private static Control BuildTerminalTabHeader(Connection connection, int sessionNumber, out Button closeButton)
+    private static Control BuildTerminalTabHeader(
+        Connection connection,
+        int sessionNumber,
+        IReadOnlyList<string> adjacentTitles,
+        out Button closeButton)
     {
-        var fullTitle = string.IsNullOrWhiteSpace(connection.Name) ? connection.Host : connection.Name;
-        var title = BuildTerminalTabTitle(fullTitle);
+        var fullTitle = GetTerminalTabTitle(connection);
+        var emphasis = TerminalTabTitle.FindEmphasis(fullTitle, adjacentTitles);
+        var title = BuildTerminalTabTitle(fullTitle, emphasis);
 
         // Session number sits outside the trimmed title so it stays visible
         // even when a long connection name gets ellipsized.
@@ -1190,23 +1196,20 @@ public partial class MainWindow : Window
         return pill;
     }
 
-    internal static Grid BuildTerminalTabTitle(string fullTitle)
+    internal static Grid BuildTerminalTabTitle(
+        string fullTitle,
+        TerminalTabTitleEmphasis emphasis = default)
     {
-        var titleParts = TerminalTabTitle.Split(fullTitle);
-        var leadingTitle = new TextBlock
-        {
-            Text = titleParts.LeadingText,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        leadingTitle.Classes.Add("tab-label");
+        if (!emphasis.IsEmpty)
+            return BuildEmphasizedTerminalTabTitle(fullTitle, emphasis);
 
-        var trailingTitle = new TextBlock
-        {
-            Text = titleParts.TrailingText,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        trailingTitle.Classes.Add("tab-label");
+        var titleParts = TerminalTabTitle.Split(fullTitle);
+        var leadingTitle = CreateTerminalTabTitleText(
+            titleParts.LeadingText,
+            TextTrimming.CharacterEllipsis);
+        var trailingTitle = CreateTerminalTabTitleText(
+            titleParts.TrailingText,
+            TextTrimming.None);
 
         // The first column is trimmed to the remaining width while the second
         // column always keeps the last few characters visible.
@@ -1223,6 +1226,110 @@ public partial class MainWindow : Window
         ToolTip.SetTip(title, fullTitle);
         return title;
     }
+
+    private static Grid BuildEmphasizedTerminalTabTitle(
+        string fullTitle,
+        TerminalTabTitleEmphasis emphasis)
+    {
+        var commonPrefix = CreateTerminalTabTitleText(
+            fullTitle[..emphasis.Start],
+            TextTrimming.CharacterEllipsis);
+        var distinct = CreateTerminalTabTitleText(
+            fullTitle.Substring(emphasis.Start, emphasis.Length),
+            TextTrimming.CharacterEllipsis);
+        distinct.MaxWidth = 120;
+        distinct.FontWeight = FontWeight.Bold;
+        distinct.Classes.Add("tab-title-emphasis");
+        var commonSuffix = CreateTerminalTabTitleText(
+            fullTitle[emphasis.End..],
+            TextTrimming.CharacterEllipsis);
+
+        // In similarity mode the distinguishing text gets the fixed-width
+        // center column. Common text on either side yields first, so the
+        // emphasized part remains visible without reserving the title's tail.
+        var title = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions(
+                $"{(commonPrefix.Text?.Length > 0 ? "*" : "0")},Auto,"
+                + $"{(commonSuffix.Text?.Length > 0 ? "*" : "0")}"),
+            MaxWidth = 180,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        Grid.SetColumn(commonPrefix, 0);
+        Grid.SetColumn(distinct, 1);
+        Grid.SetColumn(commonSuffix, 2);
+        title.Children.Add(commonPrefix);
+        title.Children.Add(distinct);
+        title.Children.Add(commonSuffix);
+        ToolTip.SetTip(title, fullTitle);
+        return title;
+    }
+
+    private static TextBlock CreateTerminalTabTitleText(
+        string text,
+        TextTrimming textTrimming)
+    {
+        var title = new TextBlock
+        {
+            Text = text,
+            TextTrimming = textTrimming,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        title.Classes.Add("tab-label");
+        return title;
+    }
+
+    private IReadOnlyList<string> FindAdjacentConnectionTitles(string? sourcePath)
+    {
+        if (string.IsNullOrWhiteSpace(sourcePath)
+            || DataContext is not MainWindowViewModel vm
+            || FindRealConnectionNode(vm.Nodes, sourcePath) is not { } node)
+        {
+            return [];
+        }
+
+        IList<TreeNodeViewModel> siblings = node.Parent?.Children ?? vm.Nodes;
+        var index = siblings.IndexOf(node);
+        var adjacentTitles = new List<string>(2);
+        AddAdjacentTitle(index - 1);
+        AddAdjacentTitle(index + 1);
+        return adjacentTitles;
+
+        void AddAdjacentTitle(int adjacentIndex)
+        {
+            if (adjacentIndex < 0
+                || adjacentIndex >= siblings.Count
+                || siblings[adjacentIndex] is not { IsConnection: true, Connection: { } connection })
+            {
+                return;
+            }
+
+            adjacentTitles.Add(GetTerminalTabTitle(connection));
+        }
+    }
+
+    private static TreeNodeViewModel? FindRealConnectionNode(
+        IEnumerable<TreeNodeViewModel> nodes,
+        string sourcePath)
+    {
+        foreach (var node in nodes)
+        {
+            if (!node.IsRecent
+                && node.IsConnection
+                && PathEquals(node.FullPath, sourcePath))
+            {
+                return node;
+            }
+
+            if (FindRealConnectionNode(node.Children, sourcePath) is { } found)
+                return found;
+        }
+
+        return null;
+    }
+
+    private static string GetTerminalTabTitle(Connection connection) =>
+        string.IsNullOrWhiteSpace(connection.Name) ? connection.Host : connection.Name;
 
     private static Control CreateConnectionTypeIcon(ConnectionType type)
     {

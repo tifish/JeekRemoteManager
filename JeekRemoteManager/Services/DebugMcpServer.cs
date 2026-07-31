@@ -514,6 +514,19 @@ internal static class DebugMcpServer
             var shortTitle = Views.MainWindow.BuildTerminalTabTitle("server");
             var shortParts = shortTitle.Children.OfType<TextBlock>().ToArray();
 
+            const string similarTitleText = "production-api-node-02-singapore";
+            var emphasis = TerminalTabTitle.FindEmphasis(
+                similarTitleText,
+                ["production-api-node-01-singapore", "production-api-node-03-singapore"]);
+            var emphasizedTitle = Views.MainWindow.BuildTerminalTabTitle(similarTitleText, emphasis);
+            emphasizedTitle.Measure(new Size(180, 32));
+            emphasizedTitle.Arrange(new Rect(0, 0, 180, 32));
+            var emphasizedParts = emphasizedTitle.Children
+                .OfType<TextBlock>()
+                .ToArray();
+            var emphasizedDifference = emphasizedParts
+                .SingleOrDefault(part => part.Classes.Contains("tab-title-emphasis"));
+
             var tooltip = ToolTip.GetTip(title)?.ToString() ?? "";
             var ok = leading?.Text == parts.LeadingText
                      && trailing?.Text == parts.TrailingText
@@ -526,13 +539,24 @@ internal static class DebugMcpServer
                      && trailing.Bounds.Right <= 180.01
                      && shortParts.Length == 2
                      && shortParts[0].Text == "server"
-                     && shortParts[1].Text == "";
+                     && shortParts[1].Text == ""
+                     && !emphasis.IsEmpty
+                     && similarTitleText.Substring(emphasis.Start, emphasis.Length) == "2"
+                     && emphasizedParts.Length == 3
+                     && emphasizedParts[0].Text == "production-api-node-0"
+                     && emphasizedDifference?.Text == "2"
+                     && emphasizedDifference.FontWeight == Avalonia.Media.FontWeight.Bold
+                     && emphasizedDifference.Bounds.Width > 0
+                     && emphasizedParts[2].Text == "-singapore"
+                     && emphasizedParts[2].TextTrimming == Avalonia.Media.TextTrimming.CharacterEllipsis;
 
             return (ok,
                 $"{(ok ? "PASS" : "FAIL")}: terminal-tab long-name title\n"
                 + $"leading: {leading?.Text}\n"
                 + $"trailing: {trailing?.Text}\n"
                 + $"tooltip: {tooltip}\n"
+                + $"adjacent emphasis: {emphasizedDifference?.Text}\n"
+                + $"similar layout: {string.Join(" | ", emphasizedParts.Select(part => part.Text))}\n"
                 + $"bounds: leading={leading?.Bounds}, trailing={trailing?.Bounds}\n"
                 + $"maxWidth: {title.MaxWidth}");
         });
