@@ -215,6 +215,8 @@ try
         repoRoot, "JeekRemoteManager", "Services", "BastionSessionPool.cs"));
     var sharedSshClientCode = File.ReadAllText(Path.Combine(
         repoRoot, "JeekRemoteManager", "Services", "SharedSshClient.cs"));
+    var languagesCode = File.ReadAllText(Path.Combine(
+        repoRoot, "bin", "Data", "Languages.tab"));
     var mainWindowXaml = File.ReadAllText(Path.Combine(
         repoRoot, "JeekRemoteManager", "Views", "MainWindow.axaml"));
     var mainWindowCode = File.ReadAllText(Path.Combine(
@@ -333,6 +335,17 @@ try
     Check(!mainWindowXaml.Contains("LoginCommandsFlowPreview", StringComparison.Ordinal)
           && mainWindowXaml.Contains("LoginCommandsValidationMessage", StringComparison.Ordinal),
           "SSH login commands show validation errors without the parsed flow text");
+    Check(mainWindowCode.Contains(
+              "AddDirective(\"#reuse-enter\", \"LoginCommandsHelpReuseEnter\")",
+              StringComparison.Ordinal)
+          && mainWindowCode.Contains(
+              "AddDirective(\"#reuse-leave\", \"LoginCommandsHelpReuseLeave\")",
+              StringComparison.Ordinal)
+          && languagesCode.Contains("LoginCommandsHelpReuseEnter\t", StringComparison.Ordinal)
+          && languagesCode.Contains("LoginCommandsHelpReuseLeave\t", StringComparison.Ordinal)
+          && !languagesCode.Contains("LoginCommandsHelpEnter\t", StringComparison.Ordinal)
+          && !languagesCode.Contains("LoginCommandsHelpLeave\t", StringComparison.Ordinal),
+          "Login-command help uses reuse-prefixed section directives and localization keys");
     Check(mainWindowXaml.Contains(
               "x:Name=\"LoginCommandsHelpGlyph\"",
               StringComparison.Ordinal)
@@ -597,17 +610,17 @@ try
     Check(LoginCommandSequence.IsManualInputDirective("  #INPUT  "),
           "Manual-input login directive remains case-insensitive");
     const string structuredLoginCommands =
-        "#input\n#enter\n5\n#key Enter\n#duplicate\n#leave\nexit";
+        "#input\n#reuse-enter\n5\n#key Enter\n#duplicate\n#reuse-leave\nexit";
     Check(LoginCommandSequence.HasStructuredReuseWorkflow(structuredLoginCommands)
           && LoginCommandSequence.Select(structuredLoginCommands, LoginCommandSection.Fresh)
               .SequenceEqual(["#input", "5", "#key Enter"])
-          && LoginCommandSequence.Select(structuredLoginCommands, LoginCommandSection.Enter)
+          && LoginCommandSequence.Select(structuredLoginCommands, LoginCommandSection.ReuseEnter)
               .SequenceEqual(["5", "#key Enter"])
           && LoginCommandSequence.Select(structuredLoginCommands, LoginCommandSection.Duplicate)
               .Length == 0
-          && LoginCommandSequence.Select(structuredLoginCommands, LoginCommandSection.Leave)
+          && LoginCommandSequence.Select(structuredLoginCommands, LoginCommandSection.ReuseLeave)
               .SequenceEqual(["exit"]),
-          "Structured login commands split fresh, enter, duplicate/monitor, and leave flows");
+          "Structured login commands split fresh, reuse-enter, duplicate/monitor, and reuse-leave flows");
     Check(LoginCommandSequence.Validate(structuredLoginCommands).Count == 0,
           "A complete structured bastion login workflow validates");
     var fixedTemplate = new BastionLoginProfile
@@ -616,14 +629,14 @@ try
         Segments = ["#input", "sudo -i", "", "exit\n#key Enter"],
     };
     const string templateCommands =
-        "#template 1\n#enter\n#select target-a\n#duplicate\n#template 2\n#leave\n#template 4";
+        "#template 1\n#reuse-enter\n#select target-a\n#duplicate\n#template 2\n#reuse-leave\n#template 4";
     Check(LoginCommandSequence.TryExpandTemplate(
               templateCommands,
               fixedTemplate,
               out var expandedTemplateCommands,
               out _)
           && expandedTemplateCommands.ReplaceLineEndings("\n")
-              == "#input\n#enter\n#select target-a\n#duplicate\nsudo -i\n#leave\nexit\n#key Enter"
+              == "#input\n#reuse-enter\n#select target-a\n#duplicate\nsudo -i\n#reuse-leave\nexit\n#key Enter"
           && LoginCommandSequence.Validate(templateCommands, fixedTemplate).Count == 0,
           "Fixed one-based bastion fragments expand before structured command parsing");
     Check(LoginCommandSequence.Validate("#template 5", fixedTemplate).Count > 0
@@ -709,9 +722,9 @@ try
         Id = "directives",
         Segments =
         [
-            "#input\n#enter\n#select target-a",
+            "#input\n#reuse-enter\n#select target-a",
             "#duplicate\nsudo -i",
-            "#leave\nexit\n#key Enter",
+            "#reuse-leave\nexit\n#key Enter",
             "#pagekey Ctrl-F",
         ],
     };
@@ -719,9 +732,15 @@ try
               "#template 4\n#template 1\n#template 2\n#template 3",
               directiveTemplate).Count == 0,
           "Template fragments allow every login directive except nested #template");
-    Check(LoginCommandSequence.Validate("#enter\n5").Count > 0
-          && !LoginCommandSequence.HasStructuredReuseWorkflow("#enter\n5"),
+    Check(LoginCommandSequence.Validate("#reuse-enter\n5").Count > 0
+          && !LoginCommandSequence.HasStructuredReuseWorkflow("#reuse-enter\n5"),
           "Partial bastion sections are never eligible for automatic pooling");
+    var retiredReuseDirectives = LoginCommandSequence.Validate("#enter\n5\n#leave\nexit");
+    Check(retiredReuseDirectives.Any(message =>
+              message.Contains("use #reuse-enter", StringComparison.Ordinal))
+          && retiredReuseDirectives.Any(message =>
+              message.Contains("use #reuse-leave", StringComparison.Ordinal)),
+          "Retired #enter and #leave directives report their reuse-prefixed replacements");
     Check(LoginCommandSequence.TryGetKey(" #KEY Enter ") == "Enter"
           && LoginKeySequence.TryParse("Enter", out var loginEnter, out _)
           && loginEnter == "\r",
@@ -731,14 +750,14 @@ try
         Host = "GATE.EXAMPLE.COM.",
         Port = 22,
         Username = "user",
-        LoginCommands = "#input\n#enter\n3\n#duplicate\n#leave\nexit",
+        LoginCommands = "#input\n#reuse-enter\n3\n#duplicate\n#reuse-leave\nexit",
     };
     var pooledRouteB = new Connection
     {
         Host = "gate.example.com",
         Port = 22,
         Username = "user",
-        LoginCommands = "#input\n#enter\n8\n#duplicate\n#leave\nexit",
+        LoginCommands = "#input\n#reuse-enter\n8\n#duplicate\n#reuse-leave\nexit",
     };
     var pooledOtherUser = new Connection
     {
@@ -761,7 +780,7 @@ try
             Host = "shared-bastion.test",
             Username = "user",
             LoginCommands =
-                "#template 1\n#enter\n#select {{name}}\n#duplicate\n#template 2\n#leave\n#template 4",
+                "#template 1\n#reuse-enter\n#select {{name}}\n#duplicate\n#template 2\n#reuse-leave\n#template 4",
         },
         bastionTemplateConnections);
     var templateBPath = bastionTemplateStore.Save(
@@ -771,7 +790,7 @@ try
             Host = "SHARED-BASTION.TEST.",
             Username = "user",
             LoginCommands =
-                "#template 1\n#enter\n#select {{name}}\n#duplicate\n#template 2\n#leave\n#template 4",
+                "#template 1\n#reuse-enter\n#select {{name}}\n#duplicate\n#template 2\n#reuse-leave\n#template 4",
         },
         bastionTemplateConnections);
     var templateA = bastionTemplateStore.Load(templateAPath);

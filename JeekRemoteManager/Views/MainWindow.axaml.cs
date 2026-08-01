@@ -3041,9 +3041,9 @@ public partial class MainWindow : Window
 
         AddDirective("command", "LoginCommandsHelpOrdinary");
         AddDirective("#input", "LoginCommandsHelpInput");
-        AddDirective("#enter", "LoginCommandsHelpEnter");
+        AddDirective("#reuse-enter", "LoginCommandsHelpReuseEnter");
         AddDirective("#duplicate", "LoginCommandsHelpDuplicate");
-        AddDirective("#leave", "LoginCommandsHelpLeave");
+        AddDirective("#reuse-leave", "LoginCommandsHelpReuseLeave");
         AddDirective("#select <name>", "LoginCommandsHelpSelect");
         AddDirective("#pagekey <key>", "LoginCommandsHelpPageKey");
         AddDirective("#key <key>", "LoginCommandsHelpKey");
@@ -3055,7 +3055,7 @@ public partial class MainWindow : Window
 
         var example = new TextBox
         {
-            Text = "#template 1\r\n#enter\r\n#select {{name}}\r\n#duplicate\r\n#leave\r\n#template 4",
+            Text = "#template 1\r\n#reuse-enter\r\n#select {{name}}\r\n#duplicate\r\n#reuse-leave\r\n#template 4",
             IsReadOnly = true,
             AcceptsReturn = true,
             TextWrapping = TextWrapping.NoWrap,

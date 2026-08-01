@@ -74,7 +74,7 @@ public static class DebugMcpContract
                 ["name"] = Prop("string", "Machine name or IP to match, as written after #select."),
             }, ["menu", "name"]),
         Tool("login_command_flow_check",
-            "Parse a structured bastion login workflow and report exactly what fresh, duplicate/monitor, cross-target enter, and leave flows execute, plus validation and #key encoding.",
+            "Parse a structured bastion login workflow and report exactly what fresh, duplicate/monitor, #reuse-enter, and #reuse-leave flows execute, plus validation and #key encoding.",
             new()
             {
                 ["login_commands"] = Prop("string", "Login-command text; defaults to a numeric-menu bastion example."),
@@ -97,7 +97,7 @@ public static class DebugMcpContract
             new()
             {
                 ["action"] = Prop("string", "open | status | close (default status)."),
-                ["scenario"] = Prop("string", "single (one-screen menu, default) | paged (menu that needs Ctrl-F) | switch (delayed menu after #leave and #key Enter)."),
+                ["scenario"] = Prop("string", "single (one-screen menu, default) | paged (menu that needs Ctrl-F) | switch (delayed menu after #reuse-leave and #key Enter)."),
                 ["login_commands"] = Prop("string", "Optional login-command text overriding the scenario's script."),
             }),
         Tool("ai_render_probe",

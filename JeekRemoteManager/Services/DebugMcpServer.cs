@@ -2062,15 +2062,15 @@ internal static class DebugMcpServer
         """;
 
     private const string MenuProbeSwitchLoginCommands =
-        "#enter\n#select all-assets\n#duplicate\n#leave\nexit\n#key Enter";
+        "#reuse-enter\n#select all-assets\n#duplicate\n#reuse-leave\nexit\n#key Enter";
 
     // Models a target shell that needs "exit" plus one more Enter before returning.
     // The menu is deliberately slower than the normal 500 ms quiet threshold, which
     // catches a phase transition that accidentally accepts the old target output.
     private const string MenuProbeSwitchScript = """
         Write-Host "TARGET_A_READY"
-        $leave = [Console]::ReadLine()
-        Write-Host "LEAVE=$leave"
+        $reuseLeaveInput = [Console]::ReadLine()
+        Write-Host "REUSE_LEAVE=$reuseLeaveInput"
         $confirm = [Console]::ReadLine()
         Write-Host "CONFIRM=ENTER"
         Start-Sleep -Milliseconds 1200
@@ -2102,10 +2102,10 @@ internal static class DebugMcpServer
                 [
                     LoginCommandSequence.Select(
                         MenuProbeSwitchLoginCommands,
-                        LoginCommandSection.Leave),
+                        LoginCommandSection.ReuseLeave),
                     LoginCommandSequence.Select(
                         MenuProbeSwitchLoginCommands,
-                        LoginCommandSection.Enter),
+                        LoginCommandSection.ReuseEnter),
                 ]);
         }
 
@@ -2217,7 +2217,7 @@ internal static class DebugMcpServer
     private static Task<JsonObject> LoginCommandFlowCheckAsync(JsonObject args)
     {
         var commands = args["login_commands"]?.GetValue<string>()
-                       ?? "#input\n#enter\n5\n#key Enter\n#duplicate\n#leave\nexit";
+                       ?? "#input\n#reuse-enter\n5\n#key Enter\n#duplicate\n#reuse-leave\nexit";
         var key = args["key"]?.GetValue<string>() ?? "Enter";
         var sb = new StringBuilder();
         sb.AppendLine($"structured={LoginCommandSequence.HasStructuredReuseWorkflow(commands)}");
@@ -2255,7 +2255,7 @@ internal static class DebugMcpServer
                 Port = 22,
                 Username = "probe",
                 LoginCommands =
-                    "#template 1\n#enter\n#select {{name}}\n#duplicate\n#template 2\n#leave\n#template 4",
+                    "#template 1\n#reuse-enter\n#select {{name}}\n#duplicate\n#template 2\n#reuse-leave\n#template 4",
             };
             var b = new Models.Connection
             {
@@ -2264,7 +2264,7 @@ internal static class DebugMcpServer
                 Port = 22,
                 Username = "probe",
                 LoginCommands =
-                    "#template 1\n#enter\n#select {{name}}\n#duplicate\n#template 2\n#leave\n#template 4",
+                    "#template 1\n#reuse-enter\n#select {{name}}\n#duplicate\n#template 2\n#reuse-leave\n#template 4",
             };
             var aPath = store.Save(a, connectionsRoot);
             var bPath = store.Save(b, connectionsRoot);

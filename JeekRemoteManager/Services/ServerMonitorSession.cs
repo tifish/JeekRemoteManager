@@ -326,12 +326,12 @@ public sealed class ServerMonitorSession : IDisposable
                 {
                     await RunLoginSectionAsync(
                             pooledLease.SourceRoute.LoginCommands,
-                            LoginCommandSection.Leave,
+                            LoginCommandSection.ReuseLeave,
                             cancellationToken)
                         .ConfigureAwait(false);
                     await RunLoginSectionAsync(
                             _connection!.EffectiveLoginCommands,
-                            LoginCommandSection.Enter,
+                            LoginCommandSection.ReuseEnter,
                             cancellationToken)
                         .ConfigureAwait(false);
                 }

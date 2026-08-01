@@ -1935,8 +1935,8 @@ public partial class TerminalView : UserControl
                 {
                     LoginCommandSequence.Select(
                         pooledLease.SourceRoute.LoginCommands,
-                        LoginCommandSection.Leave),
-                    LoginCommandSequence.Select(effectiveLoginCommands, LoginCommandSection.Enter),
+                        LoginCommandSection.ReuseLeave),
+                    LoginCommandSequence.Select(effectiveLoginCommands, LoginCommandSection.ReuseEnter),
                 }
                 : new[]
                 {
@@ -2645,8 +2645,8 @@ public partial class TerminalView : UserControl
             }
         }
 
-        // A cross-target switch runs #leave and #enter as separate phases. The last
-        // #leave action can return before the bastion has rendered its main menu
+        // A cross-target switch runs #reuse-leave and #reuse-enter as separate phases.
+        // The last #reuse-leave action can return before the bastion has rendered its main menu
         // (notably "exit" followed by "#key Enter"). Preserve its write timestamp
         // and wait for newer output here, so the next phase cannot mistake old,
         // already-quiet target output for the menu it is about to search.

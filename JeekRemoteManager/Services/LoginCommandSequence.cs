@@ -9,21 +9,24 @@ public enum LoginCommandSection
 {
     /// <summary>Initial connection: authentication prefix followed by the target-entry section.</summary>
     Fresh,
-    /// <summary>Commands that enter this connection's target from the bastion menu.</summary>
-    Enter,
+    /// <summary>Commands that enter this connection's target while reusing a bastion transport.</summary>
+    ReuseEnter,
     /// <summary>Commands for another channel that already defaults to this same target.</summary>
     Duplicate,
-    /// <summary>Commands that leave this target and return a reused channel to the bastion menu.</summary>
-    Leave,
+    /// <summary>Commands that leave this target while reusing a bastion transport.</summary>
+    ReuseLeave,
 }
 
 /// <summary>Parses the directives embedded in a connection's login commands.</summary>
 public static class LoginCommandSequence
 {
+    private const string RetiredEnterDirective = "#enter";
+    private const string RetiredLeaveDirective = "#leave";
+
     public const string ManualInputDirective = "#input";
-    public const string EnterDirective = "#enter";
+    public const string ReuseEnterDirective = "#reuse-enter";
     public const string DuplicateStartDirective = "#duplicate";
-    public const string LeaveDirective = "#leave";
+    public const string ReuseLeaveDirective = "#reuse-leave";
     public const string KeyDirective = "#key";
     public const string MenuSelectDirective = "#select";
     public const string MenuPageKeyDirective = "#pagekey";
@@ -33,7 +36,7 @@ public static class LoginCommandSequence
 
     /// <summary>
     /// Selects commands for a fresh or duplicated session. Existing configurations that
-    /// have no #enter/#leave sections keep their legacy #duplicate behavior unchanged.
+    /// have no #reuse-enter/#reuse-leave sections keep their legacy #duplicate behavior unchanged.
     /// </summary>
     public static string[] Select(string commands, bool isDuplicatedSession) =>
         Select(
@@ -42,9 +45,9 @@ public static class LoginCommandSequence
 
     /// <summary>
     /// Selects one execution section. A structured workflow is:
-    /// authentication prefix, #enter target-entry commands, #duplicate same-target channel
-    /// commands, and #leave commands that return a reused channel to the bastion menu.
-    /// A fresh connection executes both the prefix and #enter section.
+    /// authentication prefix, #reuse-enter target-entry commands, #duplicate same-target
+    /// channel commands, and #reuse-leave commands that return a reused channel to the
+    /// bastion menu. A fresh connection executes both the prefix and #reuse-enter section.
     /// </summary>
     public static string[] Select(string commands, LoginCommandSection section)
     {
@@ -56,9 +59,9 @@ public static class LoginCommandSequence
         var current = LoginCommandSection.Fresh;
         foreach (var line in lines)
         {
-            if (IsEnterDirective(line))
+            if (IsReuseEnterDirective(line))
             {
-                current = LoginCommandSection.Enter;
+                current = LoginCommandSection.ReuseEnter;
                 continue;
             }
             if (IsDuplicateStartDirective(line))
@@ -66,15 +69,15 @@ public static class LoginCommandSequence
                 current = LoginCommandSection.Duplicate;
                 continue;
             }
-            if (IsLeaveDirective(line))
+            if (IsReuseLeaveDirective(line))
             {
-                current = LoginCommandSection.Leave;
+                current = LoginCommandSection.ReuseLeave;
                 continue;
             }
 
             if (current == section
                 || section == LoginCommandSection.Fresh
-                   && current is LoginCommandSection.Fresh or LoginCommandSection.Enter)
+                   && current is LoginCommandSection.Fresh or LoginCommandSection.ReuseEnter)
             {
                 selected.Add(line);
             }
@@ -338,11 +341,11 @@ public static class LoginCommandSequence
     public static bool IsManualInputDirective(string line) =>
         line.Trim().Equals(ManualInputDirective, StringComparison.OrdinalIgnoreCase);
 
-    public static bool IsEnterDirective(string line) =>
-        line.Trim().Equals(EnterDirective, StringComparison.OrdinalIgnoreCase);
+    public static bool IsReuseEnterDirective(string line) =>
+        line.Trim().Equals(ReuseEnterDirective, StringComparison.OrdinalIgnoreCase);
 
-    public static bool IsLeaveDirective(string line) =>
-        line.Trim().Equals(LeaveDirective, StringComparison.OrdinalIgnoreCase);
+    public static bool IsReuseLeaveDirective(string line) =>
+        line.Trim().Equals(ReuseLeaveDirective, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Reads the key spec from "#key &lt;key&gt;", or null for an ordinary command.</summary>
     public static string? TryGetKey(string line) =>
@@ -393,9 +396,9 @@ public static class LoginCommandSequence
     {
         var sourceLines = commands.Split('\n');
         var messages = new List<string>();
-        var enterLines = new List<int>();
+        var reuseEnterLines = new List<int>();
         var duplicateLines = new List<int>();
-        var leaveLines = new List<int>();
+        var reuseLeaveLines = new List<int>();
 
         for (var index = 0; index < sourceLines.Length; index++)
         {
@@ -403,40 +406,44 @@ public static class LoginCommandSequence
             if (line.Length == 0)
                 continue;
 
-            if (IsEnterDirective(line))
-                enterLines.Add(index + 1);
+            if (IsReuseEnterDirective(line))
+                reuseEnterLines.Add(index + 1);
             else if (IsDuplicateStartDirective(line))
                 duplicateLines.Add(index + 1);
-            else if (IsLeaveDirective(line))
-                leaveLines.Add(index + 1);
+            else if (IsReuseLeaveDirective(line))
+                reuseLeaveLines.Add(index + 1);
+            else if (line.Equals(RetiredEnterDirective, StringComparison.OrdinalIgnoreCase))
+                messages.Add($"Line {index + 1}: #enter is no longer supported; use #reuse-enter.");
+            else if (line.Equals(RetiredLeaveDirective, StringComparison.OrdinalIgnoreCase))
+                messages.Add($"Line {index + 1}: #leave is no longer supported; use #reuse-leave.");
             else if (StartsWithDirective(line, KeyDirective))
                 ValidateKeyDirective(line, index + 1, messages);
             else if (StartsWithDirective(line, MenuPageKeyDirective))
                 ValidateNamedKeyDirective(line, MenuPageKeyDirective, index + 1, messages);
         }
 
-        if (enterLines.Count != leaveLines.Count)
-            messages.Add("#enter and #leave must be used together for safe bastion-session reuse.");
-        if (enterLines.Count > 1)
-            messages.Add($"#enter appears more than once (lines {string.Join(", ", enterLines)}).");
+        if (reuseEnterLines.Count != reuseLeaveLines.Count)
+            messages.Add("#reuse-enter and #reuse-leave must be used together for safe bastion-session reuse.");
+        if (reuseEnterLines.Count > 1)
+            messages.Add($"#reuse-enter appears more than once (lines {string.Join(", ", reuseEnterLines)}).");
         if (duplicateLines.Count > 1)
             messages.Add($"#duplicate appears more than once (lines {string.Join(", ", duplicateLines)}).");
-        if (leaveLines.Count > 1)
-            messages.Add($"#leave appears more than once (lines {string.Join(", ", leaveLines)}).");
+        if (reuseLeaveLines.Count > 1)
+            messages.Add($"#reuse-leave appears more than once (lines {string.Join(", ", reuseLeaveLines)}).");
 
-        if (enterLines.Count == 1 && leaveLines.Count == 1)
+        if (reuseEnterLines.Count == 1 && reuseLeaveLines.Count == 1)
         {
-            var enter = enterLines[0];
+            var reuseEnter = reuseEnterLines[0];
             var duplicate = duplicateLines.FirstOrDefault(int.MaxValue);
-            var leave = leaveLines[0];
-            if (!(enter < duplicate && duplicate < leave))
-                messages.Add("Structured sections must be ordered as #enter, #duplicate, #leave.");
+            var reuseLeave = reuseLeaveLines[0];
+            if (!(reuseEnter < duplicate && duplicate < reuseLeave))
+                messages.Add("Structured sections must be ordered as #reuse-enter, #duplicate, #reuse-leave.");
             else
             {
-                if (Select(commands, LoginCommandSection.Enter).Length == 0)
-                    messages.Add("#enter must contain at least one command or #key action.");
-                if (Select(commands, LoginCommandSection.Leave).Length == 0)
-                    messages.Add("#leave must contain at least one command or #key action.");
+                if (Select(commands, LoginCommandSection.ReuseEnter).Length == 0)
+                    messages.Add("#reuse-enter must contain at least one command or #key action.");
+                if (Select(commands, LoginCommandSection.ReuseLeave).Length == 0)
+                    messages.Add("#reuse-leave must contain at least one command or #key action.");
             }
         }
 
@@ -451,14 +458,14 @@ public static class LoginCommandSequence
         var sb = new StringBuilder();
         sb.Append("fresh: ").AppendLine(Show(Select(commands, LoginCommandSection.Fresh)));
         sb.Append("duplicate/monitor: ").AppendLine(Show(Select(commands, LoginCommandSection.Duplicate)));
-        sb.Append("cross-target enter: ").AppendLine(Show(Select(commands, LoginCommandSection.Enter)));
-        sb.Append("leave target: ").Append(Show(Select(commands, LoginCommandSection.Leave)));
+        sb.Append("reuse enter target: ").AppendLine(Show(Select(commands, LoginCommandSection.ReuseEnter)));
+        sb.Append("reuse leave target: ").Append(Show(Select(commands, LoginCommandSection.ReuseLeave)));
         return sb.ToString();
     }
 
     private static string[] SelectLegacy(string[] lines, LoginCommandSection section)
     {
-        if (section is LoginCommandSection.Enter or LoginCommandSection.Leave)
+        if (section is LoginCommandSection.ReuseEnter or LoginCommandSection.ReuseLeave)
             return [];
 
         if (section == LoginCommandSection.Duplicate)
@@ -481,7 +488,7 @@ public static class LoginCommandSequence
             .ToArray();
 
     private static bool HasStructuredReuseWorkflow(string[] lines) =>
-        lines.Any(IsEnterDirective) && lines.Any(IsLeaveDirective);
+        lines.Any(IsReuseEnterDirective) && lines.Any(IsReuseLeaveDirective);
 
     private static string? TryGetDirectiveArgument(string line, string directive)
     {

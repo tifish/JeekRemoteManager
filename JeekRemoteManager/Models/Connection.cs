@@ -61,7 +61,7 @@ public class Connection
     /// A "#select &lt;name&gt;" line picks the menu entry matching that name instead of a
     /// fixed number, which shifts when assets are added to a bastion menu; "#key Enter"
     /// sends one raw key, and "#pagekey &lt;key&gt;" configures long-menu paging.
-    /// Structured bastion reuse uses #enter, #duplicate, and #leave sections.
+    /// Structured bastion reuse uses #reuse-enter, #duplicate, and #reuse-leave sections.
     /// "#template 1" through "#template 4" expand the fixed fragments from this
     /// connection's automatically associated bastion template. "{{name}}",
     /// "{{host}}", "{{port}}", and "{{username}}" resolve from this connection
