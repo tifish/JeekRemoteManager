@@ -2981,6 +2981,22 @@ public partial class MainWindow : Window
                 return;
             }
 
+            for (var index = 0; index < values.Length; index++)
+            {
+                var errors = editor.ValidateBastionTemplateFragment(values[index]);
+                if (errors.Count == 0)
+                    continue;
+
+                if (DataContext is MainWindowViewModel vm)
+                {
+                    vm.StatusMessage = string.Format(
+                        Localizer.Get("BastionTemplateInvalid"),
+                        $"#{index + 1}: {errors[0]}");
+                }
+                fragments[index].Focus();
+                return;
+            }
+
             editor.BastionTemplateSegment1 = values[0];
             editor.BastionTemplateSegment2 = values[1];
             editor.BastionTemplateSegment3 = values[2];
@@ -3032,10 +3048,14 @@ public partial class MainWindow : Window
         AddDirective("#pagekey <key>", "LoginCommandsHelpPageKey");
         AddDirective("#key <key>", "LoginCommandsHelpKey");
         AddDirective("#template <1-4>", "LoginCommandsHelpTemplate");
+        AddDirective("{{name}}", "LoginCommandsHelpVariableName");
+        AddDirective("{{host}}", "LoginCommandsHelpVariableHost");
+        AddDirective("{{port}}", "LoginCommandsHelpVariablePort");
+        AddDirective("{{username}}", "LoginCommandsHelpVariableUsername");
 
         var example = new TextBox
         {
-            Text = "#template 1\r\n#enter\r\n#select target-a\r\n#duplicate\r\n#leave\r\n#template 4",
+            Text = "#template 1\r\n#enter\r\n#select {{name}}\r\n#duplicate\r\n#leave\r\n#template 4",
             IsReadOnly = true,
             AcceptsReturn = true,
             TextWrapping = TextWrapping.NoWrap,

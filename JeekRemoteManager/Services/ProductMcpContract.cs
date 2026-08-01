@@ -323,7 +323,8 @@ public static class ProductMcpContract
         leading["login_commands"] = Prop("string",
             "Commands typed after login, one per line; supports #input, #select, #pagekey, #key, "
             + "#template 1 through #template 4, and structured bastion sections "
-            + "#enter / #duplicate / #leave.");
+            + "#enter / #duplicate / #leave. {{name}}, {{host}}, {{port}}, and {{username}} "
+            + "resolve from the current connection after template expansion.");
         leading["wsl_distro"] = Prop("string", "WSL distribution name; empty = default distribution.");
         leading["wsl_start_directory"] = Prop("string", "Start directory inside WSL; empty = home.");
         leading["notes"] = Prop("string", "Free-form note.");

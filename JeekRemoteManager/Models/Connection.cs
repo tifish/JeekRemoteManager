@@ -63,7 +63,9 @@ public class Connection
     /// sends one raw key, and "#pagekey &lt;key&gt;" configures long-menu paging.
     /// Structured bastion reuse uses #enter, #duplicate, and #leave sections.
     /// "#template 1" through "#template 4" expand the fixed fragments from this
-    /// connection's automatically associated bastion template.
+    /// connection's automatically associated bastion template. "{{name}}",
+    /// "{{host}}", "{{port}}", and "{{username}}" resolve from this connection
+    /// after template expansion.
     /// </summary>
     public string LoginCommands { get; set; } = "";
 
@@ -81,9 +83,10 @@ public class Connection
         TryResolveLoginCommands(out var commands, out _) ? commands : "";
 
     public bool TryResolveLoginCommands(out string commands, out string error) =>
-        Services.LoginCommandSequence.TryExpandTemplate(
+        Services.LoginCommandSequence.TryResolve(
             LoginCommands,
             ResolvedBastionProfile,
+            this,
             out commands,
             out error);
 

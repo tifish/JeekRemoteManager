@@ -111,6 +111,7 @@ internal static class DebugMcpServer
         host.AddTool("agent_cli_mcp_config_check", AgentCliMcpConfigCheckAsync);
         host.AddTool("login_menu_select_check", LoginMenuSelectCheckAsync);
         host.AddTool("login_command_flow_check", LoginCommandFlowCheckAsync);
+        host.AddTool("login_command_variable_check", _ => LoginCommandVariableCheckAsync());
         host.AddTool("bastion_login_template_check", _ => BastionLoginTemplateCheckAsync());
         host.AddTool("connection_editor_switch_check", _ => ConnectionEditorSwitchCheckAsync());
         host.AddTool("login_menu_select_probe", LoginMenuSelectProbeAsync);
@@ -2253,7 +2254,7 @@ internal static class DebugMcpServer
                 Port = 22,
                 Username = "probe",
                 LoginCommands =
-                    "#template 1\n#enter\n#select target-a\n#duplicate\n#template 2\n#leave\n#template 4",
+                    "#template 1\n#enter\n#select {{name}}\n#duplicate\n#template 2\n#leave\n#template 4",
             };
             var b = new Models.Connection
             {
@@ -2262,7 +2263,7 @@ internal static class DebugMcpServer
                 Port = 22,
                 Username = "probe",
                 LoginCommands =
-                    "#template 1\n#enter\n#select target-b\n#duplicate\n#template 2\n#leave\n#template 4",
+                    "#template 1\n#enter\n#select {{name}}\n#duplicate\n#template 2\n#leave\n#template 4",
             };
             var aPath = store.Save(a, connectionsRoot);
             var bPath = store.Save(b, connectionsRoot);
@@ -2351,6 +2352,81 @@ internal static class DebugMcpServer
                 // Probe cleanup is best effort inside the isolated Debug temp root.
             }
         }
+    }
+
+    private static Task<JsonObject> LoginCommandVariableCheckAsync()
+    {
+        var template = new BastionLoginProfile
+        {
+            Id = "variable-check",
+            Segments =
+            [
+                "#select {{name}}\nssh {{username}}@{{host}} -p {{port}}\necho \\{{host}}",
+                "",
+                "",
+                "",
+            ],
+        };
+        var connection = new Models.Connection
+        {
+            Name = "target-b",
+            Host = "bastion.example.test",
+            Port = 0,
+            Username = "probe",
+            LoginCommands = "#template 1",
+            ResolvedBastionProfile = template,
+        };
+
+        var resolvedOk = connection.TryResolveLoginCommands(out var resolved, out _);
+        var unknownRejected = !LoginCommandSequence.TryResolve(
+            "{{password}}",
+            null,
+            connection,
+            out _,
+            out var unknownError);
+        var emptyUsername = new Models.Connection
+        {
+            Name = connection.Name,
+            Host = connection.Host,
+            Port = connection.Port,
+            Username = "",
+        };
+        var emptyRejected = !LoginCommandSequence.TryResolve(
+            "{{username}}",
+            null,
+            emptyUsername,
+            out _,
+            out var emptyError);
+        var templateSourceReported = !LoginCommandSequence.TryResolve(
+            "#template 1",
+            new BastionLoginProfile
+            {
+                Id = "bad-variable",
+                Segments = ["{{missing}}", "", "", ""],
+            },
+            connection,
+            out _,
+            out var templateError);
+
+        var passed = resolvedOk
+                     && resolved.ReplaceLineEndings("\n")
+                         == "#select target-b\nssh probe@bastion.example.test -p 22\necho {{host}}"
+                     && unknownRejected
+                     && unknownError.Contains("unknown connection variable", StringComparison.Ordinal)
+                     && emptyRejected
+                     && emptyError.Contains("is empty", StringComparison.Ordinal)
+                     && templateSourceReported
+                     && templateError.StartsWith("Template fragment 1, line 1:", StringComparison.Ordinal);
+        var report =
+            $"{(passed ? "PASS" : "FAIL")}: login command variables\n"
+            + $"resolved={resolvedOk}\n"
+            + $"escapedLiteral={resolved.Contains("{{host}}", StringComparison.Ordinal)}\n"
+            + $"unknownRejected={unknownRejected}\n"
+            + $"emptyRejected={emptyRejected}\n"
+            + $"templateSourceReported={templateSourceReported}\n"
+            + "--- resolved ---\n"
+            + resolved;
+        return Task.FromResult(ToolText(report, isError: !passed));
     }
 
     private static async Task<JsonObject> ConnectionEditorSwitchCheckAsync()

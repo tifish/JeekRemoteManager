@@ -122,7 +122,10 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     public string LoginCommandsValidationMessage =>
         _cachedLoginCommandsValidationMessage ??= string.Join(
             System.Environment.NewLine,
-            LoginCommandSequence.Validate(LoginCommands, CurrentBastionTemplate));
+            LoginCommandSequence.Validate(
+                LoginCommands,
+                CurrentBastionTemplate,
+                CreateLoginCommandVariableConnection()));
 
     public bool HasLoginCommandsValidationMessage =>
         LoginCommandsValidationMessage.Length > 0;
@@ -217,6 +220,8 @@ public partial class ConnectionEditorViewModel : ViewModelBase
 
     partial void OnTypeChanged(ConnectionType value)
     {
+        NotifyLoginCommandPresentationChanged();
+
         // Switching an existing connection to WSL: preselect the default distro so
         // the selector is not blank.
         if (value == ConnectionType.Wsl && string.IsNullOrEmpty(WslDistro))
@@ -314,6 +319,18 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         _passphraseEdited = true;
     }
 
+    partial void OnNameChanged(string value) =>
+        NotifyLoginCommandPresentationChanged();
+
+    partial void OnHostChanged(string value) =>
+        NotifyLoginCommandPresentationChanged();
+
+    partial void OnPortChanged(int value) =>
+        NotifyLoginCommandPresentationChanged();
+
+    partial void OnUsernameChanged(string value) =>
+        NotifyLoginCommandPresentationChanged();
+
     partial void OnLoginCommandsChanged(string value)
     {
         NotifyLoginCommandPresentationChanged();
@@ -340,6 +357,21 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         OnPropertyChanged(nameof(LoginCommandsValidationMessage));
         OnPropertyChanged(nameof(HasLoginCommandsValidationMessage));
     }
+
+    public IReadOnlyList<string> ValidateBastionTemplateFragment(string fragment) =>
+        LoginCommandSequence.ValidateVariables(
+            fragment,
+            CreateLoginCommandVariableConnection());
+
+    private Connection CreateLoginCommandVariableConnection() =>
+        new()
+        {
+            Type = Type,
+            Name = Name,
+            Host = Host,
+            Port = Port,
+            Username = Username,
+        };
 
     /// <summary>Writes the edited values back into the given connection.</summary>
     public void ApplyTo(Connection c)

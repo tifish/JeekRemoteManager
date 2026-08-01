@@ -1,4 +1,5 @@
 using System.Text;
+using System.Globalization;
 using JeekRemoteManager.Models;
 
 namespace JeekRemoteManager.Services;
@@ -27,6 +28,8 @@ public static class LoginCommandSequence
     public const string MenuSelectDirective = "#select";
     public const string MenuPageKeyDirective = "#pagekey";
     public const string TemplateDirective = "#template";
+
+    private sealed record SourceLine(string Text, string Location);
 
     /// <summary>
     /// Selects commands for a fresh or duplicated session. Existing configurations that
@@ -119,7 +122,82 @@ public static class LoginCommandSequence
         out string expanded,
         out string error)
     {
-        var output = new List<string>();
+        if (!TryExpandTemplateLines(commands, template, out var output, out error))
+        {
+            expanded = "";
+            return false;
+        }
+
+        expanded = string.Join(Environment.NewLine, output.Select(line => line.Text));
+        return true;
+    }
+
+    /// <summary>
+    /// Expands shared template fragments and then resolves the explicit, safe
+    /// connection-variable whitelist before directives are parsed.
+    /// </summary>
+    public static bool TryResolve(
+        string commands,
+        BastionLoginProfile? template,
+        Connection connection,
+        out string resolved,
+        out string error)
+    {
+        if (!TryExpandTemplateLines(commands, template, out var lines, out error))
+        {
+            resolved = "";
+            return false;
+        }
+
+        var output = new List<string>(lines.Count);
+        foreach (var line in lines)
+        {
+            if (!TryExpandVariables(line.Text, connection, line.Location, out var expanded, out error))
+            {
+                resolved = "";
+                return false;
+            }
+            output.Add(expanded);
+        }
+
+        resolved = string.Join(Environment.NewLine, output);
+        error = "";
+        return true;
+    }
+
+    /// <summary>
+    /// Validates only variable syntax and values. This is used by the shared-template
+    /// editor so all four fragments are checked even when a connection references only
+    /// some of them.
+    /// </summary>
+    public static IReadOnlyList<string> ValidateVariables(
+        string commands,
+        Connection connection)
+    {
+        var messages = new List<string>();
+        var lines = commands.ReplaceLineEndings("\n").Split('\n');
+        for (var index = 0; index < lines.Length; index++)
+        {
+            if (!TryExpandVariables(
+                    lines[index].TrimEnd('\r'),
+                    connection,
+                    $"Line {index + 1}",
+                    out _,
+                    out var error))
+            {
+                messages.Add(error);
+            }
+        }
+        return messages;
+    }
+
+    private static bool TryExpandTemplateLines(
+        string commands,
+        BastionLoginProfile? template,
+        out List<SourceLine> output,
+        out string error)
+    {
+        output = [];
         var sourceLines = commands.ReplaceLineEndings("\n").Split('\n');
         for (var index = 0; index < sourceLines.Length; index++)
         {
@@ -127,7 +205,7 @@ public static class LoginCommandSequence
             var trimmed = sourceLine.Trim();
             if (!StartsWithDirective(trimmed, TemplateDirective))
             {
-                output.Add(sourceLine);
+                output.Add(new SourceLine(sourceLine, $"Line {index + 1}"));
                 continue;
             }
 
@@ -135,7 +213,6 @@ public static class LoginCommandSequence
             if (argument.Length != 1
                 || argument[0] is < '1' or > '4')
             {
-                expanded = "";
                 error =
                     $"Line {index + 1}: #template requires a fragment id from 1 to "
                     + $"{BastionLoginProfile.SegmentCount}.";
@@ -145,7 +222,6 @@ public static class LoginCommandSequence
 
             if (template is null)
             {
-                expanded = "";
                 error =
                     $"Line {index + 1}: #template {segmentId} requires a bastion login template.";
                 return false;
@@ -154,17 +230,109 @@ public static class LoginCommandSequence
             var fragment = template.GetSegment(segmentId);
             if (ContainsTemplateDirective(fragment))
             {
-                expanded = "";
                 error = $"Template fragment {segmentId} cannot contain #template.";
                 return false;
             }
 
-            output.AddRange(fragment.ReplaceLineEndings("\n").Split('\n'));
+            var fragmentLines = fragment.ReplaceLineEndings("\n").Split('\n');
+            for (var fragmentIndex = 0; fragmentIndex < fragmentLines.Length; fragmentIndex++)
+            {
+                output.Add(new SourceLine(
+                    fragmentLines[fragmentIndex].TrimEnd('\r'),
+                    $"Template fragment {segmentId}, line {fragmentIndex + 1}"));
+            }
         }
 
-        expanded = string.Join(Environment.NewLine, output);
         error = "";
         return true;
+    }
+
+    private static bool TryExpandVariables(
+        string source,
+        Connection connection,
+        string location,
+        out string expanded,
+        out string error)
+    {
+        var output = new StringBuilder(source.Length);
+        for (var index = 0; index < source.Length;)
+        {
+            if (source[index] == '\\'
+                && index + 2 < source.Length
+                && source[index + 1] == '{'
+                && source[index + 2] == '{')
+            {
+                output.Append("{{");
+                index += 3;
+                continue;
+            }
+
+            if (source[index] != '{'
+                || index + 1 >= source.Length
+                || source[index + 1] != '{')
+            {
+                output.Append(source[index]);
+                index++;
+                continue;
+            }
+
+            var close = source.IndexOf("}}", index + 2, StringComparison.Ordinal);
+            if (close < 0)
+            {
+                expanded = "";
+                error = $"{location}: variable starting at column {index + 1} is not closed.";
+                return false;
+            }
+
+            var name = source[(index + 2)..close];
+            if (!TryGetVariableValue(connection, name, out var value))
+            {
+                expanded = "";
+                error = $"{location}: unknown connection variable {{{{{name}}}}}.";
+                return false;
+            }
+            if (value.Length == 0)
+            {
+                expanded = "";
+                error = $"{location}: connection variable {{{{{name}}}}} is empty.";
+                return false;
+            }
+            if (value.Contains('\r') || value.Contains('\n'))
+            {
+                expanded = "";
+                error = $"{location}: connection variable {{{{{name}}}}} cannot contain a line break.";
+                return false;
+            }
+
+            output.Append(value);
+            index = close + 2;
+        }
+
+        expanded = output.ToString();
+        error = "";
+        return true;
+    }
+
+    private static bool TryGetVariableValue(
+        Connection connection,
+        string name,
+        out string value)
+    {
+        value = name.ToLowerInvariant() switch
+        {
+            "name" => connection.Name.Trim(),
+            "host" => connection.Host.Trim(),
+            "port" => (connection.Port > 0
+                    ? connection.Port
+                    : Connection.DefaultPort(connection.Type))
+                .ToString(CultureInfo.InvariantCulture),
+            "username" => connection.Username.Trim(),
+            _ => "",
+        };
+        return name.Equals("name", StringComparison.OrdinalIgnoreCase)
+               || name.Equals("host", StringComparison.OrdinalIgnoreCase)
+               || name.Equals("port", StringComparison.OrdinalIgnoreCase)
+               || name.Equals("username", StringComparison.OrdinalIgnoreCase);
     }
 
     public static bool IsManualInputDirective(string line) =>
@@ -208,6 +376,17 @@ public static class LoginCommandSequence
         if (!TryExpandTemplate(commands, template, out var expanded, out var error))
             return [error];
         return ValidateExpanded(expanded);
+    }
+
+    /// <summary>Expands templates and current-connection variables, then validates.</summary>
+    public static IReadOnlyList<string> Validate(
+        string commands,
+        BastionLoginProfile? template,
+        Connection connection)
+    {
+        if (!TryResolve(commands, template, connection, out var resolved, out var error))
+            return [error];
+        return ValidateExpanded(resolved);
     }
 
     private static IReadOnlyList<string> ValidateExpanded(string commands)

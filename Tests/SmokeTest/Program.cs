@@ -290,6 +290,9 @@ try
               .Any(tool => tool?["name"]?.GetValue<string>() == "bastion_login_template_check"),
           "Debug MCP advertises shared bastion-template verification");
     Check(DebugMcpContract.BuildToolList()
+              .Any(tool => tool?["name"]?.GetValue<string>() == "login_command_variable_check"),
+          "Debug MCP advertises login-command variable verification");
+    Check(DebugMcpContract.BuildToolList()
               .Any(tool => tool?["name"]?.GetValue<string>() == "connection_editor_switch_check"),
           "Debug MCP advertises connection-editor switch performance verification");
     Check(!mainWindowXaml.Contains("LoginCommandsFlowPreview", StringComparison.Ordinal)
@@ -579,6 +582,73 @@ try
           && LoginCommandSequence.Validate("#template 1").Count > 0
           && LoginCommandSequence.ContainsTemplateDirective("#template 2"),
           "Template references require an associated template and an id from 1 through 4");
+    var variableTemplate = new BastionLoginProfile
+    {
+        Id = "variables",
+        Segments =
+        [
+            "#select {{name}}\nssh {{username}}@{{host}} -p {{port}}\necho \\{{host}}",
+            "",
+            "",
+            "",
+        ],
+    };
+    var variableConnection = new Connection
+    {
+        Name = "target-a",
+        Host = "bastion.example.test",
+        Port = 0,
+        Username = "user",
+        LoginCommands = "#template 1",
+        ResolvedBastionProfile = variableTemplate,
+    };
+    Check(variableConnection.TryResolveLoginCommands(
+              out var resolvedVariableCommands,
+              out _)
+          && resolvedVariableCommands.ReplaceLineEndings("\n")
+              == "#select target-a\nssh user@bastion.example.test -p 22\necho {{host}}",
+          "Template fragments resolve safe current-connection variables before parsing");
+    Check(!LoginCommandSequence.TryResolve(
+              "{{password}}",
+              null,
+              variableConnection,
+              out _,
+              out var unknownVariableError)
+          && unknownVariableError.Contains("unknown connection variable", StringComparison.Ordinal),
+          "Login command variables use an explicit whitelist without password access");
+    variableConnection.Username = "";
+    Check(!LoginCommandSequence.TryResolve(
+              "{{username}}",
+              null,
+              variableConnection,
+              out _,
+              out var emptyVariableError)
+          && emptyVariableError.Contains("is empty", StringComparison.Ordinal),
+          "An empty referenced connection value stops login command resolution");
+    variableConnection.Username = "user";
+    Check(!LoginCommandSequence.TryResolve(
+              "#template 1",
+              new BastionLoginProfile
+              {
+                  Id = "invalid-variable",
+                  Segments = ["{{missing}}", "", "", ""],
+              },
+              variableConnection,
+              out _,
+              out var templateVariableError)
+          && templateVariableError.StartsWith(
+              "Template fragment 1, line 1:",
+              StringComparison.Ordinal),
+          "Variable errors identify their template fragment and line");
+    variableConnection.Name = "bad\nname";
+    Check(!LoginCommandSequence.TryResolve(
+              "{{name}}",
+              null,
+              variableConnection,
+              out _,
+              out var multilineVariableError)
+          && multilineVariableError.Contains("line break", StringComparison.Ordinal),
+          "Connection variables cannot insert another login-command line");
     var nestedTemplate = new BastionLoginProfile
     {
         Id = "nested",
@@ -639,21 +709,21 @@ try
     var templateAPath = bastionTemplateStore.Save(
         new Connection
         {
-            Name = "template-a",
+            Name = "target-a",
             Host = "shared-bastion.test",
             Username = "user",
             LoginCommands =
-                "#template 1\n#enter\n#select target-a\n#duplicate\n#template 2\n#leave\n#template 4",
+                "#template 1\n#enter\n#select {{name}}\n#duplicate\n#template 2\n#leave\n#template 4",
         },
         bastionTemplateConnections);
     var templateBPath = bastionTemplateStore.Save(
         new Connection
         {
-            Name = "template-b",
+            Name = "target-b",
             Host = "SHARED-BASTION.TEST.",
             Username = "user",
             LoginCommands =
-                "#template 1\n#enter\n#select target-b\n#duplicate\n#template 2\n#leave\n#template 4",
+                "#template 1\n#enter\n#select {{name}}\n#duplicate\n#template 2\n#leave\n#template 4",
         },
         bastionTemplateConnections);
     var templateA = bastionTemplateStore.Load(templateAPath);
@@ -699,6 +769,7 @@ try
     Check(!templateA.LoginCommands.StartsWith(Environment.NewLine, StringComparison.Ordinal)
           && !templateA.LoginCommands.EndsWith(Environment.NewLine, StringComparison.Ordinal)
           && templateA.LoginCommands.Contains("#template 1", StringComparison.Ordinal)
+          && templateA.LoginCommands.Contains("{{name}}", StringComparison.Ordinal)
           && templateB.LoginCommands.Contains("#template 4", StringComparison.Ordinal)
           && templateA.EffectiveLoginCommands.Contains("#input", StringComparison.Ordinal)
           && templateA.EffectiveLoginCommands.Contains("#select target-a", StringComparison.Ordinal)
