@@ -203,9 +203,18 @@ try
     Check(mainWindowXaml.IndexOf("x:Name=\"AiPanelToolbarButton\"", StringComparison.Ordinal)
               < mainWindowXaml.IndexOf("x:Name=\"MonitorToolbarButton\"", StringComparison.Ordinal),
           "Terminal toolbar places AI before monitor");
-    Check(mainWindowXaml.Contains("x:Name=\"GlobalAgentToolbarButton\"", StringComparison.Ordinal)
-          && mainWindowXaml.IndexOf("x:Name=\"GlobalAgentToolbarButton\"", StringComparison.Ordinal)
-              < mainWindowXaml.IndexOf("x:Name=\"ToolbarNew\"", StringComparison.Ordinal)
+    var newRdpToolbarIndex = mainWindowXaml.IndexOf("x:Name=\"NewRdpToolbarButton\"", StringComparison.Ordinal);
+    var globalAgentToolbarSeparatorIndex = mainWindowXaml.IndexOf(
+        "x:Name=\"GlobalAgentToolbarSeparator\"",
+        StringComparison.Ordinal);
+    var globalAgentToolbarButtonIndex = mainWindowXaml.IndexOf(
+        "x:Name=\"GlobalAgentToolbarButton\"",
+        StringComparison.Ordinal);
+    Check(newRdpToolbarIndex >= 0
+          && newRdpToolbarIndex < globalAgentToolbarSeparatorIndex
+          && globalAgentToolbarSeparatorIndex < globalAgentToolbarButtonIndex
+          && globalAgentToolbarButtonIndex
+              < mainWindowXaml.IndexOf("x:Name=\"ToolbarTerminal\"", StringComparison.Ordinal)
           && mainWindowXaml.Contains("x:Name=\"GlobalAgentTab\"", StringComparison.Ordinal)
           && mainWindowXaml.Contains("x:Name=\"GlobalAgentPanel\"", StringComparison.Ordinal)
           && mainWindowCode.Contains("AgentCliWorkspace.EnsureApplication", StringComparison.Ordinal)
