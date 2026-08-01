@@ -1037,7 +1037,7 @@
             <GridSplitter x:Name="TreeSplitter" Grid.Column="1" Width="5" ResizeDirection="Columns"
                           Background="Transparent" />
 
-            <!-- Right pane: fixed editor/global-agent tabs + terminal tabs added in code-behind -->
+            <!-- Right pane: fixed editor + optional global-agent and terminal tabs added in code-behind -->
             <Border Grid.Column="2" Classes="panel" Padding="6" ClipToBounds="True">
             <TabControl x:Name="RightTabs"
                         SelectionChanged="OnRightTabsSelectionChanged">

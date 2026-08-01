@@ -218,13 +218,21 @@ try
           && mainWindowXaml.Contains("x:Name=\"GlobalAgentTab\"", StringComparison.Ordinal)
           && mainWindowXaml.Contains("x:Name=\"GlobalAgentPanel\"", StringComparison.Ordinal)
           && mainWindowCode.Contains("AgentCliWorkspace.EnsureApplication", StringComparison.Ordinal)
+          && mainWindowCode.Contains("RightTabs.Items.Remove(GlobalAgentTab);", StringComparison.Ordinal)
+          && mainWindowCode.Contains(
+              "GlobalAgentPanel.CloseRequested += OnGlobalAgentCloseRequested;",
+              StringComparison.Ordinal)
+          && mainWindowCode.Contains("await vm.DisposeAsync();", StringComparison.Ordinal)
+          && mainWindowCode.Contains(
+              "RightTabs.Items.Insert(Math.Max(0, editorIndex + 1), GlobalAgentTab);",
+              StringComparison.Ordinal)
           && mainWindowCode.Contains(
               "Math.Max(editorIndex, globalAgentIndex) + 1",
               StringComparison.Ordinal)
           && agentPanelXaml.Contains(
               "IsVisible=\"{Binding ShowConnectionOptions}\"",
               StringComparison.Ordinal),
-          "Main window exposes a fixed global AI Agent surface with connection-only options hidden");
+          "Main window exposes an on-demand closable global AI Agent surface with connection-only options hidden");
     Check(mainWindowCode.IndexOf("menu.Items.Add(aiPanel);", StringComparison.Ordinal)
               < mainWindowCode.IndexOf("menu.Items.Add(monitor);", StringComparison.Ordinal),
           "Terminal tab menu places AI before monitor");

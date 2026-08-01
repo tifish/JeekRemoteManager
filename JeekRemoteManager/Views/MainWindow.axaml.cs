@@ -68,7 +68,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        GlobalAgentPanel.CloseRequested += (_, _) => RightTabs.SelectedItem = EditorTab;
+        RightTabs.Items.Remove(GlobalAgentTab);
+        GlobalAgentPanel.CloseRequested += OnGlobalAgentCloseRequested;
         UpdateWindowTitle();
         _defaultMinWidth = MinWidth;
         _defaultMinHeight = MinHeight;
@@ -190,6 +191,12 @@ public partial class MainWindow : Window
     internal string GlobalAgentWorkspacePath => GlobalAgentViewModel.WorkingDirectory;
 
     internal bool IsGlobalAgentTabActive => ReferenceEquals(RightTabs.SelectedItem, GlobalAgentTab);
+
+    internal bool IsGlobalAgentTabOpen => RightTabs.Items.Contains(GlobalAgentTab);
+
+    internal bool HasGlobalAgentViewModel => _globalAgentViewModel is not null;
+
+    internal object? SelectedRightTab => RightTabs.SelectedItem;
 
     private void BuildMoreActionsMenu()
     {
@@ -1570,18 +1577,55 @@ public partial class MainWindow : Window
         return vm;
     }
 
+    private void EnsureGlobalAgentTabVisible()
+    {
+        if (IsGlobalAgentTabOpen)
+            return;
+
+        var editorIndex = RightTabs.Items.IndexOf(EditorTab);
+        RightTabs.Items.Insert(Math.Max(0, editorIndex + 1), GlobalAgentTab);
+    }
+
+    /// <summary>
+    /// Creates the optional tab and its view model without selecting it or launching an agent.
+    /// Used by the Debug MCP lifecycle probe.
+    /// </summary>
+    internal AgentCliPanelViewModel PrepareGlobalAgentTabForDebug()
+    {
+        EnsureGlobalAgentTabVisible();
+        return GetOrCreateGlobalAgentViewModel();
+    }
+
     /// <summary>
     /// Selects the global agent tab and starts its configured surface. The Debug MCP uses
-    /// <see cref="GlobalAgentViewModel"/> directly so it can verify the workspace without
-    /// launching a third-party CLI.
+    /// <see cref="PrepareGlobalAgentTabForDebug"/> so it can verify the lifecycle and workspace
+    /// without launching a third-party CLI.
     /// </summary>
     internal void OpenGlobalAgent()
     {
+        EnsureGlobalAgentTabVisible();
         var vm = GetOrCreateGlobalAgentViewModel();
         RightTabs.SelectedItem = GlobalAgentTab;
         GlobalAgentPanel.NotifyHostLayoutChanged();
         _ = vm.EnsureStartedAsync();
     }
+
+    internal async Task CloseGlobalAgentAsync()
+    {
+        if (IsGlobalAgentTabActive)
+            RightTabs.SelectedItem = EditorTab;
+
+        RightTabs.Items.Remove(GlobalAgentTab);
+
+        var vm = _globalAgentViewModel;
+        _globalAgentViewModel = null;
+        GlobalAgentPanel.DataContext = null;
+        if (vm is not null)
+            await vm.DisposeAsync();
+    }
+
+    private async void OnGlobalAgentCloseRequested(object? sender, EventArgs e) =>
+        await CloseGlobalAgentAsync();
 
     private void CloseTerminalTab(TabItem tab)
     {

@@ -1614,22 +1614,111 @@ internal static class DebugMcpServer
 
         try
         {
-            var snapshot = await OnUiAsync(() =>
+            var initial = await OnUiAsync(() =>
             {
                 if (Desktop?.MainWindow is not Views.MainWindow main)
                     throw new InvalidOperationException("The main window is not available.");
 
-                var wasActive = main.IsGlobalAgentTabActive;
-                var vm = main.GlobalAgentViewModel;
                 return (
-                    main.GlobalAgentWorkspacePath,
-                    vm.Providers.Count,
+                    IsOpen: main.IsGlobalAgentTabOpen,
+                    IsActive: main.IsGlobalAgentTabActive,
+                    SelectedTab: main.SelectedRightTab);
+            }).ConfigureAwait(false);
+
+            Check("global AI Agent tab is closed by default", !initial.IsOpen && !initial.IsActive);
+            if (initial.IsOpen)
+            {
+                return ToolText(
+                    $"FAIL: global AI Agent lifecycle\n{report.ToString().TrimEnd()}",
+                    isError: true);
+            }
+
+            var firstOpen = await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main)
+                    throw new InvalidOperationException("The main window is not available.");
+
+                var vm = main.PrepareGlobalAgentTabForDebug();
+                return (
+                    ViewModel: vm,
+                    Workspace: vm.WorkingDirectory,
+                    Count: vm.Providers.Count,
                     vm.ShowConnectionOptions,
-                    WasActive: wasActive,
+                    IsOpen: main.IsGlobalAgentTabOpen,
                     IsActive: main.IsGlobalAgentTabActive);
             }).ConfigureAwait(false);
 
-            var workspace = snapshot.GlobalAgentWorkspacePath;
+            Check(
+                "global AI Agent tab opens on demand without activating the probe",
+                firstOpen.IsOpen && !firstOpen.IsActive);
+
+            var firstCloseTask = await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main)
+                    throw new InvalidOperationException("The main window is not available.");
+                return main.CloseGlobalAgentAsync();
+            }).ConfigureAwait(false);
+            await firstCloseTask.ConfigureAwait(false);
+
+            var closed = await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main)
+                    throw new InvalidOperationException("The main window is not available.");
+                return (
+                    IsOpen: main.IsGlobalAgentTabOpen,
+                    HasViewModel: main.HasGlobalAgentViewModel,
+                    IsActive: main.IsGlobalAgentTabActive);
+            }).ConfigureAwait(false);
+
+            Check(
+                "closing the global AI Agent removes the tab and releases its view model",
+                !closed.IsOpen && !closed.HasViewModel && !closed.IsActive);
+
+            var secondOpen = await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main)
+                    throw new InvalidOperationException("The main window is not available.");
+
+                var vm = main.PrepareGlobalAgentTabForDebug();
+                return (
+                    ViewModel: vm,
+                    IsOpen: main.IsGlobalAgentTabOpen,
+                    IsActive: main.IsGlobalAgentTabActive);
+            }).ConfigureAwait(false);
+
+            Check(
+                "reopening the global AI Agent creates a fresh view model",
+                secondOpen.IsOpen
+                && !secondOpen.IsActive
+                && !ReferenceEquals(firstOpen.ViewModel, secondOpen.ViewModel));
+
+            var secondCloseTask = await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main)
+                    throw new InvalidOperationException("The main window is not available.");
+                return main.CloseGlobalAgentAsync();
+            }).ConfigureAwait(false);
+            await secondCloseTask.ConfigureAwait(false);
+
+            var final = await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main)
+                    throw new InvalidOperationException("The main window is not available.");
+                return (
+                    IsOpen: main.IsGlobalAgentTabOpen,
+                    HasViewModel: main.HasGlobalAgentViewModel,
+                    IsActive: main.IsGlobalAgentTabActive,
+                    SelectedTab: main.SelectedRightTab);
+            }).ConfigureAwait(false);
+
+            Check(
+                "lifecycle probe restores the default closed state and selected tab",
+                !final.IsOpen
+                && !final.HasViewModel
+                && !final.IsActive
+                && ReferenceEquals(initial.SelectedTab, final.SelectedTab));
+
+            var workspace = firstOpen.Workspace;
             var agentsPath = Path.Combine(workspace, "AGENTS.md");
             var jsonPath = Path.Combine(workspace, ".mcp.json");
             var codexPath = Path.Combine(workspace, ".codex", "config.toml");
@@ -1662,15 +1751,12 @@ internal static class DebugMcpServer
                     $"[mcp_servers.{AgentProjectLink.ApplicationMcpServerName}]",
                     StringComparison.Ordinal)
                 && !codex.Contains("--connection", StringComparison.Ordinal));
-            Check("agent providers are available to the global panel", snapshot.Count > 0);
-            Check("connection-only panel options are hidden", !snapshot.ShowConnectionOptions);
+            Check("agent providers are available to the global panel", firstOpen.Count > 0);
+            Check("connection-only panel options are hidden", !firstOpen.ShowConnectionOptions);
             Check(
                 "product MCP advertises safe and dangerous batch command tools",
                 productToolNames.Contains("terminal_run_batch")
                 && productToolNames.Contains("terminal_run_batch_danger"));
-            Check(
-                "probe does not change the selected tab",
-                snapshot.WasActive == snapshot.IsActive);
 
             var passed = failures.Count == 0;
             return ToolText(
