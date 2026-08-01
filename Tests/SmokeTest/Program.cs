@@ -1238,6 +1238,10 @@ try
             t => t?["name"]?.GetValue<string>() == "session_move");
         var terminalRunBatch = first.FirstOrDefault(
             t => t?["name"]?.GetValue<string>() == "terminal_run_batch");
+        var scriptGet = first.FirstOrDefault(
+            t => t?["name"]?.GetValue<string>() == "script_get");
+        var scriptSave = first.FirstOrDefault(
+            t => t?["name"]?.GetValue<string>() == "script_save");
         productToolsOk = first.Count > 0
                          && first.Count == second.Count
                          && first.Any(t => t?["name"]?.GetValue<string>() == "terminal_run")
@@ -1254,6 +1258,14 @@ try
                          && terminalRunBatch["inputSchema"]?["required"] is JsonArray batchRequired
                          && batchRequired.Select(node => node?.GetValue<string>())
                              .SequenceEqual(["connections", "command"])
+                         && scriptGet?["inputSchema"]?["required"] is JsonArray scriptGetRequired
+                         && scriptGetRequired.Select(node => node?.GetValue<string>())
+                             .SequenceEqual(["suite"])
+                         && scriptSave?["inputSchema"]?["properties"]?["parameters"]?["items"]?["properties"]
+                             is JsonObject
+                         && scriptSave["inputSchema"]?["properties"]?["scripts"]?["items"]?["properties"]?["content"]?["type"]
+                             ?.GetValue<string>() == "string"
+                         && first.Any(t => t?["name"]?.GetValue<string>() == "script_reload")
                          && first.All(t => t?["inputSchema"]?["properties"] is JsonObject);
     }
     catch (Exception ex)
@@ -2536,6 +2548,50 @@ try
           && loadedSuite.Parameters.Single(p => p.Name == "FORCE").DefaultValue == "true"
           && loadedSuite.Parameters.Single(p => p.Name == "MODE").DefaultValue == "safe",
           "params.conf supports default values for script parameters");
+
+    var firstSavedSuite = scriptStore.SaveSuite(
+        "Generated",
+        [
+            new RemoteScriptParameter
+            {
+                Name = "TARGET",
+                Type = RemoteScriptParameterType.String,
+                DefaultValue = "localhost",
+            },
+            new RemoteScriptParameter
+            {
+                Name = "MODE",
+                Type = RemoteScriptParameterType.Enum,
+                DefaultValue = "safe",
+                EnumOptions = ["fast", "safe"],
+            },
+        ],
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["install.sh"] = "echo install\n",
+        });
+    var secondSavedSuite = scriptStore.SaveSuite(
+        "Generated",
+        parameters: null,
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["show.sh"] = "echo show\n",
+        });
+    Check(firstSavedSuite.Created
+          && !secondSavedSuite.Created
+          && secondSavedSuite.Suite.Parameters.Count == 2
+          && secondSavedSuite.Suite.Scripts.Select(s => s.Name)
+              .OrderBy(name => name)
+              .SequenceEqual(["install.sh", "show.sh"])
+          && File.ReadAllText(Path.Combine(scriptRoot, "Generated", "install.sh")) == "echo install\n",
+          "RemoteScriptStore creates suites and merges named script updates");
+    var clearedSavedSuite = scriptStore.SaveSuite(
+        "Generated",
+        parameters: [],
+        scripts: null);
+    Check(clearedSavedSuite.Suite.Parameters.Count == 0
+          && File.Exists(Path.Combine(scriptRoot, "Generated", RemoteScriptStore.ParameterFileName)),
+          "RemoteScriptStore distinguishes omitted parameters from an empty replacement");
 
     var parsedErrors = new List<string>();
     _ = RemoteScriptStore.ParseParameterFile(new[]

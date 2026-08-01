@@ -133,7 +133,27 @@ public static class ProductMcpContract
         Tool("script_list",
             "Reusable server scripts, grouped into suites: the scripts each suite contains and the "
             + "parameters it declares (name, type, default, enum options). Values stored for a "
-            + "connection are never returned, and Secret parameters report no default.",
+            + "connection are never returned, and Secret parameters report no default. Also returns "
+            + "the user script root for agents that prefer editing the files directly.",
+            new()),
+        Tool("script_get",
+            "Get one script suite, including its parameter definition, script contents, and local "
+            + "paths. Secret parameters report no default.",
+            new() { ["suite"] = Prop("string", "Suite name from script_list.") },
+            ["suite"]),
+        Tool("script_save",
+            "Create or update a user script suite. Passing 'parameters' replaces params.conf; "
+            + "omitting it preserves the current definition. Named scripts are created or "
+            + "overwritten, while other scripts in the suite are preserved. Reloads scripts immediately.",
+            new()
+            {
+                ["suite"] = Prop("string", "User suite name. Must be one directory name, not a path."),
+                ["parameters"] = ScriptParametersSchema(),
+                ["scripts"] = ScriptContentsSchema(),
+            },
+            ["suite"]),
+        Tool("script_reload",
+            "Reload script suites from disk after an agent edits files under userRoot directly.",
             new()),
         Tool("script_run",
             "Run one script of a suite on an open session. Parameter values come from that "
@@ -366,4 +386,43 @@ public static class ProductMcpContract
 
     private static JsonObject Prop(string type, string description) =>
         new() { ["type"] = type, ["description"] = description };
+
+    private static JsonObject ScriptParametersSchema() => new()
+    {
+        ["type"] = "array",
+        ["description"] = "Complete parameter definition. Omit to preserve it; [] clears it.",
+        ["items"] = new JsonObject
+        {
+            ["type"] = "object",
+            ["properties"] = new JsonObject
+            {
+                ["name"] = Prop("string", "Shell environment variable name."),
+                ["type"] = Prop("string", "string, number, bool, secret, or enum."),
+                ["default"] = Prop("string", "Optional default value."),
+                ["options"] = new JsonObject
+                {
+                    ["type"] = "array",
+                    ["description"] = "Allowed values when type is enum.",
+                    ["items"] = new JsonObject { ["type"] = "string" },
+                },
+            },
+            ["required"] = new JsonArray("name", "type"),
+        },
+    };
+
+    private static JsonObject ScriptContentsSchema() => new()
+    {
+        ["type"] = "array",
+        ["description"] = "Script files to create or overwrite. Other files are preserved.",
+        ["items"] = new JsonObject
+        {
+            ["type"] = "object",
+            ["properties"] = new JsonObject
+            {
+                ["name"] = Prop("string", "File name ending in .sh; paths are not accepted."),
+                ["content"] = Prop("string", "Complete shell script content."),
+            },
+            ["required"] = new JsonArray("name", "content"),
+        },
+    };
 }

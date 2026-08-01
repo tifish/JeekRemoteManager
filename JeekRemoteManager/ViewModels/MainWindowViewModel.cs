@@ -112,6 +112,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public ObservableCollection<RemoteScriptSuite> ScriptSuites { get; } = new();
 
+    public string ScriptsRootPath => _scriptStore.RootPath;
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
     [NotifyCanExecuteChangedFor(nameof(ConnectNewCommand))]
@@ -1075,6 +1077,9 @@ public partial class MainWindowViewModel : ViewModelBase
         foreach (var suite in _scriptStore.LoadAll())
             ScriptSuites.Add(suite);
     }
+
+    /// <summary>Reloads user and built-in scripts after an external or MCP write.</summary>
+    public void ReloadScriptsFromDisk() => ReloadScripts();
 
     private RemoteScriptSuite? FindScriptSuite(string suitePath) =>
         ScriptSuites.FirstOrDefault(s => string.Equals(s.RelativePath, suitePath, StringComparison.OrdinalIgnoreCase));

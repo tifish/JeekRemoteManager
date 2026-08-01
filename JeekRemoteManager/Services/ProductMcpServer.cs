@@ -90,6 +90,9 @@ internal static class ProductMcpServer
         host.AddTool("known_hosts_forget", KnownHostsForgetAsync);
 
         host.AddTool("script_list", _ => ScriptListAsync());
+        host.AddTool("script_get", ScriptGetAsync);
+        host.AddTool("script_save", ScriptSaveAsync);
+        host.AddTool("script_reload", _ => ScriptReloadAsync());
         host.AddTool("script_run", ScriptRunAsync);
         host.AddTool("script_run_batch", ScriptRunBatchAsync);
         host.AddTool("public_key_install", PublicKeyInstallAsync);
@@ -748,41 +751,176 @@ internal static class ProductMcpServer
 
     private static async Task<JsonObject> ScriptListAsync()
     {
-        var suites = await OnUiAsync(() => MainVm.ScriptSuites
-            .Select(suite => new JsonObject
-            {
-                ["suite"] = suite.Name,
-                ["source"] = suite.Source.ToString(),
-                ["scripts"] = new JsonArray(suite.Scripts
-                    .Select(JsonNode (script) => new JsonObject
-                    {
-                        ["script"] = script.Name,
-                        ["title"] = script.DisplayName,
-                    })
-                    .ToArray()),
-                // Parameter shapes only. Stored values are never returned: a Secret parameter
-                // holds a master-password-encrypted blob, and this surface is write-only.
-                ["parameters"] = new JsonArray(suite.Parameters
-                    .Select(JsonNode (parameter) => new JsonObject
-                    {
-                        ["name"] = parameter.Name,
-                        ["type"] = parameter.Type.ToString(),
-                        ["default"] = parameter.Type == RemoteScriptParameterType.Secret
-                            ? ""
-                            : parameter.DefaultValue,
-                        ["options"] = new JsonArray(parameter.EnumOptions.Select(JsonNode (o) => o).ToArray()),
-                    })
-                    .ToArray()),
-                ["errors"] = new JsonArray(suite.Errors.Select(JsonNode (e) => e).ToArray()),
-            })
-            .ToList()).ConfigureAwait(false);
+        var snapshot = await OnUiAsync(() => (
+            UserRoot: MainVm.ScriptsRootPath,
+            Suites: MainVm.ScriptSuites
+                .Select(suite => BuildScriptSuiteJson(suite, includeContents: false))
+                .ToList())).ConfigureAwait(false);
 
         var result = new JsonObject
         {
-            ["count"] = suites.Count,
-            ["suites"] = new JsonArray(suites.Cast<JsonNode>().ToArray()),
+            ["userRoot"] = snapshot.UserRoot,
+            ["count"] = snapshot.Suites.Count,
+            ["suites"] = new JsonArray(snapshot.Suites.Cast<JsonNode>().ToArray()),
         };
         return ToolText(result.ToJsonString(PrettyOptions));
+    }
+
+    private static async Task<JsonObject> ScriptGetAsync(JsonObject args)
+    {
+        var suiteName = McpHost.RequiredString(args, "suite");
+        var result = await OnUiAsync(() =>
+        {
+            var suite = MainVm.ScriptSuites.FirstOrDefault(s =>
+                            string.Equals(s.Name, suiteName, StringComparison.OrdinalIgnoreCase))
+                        ?? throw new InvalidOperationException(
+                            $"No script suite '{suiteName}'. Call script_list.");
+            return BuildScriptSuiteJson(suite, includeContents: true);
+        }).ConfigureAwait(false);
+
+        return ToolText(result.ToJsonString(PrettyOptions));
+    }
+
+    private static async Task<JsonObject> ScriptSaveAsync(JsonObject args)
+    {
+        var suiteName = McpHost.RequiredString(args, "suite");
+        var parameters = ParseScriptParameters(args);
+        var scripts = ParseScriptContents(args);
+
+        var saved = await OnUiAsync(() =>
+        {
+            var existing = MainVm.ScriptSuites.FirstOrDefault(s =>
+                string.Equals(s.Name, suiteName, StringComparison.OrdinalIgnoreCase));
+            if (existing?.Source == RemoteScriptSuiteSource.BuiltIn)
+            {
+                throw new InvalidOperationException(
+                    $"'{suiteName}' is a built-in suite. Save it under a new user suite name.");
+            }
+
+            var store = new RemoteScriptStore(MainVm.ScriptsRootPath);
+            var result = store.SaveSuite(suiteName, parameters, scripts);
+            MainVm.ReloadScriptsFromDisk();
+            return result;
+        }).ConfigureAwait(false);
+
+        var resultJson = BuildScriptSuiteJson(saved.Suite, includeContents: false);
+        resultJson["status"] = saved.Created ? "created" : "updated";
+        return ToolText(resultJson.ToJsonString(PrettyOptions));
+    }
+
+    private static async Task<JsonObject> ScriptReloadAsync()
+    {
+        await OnUiAsync(() =>
+        {
+            MainVm.ReloadScriptsFromDisk();
+            return true;
+        }).ConfigureAwait(false);
+        return await ScriptListAsync().ConfigureAwait(false);
+    }
+
+    private static JsonObject BuildScriptSuiteJson(
+        RemoteScriptSuite suite,
+        bool includeContents)
+    {
+        var scripts = suite.Scripts
+            .Select(JsonNode (script) =>
+            {
+                var result = new JsonObject
+                {
+                    ["script"] = script.Name,
+                    ["title"] = script.DisplayName,
+                    ["path"] = script.FullPath,
+                };
+                if (includeContents)
+                    result["content"] = File.ReadAllText(script.FullPath);
+                return result;
+            })
+            .ToArray();
+
+        return new JsonObject
+        {
+            ["suite"] = suite.Name,
+            ["source"] = suite.Source.ToString(),
+            ["directory"] = suite.FullPath,
+            ["parameterFile"] = Path.Combine(suite.FullPath, RemoteScriptStore.ParameterFileName),
+            ["scripts"] = new JsonArray(scripts),
+            // Parameter shapes only. Secret defaults remain write-only.
+            ["parameters"] = new JsonArray(suite.Parameters
+                .Select(JsonNode (parameter) => new JsonObject
+                {
+                    ["name"] = parameter.Name,
+                    ["type"] = parameter.Type.ToString(),
+                    ["default"] = parameter.Type == RemoteScriptParameterType.Secret
+                        ? ""
+                        : parameter.DefaultValue,
+                    ["options"] = new JsonArray(parameter.EnumOptions.Select(JsonNode (o) => o).ToArray()),
+                })
+                .ToArray()),
+            ["errors"] = new JsonArray(suite.Errors.Select(JsonNode (e) => e).ToArray()),
+        };
+    }
+
+    private static IReadOnlyList<RemoteScriptParameter>? ParseScriptParameters(JsonObject args)
+    {
+        if (!args.TryGetPropertyValue("parameters", out var node))
+            return null;
+        if (node is not JsonArray array)
+            throw new InvalidOperationException("'parameters' must be an array.");
+
+        var result = new List<RemoteScriptParameter>(array.Count);
+        foreach (var item in array)
+        {
+            if (item is not JsonObject parameter)
+                throw new InvalidOperationException("Every parameter must be an object.");
+
+            var name = McpHost.RequiredString(parameter, "name");
+            var rawType = McpHost.RequiredString(parameter, "type");
+            var type = rawType.Trim().ToLowerInvariant() switch
+            {
+                "string" => RemoteScriptParameterType.String,
+                "number" => RemoteScriptParameterType.Number,
+                "bool" => RemoteScriptParameterType.Bool,
+                "secret" => RemoteScriptParameterType.Secret,
+                "enum" => RemoteScriptParameterType.Enum,
+                _ => throw new InvalidOperationException(
+                    $"Unknown script parameter type '{rawType}'."),
+            };
+
+            var options = (parameter["options"] as JsonArray)?
+                .Select(value => value?.GetValue<string>() ?? "")
+                .ToList() ?? [];
+            result.Add(new RemoteScriptParameter
+            {
+                Name = name,
+                Type = type,
+                DefaultValue = parameter["default"]?.GetValue<string>() ?? "",
+                EnumOptions = options,
+            });
+        }
+
+        return result;
+    }
+
+    private static IReadOnlyDictionary<string, string>? ParseScriptContents(JsonObject args)
+    {
+        if (!args.TryGetPropertyValue("scripts", out var node))
+            return null;
+        if (node is not JsonArray array)
+            throw new InvalidOperationException("'scripts' must be an array.");
+
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in array)
+        {
+            if (item is not JsonObject script)
+                throw new InvalidOperationException("Every script must be an object.");
+
+            var name = McpHost.RequiredString(script, "name");
+            var content = McpHost.RequiredString(script, "content");
+            if (!result.TryAdd(name, content))
+                throw new InvalidOperationException($"Duplicate script file '{name}'.");
+        }
+
+        return result;
     }
 
     /// <summary>

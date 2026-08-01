@@ -70,6 +70,125 @@ public class RemoteScriptStore
     public RemoteScriptSuite LoadSuite(string suiteDirectory) =>
         LoadSuite(suiteDirectory, RemoteScriptSuiteSource.User);
 
+    /// <summary>
+    /// Creates or updates a user script suite. Parameters replace the suite definition when
+    /// supplied; scripts are merged by file name so callers can update one file without
+    /// resending the rest of the suite.
+    /// </summary>
+    public (RemoteScriptSuite Suite, bool Created) SaveSuite(
+        string suiteName,
+        IReadOnlyList<RemoteScriptParameter>? parameters,
+        IReadOnlyDictionary<string, string>? scripts)
+    {
+        var normalizedSuiteName = ValidateFileName(suiteName, "suite");
+        var suiteDirectory = Path.Combine(RootPath, normalizedSuiteName);
+        var parameterContents = parameters is null ? null : SerializeParameterFile(parameters);
+        var scriptContents = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        if (scripts is not null)
+        {
+            foreach (var (name, contents) in scripts)
+            {
+                var normalizedName = ValidateFileName(name, "script");
+                if (!normalizedName.EndsWith(ScriptExtension, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException(
+                        $"Script file '{normalizedName}' must end with '{ScriptExtension}'.");
+                if (!scriptContents.TryAdd(normalizedName, contents))
+                    throw new InvalidOperationException($"Duplicate script file '{normalizedName}'.");
+            }
+        }
+
+        using var lease = SharedDataFile.Acquire(RootPath);
+        var created = !Directory.Exists(suiteDirectory);
+        Directory.CreateDirectory(suiteDirectory);
+
+        var parameterPath = Path.Combine(suiteDirectory, ParameterFileName);
+        if (parameterContents is not null)
+            SharedDataFile.WriteAllTextAtomic(parameterPath, parameterContents);
+        else if (created)
+            SharedDataFile.WriteAllTextAtomic(parameterPath, "");
+
+        foreach (var (name, contents) in scriptContents)
+            SharedDataFile.WriteAllTextAtomic(Path.Combine(suiteDirectory, name), contents);
+
+        return (LoadSuite(suiteDirectory), created);
+    }
+
+    /// <summary>Serializes the structured MCP parameter shape to params.conf.</summary>
+    public static string SerializeParameterFile(IReadOnlyList<RemoteScriptParameter> parameters)
+    {
+        var lines = new List<string>(parameters.Count);
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var parameter in parameters)
+        {
+            if (!IsValidParameterName(parameter.Name))
+                throw new InvalidOperationException($"Invalid parameter name '{parameter.Name}'.");
+            if (!names.Add(parameter.Name))
+                throw new InvalidOperationException($"Duplicate parameter '{parameter.Name}'.");
+            if (parameter.DefaultValue.Contains('\r') || parameter.DefaultValue.Contains('\n'))
+                throw new InvalidOperationException(
+                    $"Default value for parameter '{parameter.Name}' cannot contain a newline.");
+
+            var typeText = parameter.Type switch
+            {
+                RemoteScriptParameterType.String => "string",
+                RemoteScriptParameterType.Number => "number",
+                RemoteScriptParameterType.Bool => "bool",
+                RemoteScriptParameterType.Secret => "secret",
+                RemoteScriptParameterType.Enum => BuildEnumType(parameter),
+                _ => throw new InvalidOperationException(
+                    $"Unknown type for parameter '{parameter.Name}'."),
+            };
+
+            var line = $"{parameter.Name}={typeText}";
+            if (!string.IsNullOrEmpty(parameter.DefaultValue))
+                line += $"={parameter.DefaultValue}";
+            lines.Add(line);
+        }
+
+        var errors = new List<string>();
+        ParseParameterFile(lines, errors);
+        if (errors.Count > 0)
+            throw new InvalidOperationException(string.Join(Environment.NewLine, errors));
+
+        return lines.Count == 0 ? "" : string.Join('\n', lines) + '\n';
+    }
+
+    private static string BuildEnumType(RemoteScriptParameter parameter)
+    {
+        if (parameter.EnumOptions.Count == 0)
+            throw new InvalidOperationException(
+                $"Enum parameter '{parameter.Name}' must define at least one option.");
+        if (parameter.EnumOptions.Any(option =>
+                string.IsNullOrWhiteSpace(option)
+                || option.Contains('|')
+                || option.Contains('=')
+                || option.Contains('\r')
+                || option.Contains('\n')))
+        {
+            throw new InvalidOperationException(
+                $"Enum parameter '{parameter.Name}' contains an invalid option.");
+        }
+
+        return "enum:" + string.Join('|', parameter.EnumOptions);
+    }
+
+    private static string ValidateFileName(string value, string kind)
+    {
+        var name = value.Trim();
+        if (name.Length == 0
+            || name is "." or ".."
+            || !string.Equals(Path.GetFileName(name), name, StringComparison.Ordinal)
+            || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            throw new InvalidOperationException(
+                $"Invalid {kind} name '{value}'. Use a single file name, not a path.");
+        }
+
+        return name;
+    }
+
     public static RemoteScriptSuite LoadSuite(
         string suiteDirectory,
         RemoteScriptSuiteSource source)
