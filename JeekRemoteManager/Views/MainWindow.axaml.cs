@@ -802,7 +802,7 @@ public partial class MainWindow : Window
                 && PathEquals(s.View.SourcePath!, sourcePath!)) is { View: { } source })
         {
             // Piggyback on the authenticated transport, like the tab's own Duplicate command.
-            var shared = LoginCommandSequence.HasStructuredReuseWorkflow(connection.LoginCommands)
+            var shared = LoginCommandSequence.HasStructuredReuseWorkflow(connection.EffectiveLoginCommands)
                 ? null
                 : source.ShareClientForDuplicate();
             (view, _) = CreateTerminalTab(connection, sourcePath, activate);
@@ -936,7 +936,7 @@ public partial class MainWindow : Window
         if (sourceTab.Content is not TerminalView source || source.Connection is not { } connection)
             return;
 
-        var shared = LoginCommandSequence.HasStructuredReuseWorkflow(connection.LoginCommands)
+        var shared = LoginCommandSequence.HasStructuredReuseWorkflow(connection.EffectiveLoginCommands)
             ? null
             : source.ShareClientForDuplicate();
         var (view, _) = CreateTerminalTab(connection, source.SourcePath);
@@ -2845,6 +2845,154 @@ public partial class MainWindow : Window
     private async void OnLoginCommandsHelpClick(object? sender, RoutedEventArgs e) =>
         await ShowLoginCommandsHelpAsync();
 
+    private async void OnEditBastionTemplateClick(object? sender, RoutedEventArgs e) =>
+        await ShowBastionTemplateEditorAsync();
+
+    private void OnLoginCommandsLostFocus(object? sender, RoutedEventArgs e)
+    {
+        if ((DataContext as MainWindowViewModel)?.Editor is not { } editor)
+            return;
+
+        editor.LoginCommands =
+            LoginCommandSequence.TrimSurroundingBlankLines(editor.LoginCommands);
+    }
+
+    /// <summary>Edits the four fixed fragments shared by the automatically linked bastion.</summary>
+    public async Task ShowBastionTemplateEditorAsync()
+    {
+        if ((DataContext as MainWindowViewModel)?.Editor is not { HasBastionProfile: true } editor)
+            return;
+
+        static TextBox FragmentEditor(string name, string text) =>
+            new()
+            {
+                Name = name,
+                Text = text,
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.NoWrap,
+                MinHeight = 82,
+                FontFamily = new FontFamily("Consolas"),
+            };
+
+        var fragments = new[]
+        {
+            FragmentEditor("BastionTemplateSegment1", editor.BastionTemplateSegment1),
+            FragmentEditor("BastionTemplateSegment2", editor.BastionTemplateSegment2),
+            FragmentEditor("BastionTemplateSegment3", editor.BastionTemplateSegment3),
+            FragmentEditor("BastionTemplateSegment4", editor.BastionTemplateSegment4),
+        };
+
+        static StackPanel Section(string title, string hint, Control editorControl) =>
+            new()
+            {
+                Spacing = 5,
+                Children =
+                {
+                    new TextBlock { Text = title, FontWeight = FontWeight.SemiBold },
+                    new TextBlock
+                    {
+                        Text = hint,
+                        TextWrapping = TextWrapping.Wrap,
+                        Opacity = 0.68,
+                        FontSize = 11,
+                    },
+                    editorControl,
+                },
+            };
+
+        var save = new Button
+        {
+            Name = "SaveBastionTemplateButton",
+            Content = Localizer.Get("BastionTemplateSave"),
+            MinWidth = 112,
+            IsDefault = true,
+        };
+        var cancel = new Button
+        {
+            Content = Localizer.Get("DialogCancel"),
+            MinWidth = 88,
+            IsCancel = true,
+        };
+        var dialog = new Window
+        {
+            Title = Localizer.Get("BastionTemplateEditTitle"),
+            Width = 720,
+            Height = 760,
+            MinWidth = 560,
+            MinHeight = 560,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+        };
+        var content = new Grid
+        {
+            RowDefinitions = new RowDefinitions("*,Auto"),
+            Margin = new Thickness(22),
+            RowSpacing = 14,
+        };
+        content.Children.Add(new ScrollViewer
+        {
+            Content = new StackPanel
+            {
+                Spacing = 16,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = string.Format(
+                            Localizer.Get("BastionTemplateAppliesTo"),
+                            editor.BastionProfileEndpoint),
+                        TextWrapping = TextWrapping.Wrap,
+                    },
+                    Section("1", Localizer.Get("BastionTemplateFragmentHint"), fragments[0]),
+                    Section("2", Localizer.Get("BastionTemplateFragmentHint"), fragments[1]),
+                    Section("3", Localizer.Get("BastionTemplateFragmentHint"), fragments[2]),
+                    Section("4", Localizer.Get("BastionTemplateFragmentHint"), fragments[3]),
+                },
+            },
+        });
+        var actions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 8,
+            Children = { cancel, save },
+        };
+        Grid.SetRow(actions, 1);
+        content.Children.Add(actions);
+        dialog.Content = content;
+
+        save.Click += (_, _) =>
+        {
+            var values = fragments
+                .Select(fragment => LoginCommandSequence.TrimSurroundingBlankLines(
+                    fragment.Text ?? ""))
+                .ToArray();
+            var invalid = Array.FindIndex(
+                values,
+                LoginCommandSequence.ContainsTemplateDirective);
+            if (invalid >= 0)
+            {
+                if (DataContext is MainWindowViewModel vm)
+                {
+                    vm.StatusMessage = string.Format(
+                        Localizer.Get("BastionTemplateInvalid"),
+                        $"#{invalid + 1}: #template");
+                }
+                fragments[invalid].Focus();
+                return;
+            }
+
+            editor.BastionTemplateSegment1 = values[0];
+            editor.BastionTemplateSegment2 = values[1];
+            editor.BastionTemplateSegment3 = values[2];
+            editor.BastionTemplateSegment4 = values[3];
+            if (DataContext is MainWindowViewModel mainVm)
+                mainVm.FlushAutoSave();
+            dialog.Close();
+        };
+        cancel.Click += (_, _) => dialog.Close();
+        await dialog.ShowDialog(this);
+    }
+
     /// <summary>Shows the localized login-command guide used by the SSH editor.</summary>
     public async Task ShowLoginCommandsHelpAsync()
     {
@@ -2883,10 +3031,11 @@ public partial class MainWindow : Window
         AddDirective("#select <name>", "LoginCommandsHelpSelect");
         AddDirective("#pagekey <key>", "LoginCommandsHelpPageKey");
         AddDirective("#key <key>", "LoginCommandsHelpKey");
+        AddDirective("#template <1-4>", "LoginCommandsHelpTemplate");
 
         var example = new TextBox
         {
-            Text = "#input\r\n#enter\r\n5\r\n#key Enter\r\n#duplicate\r\n#leave\r\nexit",
+            Text = "#template 1\r\n#enter\r\n#select target-a\r\n#duplicate\r\n#leave\r\n#template 4",
             IsReadOnly = true,
             AcceptsReturn = true,
             TextWrapping = TextWrapping.NoWrap,

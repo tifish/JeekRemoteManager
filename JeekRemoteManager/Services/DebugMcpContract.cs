@@ -80,6 +80,12 @@ public static class DebugMcpContract
                 ["login_commands"] = Prop("string", "Login-command text; defaults to a numeric-menu bastion example."),
                 ["key"] = Prop("string", "Optional key name to encode through the same #key parser (default Enter)."),
             }),
+        Tool("bastion_login_template_check",
+            "Create two temporary same-bastion connections and verify default template association, four fixed fragments, expansion, persistence, and surrounding-blank-line trimming.",
+            new()),
+        Tool("connection_editor_switch_check",
+            "Switch among real SSH connections on the UI thread, restore the prior selection, verify each editor is constructed, and report timing.",
+            new()),
         Tool("login_menu_select_probe",
             "End-to-end check of the \"#select <name>\" login directive: 'open' adds a terminal tab on a local cmd.exe shell that prints a numbered menu and selects an entry by name, 'status' returns the scrollback, 'close' removes the tab.",
             new()

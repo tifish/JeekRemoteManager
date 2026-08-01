@@ -10,10 +10,10 @@ public sealed record BastionRoute(string RouteId, string Name, string LoginComma
     public static BastionRoute FromConnection(Connection connection) =>
         new(
             string.IsNullOrWhiteSpace(connection.ConnectionId)
-                ? Fingerprint($"{connection.Host}\n{connection.Port}\n{connection.Username}\n{connection.LoginCommands}")
+                ? Fingerprint($"{connection.Host}\n{connection.Port}\n{connection.Username}\n{connection.EffectiveLoginCommands}")
                 : connection.ConnectionId,
             connection.Name,
-            connection.LoginCommands);
+            connection.EffectiveLoginCommands);
 
     private static string Fingerprint(string value) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
@@ -283,8 +283,8 @@ public sealed class BastionSessionPool : IDisposable
     public static string PoolKeyForDebug(Connection connection) => BuildKey(connection);
 
     private static bool IsEligible(Connection connection) =>
-        LoginCommandSequence.HasStructuredReuseWorkflow(connection.LoginCommands)
-        && LoginCommandSequence.Validate(connection.LoginCommands).Count == 0;
+        LoginCommandSequence.HasStructuredReuseWorkflow(connection.EffectiveLoginCommands)
+        && LoginCommandSequence.Validate(connection.EffectiveLoginCommands).Count == 0;
 
     private static string BuildEndpointLabel(Connection connection)
     {

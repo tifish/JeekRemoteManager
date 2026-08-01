@@ -62,8 +62,34 @@ public class Connection
     /// fixed number, which shifts when assets are added to a bastion menu; "#key Enter"
     /// sends one raw key, and "#pagekey &lt;key&gt;" configures long-menu paging.
     /// Structured bastion reuse uses #enter, #duplicate, and #leave sections.
+    /// "#template 1" through "#template 4" expand the fixed fragments from this
+    /// connection's automatically associated bastion template.
     /// </summary>
     public string LoginCommands { get; set; } = "";
+
+    /// <summary>The shared template resolved by ConnectionStore; never serialized.</summary>
+    [JsonIgnore]
+    public BastionLoginProfile? ResolvedBastionProfile { get; set; }
+
+    /// <summary>
+    /// The expanded workflow used by terminals, monitors, and the session pool.
+    /// Invalid/missing template references resolve to no commands; connection startup
+    /// calls <see cref="TryResolveLoginCommands"/> first and reports the exact error.
+    /// </summary>
+    [JsonIgnore]
+    public string EffectiveLoginCommands =>
+        TryResolveLoginCommands(out var commands, out _) ? commands : "";
+
+    public bool TryResolveLoginCommands(out string commands, out string error) =>
+        Services.LoginCommandSequence.TryExpandTemplate(
+            LoginCommands,
+            ResolvedBastionProfile,
+            out commands,
+            out error);
+
+    [JsonIgnore]
+    public bool UsesBastionProfile =>
+        ResolvedBastionProfile is not null;
 
     /// <summary>Open the server monitor after an SSH shell logs in.</summary>
     public bool AutoOpenMonitorPanel { get; set; }

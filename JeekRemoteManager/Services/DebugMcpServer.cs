@@ -111,6 +111,8 @@ internal static class DebugMcpServer
         host.AddTool("agent_cli_mcp_config_check", AgentCliMcpConfigCheckAsync);
         host.AddTool("login_menu_select_check", LoginMenuSelectCheckAsync);
         host.AddTool("login_command_flow_check", LoginCommandFlowCheckAsync);
+        host.AddTool("bastion_login_template_check", _ => BastionLoginTemplateCheckAsync());
+        host.AddTool("connection_editor_switch_check", _ => ConnectionEditorSwitchCheckAsync());
         host.AddTool("login_menu_select_probe", LoginMenuSelectProbeAsync);
         host.AddTool("auto_update_stage_check", AutoUpdateStageCheckAsync);
         host.AddTool("ai_render_probe", AiRenderProbeAsync);
@@ -2233,6 +2235,176 @@ internal static class DebugMcpServer
         }
 
         return Task.FromResult(ToolText(sb.ToString().TrimEnd()));
+    }
+
+    private static Task<JsonObject> BastionLoginTemplateCheckAsync()
+    {
+        var probeRoot = Path.Combine(
+            DebugInstanceContext.Info.RuntimeTempRoot,
+            "bastion-template-probe-" + Guid.NewGuid().ToString("N"));
+        var connectionsRoot = Path.Combine(probeRoot, "Connections");
+        try
+        {
+            var store = new ConnectionStore(connectionsRoot);
+            var a = new Models.Connection
+            {
+                Name = "target-a",
+                Host = "bastion.example.test",
+                Port = 22,
+                Username = "probe",
+                LoginCommands =
+                    "#template 1\n#enter\n#select target-a\n#duplicate\n#template 2\n#leave\n#template 4",
+            };
+            var b = new Models.Connection
+            {
+                Name = "target-b",
+                Host = "BASTION.EXAMPLE.TEST.",
+                Port = 22,
+                Username = "probe",
+                LoginCommands =
+                    "#template 1\n#enter\n#select target-b\n#duplicate\n#template 2\n#leave\n#template 4",
+            };
+            var aPath = store.Save(a, connectionsRoot);
+            var bPath = store.Save(b, connectionsRoot);
+            var loadedA = store.Load(aPath);
+            var loadedB = store.Load(bPath);
+            var automaticTemplateId = loadedA.ResolvedBastionProfile!.Id;
+            var defaultAssociation =
+                store.BastionProfiles.Profiles.Count == 0
+                && loadedA.TryResolveLoginCommands(out _, out _)
+                && loadedB.TryResolveLoginCommands(out _, out _)
+                && automaticTemplateId == loadedB.ResolvedBastionProfile!.Id;
+            var editorA = ConnectionEditorViewModel.FromConnection(
+                loadedA,
+                store.BastionProfiles);
+            editorA.LoginCommands = "\r\n " + editorA.LoginCommands + "\r\n\r\n";
+            editorA.BastionTemplateSegment1 = "\r\n#input\r\n\r\n";
+            editorA.BastionTemplateSegment2 = "";
+            editorA.BastionTemplateSegment3 = "sudo -i";
+            editorA.BastionTemplateSegment4 = "\nexit\n#key Enter\n ";
+            editorA.ApplyTo(loadedA);
+            store.SaveInPlace(loadedA, aPath);
+
+            var editorB = ConnectionEditorViewModel.FromConnection(
+                loadedB,
+                store.BastionProfiles);
+            store.SaveInPlace(loadedB, bPath);
+            loadedA = store.Load(aPath);
+            loadedB = store.Load(bPath);
+            var profileText = File.ReadAllText(store.BastionProfiles.FilePath);
+            var sameTemplate =
+                loadedA.ResolvedBastionProfile!.Id == loadedB.ResolvedBastionProfile!.Id;
+
+            var passed = defaultAssociation
+                         && store.BastionProfiles.Profiles.Count == 1
+                         && editorA.HasBastionProfile
+                         && editorB.HasBastionProfile
+                         && sameTemplate
+                         && loadedA.UsesBastionProfile
+                         && loadedB.UsesBastionProfile
+                         && !File.ReadAllText(aPath)
+                             .Contains("BastionTemplateId", StringComparison.Ordinal)
+                         && !loadedA.LoginCommands.StartsWith(
+                             Environment.NewLine,
+                             StringComparison.Ordinal)
+                         && !loadedA.LoginCommands.EndsWith(
+                             Environment.NewLine,
+                             StringComparison.Ordinal)
+                         && loadedA.LoginCommands.Contains("#template 1", StringComparison.Ordinal)
+                         && loadedB.LoginCommands.Contains("#template 4", StringComparison.Ordinal)
+                         && loadedA.EffectiveLoginCommands.Contains("#input", StringComparison.Ordinal)
+                         && loadedA.EffectiveLoginCommands.Contains("#key Enter", StringComparison.Ordinal)
+                         && loadedA.EffectiveLoginCommands.Contains("#select target-a", StringComparison.Ordinal)
+                         && loadedB.EffectiveLoginCommands.Contains("#select target-b", StringComparison.Ordinal)
+                         && Path.GetFileName(store.BastionProfiles.FilePath)
+                             == "bastion-login-templates.json"
+                         && !profileText.Contains("target-a", StringComparison.Ordinal)
+                         && !profileText.Contains("target-b", StringComparison.Ordinal);
+
+            var report =
+                $"{(passed ? "PASS" : "FAIL")}: shared bastion login template\n"
+                + $"defaultAssociation={defaultAssociation}\n"
+                + $"profiles={store.BastionProfiles.Profiles.Count}\n"
+                + $"sameTemplate={sameTemplate}\n"
+                + $"segmentCount={store.BastionProfiles.Profiles.Single().Segments.Length}\n"
+                + $"surroundingBlankLinesTrimmed="
+                + $"{!loadedA.LoginCommands.StartsWith(Environment.NewLine, StringComparison.Ordinal)}\n"
+                + $"connectionReferencesPreserved="
+                + $"{loadedA.LoginCommands.Contains("#template 1", StringComparison.Ordinal)}";
+            return Task.FromResult(ToolText(report, isError: !passed));
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(ToolText(
+                $"FAIL: shared bastion login template threw {ex.GetType().Name}: {ex.Message}",
+                isError: true));
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(probeRoot))
+                    Directory.Delete(probeRoot, recursive: true);
+            }
+            catch
+            {
+                // Probe cleanup is best effort inside the isolated Debug temp root.
+            }
+        }
+    }
+
+    private static async Task<JsonObject> ConnectionEditorSwitchCheckAsync()
+    {
+        var (passed, report) = await OnUiAsync(() =>
+        {
+            if (ResolveRoot("MainVm") is not MainWindowViewModel vm)
+                return (false, "FAIL: MainWindowViewModel is not available.");
+
+            static void Collect(
+                IEnumerable<TreeNodeViewModel> nodes,
+                List<TreeNodeViewModel> result)
+            {
+                foreach (var node in nodes)
+                {
+                    if (!node.IsRecent && node.Connection is { IsSsh: true })
+                        result.Add(node);
+                    if (node.IsFolder)
+                        Collect(node.Children, result);
+                }
+            }
+
+            var candidates = new List<TreeNodeViewModel>();
+            Collect(vm.Nodes, candidates);
+            candidates = candidates.Take(12).ToList();
+            if (candidates.Count == 0)
+                return (true, "PASS: no SSH connections are available for the editor switch probe.");
+
+            vm.FlushAutoSave();
+            var previous = vm.SelectedNode;
+            var editorsBuilt = 0;
+            var stopwatch = Stopwatch.StartNew();
+            foreach (var candidate in candidates)
+            {
+                vm.SelectedNode = candidate;
+                if (vm.Editor is not null)
+                    editorsBuilt++;
+            }
+            stopwatch.Stop();
+            if (previous is not { IsRecent: true })
+                vm.SelectedNode = previous;
+
+            var averageMs = stopwatch.Elapsed.TotalMilliseconds / candidates.Count;
+            var ok = editorsBuilt == candidates.Count;
+            return (
+                ok,
+                $"{(ok ? "PASS" : "FAIL")}: connection editor switching\n"
+                + $"connections={candidates.Count}\n"
+                + $"editorsBuilt={editorsBuilt}\n"
+                + $"totalMs={stopwatch.Elapsed.TotalMilliseconds:0.0}\n"
+                + $"averageMs={averageMs:0.0}");
+        });
+
+        return ToolText(report, isError: !passed);
     }
 
     private static async Task<JsonObject> AutoUpdateStageCheckAsync(JsonObject args)

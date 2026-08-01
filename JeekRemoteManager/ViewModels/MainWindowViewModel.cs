@@ -607,6 +607,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public string RootPath => _store.RootPath;
 
+    public BastionLoginProfileStore BastionProfiles => _store.BastionProfiles;
+
     public bool TryGetSavedMainWindowSize(out double width, out double height)
     {
         width = _settings.Settings.MainWindowWidth ?? 0;
@@ -699,7 +701,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
         _editingNode = value is { IsConnection: true, Connection: not null } ? value : null;
         Editor = _editingNode != null
-            ? ConnectionEditorViewModel.FromConnection(_editingNode.Connection!)
+            ? ConnectionEditorViewModel.FromConnection(
+                _editingNode.Connection!,
+                _store.BastionProfiles)
             : null;
         _editorHasPendingChanges = false;
         _scriptContext = null;

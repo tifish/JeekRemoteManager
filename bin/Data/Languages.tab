@@ -53,11 +53,6 @@ PrivateKey	Private key	私钥
 PrivateKeyWatermark	optional path to key file	可选，私钥文件路径
 LoginCommands	Login commands	登录后执行
 LoginCommandsWatermark	one command per line; use ? for directives, sections, keys, and bastion reuse examples	每行一条命令；点击 ? 查看分段、按键和堡垒机会话复用示例
-LoginCommandsPreviewNone	none	无
-LoginCommandsPreviewFresh	Fresh connection: {0}	首次连接：{0}
-LoginCommandsPreviewDuplicate	Duplicate / monitor: {0}	复制会话 / 监控：{0}
-LoginCommandsPreviewEnter	Enter from another target: {0}	从其他目标进入：{0}
-LoginCommandsPreviewLeave	Leave for another target: {0}	切换到其他目标前退出：{0}
 LoginCommandsHelpTitle	Login command guide	登录命令指南
 LoginCommandsHelpIntro	Commands run after remote output becomes quiet. Structured sections let JeekRemoteManager reuse one authenticated bastion transport without guessing what menu numbers mean.	每条命令都会等待远端输出稳定后再执行。使用明确分段后，JeekRemoteManager 可以复用已完成二次验证的堡垒机连接，而无需猜测菜单数字的含义。
 LoginCommandsHelpOrdinary	Send this text followed by Enter.	发送这段文字，然后按回车。
@@ -68,8 +63,16 @@ LoginCommandsHelpLeave	Start commands that return a reused channel from this tar
 LoginCommandsHelpSelect	Select the numbered menu entry whose displayed name or IP matches.	按菜单中显示的名称或 IP 匹配并选择对应编号。
 LoginCommandsHelpPageKey	Set the paging key used by following #select commands, for example Ctrl-F.	为后续 #select 设置翻页按键，例如 Ctrl-F。
 LoginCommandsHelpKey	Press one key immediately; supports Enter, Tab, Esc, arrows, PageDown, Ctrl-F, and more.	立即按一个按键；支持 Enter、Tab、Esc、方向键、PageDown、Ctrl-F 等。
+LoginCommandsHelpTemplate	Expand fragment 1, 2, 3, or 4 from this bastion's shared login template.	展开当前堡垒机公共登录模板中的 1、2、3 或 4 号片段。
 LoginCommandsHelpExampleTitle	Numeric-menu example	数字菜单示例
-LoginCommandsHelpExampleDescription	Fresh: wait for 2FA, then type 5 and one blank Enter. Duplicate/monitor: no extra commands. Cross-target reuse: run the old target's #leave section, then this target's #enter section.	首次连接：等待二次验证，然后输入 5，再单独按一次回车。复制会话或监控：不执行额外命令。跨目标复用：先执行旧目标的 #leave 段，再执行新目标的 #enter 段。
+LoginCommandsHelpExampleDescription	Template fragments are expanded first. The resulting #enter, #duplicate, and #leave sections then control fresh, duplicate/monitor, and cross-target reuse.	先展开模板片段，再由展开结果中的 #enter、#duplicate 和 #leave 分段控制首次连接、复制会话/监控及跨目标复用。
+BastionTemplateAutoLinked	Bastion login template · automatically linked	堡垒机登录模板 · 已自动关联
+BastionTemplateEdit	Edit shared template…	编辑公共模板…
+BastionTemplateInvalid	The bastion login template is invalid: {0}	堡垒机登录模板无效：{0}
+BastionTemplateEditTitle	Edit bastion login template	编辑堡垒机登录模板
+BastionTemplateAppliesTo	Automatically associated with {0}.	自动关联到 {0}。
+BastionTemplateFragmentHint	May contain any login command except #template. Reference it from a connection with #template followed by this id.	可包含除 #template 外的任何登录命令；在连接中使用 #template 加此 ID 进行引用。
+BastionTemplateSave	Save and apply	保存并应用
 AutoOpenPanels	Open after login	登录后自动开启
 Browse	Browse…	浏览…
 WslOptions	WSL options	WSL 选项

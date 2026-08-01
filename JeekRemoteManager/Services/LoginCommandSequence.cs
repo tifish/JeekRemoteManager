@@ -1,4 +1,5 @@
 using System.Text;
+using JeekRemoteManager.Models;
 
 namespace JeekRemoteManager.Services;
 
@@ -25,6 +26,7 @@ public static class LoginCommandSequence
     public const string KeyDirective = "#key";
     public const string MenuSelectDirective = "#select";
     public const string MenuPageKeyDirective = "#pagekey";
+    public const string TemplateDirective = "#template";
 
     /// <summary>
     /// Selects commands for a fresh or duplicated session. Existing configurations that
@@ -85,6 +87,86 @@ public static class LoginCommandSequence
     public static bool HasStructuredReuseWorkflow(string commands) =>
         HasStructuredReuseWorkflow(Lines(commands));
 
+    /// <summary>True when the command text contains one or more #template directives.</summary>
+    public static bool ContainsTemplateDirective(string commands) =>
+        commands.Split('\n')
+            .Select(line => line.Trim().TrimEnd('\r'))
+            .Any(line => StartsWithDirective(line, TemplateDirective));
+
+    /// <summary>Removes blank lines only from the beginning and end of a command block.</summary>
+    public static string TrimSurroundingBlankLines(string commands)
+    {
+        var lines = commands.ReplaceLineEndings("\n").Split('\n');
+        var first = 0;
+        while (first < lines.Length && string.IsNullOrWhiteSpace(lines[first]))
+            first++;
+        var last = lines.Length - 1;
+        while (last >= first && string.IsNullOrWhiteSpace(lines[last]))
+            last--;
+        return first > last
+            ? ""
+            : string.Join(Environment.NewLine, lines[first..(last + 1)]);
+    }
+
+    /// <summary>
+    /// Expands #template 1 through #template 4 before the normal login-command parser
+    /// interprets any directives. Template fragments may contain every directive except
+    /// #template itself, preventing recursive or cyclic expansion.
+    /// </summary>
+    public static bool TryExpandTemplate(
+        string commands,
+        BastionLoginProfile? template,
+        out string expanded,
+        out string error)
+    {
+        var output = new List<string>();
+        var sourceLines = commands.ReplaceLineEndings("\n").Split('\n');
+        for (var index = 0; index < sourceLines.Length; index++)
+        {
+            var sourceLine = sourceLines[index].TrimEnd('\r');
+            var trimmed = sourceLine.Trim();
+            if (!StartsWithDirective(trimmed, TemplateDirective))
+            {
+                output.Add(sourceLine);
+                continue;
+            }
+
+            var argument = TryGetDirectiveArgument(trimmed, TemplateDirective) ?? "";
+            if (argument.Length != 1
+                || argument[0] is < '1' or > '4')
+            {
+                expanded = "";
+                error =
+                    $"Line {index + 1}: #template requires a fragment id from 1 to "
+                    + $"{BastionLoginProfile.SegmentCount}.";
+                return false;
+            }
+            var segmentId = argument[0] - '0';
+
+            if (template is null)
+            {
+                expanded = "";
+                error =
+                    $"Line {index + 1}: #template {segmentId} requires a bastion login template.";
+                return false;
+            }
+
+            var fragment = template.GetSegment(segmentId);
+            if (ContainsTemplateDirective(fragment))
+            {
+                expanded = "";
+                error = $"Template fragment {segmentId} cannot contain #template.";
+                return false;
+            }
+
+            output.AddRange(fragment.ReplaceLineEndings("\n").Split('\n'));
+        }
+
+        expanded = string.Join(Environment.NewLine, output);
+        error = "";
+        return true;
+    }
+
     public static bool IsManualInputDirective(string line) =>
         line.Trim().Equals(ManualInputDirective, StringComparison.OrdinalIgnoreCase);
 
@@ -115,7 +197,20 @@ public static class LoginCommandSequence
         TryGetDirectiveArgument(line, MenuPageKeyDirective);
 
     /// <summary>Returns user-facing validation messages with one-based source line numbers.</summary>
-    public static IReadOnlyList<string> Validate(string commands)
+    public static IReadOnlyList<string> Validate(string commands) =>
+        Validate(commands, template: null);
+
+    /// <summary>Expands a template, then validates the resulting full workflow.</summary>
+    public static IReadOnlyList<string> Validate(
+        string commands,
+        BastionLoginProfile? template)
+    {
+        if (!TryExpandTemplate(commands, template, out var expanded, out var error))
+            return [error];
+        return ValidateExpanded(expanded);
+    }
+
+    private static IReadOnlyList<string> ValidateExpanded(string commands)
     {
         var sourceLines = commands.Split('\n');
         var messages = new List<string>();

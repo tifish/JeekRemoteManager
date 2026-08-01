@@ -322,7 +322,8 @@ public static class ProductMcpContract
         leading["terminal_type"] = Prop("string", "TERM sent on login; default xterm-256color.");
         leading["login_commands"] = Prop("string",
             "Commands typed after login, one per line; supports #input, #select, #pagekey, #key, "
-            + "and structured bastion sections #enter / #duplicate / #leave.");
+            + "#template 1 through #template 4, and structured bastion sections "
+            + "#enter / #duplicate / #leave.");
         leading["wsl_distro"] = Prop("string", "WSL distribution name; empty = default distribution.");
         leading["wsl_start_directory"] = Prop("string", "Start directory inside WSL; empty = home.");
         leading["notes"] = Prop("string", "Free-form note.");

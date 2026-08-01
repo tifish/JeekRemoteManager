@@ -473,6 +473,7 @@ internal static class ProductMcpServer
         described["privateKeyPath"] = connection.PrivateKeyPath;
         described["terminalType"] = connection.TerminalType;
         described["loginCommands"] = connection.LoginCommands;
+        described["usesSharedBastionTemplate"] = connection.UsesBastionProfile;
         described["autoOpenMonitorPanel"] = connection.AutoOpenMonitorPanel;
         described["autoOpenFileBrowserPanel"] = connection.AutoOpenFileBrowserPanel;
         described["wslDistro"] = connection.WslDistro;

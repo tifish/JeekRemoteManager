@@ -287,6 +287,18 @@ try
               .Any(tool => tool?["name"]?.GetValue<string>() == "login_command_flow_check"),
           "Debug MCP advertises structured login-command flow verification");
     Check(DebugMcpContract.BuildToolList()
+              .Any(tool => tool?["name"]?.GetValue<string>() == "bastion_login_template_check"),
+          "Debug MCP advertises shared bastion-template verification");
+    Check(DebugMcpContract.BuildToolList()
+              .Any(tool => tool?["name"]?.GetValue<string>() == "connection_editor_switch_check"),
+          "Debug MCP advertises connection-editor switch performance verification");
+    Check(!mainWindowXaml.Contains("LoginCommandsFlowPreview", StringComparison.Ordinal)
+          && mainWindowXaml.Contains("LoginCommandsValidationMessage", StringComparison.Ordinal),
+          "SSH login commands show validation errors without the parsed flow text");
+    Check(!mainWindowXaml.Contains("BastionProfileUsageText", StringComparison.Ordinal)
+          && typeof(BastionLoginProfileStore).GetMethod("GetUsageCount") is null,
+          "Bastion templates expose no connection-count statistic");
+    Check(DebugMcpContract.BuildToolList()
               .First(tool => tool?["name"]?.GetValue<string>() == "login_menu_select_probe")?
               ["inputSchema"]?["properties"]?["scenario"]?["description"]?
               .GetValue<string>().Contains("switch", StringComparison.Ordinal) == true,
@@ -547,6 +559,48 @@ try
           "Structured login commands split fresh, enter, duplicate/monitor, and leave flows");
     Check(LoginCommandSequence.Validate(structuredLoginCommands).Count == 0,
           "A complete structured bastion login workflow validates");
+    var fixedTemplate = new BastionLoginProfile
+    {
+        Id = "smoke",
+        Segments = ["#input", "sudo -i", "", "exit\n#key Enter"],
+    };
+    const string templateCommands =
+        "#template 1\n#enter\n#select target-a\n#duplicate\n#template 2\n#leave\n#template 4";
+    Check(LoginCommandSequence.TryExpandTemplate(
+              templateCommands,
+              fixedTemplate,
+              out var expandedTemplateCommands,
+              out _)
+          && expandedTemplateCommands.ReplaceLineEndings("\n")
+              == "#input\n#enter\n#select target-a\n#duplicate\nsudo -i\n#leave\nexit\n#key Enter"
+          && LoginCommandSequence.Validate(templateCommands, fixedTemplate).Count == 0,
+          "Fixed one-based bastion fragments expand before structured command parsing");
+    Check(LoginCommandSequence.Validate("#template 5", fixedTemplate).Count > 0
+          && LoginCommandSequence.Validate("#template 1").Count > 0
+          && LoginCommandSequence.ContainsTemplateDirective("#template 2"),
+          "Template references require an associated template and an id from 1 through 4");
+    var nestedTemplate = new BastionLoginProfile
+    {
+        Id = "nested",
+        Segments = ["#template 2", "", "", ""],
+    };
+    Check(LoginCommandSequence.Validate("#template 1", nestedTemplate).Count > 0,
+          "Template fragments cannot recursively reference another fragment");
+    var directiveTemplate = new BastionLoginProfile
+    {
+        Id = "directives",
+        Segments =
+        [
+            "#input\n#enter\n#select target-a",
+            "#duplicate\nsudo -i",
+            "#leave\nexit\n#key Enter",
+            "#pagekey Ctrl-F",
+        ],
+    };
+    Check(LoginCommandSequence.Validate(
+              "#template 4\n#template 1\n#template 2\n#template 3",
+              directiveTemplate).Count == 0,
+          "Template fragments allow every login directive except nested #template");
     Check(LoginCommandSequence.Validate("#enter\n5").Count > 0
           && !LoginCommandSequence.HasStructuredReuseWorkflow("#enter\n5"),
           "Partial bastion sections are never eligible for automatic pooling");
@@ -579,6 +633,81 @@ try
           && BastionSessionPool.PoolKeyForDebug(pooledRouteA)
               != BastionSessionPool.PoolKeyForDebug(pooledOtherUser),
           "Bastion pooling groups targets automatically by normalized endpoint and credential identity");
+
+    var bastionTemplateConnections = Path.Combine(root, "bastion-template", "Connections");
+    var bastionTemplateStore = new ConnectionStore(bastionTemplateConnections);
+    var templateAPath = bastionTemplateStore.Save(
+        new Connection
+        {
+            Name = "template-a",
+            Host = "shared-bastion.test",
+            Username = "user",
+            LoginCommands =
+                "#template 1\n#enter\n#select target-a\n#duplicate\n#template 2\n#leave\n#template 4",
+        },
+        bastionTemplateConnections);
+    var templateBPath = bastionTemplateStore.Save(
+        new Connection
+        {
+            Name = "template-b",
+            Host = "SHARED-BASTION.TEST.",
+            Username = "user",
+            LoginCommands =
+                "#template 1\n#enter\n#select target-b\n#duplicate\n#template 2\n#leave\n#template 4",
+        },
+        bastionTemplateConnections);
+    var templateA = bastionTemplateStore.Load(templateAPath);
+    var templateB = bastionTemplateStore.Load(templateBPath);
+    var automaticTemplateId = templateA.ResolvedBastionProfile!.Id;
+    Check(bastionTemplateStore.BastionProfiles.Profiles.Count == 0
+          && templateA.TryResolveLoginCommands(out _, out _)
+          && templateB.TryResolveLoginCommands(out _, out _)
+          && automaticTemplateId == templateB.ResolvedBastionProfile!.Id,
+          "Every same-bastion connection automatically resolves one logical blank template");
+    var templateEditorA = ConnectionEditorViewModel.FromConnection(
+        templateA,
+        bastionTemplateStore.BastionProfiles);
+    Check(templateEditorA.HasBastionProfile
+          && templateEditorA.BastionTemplateId == automaticTemplateId,
+          "The connection editor exposes the automatically associated template without statistics");
+    templateEditorA.LoginCommands =
+        "\r\n \r\n" + templateEditorA.LoginCommands + "\r\n\r\n";
+    templateEditorA.BastionTemplateSegment1 = "\r\n#input\r\n\r\n";
+    templateEditorA.BastionTemplateSegment2 = "";
+    templateEditorA.BastionTemplateSegment3 = "sudo -i";
+    templateEditorA.BastionTemplateSegment4 = "\nexit\n#key Enter\n  \n";
+    templateEditorA.ApplyTo(templateA);
+    bastionTemplateStore.SaveInPlace(templateA, templateAPath);
+
+    var templateEditorB = ConnectionEditorViewModel.FromConnection(
+        templateB,
+        bastionTemplateStore.BastionProfiles);
+    Check(templateEditorB.HasBastionProfile
+          && templateEditorB.BastionTemplateId == automaticTemplateId
+          && templateEditorB.BastionTemplateSegment1 == "#input"
+          && templateEditorB.BastionTemplateSegment4
+              == "exit\n#key Enter".ReplaceLineEndings(Environment.NewLine),
+          "Editing the shared template immediately applies to matching connections");
+    bastionTemplateStore.SaveInPlace(templateB, templateBPath);
+    templateA = bastionTemplateStore.Load(templateAPath);
+    templateB = bastionTemplateStore.Load(templateBPath);
+    Check(templateA.UsesBastionProfile
+          && templateB.UsesBastionProfile
+          && templateA.ResolvedBastionProfile!.Id == templateB.ResolvedBastionProfile!.Id
+          && bastionTemplateStore.BastionProfiles.Profiles.Count == 1,
+          "Same-bastion connections resolve the same persisted template");
+    Check(!templateA.LoginCommands.StartsWith(Environment.NewLine, StringComparison.Ordinal)
+          && !templateA.LoginCommands.EndsWith(Environment.NewLine, StringComparison.Ordinal)
+          && templateA.LoginCommands.Contains("#template 1", StringComparison.Ordinal)
+          && templateB.LoginCommands.Contains("#template 4", StringComparison.Ordinal)
+          && templateA.EffectiveLoginCommands.Contains("#input", StringComparison.Ordinal)
+          && templateA.EffectiveLoginCommands.Contains("#select target-a", StringComparison.Ordinal)
+          && templateB.EffectiveLoginCommands.Contains("#select target-b", StringComparison.Ordinal)
+          && templateA.EffectiveLoginCommands.Contains("#key Enter", StringComparison.Ordinal)
+          && !File.ReadAllText(templateAPath).Contains("BastionTemplateId", StringComparison.Ordinal)
+          && Path.GetFileName(bastionTemplateStore.BastionProfiles.FilePath)
+              == "bastion-login-templates.json",
+          "Commands trim surrounding blank lines while template association stays implicit");
 
     // --- Bastion menu selection by name ---
     const string assetMenu = """

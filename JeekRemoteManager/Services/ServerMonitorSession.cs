@@ -263,7 +263,7 @@ public sealed class ServerMonitorSession : IDisposable
 
         if (_bastionSessionPool is not null
             && _connection is not null
-            && LoginCommandSequence.HasStructuredReuseWorkflow(_connection.LoginCommands))
+            && LoginCommandSequence.HasStructuredReuseWorkflow(_connection.EffectiveLoginCommands))
         {
             _pendingPoolLease = await _bastionSessionPool
                 .TryAcquireAsync(_connection, cancellationToken)
@@ -322,7 +322,7 @@ public sealed class ServerMonitorSession : IDisposable
                             cancellationToken)
                         .ConfigureAwait(false);
                     await RunLoginSectionAsync(
-                            _connection!.LoginCommands,
+                            _connection!.EffectiveLoginCommands,
                             LoginCommandSection.Enter,
                             cancellationToken)
                         .ConfigureAwait(false);
@@ -330,7 +330,7 @@ public sealed class ServerMonitorSession : IDisposable
                 else
                 {
                     await RunLoginSectionAsync(
-                            _connection!.LoginCommands,
+                            _connection!.EffectiveLoginCommands,
                             LoginCommandSection.Duplicate,
                             cancellationToken)
                         .ConfigureAwait(false);

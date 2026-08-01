@@ -937,7 +937,7 @@ public partial class TerminalView : UserControl
             // survives until the monitor lets go, even if the tab reconnects meanwhile.
             () => _client is { IsConnected: true } client && client.TryAddRef() ? client : null,
             connection.TerminalType,
-            connection.LoginCommands,
+            connection.EffectiveLoginCommands,
             label,
             host,
             BastionSessionPool,
@@ -1746,7 +1746,7 @@ public partial class TerminalView : UserControl
         var useManagedPool = BastionSessionPool is not null
                              && _connection is not null
                              && LoginCommandSequence.HasStructuredReuseWorkflow(
-                                 _connection.LoginCommands);
+                                 _connection.EffectiveLoginCommands);
         _pendingSharedClient = !useManagedPool
                                && _client is { IsConnected: true } live
                                && live.TryAddRef()
@@ -1844,6 +1844,16 @@ public partial class TerminalView : UserControl
         var host = connection.Host.Trim();
         var port = connection.Port > 0 ? connection.Port : 22;
         _connectInProgress = true;
+        if (!connection.TryResolveLoginCommands(out var effectiveLoginCommands, out var loginCommandsError))
+        {
+            var failure = new InvalidOperationException(loginCommandsError);
+            _connected?.TrySetException(failure);
+            _connectInProgress = false;
+            Volatile.Write(ref _loginSequenceState, "template-error");
+            FeedLine($"\u001b[31m[login template error] {loginCommandsError}\u001b[0m");
+            FeedReconnectHint();
+            return;
+        }
 
         // Legacy duplicated tabs can be handed a direct counted reference. Structured
         // bastion workflows instead use the application pool below so the transport's
@@ -1857,7 +1867,7 @@ public partial class TerminalView : UserControl
                     shared,
                     generation,
                     reportFailure: false,
-                    [LoginCommandSequence.Select(connection.LoginCommands, LoginCommandSection.Duplicate)]))
+                    [LoginCommandSequence.Select(effectiveLoginCommands, LoginCommandSection.Duplicate)]))
                 return;
 
             shared.Release();
@@ -1884,12 +1894,12 @@ public partial class TerminalView : UserControl
                     LoginCommandSequence.Select(
                         pooledLease.SourceRoute.LoginCommands,
                         LoginCommandSection.Leave),
-                    LoginCommandSequence.Select(connection.LoginCommands, LoginCommandSection.Enter),
+                    LoginCommandSequence.Select(effectiveLoginCommands, LoginCommandSection.Enter),
                 }
                 : new[]
                 {
                     LoginCommandSequence.Select(
-                        connection.LoginCommands,
+                        effectiveLoginCommands,
                         LoginCommandSection.Duplicate),
                 };
             var action = pooledLease.RequiresSwitch
@@ -1956,7 +1966,7 @@ public partial class TerminalView : UserControl
                 client,
                 generation,
                 reportFailure: true,
-                [LoginCommandSequence.Select(connection.LoginCommands, LoginCommandSection.Fresh)],
+                [LoginCommandSequence.Select(effectiveLoginCommands, LoginCommandSection.Fresh)],
                 registerFreshInPool: true))
             client.Release();
     }
@@ -2183,7 +2193,7 @@ public partial class TerminalView : UserControl
             _connection!,
             generation,
             loginPhases
-            ?? [LoginCommandSequence.Select(_connection!.LoginCommands, _isDuplicatedSession)],
+            ?? [LoginCommandSequence.Select(_connection!.EffectiveLoginCommands, _isDuplicatedSession)],
             pooledLease,
             registerFreshInPool);
     }

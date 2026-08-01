@@ -27,12 +27,14 @@ public class ConnectionStore
     public ConnectionStore(string? rootPath = null)
     {
         RootPath = rootPath ?? SettingsService.ResolveConnectionsRoot(StorageLocation.UserDirectory);
-
+        BastionProfiles = new BastionLoginProfileStore(RootPath);
         Directory.CreateDirectory(RootPath);
     }
 
     /// <summary>Absolute path to the top-level connections folder.</summary>
     public string RootPath { get; private set; }
+
+    public BastionLoginProfileStore BastionProfiles { get; }
 
     /// <summary>
     /// <see cref="Environment.TickCount64"/> of the last write this store made to
@@ -49,6 +51,7 @@ public class ConnectionStore
         using var lease = SharedDataFile.Acquire(newRoot);
         RootPath = newRoot;
         Directory.CreateDirectory(RootPath);
+        BastionProfiles.SetRoot(RootPath);
         Touch();
     }
 
@@ -101,6 +104,7 @@ public class ConnectionStore
         connection.Name = Path.GetFileNameWithoutExtension(filePath);
         if (EnsureConnectionId(connection))
             SaveInPlace(connection, filePath);
+        BastionProfiles.Resolve(connection);
         return connection;
     }
 

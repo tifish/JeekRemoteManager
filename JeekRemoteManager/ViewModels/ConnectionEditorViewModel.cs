@@ -13,6 +13,8 @@ namespace JeekRemoteManager.ViewModels;
 /// </summary>
 public partial class ConnectionEditorViewModel : ViewModelBase
 {
+    private BastionLoginProfileStore? _bastionProfiles;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsSsh))]
     [NotifyPropertyChangedFor(nameof(IsRdp))]
@@ -78,37 +80,49 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     [ObservableProperty]
     private string _loginCommands = "";
 
-    /// <summary>Live section preview shown below the SSH login-command editor.</summary>
-    public string LoginCommandsFlowPreview
-    {
-        get
-        {
-            if (string.IsNullOrWhiteSpace(LoginCommands))
-                return "";
+    [ObservableProperty]
+    private bool _hasBastionProfile;
 
-            static string Show(string[] lines, string none) =>
-                lines.Length == 0 ? none : string.Join("  →  ", lines);
+    [ObservableProperty]
+    private string _bastionTemplateId = "";
 
-            var none = L("LoginCommandsPreviewNone");
-            return string.Join(
-                System.Environment.NewLine,
-                L(
-                    "LoginCommandsPreviewFresh",
-                    Show(LoginCommandSequence.Select(LoginCommands, LoginCommandSection.Fresh), none)),
-                L(
-                    "LoginCommandsPreviewDuplicate",
-                    Show(LoginCommandSequence.Select(LoginCommands, LoginCommandSection.Duplicate), none)),
-                L(
-                    "LoginCommandsPreviewEnter",
-                    Show(LoginCommandSequence.Select(LoginCommands, LoginCommandSection.Enter), none)),
-                L(
-                    "LoginCommandsPreviewLeave",
-                    Show(LoginCommandSequence.Select(LoginCommands, LoginCommandSection.Leave), none)));
-        }
-    }
+    [ObservableProperty]
+    private string _bastionProfileEndpoint = "";
+
+    [ObservableProperty]
+    private string _bastionTemplateSegment1 = "";
+
+    [ObservableProperty]
+    private string _bastionTemplateSegment2 = "";
+
+    [ObservableProperty]
+    private string _bastionTemplateSegment3 = "";
+
+    [ObservableProperty]
+    private string _bastionTemplateSegment4 = "";
+
+    private BastionLoginProfile? CurrentBastionTemplate =>
+        !HasBastionProfile
+            ? null
+            : new BastionLoginProfile
+            {
+                Id = BastionTemplateId,
+                EndpointLabel = BastionProfileEndpoint,
+                Segments =
+                [
+                    BastionTemplateSegment1,
+                    BastionTemplateSegment2,
+                    BastionTemplateSegment3,
+                    BastionTemplateSegment4,
+                ],
+            };
+
+    private string? _cachedLoginCommandsValidationMessage;
 
     public string LoginCommandsValidationMessage =>
-        string.Join(System.Environment.NewLine, LoginCommandSequence.Validate(LoginCommands));
+        _cachedLoginCommandsValidationMessage ??= string.Join(
+            System.Environment.NewLine,
+            LoginCommandSequence.Validate(LoginCommands, CurrentBastionTemplate));
 
     public bool HasLoginCommandsValidationMessage =>
         LoginCommandsValidationMessage.Length > 0;
@@ -232,10 +246,15 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         set => Type = ConnectionTypeDisplay.FromDisplayName(value);
     }
 
-    public static ConnectionEditorViewModel FromConnection(Connection c)
+    public static ConnectionEditorViewModel FromConnection(
+        Connection c,
+        BastionLoginProfileStore? bastionProfiles = null)
     {
+        bastionProfiles?.Resolve(c);
+        var profile = c.ResolvedBastionProfile;
         var vm = new ConnectionEditorViewModel
         {
+            _bastionProfiles = bastionProfiles,
             Type = c.Type,
             Name = c.Name,
             Host = c.Host,
@@ -244,6 +263,13 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             TerminalType = string.IsNullOrWhiteSpace(c.TerminalType) ? Connection.DefaultTerminalType : c.TerminalType,
             PrivateKeyPath = c.PrivateKeyPath,
             LoginCommands = c.LoginCommands,
+            HasBastionProfile = profile is not null,
+            BastionTemplateId = profile?.Id ?? "",
+            BastionProfileEndpoint = profile?.EndpointLabel ?? "",
+            BastionTemplateSegment1 = profile?.GetSegment(1) ?? "",
+            BastionTemplateSegment2 = profile?.GetSegment(2) ?? "",
+            BastionTemplateSegment3 = profile?.GetSegment(3) ?? "",
+            BastionTemplateSegment4 = profile?.GetSegment(4) ?? "",
             AutoOpenMonitorPanel = c.AutoOpenMonitorPanel,
             AutoOpenFileBrowserPanel = c.AutoOpenFileBrowserPanel,
             WslDistro = c.WslDistro,
@@ -290,7 +316,27 @@ public partial class ConnectionEditorViewModel : ViewModelBase
 
     partial void OnLoginCommandsChanged(string value)
     {
-        OnPropertyChanged(nameof(LoginCommandsFlowPreview));
+        NotifyLoginCommandPresentationChanged();
+    }
+
+    partial void OnHasBastionProfileChanged(bool value) =>
+        NotifyLoginCommandPresentationChanged();
+
+    partial void OnBastionTemplateSegment1Changed(string value) =>
+        NotifyLoginCommandPresentationChanged();
+
+    partial void OnBastionTemplateSegment2Changed(string value) =>
+        NotifyLoginCommandPresentationChanged();
+
+    partial void OnBastionTemplateSegment3Changed(string value) =>
+        NotifyLoginCommandPresentationChanged();
+
+    partial void OnBastionTemplateSegment4Changed(string value) =>
+        NotifyLoginCommandPresentationChanged();
+
+    private void NotifyLoginCommandPresentationChanged()
+    {
+        _cachedLoginCommandsValidationMessage = null;
         OnPropertyChanged(nameof(LoginCommandsValidationMessage));
         OnPropertyChanged(nameof(HasLoginCommandsValidationMessage));
     }
@@ -317,7 +363,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         c.EncryptedPrivateKeyPassphrase = preserveExistingPassphrase
             ? _originalEncryptedPassphrase
             : PasswordProtector.Encrypt(PrivateKeyPassphrase);
-        c.LoginCommands = LoginCommands;
+        ApplyBastionCommands(c);
         c.AutoOpenMonitorPanel = AutoOpenMonitorPanel;
         c.AutoOpenFileBrowserPanel = AutoOpenFileBrowserPanel;
         c.WslDistro = WslDistro.Trim();
@@ -338,4 +384,46 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         c.RdpRedirectMicrophone = RdpRedirectMicrophone;
         c.Notes = Notes;
     }
+
+    private void ApplyBastionCommands(Connection connection)
+    {
+        var normalizedLoginCommands =
+            LoginCommandSequence.TrimSurroundingBlankLines(LoginCommands);
+        connection.LoginCommands = normalizedLoginCommands;
+        if (_bastionProfiles is null)
+            return;
+
+        if (!connection.IsSsh)
+        {
+            connection.ResolvedBastionProfile = null;
+            return;
+        }
+
+        var automaticId = _bastionProfiles.AutomaticProfileId(connection);
+        if (!string.Equals(BastionTemplateId, automaticId, StringComparison.Ordinal))
+        {
+            _bastionProfiles.Resolve(connection);
+            var profile = connection.ResolvedBastionProfile!;
+            LoadProfileIntoEditor(profile);
+            HasBastionProfile = true;
+            return;
+        }
+
+        var edited = CurrentBastionTemplate!;
+        var existing = _bastionProfiles.Get(automaticId);
+        if (existing is not null || edited.Segments.Any(segment => !string.IsNullOrWhiteSpace(segment)))
+            _bastionProfiles.Save(edited);
+        _bastionProfiles.Resolve(connection);
+    }
+
+    private void LoadProfileIntoEditor(BastionLoginProfile profile)
+    {
+        BastionTemplateId = profile.Id;
+        BastionProfileEndpoint = profile.EndpointLabel;
+        BastionTemplateSegment1 = profile.GetSegment(1);
+        BastionTemplateSegment2 = profile.GetSegment(2);
+        BastionTemplateSegment3 = profile.GetSegment(3);
+        BastionTemplateSegment4 = profile.GetSegment(4);
+    }
+
 }
