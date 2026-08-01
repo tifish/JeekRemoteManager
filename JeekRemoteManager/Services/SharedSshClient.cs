@@ -14,9 +14,25 @@ public sealed class SharedSshClient
     private readonly object _gate = new();
     private int _refCount = 1;
 
-    public SharedSshClient(SshClient client) => Client = client;
+    public SharedSshClient(SshClient client)
+    {
+        Client = client;
+        SessionId = Guid.NewGuid().ToString("N")[..8];
+    }
 
     public SshClient Client { get; }
+
+    /// <summary>Non-secret process-local identifier used in pool diagnostics.</summary>
+    public string SessionId { get; }
+
+    public int ReferenceCount
+    {
+        get
+        {
+            lock (_gate)
+                return _refCount;
+        }
+    }
 
     public bool IsConnected
     {

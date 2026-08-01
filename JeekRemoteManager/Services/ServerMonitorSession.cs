@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using JeekRemoteManager.Models;
 using JeekTools;
 using Microsoft.Extensions.Logging;
 using Renci.SshNet;
@@ -95,6 +96,8 @@ public sealed class ServerMonitorSession : IDisposable
         "echo @JRM@route; ip -o route show to default 2>/dev/null";
 
     private readonly Func<SharedSshClient?> _acquireClient;
+    private readonly BastionSessionPool? _bastionSessionPool;
+    private readonly Connection? _connection;
     private readonly string _terminalType;
     private readonly string _loginCommands;
     private readonly Action<ServerMonitorSnapshot> _onSnapshot;
@@ -104,6 +107,7 @@ public sealed class ServerMonitorSession : IDisposable
     private readonly object _gate = new();
     private CancellationTokenSource? _cancellation;
     private SharedSshClient? _held;
+    private BastionSessionPool.BastionSessionLease? _pendingPoolLease;
     private ShellStream? _shell;
     private InteractiveShellPayloadMonitor? _activePayloadMonitor;
     // Fed only while the duplicated login sequence runs, so "#select" can match the
@@ -134,7 +138,9 @@ public sealed class ServerMonitorSession : IDisposable
         string loginCommands,
         Action<ServerMonitorSnapshot> onSnapshot,
         Action onWaiting,
-        Action onFailed)
+        Action onFailed,
+        BastionSessionPool? bastionSessionPool = null,
+        Connection? connection = null)
     {
         _acquireClient = acquireClient;
         _terminalType = string.IsNullOrWhiteSpace(terminalType)
@@ -144,6 +150,8 @@ public sealed class ServerMonitorSession : IDisposable
         _onSnapshot = onSnapshot;
         _onWaiting = onWaiting;
         _onFailed = onFailed;
+        _bastionSessionPool = bastionSessionPool;
+        _connection = connection;
     }
 
     /// <summary>Debug-MCP-visible runtime state used to verify that monitoring is
@@ -195,7 +203,7 @@ public sealed class ServerMonitorSession : IDisposable
                 var delaySeconds = LightIntervalSeconds;
                 try
                 {
-                    var client = AcquireClient();
+                    var client = await AcquireClientAsync(cancellationToken).ConfigureAwait(false);
                     if (client is null)
                     {
                         ResetDeltas();
@@ -246,12 +254,24 @@ public sealed class ServerMonitorSession : IDisposable
 
     /// <summary>Returns the held live client, or re-acquires one (dropping a stale
     /// reference first, e.g. after the terminal reconnected on a fresh transport).</summary>
-    private SharedSshClient? AcquireClient()
+    private async Task<SharedSshClient?> AcquireClientAsync(CancellationToken cancellationToken)
     {
         if (_held is { IsConnected: true })
             return _held;
 
         ReleaseClient();
+
+        if (_bastionSessionPool is not null
+            && _connection is not null
+            && LoginCommandSequence.HasStructuredReuseWorkflow(_connection.LoginCommands))
+        {
+            _pendingPoolLease = await _bastionSessionPool
+                .TryAcquireAsync(_connection, cancellationToken)
+                .ConfigureAwait(false);
+            _held = _pendingPoolLease?.Client;
+            return _held;
+        }
+
         _held = _acquireClient();
         return _held;
     }
@@ -259,7 +279,16 @@ public sealed class ServerMonitorSession : IDisposable
     private void ReleaseClient()
     {
         ReleaseShell();
-        _held?.Release();
+        if (_pendingPoolLease is not null)
+        {
+            _pendingPoolLease.Abandon();
+            _pendingPoolLease.Dispose();
+            _pendingPoolLease = null;
+        }
+        else
+        {
+            _held?.Release();
+        }
         _held = null;
     }
 
@@ -283,10 +312,48 @@ public sealed class ServerMonitorSession : IDisposable
 
         try
         {
-            await RunDuplicatedLoginCommandsAsync(cancellationToken).ConfigureAwait(false);
+            if (_pendingPoolLease is { } pooledLease)
+            {
+                if (pooledLease.RequiresSwitch)
+                {
+                    await RunLoginSectionAsync(
+                            pooledLease.SourceRoute.LoginCommands,
+                            LoginCommandSection.Leave,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    await RunLoginSectionAsync(
+                            _connection!.LoginCommands,
+                            LoginCommandSection.Enter,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                else
+                {
+                    await RunLoginSectionAsync(
+                            _connection!.LoginCommands,
+                            LoginCommandSection.Duplicate,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
+                _held = pooledLease.CompleteAndTakeClient();
+                pooledLease.Dispose();
+                _pendingPoolLease = null;
+            }
+            else
+            {
+                await RunDuplicatedLoginCommandsAsync(cancellationToken).ConfigureAwait(false);
+            }
         }
         catch
         {
+            if (_pendingPoolLease is not null)
+            {
+                _pendingPoolLease.Abandon();
+                _pendingPoolLease.Dispose();
+                _pendingPoolLease = null;
+                _held = null;
+            }
             ReleaseShell();
             throw;
         }
@@ -304,6 +371,28 @@ public sealed class ServerMonitorSession : IDisposable
         try
         {
             await RunLoginLinesAsync(lines, mustBeAfterTicks, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _loginCaptureActive = false;
+            _loginCapture.Reset();
+        }
+    }
+
+    private async Task RunLoginSectionAsync(
+        string loginCommands,
+        LoginCommandSection section,
+        CancellationToken cancellationToken)
+    {
+        var lines = LoginCommandSequence.Select(loginCommands, section);
+        if (lines.Length == 0)
+            return;
+
+        _loginCapture.Reset();
+        _loginCaptureActive = true;
+        try
+        {
+            await RunLoginLinesAsync(lines, 0, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -337,11 +426,34 @@ public sealed class ServerMonitorSession : IDisposable
                 continue;
             }
 
+            if (LoginCommandSequence.TryGetKey(line) is { } immediateKeySpec)
+            {
+                if (!LoginKeySequence.TryParse(
+                        immediateKeySpec,
+                        out var immediateKey,
+                        out var immediateKeyError))
+                {
+                    throw new InvalidOperationException(
+                        $"The server monitor cannot use login key \"{immediateKeySpec}\": {immediateKeyError}");
+                }
+
+                await WaitForShellQuietAsync(mustBeAfterTicks, cancellationToken).ConfigureAwait(false);
+                mustBeAfterTicks = Environment.TickCount64;
+                _loginCapture.Reset();
+                WriteToShell(immediateKey);
+                continue;
+            }
+
             ThrowIfShellFailed();
 
             var text = line;
             if (LoginCommandSequence.TryGetMenuSelectKeyword(line) is { } keyword)
             {
+                await WaitForNumberedMenuAsync(
+                        mustBeAfterTicks,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
                 // The menu is on screen (the previous step waited for output to go quiet);
                 // match it by name so a renumbered menu can't send this shell elsewhere.
                 var selection = await LoginMenuPager.SelectAsync(
@@ -369,6 +481,24 @@ public sealed class ServerMonitorSession : IDisposable
             WriteToShell(text + "\r");
             await WaitForShellQuietAsync(mustBeAfterTicks, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private async Task WaitForNumberedMenuAsync(
+        long mustBeAfterTicks,
+        CancellationToken cancellationToken)
+    {
+        var startedAt = Environment.TickCount64;
+        while (LoginMenuSelection.ParseEntries(_loginCapture.Snapshot()).Count == 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ThrowIfShellFailed();
+            if (Environment.TickCount64 - startedAt >= LoginStepTimeoutSeconds * 1000L)
+                return; // Let the resolver produce its normal detailed failure.
+
+            await Task.Delay(50, cancellationToken).ConfigureAwait(false);
+        }
+
+        await WaitForShellQuietAsync(mustBeAfterTicks, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task WaitForShellQuietAsync(long mustBeAfterTicks, CancellationToken cancellationToken)

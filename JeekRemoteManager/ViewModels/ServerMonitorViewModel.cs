@@ -6,6 +6,7 @@ using System.Linq;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
 
 namespace JeekRemoteManager.ViewModels;
@@ -124,7 +125,9 @@ public sealed partial class ServerMonitorViewModel : ViewModelBase, IDisposable
         string terminalType,
         string loginCommands,
         string hostLabel,
-        string address)
+        string address,
+        BastionSessionPool? bastionSessionPool = null,
+        Connection? connection = null)
     {
         HostLabel = hostLabel;
         _addressText = address;
@@ -134,7 +137,9 @@ public sealed partial class ServerMonitorViewModel : ViewModelBase, IDisposable
             loginCommands,
             snapshot => Dispatcher.UIThread.Post(() => ApplySnapshot(snapshot)),
             () => Dispatcher.UIThread.Post(OnWaiting),
-            () => Dispatcher.UIThread.Post(OnFailed));
+            () => Dispatcher.UIThread.Post(OnFailed),
+            bastionSessionPool,
+            connection);
     }
 
     public void Start() => _session.Start();

@@ -110,6 +110,7 @@ internal static class DebugMcpServer
         host.AddTool("agent_cli_locate_check", AgentCliLocateCheckAsync);
         host.AddTool("agent_cli_mcp_config_check", AgentCliMcpConfigCheckAsync);
         host.AddTool("login_menu_select_check", LoginMenuSelectCheckAsync);
+        host.AddTool("login_command_flow_check", LoginCommandFlowCheckAsync);
         host.AddTool("login_menu_select_probe", LoginMenuSelectProbeAsync);
         host.AddTool("auto_update_stage_check", AutoUpdateStageCheckAsync);
         host.AddTool("ai_render_probe", AiRenderProbeAsync);
@@ -2056,11 +2057,60 @@ internal static class DebugMcpServer
         }
         """;
 
-    private static (string ExePath, IReadOnlyList<string> Arguments, string LoginCommands) BuildMenuProbeShell(
+    private const string MenuProbeSwitchLoginCommands =
+        "#enter\n#select all-assets\n#duplicate\n#leave\nexit\n#key Enter";
+
+    // Models a target shell that needs "exit" plus one more Enter before returning.
+    // The menu is deliberately slower than the normal 500 ms quiet threshold, which
+    // catches a phase transition that accidentally accepts the old target output.
+    private const string MenuProbeSwitchScript = """
+        Write-Host "TARGET_A_READY"
+        $leave = [Console]::ReadLine()
+        Write-Host "LEAVE=$leave"
+        $confirm = [Console]::ReadLine()
+        Write-Host "CONFIRM=ENTER"
+        Start-Sleep -Milliseconds 1200
+        Write-Host "  7: 10.0.0.7   all-assets"
+        Write-Host "Please select a target:"
+        $selected = [Console]::ReadLine()
+        Write-Host "SWITCH_SELECTED=$selected"
+        while ($true) { Start-Sleep -Seconds 1 }
+        """;
+
+    private static (
+        string ExePath,
+        IReadOnlyList<string> Arguments,
+        string LoginCommands,
+        IReadOnlyList<string[]>? LoginPhases) BuildMenuProbeShell(
         string scenario)
     {
+        if (scenario == "switch")
+        {
+            var switchScriptPath = Path.Combine(
+                DebugInstanceContext.Info.RuntimeTempRoot,
+                "login-menu-switch.ps1");
+            Directory.CreateDirectory(Path.GetDirectoryName(switchScriptPath)!);
+            File.WriteAllText(switchScriptPath, MenuProbeSwitchScript);
+            return (
+                "powershell.exe",
+                ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", switchScriptPath],
+                MenuProbeSwitchLoginCommands,
+                [
+                    LoginCommandSequence.Select(
+                        MenuProbeSwitchLoginCommands,
+                        LoginCommandSection.Leave),
+                    LoginCommandSequence.Select(
+                        MenuProbeSwitchLoginCommands,
+                        LoginCommandSection.Enter),
+                ]);
+        }
+
         if (scenario != "paged")
-            return (Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe", [], MenuProbeLoginCommands);
+            return (
+                Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe",
+                [],
+                MenuProbeLoginCommands,
+                null);
 
         var scriptPath = Path.Combine(DebugInstanceContext.Info.RuntimeTempRoot, "login-menu-pager.ps1");
         Directory.CreateDirectory(Path.GetDirectoryName(scriptPath)!);
@@ -2068,7 +2118,8 @@ internal static class DebugMcpServer
         return (
             "powershell.exe",
             ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
-            MenuProbePagedLoginCommands);
+            MenuProbePagedLoginCommands,
+            null);
     }
 
     /// <summary>
@@ -2111,7 +2162,8 @@ internal static class DebugMcpServer
                     await OnUiAsync(() => view.DebugStartLocalShellAsync(
                         new Models.Connection { Name = "login menu probe", LoginCommands = loginCommands },
                         shell.ExePath,
-                        shell.Arguments));
+                        shell.Arguments,
+                        shell.LoginPhases));
                     return ToolText("opened");
                 }
 
@@ -2134,7 +2186,8 @@ internal static class DebugMcpServer
                     return ToolText(await OnUiAsync(() =>
                         _menuProbeView is null
                             ? "not open"
-                            : "--- visible ---\n" + _menuProbeView.DebugVisibleTerminalText));
+                            : $"state={_menuProbeView.LoginSequenceState}\n--- visible ---\n"
+                              + _menuProbeView.DebugVisibleTerminalText));
                 }
         }
     }
@@ -2154,6 +2207,31 @@ internal static class DebugMcpServer
         sb.AppendLine(result.Success
             ? $"match: {keyword} -> types \"{result.Choice}\" ({result.MatchedLabel})"
             : $"no match: {result.Failure}");
+        return Task.FromResult(ToolText(sb.ToString().TrimEnd()));
+    }
+
+    private static Task<JsonObject> LoginCommandFlowCheckAsync(JsonObject args)
+    {
+        var commands = args["login_commands"]?.GetValue<string>()
+                       ?? "#input\n#enter\n5\n#key Enter\n#duplicate\n#leave\nexit";
+        var key = args["key"]?.GetValue<string>() ?? "Enter";
+        var sb = new StringBuilder();
+        sb.AppendLine($"structured={LoginCommandSequence.HasStructuredReuseWorkflow(commands)}");
+        sb.AppendLine(LoginCommandSequence.BuildPreview(commands));
+        var validation = LoginCommandSequence.Validate(commands);
+        sb.AppendLine(validation.Count == 0
+            ? "validation: ok"
+            : "validation:\n  " + string.Join("\n  ", validation));
+        if (LoginKeySequence.TryParse(key, out var sequence, out var error))
+        {
+            sb.AppendLine(
+                $"key {key}: {Convert.ToHexString(Encoding.UTF8.GetBytes(sequence))}");
+        }
+        else
+        {
+            sb.AppendLine($"key {key}: error: {error}");
+        }
+
         return Task.FromResult(ToolText(sb.ToString().TrimEnd()));
     }
 

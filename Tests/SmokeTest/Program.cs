@@ -283,6 +283,14 @@ try
     Check(DebugMcpContract.BuildToolList()
               .Any(tool => tool?["name"]?.GetValue<string>() == "global_agent_check"),
           "Debug MCP advertises global AI Agent verification");
+    Check(DebugMcpContract.BuildToolList()
+              .Any(tool => tool?["name"]?.GetValue<string>() == "login_command_flow_check"),
+          "Debug MCP advertises structured login-command flow verification");
+    Check(DebugMcpContract.BuildToolList()
+              .First(tool => tool?["name"]?.GetValue<string>() == "login_menu_select_probe")?
+              ["inputSchema"]?["properties"]?["scenario"]?["description"]?
+              .GetValue<string>().Contains("switch", StringComparison.Ordinal) == true,
+          "Debug MCP advertises delayed cross-target menu verification");
     Check(!agentPanelXaml.Contains("AiEndpoint", StringComparison.Ordinal)
           && typeof(AppSettings).GetProperty("AiEndpoints") is null
           && !DebugMcpContract.BuildToolList()
@@ -525,6 +533,52 @@ try
           "Duplicated sessions without a marker preserve existing login-command behavior");
     Check(LoginCommandSequence.IsManualInputDirective("  #INPUT  "),
           "Manual-input login directive remains case-insensitive");
+    const string structuredLoginCommands =
+        "#input\n#enter\n5\n#key Enter\n#duplicate\n#leave\nexit";
+    Check(LoginCommandSequence.HasStructuredReuseWorkflow(structuredLoginCommands)
+          && LoginCommandSequence.Select(structuredLoginCommands, LoginCommandSection.Fresh)
+              .SequenceEqual(["#input", "5", "#key Enter"])
+          && LoginCommandSequence.Select(structuredLoginCommands, LoginCommandSection.Enter)
+              .SequenceEqual(["5", "#key Enter"])
+          && LoginCommandSequence.Select(structuredLoginCommands, LoginCommandSection.Duplicate)
+              .Length == 0
+          && LoginCommandSequence.Select(structuredLoginCommands, LoginCommandSection.Leave)
+              .SequenceEqual(["exit"]),
+          "Structured login commands split fresh, enter, duplicate/monitor, and leave flows");
+    Check(LoginCommandSequence.Validate(structuredLoginCommands).Count == 0,
+          "A complete structured bastion login workflow validates");
+    Check(LoginCommandSequence.Validate("#enter\n5").Count > 0
+          && !LoginCommandSequence.HasStructuredReuseWorkflow("#enter\n5"),
+          "Partial bastion sections are never eligible for automatic pooling");
+    Check(LoginCommandSequence.TryGetKey(" #KEY Enter ") == "Enter"
+          && LoginKeySequence.TryParse("Enter", out var loginEnter, out _)
+          && loginEnter == "\r",
+          "#key Enter sends one raw carriage return without command text");
+    var pooledRouteA = new Connection
+    {
+        Host = "GATE.EXAMPLE.COM.",
+        Port = 22,
+        Username = "user",
+        LoginCommands = "#input\n#enter\n3\n#duplicate\n#leave\nexit",
+    };
+    var pooledRouteB = new Connection
+    {
+        Host = "gate.example.com",
+        Port = 22,
+        Username = "user",
+        LoginCommands = "#input\n#enter\n8\n#duplicate\n#leave\nexit",
+    };
+    var pooledOtherUser = new Connection
+    {
+        Host = "gate.example.com",
+        Port = 22,
+        Username = "other-user",
+    };
+    Check(BastionSessionPool.PoolKeyForDebug(pooledRouteA)
+              == BastionSessionPool.PoolKeyForDebug(pooledRouteB)
+          && BastionSessionPool.PoolKeyForDebug(pooledRouteA)
+              != BastionSessionPool.PoolKeyForDebug(pooledOtherUser),
+          "Bastion pooling groups targets automatically by normalized endpoint and credential identity");
 
     // --- Bastion menu selection by name ---
     const string assetMenu = """

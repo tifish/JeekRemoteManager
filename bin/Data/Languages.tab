@@ -52,7 +52,24 @@ TerminalType	Terminal type	终端类型
 PrivateKey	Private key	私钥
 PrivateKeyWatermark	optional path to key file	可选，私钥文件路径
 LoginCommands	Login commands	登录后执行
-LoginCommandsWatermark	one command per line; #input waits for manual input; #select <name> picks the matching menu entry by name, #pagekey <key> (e.g. Ctrl-F) pages a long menu while searching; in a duplicated session, #duplicate skips all preceding lines	每行一条命令；#input 等待手工输入；#select 名称 按名字选择菜单项，#pagekey 按键（如 Ctrl-F）用于翻页查找；复制会话遇到 #duplicate 时会跳过其前面的所有指令
+LoginCommandsWatermark	one command per line; use ? for directives, sections, keys, and bastion reuse examples	每行一条命令；点击 ? 查看分段、按键和堡垒机会话复用示例
+LoginCommandsPreviewNone	none	无
+LoginCommandsPreviewFresh	Fresh connection: {0}	首次连接：{0}
+LoginCommandsPreviewDuplicate	Duplicate / monitor: {0}	复制会话 / 监控：{0}
+LoginCommandsPreviewEnter	Enter from another target: {0}	从其他目标进入：{0}
+LoginCommandsPreviewLeave	Leave for another target: {0}	切换到其他目标前退出：{0}
+LoginCommandsHelpTitle	Login command guide	登录命令指南
+LoginCommandsHelpIntro	Commands run after remote output becomes quiet. Structured sections let JeekRemoteManager reuse one authenticated bastion transport without guessing what menu numbers mean.	每条命令都会等待远端输出稳定后再执行。使用明确分段后，JeekRemoteManager 可以复用已完成二次验证的堡垒机连接，而无需猜测菜单数字的含义。
+LoginCommandsHelpOrdinary	Send this text followed by Enter.	发送这段文字，然后按回车。
+LoginCommandsHelpInput	Pause until you type an answer and press Enter, for example a two-factor code.	暂停并等待你手工输入，例如二次验证码。
+LoginCommandsHelpEnter	Start commands that enter this connection's target from the bastion menu. Fresh connections execute this section too.	开始“从堡垒机菜单进入当前目标”的命令；首次连接也会执行这一段。
+LoginCommandsHelpDuplicate	Start commands for a new channel already on this same target. The monitor uses this section too.	开始“新 channel 已停留在同一目标”时执行的命令；监控面板也使用这一段。
+LoginCommandsHelpLeave	Start commands that return a reused channel from this target to the bastion menu.	开始“从当前目标退出并返回堡垒机菜单”的命令。
+LoginCommandsHelpSelect	Select the numbered menu entry whose displayed name or IP matches.	按菜单中显示的名称或 IP 匹配并选择对应编号。
+LoginCommandsHelpPageKey	Set the paging key used by following #select commands, for example Ctrl-F.	为后续 #select 设置翻页按键，例如 Ctrl-F。
+LoginCommandsHelpKey	Press one key immediately; supports Enter, Tab, Esc, arrows, PageDown, Ctrl-F, and more.	立即按一个按键；支持 Enter、Tab、Esc、方向键、PageDown、Ctrl-F 等。
+LoginCommandsHelpExampleTitle	Numeric-menu example	数字菜单示例
+LoginCommandsHelpExampleDescription	Fresh: wait for 2FA, then type 5 and one blank Enter. Duplicate/monitor: no extra commands. Cross-target reuse: run the old target's #leave section, then this target's #enter section.	首次连接：等待二次验证，然后输入 5，再单独按一次回车。复制会话或监控：不执行额外命令。跨目标复用：先执行旧目标的 #leave 段，再执行新目标的 #enter 段。
 AutoOpenPanels	Open after login	登录后自动开启
 Browse	Browse…	浏览…
 WslOptions	WSL options	WSL 选项

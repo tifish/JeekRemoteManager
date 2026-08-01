@@ -78,6 +78,41 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     [ObservableProperty]
     private string _loginCommands = "";
 
+    /// <summary>Live section preview shown below the SSH login-command editor.</summary>
+    public string LoginCommandsFlowPreview
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(LoginCommands))
+                return "";
+
+            static string Show(string[] lines, string none) =>
+                lines.Length == 0 ? none : string.Join("  →  ", lines);
+
+            var none = L("LoginCommandsPreviewNone");
+            return string.Join(
+                System.Environment.NewLine,
+                L(
+                    "LoginCommandsPreviewFresh",
+                    Show(LoginCommandSequence.Select(LoginCommands, LoginCommandSection.Fresh), none)),
+                L(
+                    "LoginCommandsPreviewDuplicate",
+                    Show(LoginCommandSequence.Select(LoginCommands, LoginCommandSection.Duplicate), none)),
+                L(
+                    "LoginCommandsPreviewEnter",
+                    Show(LoginCommandSequence.Select(LoginCommands, LoginCommandSection.Enter), none)),
+                L(
+                    "LoginCommandsPreviewLeave",
+                    Show(LoginCommandSequence.Select(LoginCommands, LoginCommandSection.Leave), none)));
+        }
+    }
+
+    public string LoginCommandsValidationMessage =>
+        string.Join(System.Environment.NewLine, LoginCommandSequence.Validate(LoginCommands));
+
+    public bool HasLoginCommandsValidationMessage =>
+        LoginCommandsValidationMessage.Length > 0;
+
     [ObservableProperty]
     private bool _autoOpenMonitorPanel;
 
@@ -251,6 +286,13 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     partial void OnPrivateKeyPassphraseChanged(string value)
     {
         _passphraseEdited = true;
+    }
+
+    partial void OnLoginCommandsChanged(string value)
+    {
+        OnPropertyChanged(nameof(LoginCommandsFlowPreview));
+        OnPropertyChanged(nameof(LoginCommandsValidationMessage));
+        OnPropertyChanged(nameof(HasLoginCommandsValidationMessage));
     }
 
     /// <summary>Writes the edited values back into the given connection.</summary>

@@ -44,6 +44,7 @@ public partial class MainWindow : Window
     private bool _isTreeDragging;
     private TreeNodeViewModel? _treeDropTarget;
     private AgentCliPanelViewModel? _globalAgentViewModel;
+    private readonly BastionSessionPool _bastionSessionPool = new();
 
     // Set when a plain press lands on a node that is part of the current
     // multi-selection: the press is swallowed to keep the selection intact for
@@ -151,6 +152,7 @@ public partial class MainWindow : Window
         Closing += (_, _) =>
         {
             FlushCurrentSettingsState();
+            _bastionSessionPool.Dispose();
             if (_globalAgentViewModel is not null)
                 _ = _globalAgentViewModel.DisposeAsync();
         };
@@ -165,6 +167,11 @@ public partial class MainWindow : Window
         .OfType<MenuItem>()
         .Select(item => item.Header?.ToString() ?? string.Empty)
         .ToArray() ?? [];
+
+    /// <summary>Authenticated bastion-pool state exposed for Debug MCP verification.</summary>
+    public string BastionSessionPoolSnapshot => _bastionSessionPool.Snapshot;
+
+    public int BastionSessionPoolCount => _bastionSessionPool.SessionCount;
 
     /// <summary>Rendered terminal panel toolbar order exposed for Debug MCP verification.</summary>
     public IReadOnlyList<string> TerminalPanelToolbarOrder =>
@@ -795,7 +802,9 @@ public partial class MainWindow : Window
                 && PathEquals(s.View.SourcePath!, sourcePath!)) is { View: { } source })
         {
             // Piggyback on the authenticated transport, like the tab's own Duplicate command.
-            var shared = source.ShareClientForDuplicate();
+            var shared = LoginCommandSequence.HasStructuredReuseWorkflow(connection.LoginCommands)
+                ? null
+                : source.ShareClientForDuplicate();
             (view, _) = CreateTerminalTab(connection, sourcePath, activate);
             view.Start(connection, sourcePath, shared, isDuplicatedSession: true);
         }
@@ -884,7 +893,11 @@ public partial class MainWindow : Window
     {
         var sessionNumber = NextTerminalSessionNumber(connection, sourcePath);
         var adjacentTitles = FindAdjacentConnectionTitles(sourcePath);
-        var view = new TerminalView { SessionNumber = sessionNumber };
+        var view = new TerminalView
+        {
+            SessionNumber = sessionNumber,
+            BastionSessionPool = _bastionSessionPool,
+        };
         view.PanelStateChanged += (_, _) => UpdateTerminalPanelToggleStates();
         var tab = new TabItem
         {
@@ -923,7 +936,9 @@ public partial class MainWindow : Window
         if (sourceTab.Content is not TerminalView source || source.Connection is not { } connection)
             return;
 
-        var shared = source.ShareClientForDuplicate();
+        var shared = LoginCommandSequence.HasStructuredReuseWorkflow(connection.LoginCommands)
+            ? null
+            : source.ShareClientForDuplicate();
         var (view, _) = CreateTerminalTab(connection, source.SourcePath);
         view.Start(connection, source.SourcePath, shared, isDuplicatedSession: true);
     }
@@ -2825,6 +2840,108 @@ public partial class MainWindow : Window
 
         dialog.ShowDialog(this);
         return tcs.Task;
+    }
+
+    private async void OnLoginCommandsHelpClick(object? sender, RoutedEventArgs e) =>
+        await ShowLoginCommandsHelpAsync();
+
+    /// <summary>Shows the localized login-command guide used by the SSH editor.</summary>
+    public async Task ShowLoginCommandsHelpAsync()
+    {
+        var close = new Button
+        {
+            Content = Localizer.Get("Close"),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            MinWidth = 88,
+        };
+        var rows = new StackPanel { Spacing = 7 };
+
+        void AddDirective(string directive, string localizationKey)
+        {
+            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("120,*"), ColumnSpacing = 12 };
+            row.Children.Add(new SelectableTextBlock
+            {
+                Text = directive,
+                FontFamily = new FontFamily("Consolas"),
+                FontWeight = FontWeight.SemiBold,
+            });
+            var description = new TextBlock
+            {
+                Text = Localizer.Get(localizationKey),
+                TextWrapping = TextWrapping.Wrap,
+            };
+            Grid.SetColumn(description, 1);
+            row.Children.Add(description);
+            rows.Children.Add(row);
+        }
+
+        AddDirective("command", "LoginCommandsHelpOrdinary");
+        AddDirective("#input", "LoginCommandsHelpInput");
+        AddDirective("#enter", "LoginCommandsHelpEnter");
+        AddDirective("#duplicate", "LoginCommandsHelpDuplicate");
+        AddDirective("#leave", "LoginCommandsHelpLeave");
+        AddDirective("#select <name>", "LoginCommandsHelpSelect");
+        AddDirective("#pagekey <key>", "LoginCommandsHelpPageKey");
+        AddDirective("#key <key>", "LoginCommandsHelpKey");
+
+        var example = new TextBox
+        {
+            Text = "#input\r\n#enter\r\n5\r\n#key Enter\r\n#duplicate\r\n#leave\r\nexit",
+            IsReadOnly = true,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.NoWrap,
+            FontFamily = new FontFamily("Consolas"),
+            MinHeight = 150,
+        };
+
+        var content = new Grid
+        {
+            RowDefinitions = new RowDefinitions("*,Auto"),
+            Margin = new Thickness(22),
+            RowSpacing = 14,
+        };
+        content.Children.Add(new ScrollViewer
+        {
+            Content = new StackPanel
+            {
+                Spacing = 14,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = Localizer.Get("LoginCommandsHelpIntro"),
+                        TextWrapping = TextWrapping.Wrap,
+                    },
+                    rows,
+                    new TextBlock
+                    {
+                        Text = Localizer.Get("LoginCommandsHelpExampleTitle"),
+                        FontWeight = FontWeight.SemiBold,
+                    },
+                    example,
+                    new TextBlock
+                    {
+                        Text = Localizer.Get("LoginCommandsHelpExampleDescription"),
+                        TextWrapping = TextWrapping.Wrap,
+                    },
+                },
+            },
+        });
+        Grid.SetRow(close, 1);
+        content.Children.Add(close);
+
+        var dialog = new Window
+        {
+            Title = Localizer.Get("LoginCommandsHelpTitle"),
+            Width = 720,
+            Height = 650,
+            MinWidth = 560,
+            MinHeight = 480,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = content,
+        };
+        close.Click += (_, _) => dialog.Close();
+        await dialog.ShowDialog(this);
     }
 
     private Task<string?> PromptAsync(string title, string message, string initial)

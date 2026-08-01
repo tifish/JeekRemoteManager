@@ -46,7 +46,9 @@ public partial class TerminalView : UserControl
     });
 
     private Connection? _connection;
+    private readonly object _clientReferenceGate = new();
     private SharedSshClient? _client;
+    private bool _ownsClientReference;
     private SharedSshClient? _pendingSharedClient;
     private ITerminalChannel? _channel;
     private string? _sourcePath;
@@ -84,6 +86,8 @@ public partial class TerminalView : UserControl
     private readonly LoginMenuOutputCapture _loginOutputCapture = new();
     private volatile bool _loginCaptureActive;
     private bool _isDuplicatedSession;
+    private string _loginSequenceState = "idle";
+    private string _bastionSessionState = "none";
     private bool _connectInProgress;
     private bool _shellClosed;
     private bool _suppressUserInput;
@@ -343,7 +347,10 @@ public partial class TerminalView : UserControl
     public SharedSshClient? ShareClientForDuplicate()
     {
         var client = _client;
-        if (_disposed || client is null || !client.IsConnected)
+        if (_disposed
+            || client is null
+            || !client.IsConnected
+            || !string.Equals(LoginSequenceState, "ready", StringComparison.Ordinal))
             return null;
         return client.TryAddRef() ? client : null;
     }
@@ -548,6 +555,9 @@ public partial class TerminalView : UserControl
     /// shown or hidden, so the main window can refresh its toggle-button states.</summary>
     public event EventHandler? PanelStateChanged;
 
+    /// <summary>Application-owned authenticated bastion transport pool.</summary>
+    public BastionSessionPool? BastionSessionPool { get; set; }
+
     public bool IsMonitorPanelOpen => MonitorPanelHost.IsVisible;
 
     public bool IsAiPanelOpen => AiPanelHost.IsVisible;
@@ -577,6 +587,12 @@ public partial class TerminalView : UserControl
 
     /// <summary>True while a login-command <c>#input</c> directive is waiting for Enter.</summary>
     public bool IsLoginManualInputPending => Volatile.Read(ref _loginManualInputTcs) is not null;
+
+    /// <summary>Login-command lifecycle exposed for Debug MCP verification.</summary>
+    public string LoginSequenceState => Volatile.Read(ref _loginSequenceState);
+
+    /// <summary>Whether this terminal connected fresh or reused/switches a pooled bastion transport.</summary>
+    public string BastionSessionState => Volatile.Read(ref _bastionSessionState);
 
     /// <summary>Rendered terminal visibility exposed for Debug MCP verification.</summary>
     public bool IsTerminalAreaVisible => TerminalArea.IsVisible;
@@ -923,7 +939,9 @@ public partial class TerminalView : UserControl
             connection.TerminalType,
             connection.LoginCommands,
             label,
-            host);
+            host,
+            BastionSessionPool,
+            connection);
         MonitorPanel.DataContext = vm;
         return vm;
     }
@@ -1725,7 +1743,15 @@ public partial class TerminalView : UserControl
         // When only the shell channel died (e.g. the user typed `exit`) but the
         // transport is still up, reopen a channel on it instead of redialing;
         // ConnectAsync falls back to a fresh connection if that fails.
-        _pendingSharedClient = _client is { IsConnected: true } live && live.TryAddRef() ? live : null;
+        var useManagedPool = BastionSessionPool is not null
+                             && _connection is not null
+                             && LoginCommandSequence.HasStructuredReuseWorkflow(
+                                 _connection.LoginCommands);
+        _pendingSharedClient = !useManagedPool
+                               && _client is { IsConnected: true } live
+                               && live.TryAddRef()
+            ? live
+            : null;
         DisposeTransport();
 
         FeedLine("\r\n\u001b[36m[reconnect]\u001b[0m");
@@ -1788,6 +1814,8 @@ public partial class TerminalView : UserControl
             RefreshLoginManualInputLayout(generation);
         _connected = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         _shellClosed = false;
+        Volatile.Write(ref _loginSequenceState, "connecting");
+        Volatile.Write(ref _bastionSessionState, "none");
         _utf8Decoder.Reset();
         _ = ConnectAsync(generation);
     }
@@ -1817,15 +1845,19 @@ public partial class TerminalView : UserControl
         var port = connection.Port > 0 ? connection.Port : 22;
         _connectInProgress = true;
 
-        // A duplicated tab starts from the source tab's authenticated connection: SSH
-        // multiplexes independent session channels over one transport, so a new shell
-        // channel needs no TCP/auth round-trip. Falls back to a fresh connection when
-        // the shared transport is dead or refuses more channels (e.g. sshd MaxSessions).
+        // Legacy duplicated tabs can be handed a direct counted reference. Structured
+        // bastion workflows instead use the application pool below so the transport's
+        // current logical target can be switched safely before commands run.
         var shared = Interlocked.Exchange(ref _pendingSharedClient, null);
         if (shared is not null)
         {
             FeedLine($"Opening a new session on the existing connection to {host}:{port} ...");
-            if (await TryOpenShellAsync(shared, generation, reportFailure: false))
+            Volatile.Write(ref _bastionSessionState, "direct-duplicate");
+            if (await TryOpenShellAsync(
+                    shared,
+                    generation,
+                    reportFailure: false,
+                    [LoginCommandSequence.Select(connection.LoginCommands, LoginCommandSection.Duplicate)]))
                 return;
 
             shared.Release();
@@ -1833,7 +1865,58 @@ public partial class TerminalView : UserControl
                 return;
         }
 
+        BastionSessionPool.BastionSessionLease? pooledLease = null;
+        try
+        {
+            if (BastionSessionPool is not null)
+                pooledLease = await BastionSessionPool.TryAcquireAsync(connection);
+        }
+        catch (Exception ex)
+        {
+            FeedLine($"\u001b[33m[bastion pool unavailable] {ex.Message}\u001b[0m");
+        }
+
+        if (pooledLease is not null)
+        {
+            var phases = pooledLease.RequiresSwitch
+                ? new[]
+                {
+                    LoginCommandSequence.Select(
+                        pooledLease.SourceRoute.LoginCommands,
+                        LoginCommandSection.Leave),
+                    LoginCommandSequence.Select(connection.LoginCommands, LoginCommandSection.Enter),
+                }
+                : new[]
+                {
+                    LoginCommandSequence.Select(
+                        connection.LoginCommands,
+                        LoginCommandSection.Duplicate),
+                };
+            var action = pooledLease.RequiresSwitch
+                ? $"Switching the existing bastion session from {pooledLease.SourceRoute.Name} to {connection.Name}"
+                : $"Opening {connection.Name} on the existing bastion session";
+            FeedLine($"{action} ...");
+            Volatile.Write(
+                ref _bastionSessionState,
+                pooledLease.RequiresSwitch ? "pooled-switching" : "pooled-reused");
+            if (await TryOpenShellAsync(
+                    pooledLease.Client,
+                    generation,
+                    reportFailure: false,
+                    phases,
+                    pooledLease))
+            {
+                return;
+            }
+
+            pooledLease.Dispose();
+            if (_disposed || generation != _connectionGeneration)
+                return;
+            FeedLine("\u001b[33m[shared session limit reached; a fresh login is required]\u001b[0m");
+        }
+
         FeedLine($"Connecting to {host}:{port} ...");
+        Volatile.Write(ref _bastionSessionState, "fresh");
 
         SharedSshClient client;
         try
@@ -1847,6 +1930,7 @@ public partial class TerminalView : UserControl
                 SshHostKey.Attach(sshClient, host, port,
                 onUnknown: (keyType, fingerprint) => HostKeyDialog.PromptTrust(host, port, keyType, fingerprint),
                 onRejected: message => Dispatcher.UIThread.Post(() => FeedLine($"\r\n\u001b[31m[{message}]\u001b[0m\r\n")));
+                sshClient.KeepAliveInterval = TimeSpan.FromSeconds(30);
                 sshClient.Connect();
                 return new SharedSshClient(sshClient);
             });
@@ -1868,7 +1952,12 @@ public partial class TerminalView : UserControl
             return;
         }
 
-        if (!await TryOpenShellAsync(client, generation, reportFailure: true))
+        if (!await TryOpenShellAsync(
+                client,
+                generation,
+                reportFailure: true,
+                [LoginCommandSequence.Select(connection.LoginCommands, LoginCommandSection.Fresh)],
+                registerFreshInPool: true))
             client.Release();
     }
 
@@ -1924,7 +2013,8 @@ public partial class TerminalView : UserControl
     public async Task DebugStartLocalShellAsync(
         Connection connection,
         string exePath,
-        IReadOnlyList<string> arguments)
+        IReadOnlyList<string> arguments,
+        IReadOnlyList<string[]>? loginPhases = null)
     {
         _connection = connection;
         _isDuplicatedSession = false;
@@ -1945,7 +2035,11 @@ public partial class TerminalView : UserControl
             return;
         }
 
-        AttachChannel(new LocalConPtyTerminalChannel(session), generation, (cols, rows));
+        AttachChannel(
+            new LocalConPtyTerminalChannel(session),
+            generation,
+            (cols, rows),
+            loginPhases);
     }
 
     /// <summary>
@@ -1956,7 +2050,13 @@ public partial class TerminalView : UserControl
     /// a failure is only noted in the terminal so the caller can fall back to a
     /// fresh connection.
     /// </summary>
-    private async Task<bool> TryOpenShellAsync(SharedSshClient client, int generation, bool reportFailure)
+    private async Task<bool> TryOpenShellAsync(
+        SharedSshClient client,
+        int generation,
+        bool reportFailure,
+        IReadOnlyList<string[]> loginPhases,
+        BastionSessionPool.BastionSessionLease? pooledLease = null,
+        bool registerFreshInPool = false)
     {
         var connection = _connection!;
         var cols = (uint)Math.Max(20, _model.Terminal.Cols);
@@ -2002,8 +2102,18 @@ public partial class TerminalView : UserControl
             return false;
         }
 
-        _client = client;
-        AttachChannel(new SshTerminalChannel(shell), generation, (cols, rows));
+        lock (_clientReferenceGate)
+        {
+            _client = client;
+            _ownsClientReference = pooledLease is null;
+        }
+        AttachChannel(
+            new SshTerminalChannel(shell),
+            generation,
+            (cols, rows),
+            loginPhases,
+            pooledLease,
+            registerFreshInPool);
         return true;
     }
 
@@ -2012,7 +2122,13 @@ public partial class TerminalView : UserControl
     /// data/error/close events, connection completion, window-size sync, and the
     /// connection's login commands.
     /// </summary>
-    private void AttachChannel(ITerminalChannel channel, int generation, (uint Cols, uint Rows) initialSize)
+    private void AttachChannel(
+        ITerminalChannel channel,
+        int generation,
+        (uint Cols, uint Rows) initialSize,
+        IReadOnlyList<string[]>? loginPhases = null,
+        BastionSessionPool.BastionSessionLease? pooledLease = null,
+        bool registerFreshInPool = false)
     {
         _channel = channel;
         _lastSentWindowSize = initialSize;
@@ -2063,8 +2179,13 @@ public partial class TerminalView : UserControl
 
         // Push the current (laid-out) size in case SizeChanged fired before connect.
         SyncWindowSize();
-        StartLoginCommands(_connection!, generation);
-        Dispatcher.UIThread.Post(OpenConfiguredPanelsAfterLogin, DispatcherPriority.Background);
+        StartLoginCommands(
+            _connection!,
+            generation,
+            loginPhases
+            ?? [LoginCommandSequence.Select(_connection!.LoginCommands, _isDuplicatedSession)],
+            pooledLease,
+            registerFreshInPool);
     }
 
     private async Task CompleteAiAutoReconnectAsync(TaskCompletionSource<bool> completion)
@@ -2177,31 +2298,117 @@ public partial class TerminalView : UserControl
     /// In a duplicated tab, a "#duplicate" line skips all commands before it.
     /// Runs on every shell open, including reconnects.
     /// </summary>
-    private void StartLoginCommands(Connection connection, int generation)
+    private void StartLoginCommands(
+        Connection connection,
+        int generation,
+        IReadOnlyList<string[]> phases,
+        BastionSessionPool.BastionSessionLease? pooledLease,
+        bool registerFreshInPool)
     {
-        var lines = LoginCommandSequence.Select(connection.LoginCommands, _isDuplicatedSession);
-        if (lines.Length == 0)
-            return;
-
         _loginOutputCapture.Reset();
         _loginCaptureActive = true;
+        Volatile.Write(ref _loginSequenceState, "running");
+        var clientAtStart = _client;
 
         _ = Task.Run(async () =>
         {
+            var succeeded = true;
             try
             {
-                await RunLoginCommandsAsync(lines, generation);
+                for (var phaseIndex = 0; phaseIndex < phases.Count; phaseIndex++)
+                {
+                    if (!await RunLoginCommandsAsync(
+                            phases[phaseIndex],
+                            generation,
+                            waitForTrailingOutput: phaseIndex < phases.Count - 1))
+                    {
+                        succeeded = false;
+                        break;
+                    }
+                }
+
+                succeeded = succeeded
+                            && !_disposed
+                            && generation == _connectionGeneration
+                            && !_shellClosed;
+                if (succeeded)
+                {
+                    if (pooledLease is not null)
+                    {
+                        succeeded = TryTakePooledClientReference(
+                            pooledLease,
+                            generation,
+                            completeRoute: true);
+                        if (succeeded)
+                            Volatile.Write(ref _bastionSessionState, "pooled-ready");
+                    }
+                    else if (registerFreshInPool && clientAtStart is not null)
+                    {
+                        BastionSessionPool?.Register(clientAtStart, connection);
+                    }
+
+                    if (succeeded)
+                    {
+                        Volatile.Write(ref _loginSequenceState, "ready");
+                        Dispatcher.UIThread.Post(
+                            OpenConfiguredPanelsAfterLogin,
+                            DispatcherPriority.Background);
+                    }
+                }
+                if (!succeeded)
+                {
+                    if (pooledLease is not null
+                        && !_disposed
+                        && generation == _connectionGeneration)
+                    {
+                        if (TryTakePooledClientReference(
+                                pooledLease,
+                                generation,
+                                completeRoute: false))
+                        {
+                            Volatile.Write(ref _bastionSessionState, "pooled-route-unknown");
+                        }
+                    }
+                    Volatile.Write(ref _loginSequenceState, "failed");
+                }
+            }
+            catch (Exception ex)
+            {
+                if (pooledLease is not null
+                    && !pooledLease.Completed
+                    && !_disposed
+                    && generation == _connectionGeneration)
+                {
+                    if (TryTakePooledClientReference(
+                            pooledLease,
+                            generation,
+                            completeRoute: false))
+                    {
+                        Volatile.Write(ref _bastionSessionState, "pooled-route-unknown");
+                    }
+                }
+                Volatile.Write(ref _loginSequenceState, "failed");
+                Dispatcher.UIThread.Post(
+                    () => ReportLoginMenuFailure($"login sequence failed: {ex.Message}"),
+                    DispatcherPriority.Background);
             }
             finally
             {
                 _loginCaptureActive = false;
                 _loginOutputCapture.Reset();
+                pooledLease?.Dispose();
             }
         });
     }
 
-    private async Task RunLoginCommandsAsync(string[] lines, int generation)
+    private async Task<bool> RunLoginCommandsAsync(
+        string[] lines,
+        int generation,
+        bool waitForTrailingOutput = false)
     {
+        if (lines.Length == 0)
+            return true;
+
         // Output older than this tick doesn't count as the response to the
         // previous command; the PTY echoes every typed line, so waiting for
         // newer data never stalls on a command with no output of its own.
@@ -2234,12 +2441,31 @@ public partial class TerminalView : UserControl
             }
         }
 
+        // A key press can echo an empty line before the bastion has finished returning
+        // to its menu. Do not let that echo satisfy a following #select: wait until at
+        // least one real numbered entry is present, then let the full menu go quiet.
+        async Task<bool> WaitForNumberedMenuAsync()
+        {
+            var startedAt = Environment.TickCount64;
+            while (LoginMenuSelection.ParseEntries(_loginOutputCapture.Snapshot()).Count == 0)
+            {
+                if (_disposed || _shellClosed || generation != _connectionGeneration)
+                    return false;
+                if (Environment.TickCount64 - startedAt >= timeoutMs)
+                    return true; // Let the resolver produce the normal detailed failure.
+                await Task.Delay(50);
+            }
+
+            return await WaitForOutputQuietAsync();
+        }
+
         foreach (var line in lines)
         {
             if (LoginCommandSequence.IsManualInputDirective(line))
             {
                 var manualInput = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 Interlocked.Exchange(ref _loginManualInputTcs, manualInput)?.TrySetCanceled();
+                Volatile.Write(ref _loginSequenceState, "waiting-input");
                 RefreshLoginManualInputLayout(generation);
                 try
                 {
@@ -2247,13 +2473,15 @@ public partial class TerminalView : UserControl
                     while (!manualInput.Task.IsCompleted)
                     {
                         if (_disposed || _shellClosed || generation != _connectionGeneration)
-                            return;
+                            return false;
                         await Task.Delay(50);
                     }
                 }
                 finally
                 {
                     Interlocked.CompareExchange(ref _loginManualInputTcs, null, manualInput);
+                    if (!_disposed && generation == _connectionGeneration)
+                        Volatile.Write(ref _loginSequenceState, "running");
                     RefreshLoginManualInputLayout(generation);
                 }
 
@@ -2269,19 +2497,49 @@ public partial class TerminalView : UserControl
                 if (!LoginKeySequence.TryParse(keySpec, out var parsedKey, out var keyError))
                 {
                     ReportLoginMenuFailure($"{LoginCommandSequence.MenuPageKeyDirective} {keySpec}: {keyError}");
-                    return;
+                    return false;
                 }
 
                 pageKey = parsedKey;
                 continue;
             }
 
+            if (LoginCommandSequence.TryGetKey(line) is { } immediateKeySpec)
+            {
+                if (!LoginKeySequence.TryParse(
+                        immediateKeySpec,
+                        out var immediateKey,
+                        out var immediateKeyError))
+                {
+                    ReportLoginMenuFailure(
+                        $"{LoginCommandSequence.KeyDirective} {immediateKeySpec}: {immediateKeyError}");
+                    return false;
+                }
+                if (!await WaitForOutputQuietAsync())
+                    return false;
+
+                mustBeAfterTicks = Environment.TickCount64;
+                _loginOutputCapture.Reset();
+                try
+                {
+                    WriteToShell(immediateKey);
+                }
+                catch
+                {
+                    return false;
+                }
+                continue;
+            }
+
             if (!await WaitForOutputQuietAsync())
-                return;
+                return false;
 
             var text = line;
             if (LoginCommandSequence.TryGetMenuSelectKeyword(line) is { } keyword)
             {
+                if (!await WaitForNumberedMenuAsync())
+                    return false;
+
                 // The menu is on screen now that output went quiet; match it by name,
                 // pressing the paging key for as long as new entries keep arriving.
                 var selection = await LoginMenuPager.SelectAsync(
@@ -2308,7 +2566,7 @@ public partial class TerminalView : UserControl
                     // Stop rather than type a number that could reach the wrong machine;
                     // the user takes over at the menu that is already on screen.
                     ReportLoginMenuFailure(selection.Failure ?? "menu selection failed");
-                    return;
+                    return false;
                 }
 
                 text = selection.Choice!;
@@ -2324,14 +2582,45 @@ public partial class TerminalView : UserControl
             catch
             {
                 // A closed/broken stream is reported via Closed/ErrorOccurred.
-                return;
+                return false;
             }
         }
+
+        // A cross-target switch runs #leave and #enter as separate phases. The last
+        // #leave action can return before the bastion has rendered its main menu
+        // (notably "exit" followed by "#key Enter"). Preserve its write timestamp
+        // and wait for newer output here, so the next phase cannot mistake old,
+        // already-quiet target output for the menu it is about to search.
+        return !waitForTrailingOutput
+               || mustBeAfterTicks == 0
+               || await WaitForOutputQuietAsync();
     }
 
     /// <summary>Writes a local notice into the terminal view; nothing is sent to the remote.</summary>
     private void ReportLoginMenuFailure(string message) =>
         FeedBytesDirect(Encoding.UTF8.GetBytes($"\r\n[JeekRemoteManager] {message}\r\n"));
+
+    private bool TryTakePooledClientReference(
+        BastionSessionPool.BastionSessionLease lease,
+        int generation,
+        bool completeRoute)
+    {
+        lock (_clientReferenceGate)
+        {
+            if (_disposed
+                || generation != _connectionGeneration
+                || !ReferenceEquals(_client, lease.Client))
+            {
+                return false;
+            }
+
+            _ = completeRoute
+                ? lease.CompleteAndTakeClient()
+                : lease.AbandonAndTakeClient();
+            _ownsClientReference = true;
+            return true;
+        }
+    }
 
     private void RefreshLoginManualInputLayout(int generation) =>
         Dispatcher.UIThread.Post(() =>
@@ -3150,9 +3439,18 @@ public partial class TerminalView : UserControl
         try { _channel?.Dispose(); } catch { /* ignore */ }
         // Drop our reference only: another tab duplicated from this one may still
         // be using the connection; the last holder tears it down.
-        _client?.Release();
+        SharedSshClient? client;
+        bool ownsClientReference;
+        lock (_clientReferenceGate)
+        {
+            client = _client;
+            ownsClientReference = _ownsClientReference;
+            _client = null;
+            _ownsClientReference = false;
+        }
+        if (ownsClientReference)
+            client?.Release();
         _channel = null;
-        _client = null;
     }
 
     /// <summary>Tears down the SSH session. Safe to call multiple times.</summary>

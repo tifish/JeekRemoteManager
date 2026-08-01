@@ -59,9 +59,9 @@ public class Connection
     /// Each line is sent only after the remote output has gone quiet, so bastion
     /// menus, sudo prompts, etc. are on screen before their answer is typed.
     /// A "#select &lt;name&gt;" line picks the menu entry matching that name instead of a
-    /// fixed number, which shifts when assets are added to a bastion menu; a
-    /// "#pagekey &lt;key&gt;" line (e.g. "Ctrl-F") lets it page through a long menu.
-    /// The #duplicate directive marks where duplicated sessions should start.
+    /// fixed number, which shifts when assets are added to a bastion menu; "#key Enter"
+    /// sends one raw key, and "#pagekey &lt;key&gt;" configures long-menu paging.
+    /// Structured bastion reuse uses #enter, #duplicate, and #leave sections.
     /// </summary>
     public string LoginCommands { get; set; } = "";
 

@@ -321,7 +321,8 @@ public static class ProductMcpContract
         leading["private_key_path"] = Prop("string", "Private key file for SSH.");
         leading["terminal_type"] = Prop("string", "TERM sent on login; default xterm-256color.");
         leading["login_commands"] = Prop("string",
-            "Commands typed after login, one per line; supports #select / #pagekey / #duplicate.");
+            "Commands typed after login, one per line; supports #input, #select, #pagekey, #key, "
+            + "and structured bastion sections #enter / #duplicate / #leave.");
         leading["wsl_distro"] = Prop("string", "WSL distribution name; empty = default distribution.");
         leading["wsl_start_directory"] = Prop("string", "Start directory inside WSL; empty = home.");
         leading["notes"] = Prop("string", "Free-form note.");

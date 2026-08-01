@@ -1160,7 +1160,7 @@
                                             IsVisible="{Binding IsSsh}">
                                         <StackPanel Spacing="12">
                                             <TextBlock Classes="section-title" Text="{l:Localize SshOptions}" />
-                                            <Grid ColumnDefinitions="128,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                                            <Grid ColumnDefinitions="128,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                                                 <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="{l:Localize TerminalType}" />
                                                 <ComboBox Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2"
                                                           HorizontalAlignment="Stretch"
@@ -1180,17 +1180,39 @@
                                                          RevealPassword="{Binding #Root.((vm:MainWindowViewModel)DataContext).ShowPassword}"
                                                          PlaceholderText="{l:Localize PassphraseWatermark}" />
 
-                                                <TextBlock Grid.Row="3" Grid.Column="0" Classes="label" Text="{l:Localize LoginCommands}"
-                                                           VerticalAlignment="Top" Margin="0,7,0,0" />
+                                                <StackPanel Grid.Row="3" Grid.Column="0"
+                                                            Orientation="Horizontal" Spacing="6"
+                                                            VerticalAlignment="Top" Margin="0,3,0,0">
+                                                    <TextBlock Classes="label" Text="{l:Localize LoginCommands}"
+                                                               VerticalAlignment="Center" />
+                                                    <Button x:Name="LoginCommandsHelpButton"
+                                                            Content="?"
+                                                            Width="24" Height="24" Padding="0"
+                                                            Click="OnLoginCommandsHelpClick"
+                                                            ToolTip.Tip="{l:Localize LoginCommandsHelpTitle}" />
+                                                </StackPanel>
                                                 <TextBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2"
                                                          Text="{Binding LoginCommands, Mode=TwoWay}"
                                                          AcceptsReturn="True" TextWrapping="NoWrap" MinHeight="82"
                                                          PlaceholderText="{l:Localize LoginCommandsWatermark}" />
 
-                                                <TextBlock Grid.Row="4" Grid.Column="0" Classes="label"
+                                                <TextBlock x:Name="LoginCommandsFlowPreview"
+                                                           Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2"
+                                                           Text="{Binding LoginCommandsFlowPreview}"
+                                                           TextWrapping="Wrap" Opacity="0.72"
+                                                           FontFamily="Consolas" FontSize="11" />
+
+                                                <TextBlock x:Name="LoginCommandsValidationMessage"
+                                                           Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2"
+                                                           Text="{Binding LoginCommandsValidationMessage}"
+                                                           IsVisible="{Binding HasLoginCommandsValidationMessage}"
+                                                           TextWrapping="Wrap"
+                                                           Foreground="#D97706" FontSize="11" />
+
+                                                <TextBlock Grid.Row="6" Grid.Column="0" Classes="label"
                                                            Text="{l:Localize AutoOpenPanels}" VerticalAlignment="Top" Margin="0,4,0,0" />
-                                                <StackPanel Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2"
-                                                            Orientation="Horizontal" Spacing="18">
+                                                <StackPanel Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2"
+                                                             Orientation="Horizontal" Spacing="18">
                                                     <CheckBox Content="{l:Localize ServerMonitor}"
                                                               IsChecked="{Binding AutoOpenMonitorPanel, Mode=TwoWay}" />
                                                     <CheckBox Content="{l:Localize FileBrowser}"

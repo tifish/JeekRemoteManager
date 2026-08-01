@@ -73,12 +73,19 @@ public static class DebugMcpContract
                 ["menu"] = Prop("string", "Menu text as the remote printed it (ANSI sequences allowed)."),
                 ["name"] = Prop("string", "Machine name or IP to match, as written after #select."),
             }, ["menu", "name"]),
+        Tool("login_command_flow_check",
+            "Parse a structured bastion login workflow and report exactly what fresh, duplicate/monitor, cross-target enter, and leave flows execute, plus validation and #key encoding.",
+            new()
+            {
+                ["login_commands"] = Prop("string", "Login-command text; defaults to a numeric-menu bastion example."),
+                ["key"] = Prop("string", "Optional key name to encode through the same #key parser (default Enter)."),
+            }),
         Tool("login_menu_select_probe",
             "End-to-end check of the \"#select <name>\" login directive: 'open' adds a terminal tab on a local cmd.exe shell that prints a numbered menu and selects an entry by name, 'status' returns the scrollback, 'close' removes the tab.",
             new()
             {
                 ["action"] = Prop("string", "open | status | close (default status)."),
-                ["scenario"] = Prop("string", "single (one-screen menu, default) | paged (menu that needs Ctrl-F to reach the wanted entry)."),
+                ["scenario"] = Prop("string", "single (one-screen menu, default) | paged (menu that needs Ctrl-F) | switch (delayed menu after #leave and #key Enter)."),
                 ["login_commands"] = Prop("string", "Optional login-command text overriding the scenario's script."),
             }),
         Tool("ai_render_probe",
