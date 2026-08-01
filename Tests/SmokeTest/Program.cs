@@ -40,6 +40,24 @@ try
 {
     Check(Directory.Exists(root), "Store creates its root folder");
 
+    var metadataFirst = Path.Combine(root, "mcp-metadata-first.exe");
+    var metadataSecond = Path.Combine(root, "mcp-metadata-second.exe");
+    var metadataShort = Path.Combine(root, "mcp-metadata-short.exe");
+    File.WriteAllText(metadataFirst, "AAAA");
+    File.WriteAllText(metadataSecond, "BBBB");
+    File.WriteAllText(metadataShort, "CCC");
+    var metadataTime = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+    File.SetLastWriteTimeUtc(metadataFirst, metadataTime);
+    File.SetLastWriteTimeUtc(metadataSecond, metadataTime);
+    File.SetLastWriteTimeUtc(metadataShort, metadataTime);
+    Check(McpAdapterRegistry.HaveSameFileMetadata(metadataFirst, metadataSecond),
+          "MCP adapter comparison uses matching size and modification time without reading content");
+    Check(!McpAdapterRegistry.HaveSameFileMetadata(metadataFirst, metadataShort),
+          "MCP adapter comparison rejects a different file size");
+    File.SetLastWriteTimeUtc(metadataSecond, metadataTime.AddSeconds(1));
+    Check(!McpAdapterRegistry.HaveSameFileMetadata(metadataFirst, metadataSecond),
+          "MCP adapter comparison rejects a different modification time");
+
     Check(ApplicationMenuDefinition.CommonItems.Select(item => item.Action).SequenceEqual(
           [
               ApplicationMenuAction.Settings,

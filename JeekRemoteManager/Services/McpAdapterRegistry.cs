@@ -64,7 +64,7 @@ public static class McpAdapterRegistry
                 return File.Exists(AdapterPath);
 
             if (File.Exists(AdapterPath)
-                && (!allowUpdate || FilesEqual(sourcePath, AdapterPath)))
+                && (!allowUpdate || HaveSameFileMetadata(sourcePath, AdapterPath)))
             {
                 return true;
             }
@@ -175,28 +175,16 @@ public static class McpAdapterRegistry
         }
     }
 
-    private static bool FilesEqual(string first, string second)
+    /// <summary>
+    /// Determines whether an installed adapter is current using only file size and UTC
+    /// modification time. File contents are deliberately not read.
+    /// </summary>
+    public static bool HaveSameFileMetadata(string first, string second)
     {
         var a = new FileInfo(first);
         var b = new FileInfo(second);
-        if (a.Length != b.Length)
-            return false;
-
-        using var left = File.OpenRead(first);
-        using var right = File.OpenRead(second);
-        var leftBuffer = new byte[64 * 1024];
-        var rightBuffer = new byte[leftBuffer.Length];
-        while (true)
-        {
-            var leftRead = left.Read(leftBuffer);
-            var rightRead = right.Read(rightBuffer);
-            if (leftRead != rightRead)
-                return false;
-            if (leftRead == 0)
-                return true;
-            if (!leftBuffer.AsSpan(0, leftRead).SequenceEqual(rightBuffer.AsSpan(0, rightRead)))
-                return false;
-        }
+        return a.Length == b.Length
+               && a.LastWriteTimeUtc == b.LastWriteTimeUtc;
     }
 
     private static void ValidateInstanceId(string instanceId)
