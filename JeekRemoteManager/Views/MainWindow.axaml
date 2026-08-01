@@ -5,6 +5,7 @@
         xmlns:vm="using:JeekRemoteManager.ViewModels"
         xmlns:models="using:JeekRemoteManager.Models"
         xmlns:views="using:JeekRemoteManager.Views"
+        xmlns:controls="using:JeekRemoteManager.Controls"
         xmlns:l="using:Jeek.Avalonia.Localization"
         mc:Ignorable="d" d:DesignWidth="1040" d:DesignHeight="680"
         x:Class="JeekRemoteManager.Views.MainWindow"
@@ -1220,7 +1221,8 @@
                                                         </Grid>
                                                     </Border>
 
-                                                    <TextBox Text="{Binding LoginCommands, Mode=TwoWay}"
+                                                    <controls:LoginCommandsTextBox x:Name="LoginCommandsEditor"
+                                                             Text="{Binding LoginCommands, Mode=TwoWay}"
                                                              AcceptsReturn="True" TextWrapping="NoWrap" MinHeight="82"
                                                              LostFocus="OnLoginCommandsLostFocus"
                                                              PlaceholderText="{l:Localize LoginCommandsWatermark}" />
@@ -1260,7 +1262,8 @@
 
                                                 <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="{l:Localize LoginCommands}"
                                                            VerticalAlignment="Top" Margin="0,7,0,0" />
-                                                <TextBox Grid.Row="1" Grid.Column="1"
+                                                <controls:LoginCommandsTextBox x:Name="WslLoginCommandsEditor"
+                                                         Grid.Row="1" Grid.Column="1"
                                                          Text="{Binding LoginCommands, Mode=TwoWay}"
                                                          AcceptsReturn="True" TextWrapping="NoWrap" MinHeight="82"
                                                          PlaceholderText="{l:Localize LoginCommandsWatermark}" />

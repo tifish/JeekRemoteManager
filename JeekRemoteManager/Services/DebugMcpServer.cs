@@ -16,6 +16,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Jeek.Avalonia.Localization;
+using JeekRemoteManager.Controls;
 using JeekRemoteManager.Models;
 using JeekRemoteManager.ViewModels;
 using JeekTools;
@@ -111,6 +112,7 @@ internal static class DebugMcpServer
         host.AddTool("agent_cli_mcp_config_check", AgentCliMcpConfigCheckAsync);
         host.AddTool("login_menu_select_check", LoginMenuSelectCheckAsync);
         host.AddTool("login_command_flow_check", LoginCommandFlowCheckAsync);
+        host.AddTool("login_command_completion_check", _ => LoginCommandCompletionCheckAsync());
         host.AddTool("login_command_variable_check", _ => LoginCommandVariableCheckAsync());
         host.AddTool("bastion_login_template_check", _ => BastionLoginTemplateCheckAsync());
         host.AddTool("bastion_channel_limit_check", _ => BastionChannelLimitCheckAsync());
@@ -2212,6 +2214,174 @@ internal static class DebugMcpServer
             ? $"match: {keyword} -> types \"{result.Choice}\" ({result.MatchedLabel})"
             : $"no match: {result.Failure}");
         return Task.FromResult(ToolText(sb.ToString().TrimEnd()));
+    }
+
+    /// <summary>
+    /// Spins up a real <see cref="LoginCommandsTextBox"/> on a temporary tab and checks
+    /// that # prefix filtering, popup presentation, and accept-to-insert work.
+    /// </summary>
+    private static async Task<JsonObject> LoginCommandCompletionCheckAsync()
+    {
+        TabControl? tabs = null;
+        object? originalSelection = null;
+        TabItem? probeTab = null;
+        LoginCommandsTextBox? editor = null;
+
+        try
+        {
+            await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not MainWindow main)
+                    throw new InvalidOperationException("MainWindow is not available.");
+
+                tabs = main.FindControl<TabControl>("RightTabs")
+                       ?? throw new InvalidOperationException("RightTabs not found.");
+                originalSelection = tabs.SelectedItem;
+                editor = new LoginCommandsTextBox
+                {
+                    Name = "LoginCommandCompletionProbeEditor",
+                    AcceptsReturn = true,
+                    MinHeight = 120,
+                    Margin = new Thickness(24),
+                };
+                probeTab = new TabItem
+                {
+                    Header = "Login completion probe",
+                    Content = editor,
+                };
+                tabs.Items.Add(probeTab);
+                tabs.SelectedItem = probeTab;
+                return true;
+            });
+
+            await Task.Delay(75);
+            await OnUiAsync(() =>
+            {
+                var box = editor
+                          ?? throw new InvalidOperationException("Completion probe editor missing.");
+                box.Focus();
+                box.Text = "#re";
+                box.CaretIndex = box.Text.Length;
+                return true;
+            });
+            // TextChanged defers open to Input priority so the caret is final first.
+            await Task.Delay(100);
+
+            var reuse = await OnUiAsync(() =>
+            {
+                var box = editor!;
+                var snapshot = (
+                    hasTemplate: box.Template is not null,
+                    open: box.IsDirectiveCompletionOpen,
+                    overlay: box.IsDirectiveCompletionUsingOverlayLayer,
+                    background: box.HasDirectiveCompletionBackground,
+                    bounds: box.DirectiveCompletionBounds,
+                    renderedItems: box.DirectiveCompletionRenderedItemCount,
+                    renderedItemDetails: box.DirectiveCompletionRenderedItems,
+                    items: box.DirectiveCompletionItems);
+                var accepted = box.AcceptDirectiveCompletion();
+                return (
+                    snapshot.hasTemplate,
+                    snapshot.open,
+                    closedAfterAccept: !box.IsDirectiveCompletionOpen,
+                    snapshot.overlay,
+                    snapshot.background,
+                    snapshot.bounds,
+                    snapshot.renderedItems,
+                    snapshot.renderedItemDetails,
+                    snapshot.items,
+                    accepted,
+                    text: box.Text);
+            });
+
+            await OnUiAsync(() =>
+            {
+                editor!.Text = "  #P";
+                editor.CaretIndex = editor.Text.Length;
+                return true;
+            });
+            await Task.Delay(100);
+
+            var pageKey = await OnUiAsync(() =>
+            {
+                var openBefore = editor!.IsDirectiveCompletionOpen;
+                var items = editor.DirectiveCompletionItems;
+                var accepted = editor.AcceptDirectiveCompletion();
+                return (
+                    open: openBefore,
+                    closedAfterAccept: !editor.IsDirectiveCompletionOpen,
+                    items: items,
+                    accepted: accepted,
+                    text: editor.Text);
+            });
+
+            // Caret-only moves must not open the popup on an existing # line.
+            await OnUiAsync(() =>
+            {
+                var box = editor!;
+                box.Text = "#input\nother";
+                box.CaretIndex = (box.Text ?? "").Length;
+                return true;
+            });
+            await Task.Delay(100);
+            var caretOnly = await OnUiAsync(() =>
+            {
+                var box = editor!;
+                // Move onto the #input token without typing.
+                box.CaretIndex = 3;
+                return box.IsDirectiveCompletionOpen;
+            });
+
+            var passed = reuse.hasTemplate
+                         && reuse.open
+                         && reuse.closedAfterAccept
+                         && reuse.overlay
+                         && reuse.background
+                         && reuse.bounds.Width > 0
+                         && reuse.bounds.Height > 0
+                         && reuse.renderedItems == reuse.items.Length
+                         && reuse.items.SequenceEqual(["#reuse-enter", "#reuse-leave"])
+                         && reuse.accepted
+                         && reuse.text == "#reuse-enter"
+                         && pageKey.open
+                         && pageKey.closedAfterAccept
+                         && pageKey.items.SequenceEqual(["#pagekey <key>"])
+                         && pageKey.accepted
+                         && pageKey.text == "  #pagekey "
+                         && !caretOnly;
+
+            return ToolText(
+                $"{(passed ? "PASS" : "FAIL")}: login-command # marker completion\n"
+                + $"reuse: template={reuse.hasTemplate} open={reuse.open} closedAfter={reuse.closedAfterAccept} "
+                + $"overlay={reuse.overlay} background={reuse.background} bounds={reuse.bounds} "
+                + $"renderedItems={reuse.renderedItems} [{reuse.renderedItemDetails}] "
+                + $"items=[{string.Join(", ", reuse.items)}] accepted={reuse.accepted} text=\"{reuse.text}\"\n"
+                + $"pagekey: open={pageKey.open} closedAfter={pageKey.closedAfterAccept} "
+                + $"items=[{string.Join(", ", pageKey.items)}] "
+                + $"accepted={pageKey.accepted} text=\"{pageKey.text}\"\n"
+                + $"caretOnlyOpen={caretOnly}",
+                isError: !passed);
+        }
+        finally
+        {
+            if (tabs is not null)
+            {
+                await OnUiAsync(() =>
+                {
+                    if (editor is not null)
+                        editor.Text = "";
+
+                    if (originalSelection is not null && tabs.Items.Contains(originalSelection))
+                        tabs.SelectedItem = originalSelection;
+                    else if (tabs.Items.Count > 0)
+                        tabs.SelectedIndex = 0;
+
+                    if (probeTab is not null)
+                        tabs.Items.Remove(probeTab);
+                    return true;
+                });
+            }
+        }
     }
 
     private static Task<JsonObject> LoginCommandFlowCheckAsync(JsonObject args)

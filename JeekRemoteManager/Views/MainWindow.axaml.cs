@@ -14,6 +14,7 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Jeek.Avalonia.Localization;
+using JeekRemoteManager.Controls;
 using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
 using JeekRemoteManager.ViewModels;
@@ -2864,7 +2865,7 @@ public partial class MainWindow : Window
             return;
 
         static TextBox FragmentEditor(string name, string text) =>
-            new()
+            new LoginCommandsTextBox
             {
                 Name = name,
                 Text = text,
@@ -3040,14 +3041,8 @@ public partial class MainWindow : Window
         }
 
         AddDirective("command", "LoginCommandsHelpOrdinary");
-        AddDirective("#input", "LoginCommandsHelpInput");
-        AddDirective("#reuse-enter", "LoginCommandsHelpReuseEnter");
-        AddDirective("#duplicate", "LoginCommandsHelpDuplicate");
-        AddDirective("#reuse-leave", "LoginCommandsHelpReuseLeave");
-        AddDirective("#select <name>", "LoginCommandsHelpSelect");
-        AddDirective("#pagekey <key>", "LoginCommandsHelpPageKey");
-        AddDirective("#key <key>", "LoginCommandsHelpKey");
-        AddDirective("#template <1-4>", "LoginCommandsHelpTemplate");
+        foreach (var completion in LoginCommandSequence.Completions)
+            AddDirective(completion.DisplayText, completion.HelpLocalizationKey);
         AddDirective("{{name}}", "LoginCommandsHelpVariableName");
         AddDirective("{{host}}", "LoginCommandsHelpVariableHost");
         AddDirective("{{port}}", "LoginCommandsHelpVariablePort");

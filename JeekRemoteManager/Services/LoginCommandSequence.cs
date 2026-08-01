@@ -32,6 +32,36 @@ public static class LoginCommandSequence
     public const string MenuPageKeyDirective = "#pagekey";
     public const string TemplateDirective = "#template";
 
+    /// <summary>
+    /// Known <c>#</c> directives shown by the login-command editor autocomplete and help dialog.
+    /// Directives that take an argument insert a trailing space so the user can keep typing.
+    /// </summary>
+    public static IReadOnlyList<LoginCommandCompletion> Completions { get; } =
+    [
+        new("#input", "#input", "LoginCommandsHelpInput"),
+        new("#reuse-enter", "#reuse-enter", "LoginCommandsHelpReuseEnter"),
+        new("#duplicate", "#duplicate", "LoginCommandsHelpDuplicate"),
+        new("#reuse-leave", "#reuse-leave", "LoginCommandsHelpReuseLeave"),
+        new("#select <name>", "#select ", "LoginCommandsHelpSelect"),
+        new("#pagekey <key>", "#pagekey ", "LoginCommandsHelpPageKey"),
+        new("#key <key>", "#key ", "LoginCommandsHelpKey"),
+        new("#template <1-4>", "#template ", "LoginCommandsHelpTemplate"),
+    ];
+
+    /// <summary>
+    /// Filters <see cref="Completions"/> by a caret-prefix that starts with <c>#</c>.
+    /// Matching is case-insensitive against the bare directive token.
+    /// </summary>
+    public static LoginCommandCompletion[] CompleteDirective(string prefix)
+    {
+        if (string.IsNullOrEmpty(prefix) || prefix[0] != '#')
+            return [];
+
+        return Completions
+            .Where(item => item.Directive.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+    }
+
     private sealed record SourceLine(string Text, string Location);
 
     /// <summary>

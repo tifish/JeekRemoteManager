@@ -297,6 +297,9 @@ try
               .Any(tool => tool?["name"]?.GetValue<string>() == "login_command_flow_check"),
           "Debug MCP advertises structured login-command flow verification");
     Check(DebugMcpContract.BuildToolList()
+              .Any(tool => tool?["name"]?.GetValue<string>() == "login_command_completion_check"),
+          "Debug MCP advertises login-command # marker completion verification");
+    Check(DebugMcpContract.BuildToolList()
               .Any(tool => tool?["name"]?.GetValue<string>() == "bastion_login_template_check"),
           "Debug MCP advertises shared bastion-template verification");
     Check(DebugMcpContract.BuildToolList()
@@ -336,16 +339,16 @@ try
           && mainWindowXaml.Contains("LoginCommandsValidationMessage", StringComparison.Ordinal),
           "SSH login commands show validation errors without the parsed flow text");
     Check(mainWindowCode.Contains(
-              "AddDirective(\"#reuse-enter\", \"LoginCommandsHelpReuseEnter\")",
+              "foreach (var completion in LoginCommandSequence.Completions)",
               StringComparison.Ordinal)
-          && mainWindowCode.Contains(
-              "AddDirective(\"#reuse-leave\", \"LoginCommandsHelpReuseLeave\")",
+          && mainWindowXaml.Contains(
+              "controls:LoginCommandsTextBox",
               StringComparison.Ordinal)
           && languagesCode.Contains("LoginCommandsHelpReuseEnter\t", StringComparison.Ordinal)
           && languagesCode.Contains("LoginCommandsHelpReuseLeave\t", StringComparison.Ordinal)
           && !languagesCode.Contains("LoginCommandsHelpEnter\t", StringComparison.Ordinal)
           && !languagesCode.Contains("LoginCommandsHelpLeave\t", StringComparison.Ordinal),
-          "Login-command help uses reuse-prefixed section directives and localization keys");
+          "Login-command help/editor share Completions and use LoginCommandsTextBox");
     Check(mainWindowXaml.Contains(
               "x:Name=\"LoginCommandsHelpGlyph\"",
               StringComparison.Ordinal)
@@ -609,6 +612,15 @@ try
           "Duplicated sessions without a marker preserve existing login-command behavior");
     Check(LoginCommandSequence.IsManualInputDirective("  #INPUT  "),
           "Manual-input login directive remains case-insensitive");
+    Check(LoginCommandSequence.CompleteDirective("#re")
+              .Select(item => item.DisplayText)
+              .SequenceEqual(["#reuse-enter", "#reuse-leave"])
+          && LoginCommandSequence.CompleteDirective("#P")
+              .Select(item => item.InsertText)
+              .SequenceEqual(["#pagekey "])
+          && LoginCommandSequence.CompleteDirective("input").Length == 0
+          && LoginCommandSequence.Completions.Count == 8,
+          "Login-command # marker completion filters known directives");
     const string structuredLoginCommands =
         "#input\n#reuse-enter\n5\n#key Enter\n#duplicate\n#reuse-leave\nexit";
     Check(LoginCommandSequence.HasStructuredReuseWorkflow(structuredLoginCommands)
