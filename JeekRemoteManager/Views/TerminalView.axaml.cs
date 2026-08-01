@@ -33,6 +33,19 @@ namespace JeekRemoteManager.Views;
 /// </summary>
 public partial class TerminalView : UserControl
 {
+    public const int BastionPoolWaitTimeoutSeconds = 15;
+    public const string BastionPoolWaitingMessage =
+        "[bastion reuse] Waiting for another session to finish switching targets ...";
+    public const string BastionPoolFullMessage =
+        "[bastion reuse] All authenticated connections are at their observed session limits; "
+        + "opening a fresh SSH connection.";
+    public const string BastionReuseFallbackMessage =
+        "[bastion reuse failed; opening a fresh SSH connection]";
+
+    public static string BastionPoolWaitTimeoutMessage =>
+        $"[bastion reuse busy] Waited {BastionPoolWaitTimeoutSeconds} seconds; "
+        + "opening a fresh SSH connection.";
+
     private const int ResizeOutputInitialWaitMs = 500;
     private const int ResizeOutputQuietPeriodMs = 150;
     private const int ResizeOutputHardLimitMs = 800;
@@ -1390,6 +1403,8 @@ public partial class TerminalView : UserControl
             $"user_input_suppressed={IsUserInputSuppressed}\n" +
             $"transfer_in_progress={transferActive}\n" +
             $"script_running={IsScriptRunning}\n" +
+            $"login_sequence_state={LoginSequenceState}\n" +
+            $"bastion_session_state={BastionSessionState}\n" +
             $"connection_generation={ConnectionGeneration}\n" +
             $"ai_exec_count={AiCommandExecutionCount}\n" +
             $"ai_complete_count={AiCommandCompletionCount}\n" +
@@ -1879,7 +1894,34 @@ public partial class TerminalView : UserControl
         try
         {
             if (BastionSessionPool is not null)
-                pooledLease = await BastionSessionPool.TryAcquireAsync(connection);
+            {
+                var hasKnownSession = BastionSessionPool.HasKnownSession(connection);
+                var hasReusableSession = BastionSessionPool.HasReusableSession(connection);
+                if (hasReusableSession)
+                {
+                    Volatile.Write(ref _bastionSessionState, "pooled-waiting");
+                    FeedLine(BastionPoolWaitingMessage);
+                }
+                else if (hasKnownSession)
+                {
+                    Volatile.Write(ref _bastionSessionState, "pooled-full");
+                    FeedLine(BastionPoolFullMessage);
+                }
+
+                using var waitTimeout = new CancellationTokenSource(
+                    TimeSpan.FromSeconds(BastionPoolWaitTimeoutSeconds));
+                try
+                {
+                    pooledLease = await BastionSessionPool.TryAcquireAsync(
+                        connection,
+                        waitTimeout.Token);
+                }
+                catch (OperationCanceledException) when (waitTimeout.IsCancellationRequested)
+                {
+                    Volatile.Write(ref _bastionSessionState, "pooled-wait-timeout");
+                    FeedLine(BastionPoolWaitTimeoutMessage);
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -1922,7 +1964,8 @@ public partial class TerminalView : UserControl
             pooledLease.Dispose();
             if (_disposed || generation != _connectionGeneration)
                 return;
-            FeedLine("\u001b[33m[shared session limit reached; a fresh login is required]\u001b[0m");
+            FeedLine(
+                $"\u001b[33m{BastionReuseFallbackMessage}\u001b[0m");
         }
 
         FeedLine($"Connecting to {host}:{port} ...");
@@ -2075,12 +2118,18 @@ public partial class TerminalView : UserControl
             ? Connection.DefaultTerminalType
             : connection.TerminalType.Trim();
 
-        ShellStream shell;
+        SharedShellStreamLease shell;
         try
         {
             // The channel open is a network round-trip; keep it off the UI thread so
             // a stalled (half-dead) shared transport cannot freeze the window.
-            shell = await Task.Run(() => client.Client.CreateShellStream(terminalType, cols, rows, 0, 0, 4096));
+            shell = await client.CreateShellStreamAsync(
+                terminalType,
+                cols,
+                rows,
+                0,
+                0,
+                4096);
         }
         catch (Exception ex)
         {

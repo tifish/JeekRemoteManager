@@ -113,6 +113,7 @@ internal static class DebugMcpServer
         host.AddTool("login_command_flow_check", LoginCommandFlowCheckAsync);
         host.AddTool("login_command_variable_check", _ => LoginCommandVariableCheckAsync());
         host.AddTool("bastion_login_template_check", _ => BastionLoginTemplateCheckAsync());
+        host.AddTool("bastion_channel_limit_check", _ => BastionChannelLimitCheckAsync());
         host.AddTool("connection_editor_switch_check", _ => ConnectionEditorSwitchCheckAsync());
         host.AddTool("login_menu_select_probe", LoginMenuSelectProbeAsync);
         host.AddTool("auto_update_stage_check", AutoUpdateStageCheckAsync);
@@ -2427,6 +2428,94 @@ internal static class DebugMcpServer
             + "--- resolved ---\n"
             + resolved;
         return Task.FromResult(ToolText(report, isError: !passed));
+    }
+
+    private sealed class LateChannelProbe : IDisposable
+    {
+        public bool IsDisposed { get; private set; }
+        public void Dispose() => IsDisposed = true;
+    }
+
+    private static async Task<JsonObject> BastionChannelLimitCheckAsync()
+    {
+        var capacity = new ShellChannelCapacityTracker();
+        var startsUnknownAndAvailable = capacity.KnownLimit is null && capacity.HasCapacity;
+        capacity.MarkOpened();
+        capacity.MarkOpened();
+        capacity.MarkOpened();
+        var observedLimit = capacity.RecordObservedLimit();
+        var fullAtObservedLimit = observedLimit == 3
+                                  && capacity.ActiveChannels == 3
+                                  && !capacity.HasCapacity;
+        capacity.MarkClosed();
+        var reusableAfterClose = capacity.ActiveChannels == 2 && capacity.HasCapacity;
+        capacity.MarkOpened();
+        var fullAgainWithoutProbe = capacity.ActiveChannels == 3 && !capacity.HasCapacity;
+
+        var source = new TaskCompletionSource<LateChannelProbe>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var timedOut = false;
+        try
+        {
+            _ = await SharedSshClient.WaitForChannelOpenAsync(
+                source.Task,
+                TimeSpan.FromMilliseconds(30),
+                CancellationToken.None,
+                probe => probe.Dispose());
+        }
+        catch (TimeoutException)
+        {
+            timedOut = true;
+        }
+
+        var lateProbe = new LateChannelProbe();
+        source.TrySetResult(lateProbe);
+        for (var attempt = 0; attempt < 10 && !lateProbe.IsDisposed; attempt++)
+            await Task.Delay(10);
+
+        var visibleWait = TerminalView.BastionPoolWaitingMessage.Contains(
+            "Waiting for another session",
+            StringComparison.Ordinal);
+        var boundedQueue = TerminalView.BastionPoolWaitTimeoutSeconds > 0
+                           && TerminalView.BastionPoolWaitTimeoutMessage.Contains(
+                               "opening a fresh SSH connection",
+                               StringComparison.Ordinal);
+        var visibleFallback = TerminalView.BastionReuseFallbackMessage.Contains(
+            "opening a fresh SSH connection",
+            StringComparison.Ordinal);
+        var visibleFull = TerminalView.BastionPoolFullMessage.Contains(
+            "observed session limits",
+            StringComparison.Ordinal)
+                          && TerminalView.BastionPoolFullMessage.Contains(
+                              "opening a fresh SSH connection",
+                              StringComparison.Ordinal);
+
+        var passed = timedOut
+                     && lateProbe.IsDisposed
+                     && startsUnknownAndAvailable
+                     && fullAtObservedLimit
+                     && reusableAfterClose
+                     && fullAgainWithoutProbe
+                     && visibleWait
+                     && boundedQueue
+                     && visibleFull
+                     && visibleFallback;
+        var report =
+            $"{(passed ? "PASS" : "FAIL")}: bastion channel-limit handling\n"
+            + $"shellOpenTimeoutSeconds={SharedSshClient.ShellOpenTimeoutSeconds}\n"
+            + $"poolWaitTimeoutSeconds={TerminalView.BastionPoolWaitTimeoutSeconds}\n"
+            + $"timeoutObserved={timedOut}\n"
+            + $"lateChannelDisposed={lateProbe.IsDisposed}\n"
+            + $"startsUnknownAndAvailable={startsUnknownAndAvailable}\n"
+            + $"observedLimit={observedLimit}\n"
+            + $"fullAtObservedLimit={fullAtObservedLimit}\n"
+            + $"reusableAfterClose={reusableAfterClose}\n"
+            + $"fullAgainWithoutProbe={fullAgainWithoutProbe}\n"
+            + $"visibleWait={visibleWait}\n"
+            + $"boundedQueue={boundedQueue}\n"
+            + $"visibleFull={visibleFull}\n"
+            + $"visibleFallback={visibleFallback}";
+        return ToolText(report, isError: !passed);
     }
 
     private static async Task<JsonObject> ConnectionEditorSwitchCheckAsync()

@@ -108,7 +108,7 @@ public sealed class ServerMonitorSession : IDisposable
     private CancellationTokenSource? _cancellation;
     private SharedSshClient? _held;
     private BastionSessionPool.BastionSessionLease? _pendingPoolLease;
-    private ShellStream? _shell;
+    private SharedShellStreamLease? _shell;
     private InteractiveShellPayloadMonitor? _activePayloadMonitor;
     // Fed only while the duplicated login sequence runs, so "#select" can match the
     // bastion menu that is on screen.
@@ -227,7 +227,7 @@ public sealed class ServerMonitorSession : IDisposable
                 catch (Exception ex)
                 {
                     failures++;
-                    ReleaseClient();
+                    ReleaseClient(abandonPending: ex is not SshChannelCapacityException);
                     ResetDeltas();
                     if (failures == MaxConsecutiveFailures)
                         Log.ZLogWarning(ex, $"Server monitor sampling failed {failures} times, backing off");
@@ -276,12 +276,13 @@ public sealed class ServerMonitorSession : IDisposable
         return _held;
     }
 
-    private void ReleaseClient()
+    private void ReleaseClient(bool abandonPending = true)
     {
         ReleaseShell();
         if (_pendingPoolLease is not null)
         {
-            _pendingPoolLease.Abandon();
+            if (abandonPending)
+                _pendingPoolLease.Abandon();
             _pendingPoolLease.Dispose();
             _pendingPoolLease = null;
         }
@@ -298,17 +299,24 @@ public sealed class ServerMonitorSession : IDisposable
             return;
 
         ReleaseShell();
-        var shell = await Task.Run(
-            () => client.Client.CreateShellStream(_terminalType, 120, 30, 0, 0, 4096),
-            cancellationToken).ConfigureAwait(false);
+        var shell = await client.CreateShellStreamAsync(
+                _terminalType,
+                120,
+                30,
+                0,
+                0,
+                4096,
+                cancellationToken)
+            .ConfigureAwait(false);
 
         _shell = shell;
+        var stream = shell.Stream;
         Interlocked.Increment(ref _shellGeneration);
         _shellFailure = null;
         Interlocked.Exchange(ref _lastShellDataTicks, 0);
-        shell.DataReceived += OnShellData;
-        shell.ErrorOccurred += OnShellError;
-        shell.Closed += OnShellClosed;
+        stream.DataReceived += OnShellData;
+        stream.ErrorOccurred += OnShellError;
+        stream.Closed += OnShellClosed;
 
         try
         {
@@ -344,6 +352,20 @@ public sealed class ServerMonitorSession : IDisposable
             {
                 await RunDuplicatedLoginCommandsAsync(cancellationToken).ConfigureAwait(false);
             }
+        }
+        catch (SshChannelCapacityException)
+        {
+            // The route was never changed when channel creation itself hit the
+            // observed transport ceiling. Keep the pool entry and its learned
+            // limit so the next terminal can skip this transport immediately.
+            if (_pendingPoolLease is not null)
+            {
+                _pendingPoolLease.Dispose();
+                _pendingPoolLease = null;
+                _held = null;
+            }
+            ReleaseShell();
+            throw;
         }
         catch
         {
@@ -550,7 +572,8 @@ public sealed class ServerMonitorSession : IDisposable
     private void WriteToShell(string text)
     {
         ThrowIfShellFailed();
-        var shell = _shell ?? throw new InvalidOperationException("Server monitor shell is not open.");
+        var shell = _shell?.Stream
+                    ?? throw new InvalidOperationException("Server monitor shell is not open.");
         var bytes = Encoding.UTF8.GetBytes(text);
         shell.Write(bytes, 0, bytes.Length);
         shell.Flush();
@@ -565,10 +588,10 @@ public sealed class ServerMonitorSession : IDisposable
         if (shell is null)
             return;
 
-        shell.DataReceived -= OnShellData;
-        shell.ErrorOccurred -= OnShellError;
-        shell.Closed -= OnShellClosed;
-        try { shell.Dispose(); } catch { /* already broken */ }
+        shell.Stream.DataReceived -= OnShellData;
+        shell.Stream.ErrorOccurred -= OnShellError;
+        shell.Stream.Closed -= OnShellClosed;
+        shell.Dispose();
         _shellFailure = null;
     }
 

@@ -30,7 +30,7 @@ public sealed class BastionSessionPool : IDisposable
     private static readonly TimeSpan SweepInterval = TimeSpan.FromMinutes(5);
 
     private readonly object _gate = new();
-    private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<Entry>> _entries = new(StringComparer.Ordinal);
     private readonly Timer _sweepTimer;
     private bool _disposed;
 
@@ -43,7 +43,9 @@ public sealed class BastionSessionPool : IDisposable
         get
         {
             lock (_gate)
-                return _entries.Values.Count(entry => entry.Client.IsConnected);
+                return _entries.Values
+                    .SelectMany(entries => entries)
+                    .Count(entry => entry.Client.IsConnected);
         }
     }
 
@@ -55,13 +57,49 @@ public sealed class BastionSessionPool : IDisposable
             lock (_gate)
             {
                 var live = _entries.Values
+                    .SelectMany(entries => entries)
                     .Where(entry => entry.Client.IsConnected)
                     .Select(entry =>
-                        $"{entry.EndpointLabel} => {entry.Route.Name}; "
-                        + $"active={entry.ActiveLeases}; idle={DateTime.UtcNow - entry.LastUsedUtc:g}")
+                    {
+                        var channelLimit = entry.Client.KnownShellChannelLimit?.ToString() ?? "?";
+                        return $"{entry.EndpointLabel} [{entry.Client.SessionId}] => {entry.Route.Name}; "
+                               + $"channels={entry.Client.ActiveShellChannelCount}/{channelLimit}; "
+                               + $"pending={entry.ActiveLeases}; idle={DateTime.UtcNow - entry.LastUsedUtc:g}";
+                    })
                     .ToArray();
                 return live.Length == 0 ? "(empty)" : string.Join(Environment.NewLine, live);
             }
+        }
+    }
+
+    /// <summary>True when a connected authenticated transport is currently available
+    /// for this endpoint and credential identity.</summary>
+    public bool HasReusableSession(Connection target)
+    {
+        if (!IsEligible(target))
+            return false;
+
+        lock (_gate)
+        {
+            return !_disposed
+                   && _entries.TryGetValue(BuildKey(target), out var entries)
+                   && entries.Any(entry =>
+                       entry.Client.IsConnected && entry.Client.HasShellChannelCapacity);
+        }
+    }
+
+    /// <summary>True when this bastion identity has at least one live transport,
+    /// including transports whose observed shell-channel limit is currently full.</summary>
+    public bool HasKnownSession(Connection target)
+    {
+        if (!IsEligible(target))
+            return false;
+
+        lock (_gate)
+        {
+            return !_disposed
+                   && _entries.TryGetValue(BuildKey(target), out var entries)
+                   && entries.Any(entry => entry.Client.IsConnected);
         }
     }
 
@@ -76,39 +114,50 @@ public sealed class BastionSessionPool : IDisposable
         if (!IsEligible(target))
             return null;
 
-        Entry? entry;
-        lock (_gate)
+        var key = BuildKey(target);
+        var targetRoute = BastionRoute.FromConnection(target);
+        var skipped = new HashSet<Entry>();
+
+        while (true)
         {
-            if (_disposed
-                || !_entries.TryGetValue(BuildKey(target), out entry)
-                || !entry.Client.IsConnected
-                || !entry.Client.TryAddRef())
+            Entry? entry;
+            lock (_gate)
             {
-                return null;
+                if (_disposed || !_entries.TryGetValue(key, out var entries))
+                    return null;
+
+                entry = SelectEntry(entries, targetRoute, skipped);
+                if (entry is null)
+                    return null;
+                if (!entry.Client.TryAddRef())
+                {
+                    skipped.Add(entry);
+                    continue;
+                }
+
+                entry.ActiveLeases++;
+                entry.LastUsedUtc = DateTime.UtcNow;
             }
 
-            entry.ActiveLeases++;
-            entry.LastUsedUtc = DateTime.UtcNow;
-        }
+            try
+            {
+                await entry.RouteGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                ReleaseBorrow(entry, releaseClient: true, releaseRouteGate: false);
+                throw;
+            }
 
-        try
-        {
-            await entry.RouteGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch
-        {
-            ReleaseBorrow(entry, releaseClient: true, releaseRouteGate: false);
-            throw;
-        }
+            if (entry.Client.IsConnected && entry.Client.HasShellChannelCapacity)
+                return new BastionSessionLease(this, entry, targetRoute);
 
-        if (!entry.Client.IsConnected)
-        {
+            skipped.Add(entry);
+            var disconnected = !entry.Client.IsConnected;
             ReleaseBorrow(entry, releaseClient: true, releaseRouteGate: true);
-            RemoveEntry(entry);
-            return null;
+            if (disconnected)
+                RemoveEntry(entry);
         }
-
-        return new BastionSessionLease(this, entry, BastionRoute.FromConnection(target));
     }
 
     /// <summary>
@@ -131,7 +180,7 @@ public sealed class BastionSessionPool : IDisposable
             BuildEndpointLabel(routeConnection),
             client,
             BastionRoute.FromConnection(routeConnection));
-        Entry? replaced = null;
+        List<Entry>? disconnected = null;
 
         lock (_gate)
         {
@@ -141,9 +190,16 @@ public sealed class BastionSessionPool : IDisposable
                 return false;
             }
 
-            if (_entries.TryGetValue(key, out var existing))
+            if (!_entries.TryGetValue(key, out var entries))
             {
-                if (ReferenceEquals(existing.Client, client))
+                entries = [];
+                _entries.Add(key, entries);
+            }
+            else
+            {
+                var existing = entries.FirstOrDefault(candidate =>
+                    ReferenceEquals(candidate.Client, client));
+                if (existing is not null)
                 {
                     existing.Route = entry.Route;
                     existing.LastUsedUtc = DateTime.UtcNow;
@@ -151,21 +207,21 @@ public sealed class BastionSessionPool : IDisposable
                     return true;
                 }
 
-                if (existing.Client.IsConnected)
+                foreach (var stale in entries.Where(candidate => !candidate.Client.IsConnected).ToArray())
                 {
-                    // A concurrent fresh login won the race. Keep one deterministic pool
-                    // entry; this terminal still owns and can use its independent transport.
-                    client.Release();
-                    return false;
+                    entries.Remove(stale);
+                    (disconnected ??= []).Add(stale);
                 }
-
-                replaced = existing;
             }
 
-            _entries[key] = entry;
+            entries.Add(entry);
         }
 
-        replaced?.Client.Release();
+        if (disconnected is not null)
+        {
+            foreach (var stale in disconnected)
+                stale.Client.Release();
+        }
         return true;
     }
 
@@ -177,7 +233,7 @@ public sealed class BastionSessionPool : IDisposable
             if (_disposed)
                 return;
             _disposed = true;
-            entries = _entries.Values.ToArray();
+            entries = _entries.Values.SelectMany(group => group).ToArray();
             _entries.Clear();
         }
 
@@ -190,11 +246,12 @@ public sealed class BastionSessionPool : IDisposable
     {
         lock (_gate)
         {
-            if (!_disposed && _entries.TryGetValue(lease.Entry.Key, out var current)
-                           && ReferenceEquals(current, lease.Entry))
+            if (!_disposed
+                && _entries.TryGetValue(lease.Entry.Key, out var entries)
+                && entries.Contains(lease.Entry))
             {
-                current.Route = lease.TargetRoute;
-                current.LastUsedUtc = DateTime.UtcNow;
+                lease.Entry.Route = lease.TargetRoute;
+                lease.Entry.LastUsedUtc = DateTime.UtcNow;
             }
         }
     }
@@ -233,15 +290,20 @@ public sealed class BastionSessionPool : IDisposable
             var cutoff = DateTime.UtcNow - IdleLifetime;
             foreach (var pair in _entries.ToArray())
             {
-                var entry = pair.Value;
-                if (entry.ActiveLeases != 0
-                    || entry.Client.IsConnected && entry.LastUsedUtc >= cutoff)
+                foreach (var entry in pair.Value.ToArray())
                 {
-                    continue;
+                    if (entry.ActiveLeases != 0
+                        || entry.Client.IsConnected && entry.LastUsedUtc >= cutoff)
+                    {
+                        continue;
+                    }
+
+                    pair.Value.Remove(entry);
+                    (expired ??= []).Add(entry);
                 }
 
-                _entries.Remove(pair.Key);
-                (expired ??= []).Add(entry);
+                if (pair.Value.Count == 0)
+                    _entries.Remove(pair.Key);
             }
         }
 
@@ -256,9 +318,10 @@ public sealed class BastionSessionPool : IDisposable
         var removed = false;
         lock (_gate)
         {
-            if (_entries.TryGetValue(entry.Key, out var current) && ReferenceEquals(current, entry))
+            if (_entries.TryGetValue(entry.Key, out var entries) && entries.Remove(entry))
             {
-                _entries.Remove(entry.Key);
+                if (entries.Count == 0)
+                    _entries.Remove(entry.Key);
                 removed = true;
             }
         }
@@ -266,6 +329,22 @@ public sealed class BastionSessionPool : IDisposable
         if (removed)
             entry.Client.Release(); // pool reference
     }
+
+    private static Entry? SelectEntry(
+        IEnumerable<Entry> entries,
+        BastionRoute targetRoute,
+        IReadOnlySet<Entry> skipped) =>
+        entries
+            .Where(entry =>
+                !skipped.Contains(entry)
+                && entry.Client.IsConnected
+                && entry.Client.HasShellChannelCapacity)
+            .OrderBy(entry => entry.RouteGate.CurrentCount == 0)
+            .ThenByDescending(entry =>
+                string.Equals(entry.Route.RouteId, targetRoute.RouteId, StringComparison.Ordinal))
+            .ThenBy(entry => entry.Client.ActiveShellChannelCount)
+            .ThenBy(entry => entry.LastUsedUtc)
+            .FirstOrDefault();
 
     private static string BuildKey(Connection connection)
     {

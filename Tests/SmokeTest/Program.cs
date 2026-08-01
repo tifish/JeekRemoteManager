@@ -207,6 +207,14 @@ try
     var terminalViewXaml = File.ReadAllText(Path.Combine(
             repoRoot, "JeekRemoteManager", "Views", "TerminalView.axaml"))
         .Replace("\r\n", "\n", StringComparison.Ordinal);
+    var terminalViewCode = File.ReadAllText(Path.Combine(
+        repoRoot, "JeekRemoteManager", "Views", "TerminalView.axaml.cs"));
+    var monitorSessionCode = File.ReadAllText(Path.Combine(
+        repoRoot, "JeekRemoteManager", "Services", "ServerMonitorSession.cs"));
+    var bastionPoolCode = File.ReadAllText(Path.Combine(
+        repoRoot, "JeekRemoteManager", "Services", "BastionSessionPool.cs"));
+    var sharedSshClientCode = File.ReadAllText(Path.Combine(
+        repoRoot, "JeekRemoteManager", "Services", "SharedSshClient.cs"));
     var mainWindowXaml = File.ReadAllText(Path.Combine(
         repoRoot, "JeekRemoteManager", "Views", "MainWindow.axaml"));
     var mainWindowCode = File.ReadAllText(Path.Combine(
@@ -292,6 +300,33 @@ try
     Check(DebugMcpContract.BuildToolList()
               .Any(tool => tool?["name"]?.GetValue<string>() == "login_command_variable_check"),
           "Debug MCP advertises login-command variable verification");
+    Check(DebugMcpContract.BuildToolList()
+              .Any(tool => tool?["name"]?.GetValue<string>() == "bastion_channel_limit_check"),
+          "Debug MCP advertises bastion channel-limit verification");
+    Check(terminalViewCode.Contains("BastionPoolWaitingMessage", StringComparison.Ordinal)
+          && terminalViewCode.Contains("BastionPoolWaitTimeoutMessage", StringComparison.Ordinal)
+          && terminalViewCode.Contains("BastionPoolFullMessage", StringComparison.Ordinal)
+          && terminalViewCode.Contains("client.CreateShellStreamAsync(", StringComparison.Ordinal)
+          && monitorSessionCode.Contains("client.CreateShellStreamAsync(", StringComparison.Ordinal)
+          && terminalViewCode.Contains("login_sequence_state=", StringComparison.Ordinal)
+          && terminalViewCode.Contains("bastion_session_state=", StringComparison.Ordinal),
+          "Bastion channel waits are visible and bounded for terminals and monitors");
+    Check(bastionPoolCode.Contains(
+              "Dictionary<string, List<Entry>>",
+              StringComparison.Ordinal)
+          && bastionPoolCode.Contains(
+              "entry.Client.HasShellChannelCapacity",
+              StringComparison.Ordinal)
+          && bastionPoolCode.Contains(
+              "entries.Add(entry);",
+              StringComparison.Ordinal)
+          && sharedSshClientCode.Contains(
+              "ShellChannelCapacityTracker",
+              StringComparison.Ordinal)
+          && sharedSshClientCode.Contains(
+              "ShellOpenTimeoutSeconds = 10",
+              StringComparison.Ordinal),
+          "Bastion pool retains multiple transports and skips known full channel sets");
     Check(DebugMcpContract.BuildToolList()
               .Any(tool => tool?["name"]?.GetValue<string>() == "connection_editor_switch_check"),
           "Debug MCP advertises connection-editor switch performance verification");

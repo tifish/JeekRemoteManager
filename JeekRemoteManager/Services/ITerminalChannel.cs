@@ -34,14 +34,16 @@ public interface ITerminalChannel : IDisposable
 /// <summary>SSH shell channel (SSH.NET ShellStream) as a terminal channel.</summary>
 public sealed class SshTerminalChannel : ITerminalChannel
 {
+    private readonly SharedShellStreamLease _lease;
     private readonly ShellStream _shell;
 
-    public SshTerminalChannel(ShellStream shell)
+    public SshTerminalChannel(SharedShellStreamLease lease)
     {
-        _shell = shell;
-        shell.DataReceived += (_, e) => DataReceived?.Invoke(e.Data);
-        shell.ErrorOccurred += (_, e) => ErrorMessage?.Invoke(e.Exception.Message);
-        shell.Closed += (_, _) => Closed?.Invoke();
+        _lease = lease;
+        _shell = lease.Stream;
+        _shell.DataReceived += (_, e) => DataReceived?.Invoke(e.Data);
+        _shell.ErrorOccurred += (_, e) => ErrorMessage?.Invoke(e.Exception.Message);
+        _shell.Closed += (_, _) => Closed?.Invoke();
     }
 
     public event Action<byte[]>? DataReceived;
@@ -60,7 +62,7 @@ public sealed class SshTerminalChannel : ITerminalChannel
 
     public void Dispose()
     {
-        try { _shell.Dispose(); } catch { /* ignore */ }
+        _lease.Dispose();
     }
 }
 
