@@ -1186,10 +1186,18 @@
                                                     <TextBlock Classes="label" Text="{l:Localize LoginCommands}"
                                                                VerticalAlignment="Center" />
                                                     <Button x:Name="LoginCommandsHelpButton"
-                                                            Content="?"
-                                                            Width="24" Height="24" Padding="0"
+                                                            Width="24" Height="24"
+                                                            MinWidth="0" MinHeight="0" Padding="0"
+                                                            HorizontalContentAlignment="Center"
+                                                            VerticalContentAlignment="Center"
                                                             Click="OnLoginCommandsHelpClick"
-                                                            ToolTip.Tip="{l:Localize LoginCommandsHelpTitle}" />
+                                                            ToolTip.Tip="{l:Localize LoginCommandsHelpTitle}">
+                                                        <TextBlock x:Name="LoginCommandsHelpGlyph"
+                                                                   Text="?"
+                                                                   HorizontalAlignment="Center"
+                                                                   VerticalAlignment="Center"
+                                                                   TextAlignment="Center" />
+                                                    </Button>
                                                 </StackPanel>
                                                 <StackPanel Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2"
                                                             Spacing="8">

@@ -298,6 +298,19 @@ try
     Check(!mainWindowXaml.Contains("LoginCommandsFlowPreview", StringComparison.Ordinal)
           && mainWindowXaml.Contains("LoginCommandsValidationMessage", StringComparison.Ordinal),
           "SSH login commands show validation errors without the parsed flow text");
+    Check(mainWindowXaml.Contains(
+              "x:Name=\"LoginCommandsHelpGlyph\"",
+              StringComparison.Ordinal)
+          && mainWindowXaml.Contains(
+              "HorizontalContentAlignment=\"Center\"",
+              StringComparison.Ordinal)
+          && mainWindowXaml.Contains(
+              "VerticalContentAlignment=\"Center\"",
+              StringComparison.Ordinal)
+          && mainWindowXaml.Contains(
+              "MinWidth=\"0\" MinHeight=\"0\" Padding=\"0\"",
+              StringComparison.Ordinal),
+          "The login-command help glyph is centered inside its button");
     Check(!mainWindowXaml.Contains("BastionProfileUsageText", StringComparison.Ordinal)
           && typeof(BastionLoginProfileStore).GetMethod("GetUsageCount") is null,
           "Bastion templates expose no connection-count statistic");
