@@ -9,6 +9,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
+using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
@@ -331,7 +332,7 @@ public partial class MainWindow : Window
             Name = "AboutVersionText",
             Text = (DataContext as MainWindowViewModel)?.VersionDisplay ?? Localizer.Get("StatusDevBuild"),
             HorizontalAlignment = HorizontalAlignment.Center,
-            Foreground = Brushes.Gray,
+            Classes = { "hint" },
         };
         var homepageText = new SelectableTextBlock
         {
@@ -357,6 +358,7 @@ public partial class MainWindow : Window
             Content = Localizer.Get("DialogOk"),
             HorizontalAlignment = HorizontalAlignment.Center,
             MinWidth = 88,
+            Classes = { "accent" },
         };
         var dialog = new Window
         {
@@ -2801,6 +2803,7 @@ public partial class MainWindow : Window
             Content = Localizer.Get("DialogYes"),
             MinWidth = 80,
             IsDefault = true,
+            Classes = { "accent" },
         };
         var no = new Button
         {
@@ -2819,7 +2822,7 @@ public partial class MainWindow : Window
             CanResize = false,
             Content = new StackPanel
             {
-                Margin = new Avalonia.Thickness(16),
+                Margin = new Avalonia.Thickness(20),
                 Spacing = 16,
                 Children =
                 {
@@ -2829,7 +2832,7 @@ public partial class MainWindow : Window
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Right,
                         Spacing = 8,
-                        Children = { yes, no },
+                        Children = { no, yes },
                     },
                 },
             },
@@ -2894,8 +2897,8 @@ public partial class MainWindow : Window
                     {
                         Text = hint,
                         TextWrapping = TextWrapping.Wrap,
-                        Opacity = 0.68,
                         FontSize = 11,
+                        Classes = { "hint" },
                     },
                     editorControl,
                 },
@@ -2907,6 +2910,7 @@ public partial class MainWindow : Window
             Content = Localizer.Get("BastionTemplateSave"),
             MinWidth = 112,
             IsDefault = true,
+            Classes = { "accent" },
         };
         var cancel = new Button
         {
@@ -3018,6 +3022,7 @@ public partial class MainWindow : Window
             Content = Localizer.Get("Close"),
             HorizontalAlignment = HorizontalAlignment.Right,
             MinWidth = 88,
+            Classes = { "accent" },
         };
         var rows = new StackPanel { Spacing = 7 };
 
@@ -3113,7 +3118,13 @@ public partial class MainWindow : Window
         var tcs = new TaskCompletionSource<string?>();
 
         var input = new TextBox { Text = initial };
-        var ok = new Button { Content = Localizer.Get("DialogOk"), MinWidth = 80, IsDefault = true };
+        var ok = new Button
+        {
+            Content = Localizer.Get("DialogOk"),
+            MinWidth = 80,
+            IsDefault = true,
+            Classes = { "accent" },
+        };
         var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 80, IsCancel = true };
 
         var dialog = new Window
@@ -3125,7 +3136,7 @@ public partial class MainWindow : Window
             CanResize = false,
             Content = new StackPanel
             {
-                Margin = new Avalonia.Thickness(16),
+                Margin = new Avalonia.Thickness(20),
                 Spacing = 12,
                 Children =
                 {
@@ -3136,7 +3147,7 @@ public partial class MainWindow : Window
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Right,
                         Spacing = 8,
-                        Children = { ok, cancel },
+                        Children = { cancel, ok },
                     },
                 },
             },
@@ -3195,7 +3206,7 @@ public partial class MainWindow : Window
 
         void RefreshCustomPathText()
         {
-            customPathText.Foreground = Avalonia.Media.Brushes.Gray;
+            customPathText[!TextBlock.ForegroundProperty] = new DynamicResourceExtension("TextMutedBrush");
             customPathText.Text = string.IsNullOrWhiteSpace(customPath)
                 ? Localizer.Get("StorageCustomNotSet")
                 : SettingsService.ResolveConfigRoot(StorageLocation.CustomDirectory, customPath);
@@ -3320,7 +3331,13 @@ public partial class MainWindow : Window
         editorRow.Children.Add(editorBox);
         editorRow.Children.Add(editorBrowse);
 
-        var ok = new Button { Content = Localizer.Get("DialogOk"), MinWidth = 80, IsDefault = true };
+        var ok = new Button
+        {
+            Content = Localizer.Get("DialogOk"),
+            MinWidth = 80,
+            IsDefault = true,
+            Classes = { "accent" },
+        };
         var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 80, IsCancel = true };
 
         var dialog = new Window
@@ -3332,7 +3349,7 @@ public partial class MainWindow : Window
             CanResize = false,
             Content = new StackPanel
             {
-                Margin = new Avalonia.Thickness(16),
+                Margin = new Avalonia.Thickness(20),
                 Spacing = 12,
                 Children =
                 {
@@ -3357,7 +3374,7 @@ public partial class MainWindow : Window
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Right,
                         Spacing = 8,
-                        Children = { ok, cancel },
+                        Children = { cancel, ok },
                     },
                 },
             },
@@ -3388,7 +3405,7 @@ public partial class MainWindow : Window
             // open and flag the missing path rather than committing a bad setting.
             if (storage == StorageLocation.CustomDirectory && string.IsNullOrWhiteSpace(customPath))
             {
-                customPathText.Foreground = Avalonia.Media.Brushes.Red;
+                customPathText[!TextBlock.ForegroundProperty] = new DynamicResourceExtension("DangerBrush");
                 customPathText.Text = Localizer.Get("StorageCustomRequired");
                 return;
             }

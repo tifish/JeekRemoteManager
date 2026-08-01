@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Layout;
+using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Media;
 using Jeek.Avalonia.Localization;
 
@@ -40,13 +41,14 @@ public static class MasterPasswordDialog
 
         var error = new TextBlock
         {
-            Foreground = Brushes.IndianRed,
             TextWrapping = TextWrapping.Wrap,
             IsVisible = false,
         };
+        error[!TextBlock.ForegroundProperty] = new DynamicResourceExtension("DangerBrush");
 
         var ok = new Button { Content = Localizer.Get("DialogOk"), MinWidth = 80, IsDefault = true };
         var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 80, IsCancel = true };
+        ok.Classes.Add("accent");
 
         var dialog = new Window
         {
@@ -59,14 +61,14 @@ public static class MasterPasswordDialog
             CanResize = false,
             Content = new StackPanel
             {
-                Margin = new Avalonia.Thickness(16),
+                Margin = new Avalonia.Thickness(20),
                 Spacing = 10,
                 Children =
                 {
                     new TextBlock { Text = prompt, TextWrapping = TextWrapping.Wrap },
-                    new TextBlock { Text = Localizer.Get("MasterNewPassword") },
+                    new TextBlock { Text = Localizer.Get("MasterNewPassword"), Classes = { "label" } },
                     newBox,
-                    new TextBlock { Text = Localizer.Get("MasterConfirmPassword") },
+                    new TextBlock { Text = Localizer.Get("MasterConfirmPassword"), Classes = { "label" } },
                     confirmBox,
                     reveal,
                     error,
@@ -75,7 +77,7 @@ public static class MasterPasswordDialog
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Right,
                         Spacing = 8,
-                        Children = { ok, cancel },
+                        Children = { cancel, ok },
                     },
                 },
             },
@@ -137,13 +139,14 @@ public static class MasterPasswordDialog
 
         var error = new TextBlock
         {
-            Foreground = Brushes.IndianRed,
             TextWrapping = TextWrapping.Wrap,
             IsVisible = false,
         };
+        error[!TextBlock.ForegroundProperty] = new DynamicResourceExtension("DangerBrush");
 
         var ok = new Button { Content = Localizer.Get("DialogOk"), MinWidth = 80, IsDefault = true };
         var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 80, IsCancel = true };
+        ok.Classes.Add("accent");
 
         var dialog = new Window
         {
@@ -156,12 +159,12 @@ public static class MasterPasswordDialog
             CanResize = false,
             Content = new StackPanel
             {
-                Margin = new Avalonia.Thickness(16),
+                Margin = new Avalonia.Thickness(20),
                 Spacing = 10,
                 Children =
                 {
                     new TextBlock { Text = prompt, TextWrapping = TextWrapping.Wrap },
-                    new TextBlock { Text = Localizer.Get("MasterNewPassword") },
+                    new TextBlock { Text = Localizer.Get("MasterNewPassword"), Classes = { "label" } },
                     passwordBox,
                     reveal,
                     error,
@@ -170,7 +173,7 @@ public static class MasterPasswordDialog
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Right,
                         Spacing = 8,
-                        Children = { ok, cancel },
+                        Children = { cancel, ok },
                     },
                 },
             },

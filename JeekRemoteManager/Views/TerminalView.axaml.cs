@@ -1230,13 +1230,14 @@ public partial class TerminalView : UserControl
                 {
                     Text = string.Format(LocalizerGet("AiCliDangerPrompt"), Environment.NewLine, command),
                     TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-                    Margin = new Avalonia.Thickness(16),
+                    Margin = new Avalonia.Thickness(20),
                 };
                 var allow = new Button
                 {
                     Content = LocalizerGet("AiCliDangerAllow"),
                     Margin = new Avalonia.Thickness(8),
                     IsDefault = true,
+                    Classes = { "accent" },
                 };
                 var deny = new Button
                 {
@@ -1257,7 +1258,7 @@ public partial class TerminalView : UserControl
                         {
                             Orientation = Avalonia.Layout.Orientation.Horizontal,
                             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
-                            Margin = new Avalonia.Thickness(8),
+                            Margin = new Avalonia.Thickness(12, 8, 12, 12),
                             [DockPanel.DockProperty] = Dock.Bottom,
                             Children = { deny, allow },
                         },

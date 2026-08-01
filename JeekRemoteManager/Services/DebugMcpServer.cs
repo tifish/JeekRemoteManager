@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -397,10 +398,10 @@ internal static class DebugMcpServer
             {
                 dialog.Show(main);
                 var descendants = dialog.GetVisualDescendants().OfType<StyledElement>().ToArray();
-                var version = descendants
+                var versionBlock = descendants
                     .OfType<TextBlock>()
-                    .FirstOrDefault(control => control.Name == "AboutVersionText")
-                    ?.Text ?? "";
+                    .FirstOrDefault(control => control.Name == "AboutVersionText");
+                var version = versionBlock?.Text ?? "";
                 var homepage = descendants
                     .OfType<SelectableTextBlock>()
                     .FirstOrDefault(control => control.Name == "AboutHomepageText")
@@ -408,19 +409,45 @@ internal static class DebugMcpServer
                 var homepageButton = descendants
                     .OfType<Button>()
                     .FirstOrDefault(control => control.Name == "AboutHomepageButton");
+                var closeButton = descendants
+                    .OfType<Button>()
+                    .FirstOrDefault(control =>
+                        control.Content?.ToString() == Localizer.Get("DialogOk"));
                 var title = dialog.Title ?? "";
-                var ok = dialog.IsVisible
+
+                // Dialog chrome must share MainWindow's app palette (not Fluent defaults).
+                var dialogBg = (dialog.Background as ISolidColorBrush)?.Color;
+                var mainBg = (main.Background as ISolidColorBrush)?.Color;
+                var versionFg = (versionBlock?.Foreground as ISolidColorBrush)?.Color;
+                var closeBg = (closeButton?.Background as ISolidColorBrush)?.Color;
+                var versionUsesHint = versionBlock?.Classes.Contains("hint") == true;
+                var closeIsAccent = closeButton?.Classes.Contains("accent") == true;
+                var contentOk = dialog.IsVisible
                          && title == Localizer.Get("About")
                          && version.Length > 0
                          && homepage == Views.MainWindow.ProjectHomepage
                          && homepageButton?.Content?.ToString() == Localizer.Get("ProjectHomepage");
+                var themeOk = dialogBg is { } db
+                              && mainBg is { } mb
+                              && db == mb
+                              && versionUsesHint
+                              && closeIsAccent
+                              && versionFg is not null
+                              && closeBg is not null;
+                var ok = contentOk && themeOk;
 
                 return (ok,
                     $"{(ok ? "PASS" : "FAIL")}: About dialog\n"
                     + $"title: {title}\n"
                     + $"version: {version}\n"
                     + $"homepage: {homepage}\n"
-                    + $"visible: {dialog.IsVisible}");
+                    + $"visible: {dialog.IsVisible}\n"
+                    + $"theme.dialogBackground: {dialogBg}\n"
+                    + $"theme.mainBackground: {mainBg}\n"
+                    + $"theme.versionForeground: {versionFg}\n"
+                    + $"theme.closeBackground: {closeBg}\n"
+                    + $"theme.versionHintClass: {versionUsesHint}\n"
+                    + $"theme.closeAccentClass: {closeIsAccent}");
             }
             finally
             {

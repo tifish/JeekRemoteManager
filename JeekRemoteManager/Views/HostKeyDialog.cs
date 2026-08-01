@@ -54,6 +54,15 @@ public static class HostKeyDialog
             IsDefault = true,
             IsCancel = true,
         };
+        trust.Classes.Add("accent");
+
+        var hint = new TextBlock
+        {
+            Text = Localizer.Get("HostKeyHint"),
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 12,
+            Classes = { "hint" },
+        };
 
         var dialog = new Window
         {
@@ -66,7 +75,7 @@ public static class HostKeyDialog
             CanResize = false,
             Content = new StackPanel
             {
-                Margin = new Avalonia.Thickness(16),
+                Margin = new Avalonia.Thickness(20),
                 Spacing = 10,
                 Children =
                 {
@@ -81,19 +90,13 @@ public static class HostKeyDialog
                         FontFamily = new FontFamily("Consolas"),
                         TextWrapping = TextWrapping.Wrap,
                     },
-                    new TextBlock
-                    {
-                        Text = Localizer.Get("HostKeyHint"),
-                        TextWrapping = TextWrapping.Wrap,
-                        Foreground = Brushes.Gray,
-                        FontSize = 12,
-                    },
+                    hint,
                     new StackPanel
                     {
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Right,
                         Spacing = 8,
-                        Children = { trust, reject },
+                        Children = { reject, trust },
                     },
                 },
             },

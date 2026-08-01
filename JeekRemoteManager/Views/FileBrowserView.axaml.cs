@@ -372,7 +372,13 @@ public partial class FileBrowserView : UserControl
             return Task.FromResult(false);
 
         var tcs = new TaskCompletionSource<bool>();
-        var yes = new Button { Content = Localizer.Get("DialogYes"), MinWidth = 80, IsDefault = true };
+        var yes = new Button
+        {
+            Content = Localizer.Get("DialogYes"),
+            MinWidth = 80,
+            IsDefault = true,
+            Classes = { "accent" },
+        };
         var no = new Button { Content = Localizer.Get("DialogNo"), MinWidth = 80, IsCancel = true };
 
         var dialog = new Window
@@ -384,7 +390,7 @@ public partial class FileBrowserView : UserControl
             CanResize = false,
             Content = new StackPanel
             {
-                Margin = new Avalonia.Thickness(16),
+                Margin = new Avalonia.Thickness(20),
                 Spacing = 16,
                 Children =
                 {
@@ -394,7 +400,7 @@ public partial class FileBrowserView : UserControl
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Right,
                         Spacing = 8,
-                        Children = { yes, no },
+                        Children = { no, yes },
                     },
                 },
             },
@@ -415,7 +421,13 @@ public partial class FileBrowserView : UserControl
 
         var tcs = new TaskCompletionSource<string?>();
         var input = new TextBox { Text = initial };
-        var ok = new Button { Content = Localizer.Get("DialogOk"), MinWidth = 80, IsDefault = true };
+        var ok = new Button
+        {
+            Content = Localizer.Get("DialogOk"),
+            MinWidth = 80,
+            IsDefault = true,
+            Classes = { "accent" },
+        };
         var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 80, IsCancel = true };
 
         var dialog = new Window
@@ -427,7 +439,7 @@ public partial class FileBrowserView : UserControl
             CanResize = false,
             Content = new StackPanel
             {
-                Margin = new Avalonia.Thickness(16),
+                Margin = new Avalonia.Thickness(20),
                 Spacing = 12,
                 Children =
                 {
@@ -438,7 +450,7 @@ public partial class FileBrowserView : UserControl
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Right,
                         Spacing = 8,
-                        Children = { ok, cancel },
+                        Children = { cancel, ok },
                     },
                 },
             },

@@ -10,32 +10,39 @@
     </Application.DataTemplates>
 
     <Application.Resources>
-        <!-- Terminal primary mono font; CJK missing glyphs use FontManagerOptions.FontFallbacks. -->
-        <x:String x:Key="SvcSystems.UI.TerminalFontFamily">Cascadia Mono, Consolas, Microsoft YaHei UI, Microsoft YaHei, NSimSun, Noto Sans SC, monospace</x:String>
-        <!-- Balanced ANSI palette for the embedded SSH terminal. -->
-        <SolidColorBrush x:Key="SvcSystems.UI.TerminalCaretBrush" Color="#D8E2EA" />
-        <SolidColorBrush x:Key="SvcSystems.UI.TerminalSelectionBrush" Color="#405E81AC" />
-        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor0" Color="#151B22" />
-        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor1" Color="#D66F7B" />
-        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor2" Color="#8DCB6E" />
-        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor3" Color="#DDB858" />
-        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor4" Color="#63A4DC" />
-        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor5" Color="#C27CC8" />
-        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor6" Color="#58BFD0" />
-        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor7" Color="#D6DEE8" />
-        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor8" Color="#66717F" />
-        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor9" Color="#EA8791" />
-        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor10" Color="#A4DA82" />
-        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor11" Color="#E8C96E" />
-        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor12" Color="#82BDF0" />
-        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor13" Color="#D794D8" />
-        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor14" Color="#76D5E2" />
-        <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor15" Color="#F0F4F8" />
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- Shared chrome palette for MainWindow and every dialog window. -->
+                <ResourceInclude Source="avares://JeekRemoteManager/Themes/AppBrushes.axaml" />
+            </ResourceDictionary.MergedDictionaries>
 
-        <!-- Fluent default scaleX/Y(0.125) shrinks hit-testing with the visual.
-             Force identity; thin look is painted inside a full-size hit plate. -->
-        <TransformOperations x:Key="VerticalSmallScrollThumbScaleTransform">none</TransformOperations>
-        <TransformOperations x:Key="HorizontalSmallScrollThumbScaleTransform">none</TransformOperations>
+            <!-- Terminal primary mono font; CJK missing glyphs use FontManagerOptions.FontFallbacks. -->
+            <x:String x:Key="SvcSystems.UI.TerminalFontFamily">Cascadia Mono, Consolas, Microsoft YaHei UI, Microsoft YaHei, NSimSun, Noto Sans SC, monospace</x:String>
+            <!-- Balanced ANSI palette for the embedded SSH terminal. -->
+            <SolidColorBrush x:Key="SvcSystems.UI.TerminalCaretBrush" Color="#D8E2EA" />
+            <SolidColorBrush x:Key="SvcSystems.UI.TerminalSelectionBrush" Color="#405E81AC" />
+            <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor0" Color="#151B22" />
+            <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor1" Color="#D66F7B" />
+            <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor2" Color="#8DCB6E" />
+            <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor3" Color="#DDB858" />
+            <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor4" Color="#63A4DC" />
+            <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor5" Color="#C27CC8" />
+            <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor6" Color="#58BFD0" />
+            <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor7" Color="#D6DEE8" />
+            <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor8" Color="#66717F" />
+            <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor9" Color="#EA8791" />
+            <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor10" Color="#A4DA82" />
+            <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor11" Color="#E8C96E" />
+            <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor12" Color="#82BDF0" />
+            <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor13" Color="#D794D8" />
+            <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor14" Color="#76D5E2" />
+            <SolidColorBrush x:Key="SvcSystems.UI.TerminalColor15" Color="#F0F4F8" />
+
+            <!-- Fluent default scaleX/Y(0.125) shrinks hit-testing with the visual.
+                 Force identity; thin look is painted inside a full-size hit plate. -->
+            <TransformOperations x:Key="VerticalSmallScrollThumbScaleTransform">none</TransformOperations>
+            <TransformOperations x:Key="HorizontalSmallScrollThumbScaleTransform">none</TransformOperations>
+        </ResourceDictionary>
     </Application.Resources>
 
     <TrayIcon.Icons>
@@ -52,9 +59,8 @@
         <FluentTheme />
         <!-- Terminal control default font + 256-color palette resources. -->
         <StyleInclude Source="avares://SvcSystems.UI.Terminal/Styles/Colors.axaml" />
-        <Style Selector="Window">
-            <Setter Property="FontFamily" Value="Inter, Segoe UI" />
-        </Style>
+        <!-- Shared chrome styles (buttons, inputs, window background, etc.). -->
+        <StyleInclude Source="avares://JeekRemoteManager/Themes/AppControls.axaml" />
         <!-- Instant expand (default ShowDelay is 500ms). ScrollBar uses IsExpanded
              property only — there is no :expanded pseudo-class. -->
         <Style Selector="ScrollBar">

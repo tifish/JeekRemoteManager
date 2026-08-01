@@ -1,0 +1,77 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Shared chrome palette used by MainWindow and every code-built dialog. -->
+    <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+            <SolidColorBrush x:Key="AppBackgroundBrush" Color="#EEF2F6" />
+            <SolidColorBrush x:Key="ChromeSurfaceBrush" Color="#FBFCFE" />
+            <SolidColorBrush x:Key="SurfaceBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="SurfaceAltBrush" Color="#F6F8FA" />
+            <SolidColorBrush x:Key="InputBackgroundBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="PopupSurfaceBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="PopupBorderBrush" Color="#B9C4D0" />
+            <SolidColorBrush x:Key="BorderBrushSoft" Color="#D4DCE5" />
+            <SolidColorBrush x:Key="BorderBrushStrong" Color="#AEBBC8" />
+            <SolidColorBrush x:Key="TextPrimaryBrush" Color="#17212B" />
+            <SolidColorBrush x:Key="TextMutedBrush" Color="#657385" />
+            <SolidColorBrush x:Key="AccentBrush" Color="#0F766E" />
+            <SolidColorBrush x:Key="AccentHoverBrush" Color="#0B5F59" />
+            <SolidColorBrush x:Key="AccentPressedBrush" Color="#084C47" />
+            <SolidColorBrush x:Key="AccentSoftBrush" Color="#DFF4EE" />
+            <SolidColorBrush x:Key="FloatingActionBrush" Color="#E617212B" />
+            <SolidColorBrush x:Key="SshIconBackgroundBrush" Color="#DBEAFE" />
+            <SolidColorBrush x:Key="SshIconBorderBrush" Color="#93C5FD" />
+            <SolidColorBrush x:Key="SshIconBrush" Color="#1D4ED8" />
+            <SolidColorBrush x:Key="ToolbarDuplicateIconBrush" Color="#2563EB" />
+            <SolidColorBrush x:Key="ToolbarScriptIconBrush" Color="#D97706" />
+            <SolidColorBrush x:Key="ToolbarAiIconBrush" Color="#16A34A" />
+            <SolidColorBrush x:Key="ToolbarFileBrowserIconBrush" Color="#0284C7" />
+            <SolidColorBrush x:Key="ToolbarMonitorIconBrush" Color="#7C3AED" />
+            <SolidColorBrush x:Key="ToolbarKeyIconBrush" Color="#CA8A04" />
+            <SolidColorBrush x:Key="HoverBrush" Color="#EEF6F4" />
+            <SolidColorBrush x:Key="SelectedBrush" Color="#E6F4F1" />
+            <SolidColorBrush x:Key="SelectedBorderBrush" Color="#8CCFC3" />
+            <SolidColorBrush x:Key="TerminalBackgroundBrush" Color="#101820" />
+            <SolidColorBrush x:Key="TerminalForegroundBrush" Color="#DCE7EF" />
+            <SolidColorBrush x:Key="SuccessBrush" Color="#15803D" />
+            <SolidColorBrush x:Key="DangerBrush" Color="#C2410C" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+            <SolidColorBrush x:Key="AppBackgroundBrush" Color="#111417" />
+            <SolidColorBrush x:Key="ChromeSurfaceBrush" Color="#171B20" />
+            <SolidColorBrush x:Key="SurfaceBrush" Color="#1C2229" />
+            <SolidColorBrush x:Key="SurfaceAltBrush" Color="#222A32" />
+            <SolidColorBrush x:Key="InputBackgroundBrush" Color="#151A1F" />
+            <SolidColorBrush x:Key="PopupSurfaceBrush" Color="#1A2027" />
+            <SolidColorBrush x:Key="PopupBorderBrush" Color="#46515E" />
+            <SolidColorBrush x:Key="BorderBrushSoft" Color="#303943" />
+            <SolidColorBrush x:Key="BorderBrushStrong" Color="#4C5967" />
+            <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F2F5F7" />
+            <SolidColorBrush x:Key="TextMutedBrush" Color="#A4AFBB" />
+            <SolidColorBrush x:Key="AccentBrush" Color="#2DD4BF" />
+            <SolidColorBrush x:Key="AccentHoverBrush" Color="#5EEAD4" />
+            <SolidColorBrush x:Key="AccentPressedBrush" Color="#14B8A6" />
+            <SolidColorBrush x:Key="AccentSoftBrush" Color="#123B38" />
+            <SolidColorBrush x:Key="FloatingActionBrush" Color="#E6323B46" />
+            <SolidColorBrush x:Key="SshIconBackgroundBrush" Color="#123A66" />
+            <SolidColorBrush x:Key="SshIconBorderBrush" Color="#60A5FA" />
+            <SolidColorBrush x:Key="SshIconBrush" Color="#BFDBFE" />
+            <SolidColorBrush x:Key="ToolbarDuplicateIconBrush" Color="#93C5FD" />
+            <SolidColorBrush x:Key="ToolbarScriptIconBrush" Color="#F59E0B" />
+            <SolidColorBrush x:Key="ToolbarAiIconBrush" Color="#86EFAC" />
+            <SolidColorBrush x:Key="ToolbarFileBrowserIconBrush" Color="#38BDF8" />
+            <SolidColorBrush x:Key="ToolbarMonitorIconBrush" Color="#C4B5FD" />
+            <SolidColorBrush x:Key="ToolbarKeyIconBrush" Color="#FACC15" />
+            <SolidColorBrush x:Key="HoverBrush" Color="#243332" />
+            <SolidColorBrush x:Key="SelectedBrush" Color="#1F3B39" />
+            <SolidColorBrush x:Key="SelectedBorderBrush" Color="#2DD4BF" />
+            <SolidColorBrush x:Key="TerminalBackgroundBrush" Color="#070B10" />
+            <SolidColorBrush x:Key="TerminalForegroundBrush" Color="#D8E2EA" />
+            <SolidColorBrush x:Key="SuccessBrush" Color="#4ADE80" />
+            <SolidColorBrush x:Key="DangerBrush" Color="#FB7185" />
+        </ResourceDictionary>
+    </ResourceDictionary.ThemeDictionaries>
+
+    <SolidColorBrush x:Key="AccentForegroundBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="FloatingActionBorderBrush" Color="#66FFFFFF" />
+</ResourceDictionary>
