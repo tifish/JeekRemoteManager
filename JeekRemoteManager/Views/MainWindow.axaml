@@ -536,6 +536,15 @@
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center" />
                     </Button>
+                    <Button x:Name="GlobalAgentToolbarButton"
+                            Click="OnGlobalAgentToolbarClick"
+                            ToolTip.Tip="{l:Localize GlobalAiAgentTooltip}"
+                            Classes="toolbar">
+                        <StackPanel Orientation="Horizontal" Spacing="7">
+                            <TextBlock Classes="toolbar-action-icon ai" Text="&#xE99A;" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize GlobalAiAgentShort}" />
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
 
                 <StackPanel x:Name="ToolbarNew" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
@@ -586,15 +595,6 @@
                 </StackPanel>
 
                 <StackPanel x:Name="ToolbarTerminal" Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <Button x:Name="GlobalAgentToolbarButton"
-                            Click="OnGlobalAgentToolbarClick"
-                            ToolTip.Tip="{l:Localize GlobalAiAgentTooltip}"
-                            Classes="toolbar">
-                        <StackPanel Orientation="Horizontal" Spacing="7">
-                            <TextBlock Classes="toolbar-action-icon ai" Text="&#xE99A;" />
-                            <TextBlock Classes="toolbar-label" Text="{l:Localize GlobalAiAgentShort}" />
-                        </StackPanel>
-                    </Button>
                     <Button Click="OnDuplicateSessionToolbarClick"
                             ToolTip.Tip="{l:Localize DuplicateSession}"
                             IsVisible="{Binding IsTerminalActive}"
