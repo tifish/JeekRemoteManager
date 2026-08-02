@@ -3136,6 +3136,9 @@ internal static class DebugMcpServer
                 var overwriteConfirmed =
                     confirmationCount == 2
                     && localizedConfirmation;
+                var buttonLocalized =
+                    insert?.Content?.ToString()
+                    == Localizer.Get("BastionTemplateInsertTypical");
                 var transactionalBeforeSave = string.IsNullOrWhiteSpace(editor.LoginCommands);
 
                 save?.RaiseEvent(
@@ -3160,6 +3163,7 @@ internal static class DebugMcpServer
                     BastionLoginTemplatePreset.UseConnectionCommandsWhenEmpty("custom")
                     == "custom";
                 var ok = dialogFilled
+                         && buttonLocalized
                          && cancelledOverwritePreserved
                          && overwriteConfirmed
                          && transactionalBeforeSave
@@ -3169,6 +3173,7 @@ internal static class DebugMcpServer
                 return (ok,
                     $"{(ok ? "PASS" : "FAIL")}: typical bastion template preset\n"
                     + $"buttonFound={insert is not null}\n"
+                    + $"buttonLocalized={buttonLocalized}\n"
                     + $"cancelledOverwritePreserved={cancelledOverwritePreserved}\n"
                     + $"overwriteConfirmed={overwriteConfirmed}\n"
                     + $"dialogFilled={dialogFilled}\n"
