@@ -34,19 +34,25 @@ public sealed class MasterKeyService
     private byte[]? _masterSecretHash;
 
     /// <summary>
-    /// Blob keys derived from the active master secret, keyed by the blob's own salt.
-    /// Every blob carries its own random salt, so the same blob always derives the same
-    /// key — and showing a connection in the tree decrypts its password (and passphrase)
-    /// again each time, which meant a fresh 210k-iteration derivation per click.
-    /// Always cleared together with the secret: a stale entry would decrypt with a key
-    /// belonging to a master password that is no longer active.
+    /// Decryption keys derived from the active master secret, keyed by the blob's own
+    /// salt. Every blob carries its own random salt, so the same blob always derives the
+    /// same key — and showing a connection in the tree decrypts its password (and
+    /// passphrase) again each time, which meant a fresh 210k-iteration derivation per
+    /// click.
     /// </summary>
     private readonly Dictionary<string, byte[]> _blobKeyCache = new(StringComparer.Ordinal);
     private const int MaxCachedBlobKeys = 512;
 
-    /// <summary>Derives a blob key, or takes it from the cache. Callers must NOT zero
-    /// the returned array: it stays owned by the cache.</summary>
-    private delegate byte[] BlobKeyProvider(ReadOnlySpan<byte> salt);
+    /// <summary>
+    /// Guards the master secret and the derived keys together.
+    ///
+    /// Both are wiped in place when the master password changes, and connections are
+    /// built on background threads while that can happen from the UI thread. Reading
+    /// either outside this lock risks deriving from — or decrypting with — an array that
+    /// is being zeroed, which shows up as a silent "wrong password" on a connection that
+    /// should have worked. So the key material is never touched outside the lock.
+    /// </summary>
+    private readonly object _secretGate = new();
 
     /// <summary>The session-wide instance, used by <see cref="PasswordProtector"/>.</summary>
     public static MasterKeyService? Current { get; set; }
@@ -73,14 +79,15 @@ public sealed class MasterKeyService
     /// </summary>
     public bool VerifyPassword(string password)
     {
-        if (_masterSecretHash is null)
-            return false;
-
         var candidate = PasswordToBytes(password);
         try
         {
             var candidateHash = SHA256.HashData(candidate);
-            return CryptographicOperations.FixedTimeEquals(candidateHash, _masterSecretHash);
+            lock (_secretGate)
+            {
+                return _masterSecretHash is not null
+                       && CryptographicOperations.FixedTimeEquals(candidateHash, _masterSecretHash);
+            }
         }
         finally
         {
@@ -151,10 +158,14 @@ public sealed class MasterKeyService
     {
         if (string.IsNullOrEmpty(clearText))
             return "";
-        if (_masterSecret is null)
-            throw new InvalidOperationException("Master password is locked.");
 
-        return EncryptWithSecret(_masterSecret, clearText, GetOrDeriveBlobKey);
+        lock (_secretGate)
+        {
+            if (_masterSecret is null)
+                throw new InvalidOperationException("Master password is locked.");
+
+            return EncryptWithSecret(_masterSecret, clearText);
+        }
     }
 
     /// <summary>Decrypts a jrm1 blob. Returns "" on failure.</summary>
@@ -174,10 +185,9 @@ public sealed class MasterKeyService
         clear = "";
         if (string.IsNullOrEmpty(encryptedBase64))
             return true;
-        if (_masterSecret is null)
-            return false;
 
-        return TryDecryptWithSecret(_masterSecret, encryptedBase64, out clear, GetOrDeriveBlobKey);
+        // The locked-state check happens under the lock, with the secret it will use.
+        return TryDecryptWithCachedKey(encryptedBase64, out clear);
     }
 
     // --- Static helpers (used by startup validation, re-encryption sweeps, and tools) ---
@@ -225,14 +235,27 @@ public sealed class MasterKeyService
 
     private void SetMasterSecret(byte[] secret, bool cache)
     {
-        ClearInMemorySecret();
-        _masterSecret = (byte[])secret.Clone();
-        _masterSecretHash = SHA256.HashData(_masterSecret);
+        lock (_secretGate)
+        {
+            ClearInMemorySecretLocked();
+            _masterSecret = (byte[])secret.Clone();
+            _masterSecretHash = SHA256.HashData(_masterSecret);
+        }
+
+        // File I/O stays outside the lock; the caller's copy is just as good a source.
         if (cache)
-            CacheSecret(_masterSecret);
+            CacheSecret(secret);
     }
 
     private void ClearInMemorySecret()
+    {
+        lock (_secretGate)
+            ClearInMemorySecretLocked();
+    }
+
+    /// <summary>Caller must hold <see cref="_secretGate"/>. Wiping in place is safe here
+    /// precisely because no key material is ever used outside that lock.</summary>
+    private void ClearInMemorySecretLocked()
     {
         if (_masterSecret is not null)
             CryptographicOperations.ZeroMemory(_masterSecret);
@@ -241,39 +264,53 @@ public sealed class MasterKeyService
 
         _masterSecret = null;
         _masterSecretHash = null;
-
-        lock (_blobKeyCache)
-        {
-            foreach (var key in _blobKeyCache.Values)
-                CryptographicOperations.ZeroMemory(key);
-            _blobKeyCache.Clear();
-        }
+        ClearBlobKeyCacheLocked();
     }
 
-    private byte[] GetOrDeriveBlobKey(ReadOnlySpan<byte> salt)
+    /// <summary>Caller must hold <see cref="_secretGate"/>.</summary>
+    private void ClearBlobKeyCacheLocked()
     {
-        var id = Convert.ToHexString(salt);
-        lock (_blobKeyCache)
+        foreach (var key in _blobKeyCache.Values)
+            CryptographicOperations.ZeroMemory(key);
+        _blobKeyCache.Clear();
+    }
+
+    /// <summary>
+    /// Decrypts using a key cached against the blob's own salt.
+    ///
+    /// The key is used while the cache lock is held and never handed out, so wiping the
+    /// cache cannot zero an array another thread is still decrypting with — connections
+    /// are built on background threads, and the master password can be changed from the
+    /// UI thread at the same time.
+    /// </summary>
+    private bool TryDecryptWithCachedKey(string encryptedBase64, out string clear)
+    {
+        clear = "";
+        if (!TryParseBlob(encryptedBase64, out var blob))
+            return false;
+
+        var saltId = Convert.ToHexString(blob.AsSpan(0, SaltSize));
+        lock (_secretGate)
         {
-            if (_blobKeyCache.TryGetValue(id, out var cached))
-                return cached;
+            if (!_blobKeyCache.TryGetValue(saltId, out var key))
+            {
+                if (_masterSecret is null)
+                    return false;
+
+                // Bounded so a long session cannot grow it without limit. In practice it
+                // holds one entry per stored secret, far below the cap.
+                if (_blobKeyCache.Count >= MaxCachedBlobKeys)
+                    ClearBlobKeyCacheLocked();
+
+                // Deriving under the lock costs a cold caller the wait, but it is what
+                // makes wiping safe, and two callers after the same blob now share one
+                // derivation instead of racing to do it twice.
+                key = DeriveBlobKey(_masterSecret, blob.AsSpan(0, SaltSize));
+                _blobKeyCache[saltId] = key;
+            }
+
+            return TryDecryptBlobWithKey(blob, key, out clear);
         }
-
-        var secret = _masterSecret
-                     ?? throw new InvalidOperationException("Master password is locked.");
-        var derived = DeriveBlobKey(secret, salt);
-
-        lock (_blobKeyCache)
-        {
-            // Bounded so a long session cannot grow it without limit. Entries are dropped
-            // rather than zeroed here: another thread may still be using one, and the
-            // master secret itself is already held in memory anyway.
-            if (_blobKeyCache.Count >= MaxCachedBlobKeys)
-                _blobKeyCache.Clear();
-            _blobKeyCache[id] = derived;
-        }
-
-        return derived;
     }
 
     private static void CacheSecret(byte[] secret)
@@ -307,19 +344,16 @@ public sealed class MasterKeyService
 
     // --- jrm1 AES-GCM primitives ---
 
-    private static string EncryptWithSecret(
-        byte[] masterSecret,
-        string clearText,
-        BlobKeyProvider? provideKey = null)
+    private static string EncryptWithSecret(byte[] masterSecret, string clearText)
     {
         var salt = RandomNumberGenerator.GetBytes(SaltSize);
         var nonce = RandomNumberGenerator.GetBytes(NonceSize);
         var plain = Encoding.UTF8.GetBytes(clearText);
         var cipher = new byte[plain.Length];
         var tag = new byte[TagSize];
-        // A cached key is owned by the cache and must not be zeroed below.
-        var ownsKey = provideKey is null;
-        var key = provideKey is null ? DeriveBlobKey(masterSecret, salt) : provideKey(salt);
+        // Never cached: the salt is brand new, so a cache entry could never be reused
+        // and would only push out decryption keys that can be.
+        var key = DeriveBlobKey(masterSecret, salt);
 
         try
         {
@@ -335,57 +369,73 @@ public sealed class MasterKeyService
         }
         finally
         {
-            if (ownsKey)
-                CryptographicOperations.ZeroMemory(key);
+            CryptographicOperations.ZeroMemory(key);
             CryptographicOperations.ZeroMemory(plain);
         }
     }
 
-    private static bool TryDecryptWithSecret(
-        byte[] masterSecret,
-        string encryptedBase64,
-        out string clear,
-        BlobKeyProvider? provideKey = null)
+    private static bool TryDecryptWithSecret(byte[] masterSecret, string encryptedBase64, out string clear)
     {
         clear = "";
+        if (!TryParseBlob(encryptedBase64, out var blob))
+            return false;
+
+        var key = DeriveBlobKey(masterSecret, blob.AsSpan(0, SaltSize));
+        try
+        {
+            return TryDecryptBlobWithKey(blob, key, out clear);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(key);
+        }
+    }
+
+    /// <summary>Splits a jrm1 envelope out of its prefix and Base64 wrapper.</summary>
+    private static bool TryParseBlob(string encryptedBase64, out byte[] blob)
+    {
+        blob = [];
         if (!encryptedBase64.StartsWith(BlobPrefix, StringComparison.Ordinal))
             return false;
 
         try
         {
-            var blob = Convert.FromBase64String(encryptedBase64[BlobPrefix.Length..]);
-            if (blob.Length < SaltSize + NonceSize + TagSize)
-                return false;
-
-            var salt = blob.AsSpan(0, SaltSize);
-            var nonce = blob.AsSpan(SaltSize, NonceSize);
-            var cipherLen = blob.Length - SaltSize - NonceSize - TagSize;
-            var cipher = blob.AsSpan(SaltSize + NonceSize, cipherLen);
-            var tag = blob.AsSpan(SaltSize + NonceSize + cipherLen, TagSize);
-            var plain = new byte[cipherLen];
-            var ownsKey = provideKey is null;
-            var key = provideKey is null ? DeriveBlobKey(masterSecret, salt) : provideKey(salt);
-
-            try
-            {
-                using (var gcm = new AesGcm(key, TagSize))
-                    gcm.Decrypt(nonce, cipher, tag, plain);
-
-                clear = Encoding.UTF8.GetString(plain);
-                return true;
-            }
-            finally
-            {
-                if (ownsKey)
-                    CryptographicOperations.ZeroMemory(key);
-                CryptographicOperations.ZeroMemory(plain);
-            }
+            blob = Convert.FromBase64String(encryptedBase64[BlobPrefix.Length..]);
         }
         catch
         {
-            // Wrong password (GCM tag mismatch), corrupted blob, or bad Base64.
+            return false;
+        }
+
+        return blob.Length >= SaltSize + NonceSize + TagSize;
+    }
+
+    private static bool TryDecryptBlobWithKey(byte[] blob, byte[] key, out string clear)
+    {
+        clear = "";
+        var cipherLen = blob.Length - SaltSize - NonceSize - TagSize;
+        var nonce = blob.AsSpan(SaltSize, NonceSize);
+        var cipher = blob.AsSpan(SaltSize + NonceSize, cipherLen);
+        var tag = blob.AsSpan(SaltSize + NonceSize + cipherLen, TagSize);
+        var plain = new byte[cipherLen];
+
+        try
+        {
+            using (var gcm = new AesGcm(key, TagSize))
+                gcm.Decrypt(nonce, cipher, tag, plain);
+
+            clear = Encoding.UTF8.GetString(plain);
+            return true;
+        }
+        catch
+        {
+            // Wrong key (GCM tag mismatch) or a corrupted blob.
             clear = "";
             return false;
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(plain);
         }
     }
 
