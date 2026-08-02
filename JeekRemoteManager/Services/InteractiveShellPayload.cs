@@ -141,11 +141,24 @@ public sealed class InteractiveShellPayloadMonitor
     private readonly InteractiveShellPayload _payload;
     private readonly object _gate = new();
     private readonly Decoder _decoder = Encoding.UTF8.GetDecoder();
-    private readonly StringBuilder _output = new();
+
+    // The complete command output is kept, because that is what the result hands back.
+    // It lives in a char buffer rather than a StringBuilder so each marker scan can run
+    // over a span of the newly appended region: materializing the whole buffer once per
+    // packet made a large command's output cost O(n^2) in both copying and scanning.
+    private char[] _output = new char[4096];
+    private int _outputLength;
+
     private readonly TaskCompletionSource<bool> _ready =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource<InteractiveShellPayloadResult> _exit =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private bool _readyFound;
+    private int _readyScanFrom;
+    private int _beginScanFrom;
+    private int _exitScanFrom;
+    private int _exitMarkerIndex = -1;
+    private bool _exitReported;
     private int _displayOffset;
     private bool _displayStarted;
     private bool _displayCompleted;
@@ -161,24 +174,20 @@ public sealed class InteractiveShellPayloadMonitor
         if (data.Length == 0)
             return Array.Empty<byte>();
 
-        string text;
         string displayText;
         bool markReady;
         InteractiveShellPayloadResult? result;
 
         lock (_gate)
         {
-            var chars = new char[_decoder.GetCharCount(data, 0, data.Length)];
-            var count = _decoder.GetChars(data, 0, data.Length, chars, 0);
-            text = new string(chars, 0, count);
-            _output.Append(text);
-
-            var output = _output.ToString();
-            markReady = output.Contains(_payload.ReadyMarker, StringComparison.Ordinal);
-            result = TryParseExit(output, out var exitCode)
-                ? new InteractiveShellPayloadResult(exitCode, output)
+            AppendDecoded(data);
+            markReady = ScanForReadyMarker();
+            result = !_exitReported && TryParseExit(out var exitCode)
+                ? new InteractiveShellPayloadResult(exitCode, new string(_output, 0, _outputLength))
                 : null;
-            displayText = ExtractDisplayText(output);
+            if (result is not null)
+                _exitReported = true;
+            displayText = ExtractDisplayText();
         }
 
         if (markReady)
@@ -188,6 +197,42 @@ public sealed class InteractiveShellPayloadMonitor
         return displayText.Length == 0
             ? Array.Empty<byte>()
             : Encoding.UTF8.GetBytes(displayText);
+    }
+
+    private void AppendDecoded(byte[] data)
+    {
+        var maxChars = _decoder.GetCharCount(data, 0, data.Length);
+        EnsureCapacity(_outputLength + maxChars);
+        _outputLength += _decoder.GetChars(data, 0, data.Length, _output, _outputLength);
+    }
+
+    private void EnsureCapacity(int required)
+    {
+        if (_output.Length >= required)
+            return;
+
+        var size = _output.Length;
+        while (size < required)
+            size *= 2;
+        Array.Resize(ref _output, size);
+    }
+
+    /// <summary>
+    /// Searches only the region appended since the last call, overlapping by the marker
+    /// length so a marker split across packets is still found, and stops once it is seen.
+    /// </summary>
+    private bool ScanForReadyMarker()
+    {
+        if (_readyFound)
+            return false;
+
+        var marker = _payload.ReadyMarker;
+        var from = Math.Max(0, _readyScanFrom - (marker.Length - 1));
+        var found = _output.AsSpan(from, _outputLength - from).IndexOf(marker.AsSpan()) >= 0;
+        _readyScanFrom = _outputLength;
+        if (found)
+            _readyFound = true;
+        return found;
     }
 
     public void Fail(Exception exception)
@@ -213,67 +258,87 @@ public sealed class InteractiveShellPayloadMonitor
     public Task<InteractiveShellPayloadResult> WaitForExitAsync(CancellationToken cancellationToken) =>
         _exit.Task.WaitAsync(cancellationToken);
 
-    private bool TryParseExit(string output, out int exitCode)
+    /// <summary>
+    /// Keeps the last marker seen, so scanning only the newly appended region stays
+    /// equivalent to a LastIndexOf over the whole output.
+    /// </summary>
+    private bool TryParseExit(out int exitCode)
     {
         exitCode = -1;
-        var index = output.LastIndexOf(_payload.ExitMarkerPrefix, StringComparison.Ordinal);
-        if (index < 0)
+        var prefix = _payload.ExitMarkerPrefix;
+
+        var from = Math.Max(0, _exitScanFrom - (prefix.Length - 1));
+        var relative = _output.AsSpan(from, _outputLength - from).LastIndexOf(prefix.AsSpan());
+        if (relative >= 0)
+            _exitMarkerIndex = from + relative;
+        _exitScanFrom = _outputLength;
+
+        if (_exitMarkerIndex < 0)
             return false;
 
-        var start = index + _payload.ExitMarkerPrefix.Length;
+        var start = _exitMarkerIndex + prefix.Length;
         var end = start;
-        if (end < output.Length && output[end] == '-')
+        if (end < _outputLength && _output[end] == '-')
             end++;
-        while (end < output.Length && char.IsDigit(output[end]))
+        while (end < _outputLength && char.IsDigit(_output[end]))
             end++;
 
-        if (end <= start || !int.TryParse(output.AsSpan(start, end - start), out exitCode))
+        if (end <= start || !int.TryParse(_output.AsSpan(start, end - start), out exitCode))
             return false;
 
-        return end < output.Length && output[end] is '\r' or '\n';
+        return end < _outputLength && _output[end] is '\r' or '\n';
     }
 
-    private string ExtractDisplayText(string output)
+    private string ExtractDisplayText()
     {
         if (_displayCompleted)
         {
-            _displayOffset = output.Length;
+            _displayOffset = _outputLength;
             return "";
         }
 
         if (!_displayStarted)
         {
-            var beginIndex = output.IndexOf(_payload.BeginMarker, StringComparison.Ordinal);
-            if (beginIndex < 0)
+            var beginMarker = _payload.BeginMarker;
+            var beginFrom = Math.Max(0, _beginScanFrom - (beginMarker.Length - 1));
+            var beginRelative = _output
+                .AsSpan(beginFrom, _outputLength - beginFrom)
+                .IndexOf(beginMarker.AsSpan());
+            _beginScanFrom = _outputLength;
+            if (beginRelative < 0)
             {
-                _displayOffset = output.Length;
+                _displayOffset = _outputLength;
                 return "";
             }
 
             _displayStarted = true;
-            _displayOffset = beginIndex + _payload.BeginMarker.Length;
+            _displayOffset = beginFrom + beginRelative + beginMarker.Length;
         }
 
-        var exitIndex = output.IndexOf(_payload.ExitMarkerPrefix, _displayOffset, StringComparison.Ordinal);
-        if (exitIndex < 0)
+        // From here the scan is already incremental: _displayOffset only moves forward.
+        var exitRelative = _output
+            .AsSpan(_displayOffset, _outputLength - _displayOffset)
+            .IndexOf(_payload.ExitMarkerPrefix.AsSpan());
+        if (exitRelative < 0)
         {
-            if (output.Length <= _displayOffset)
+            if (_outputLength <= _displayOffset)
                 return "";
 
-            var displayText = output[_displayOffset..];
-            _displayOffset = output.Length;
+            var displayText = new string(_output, _displayOffset, _outputLength - _displayOffset);
+            _displayOffset = _outputLength;
             return WithholdTrailingNewlines(displayText);
         }
 
-        var beforeExitMarker = output[_displayOffset..exitIndex];
-        var markerLineEnd = output.IndexOf('\n', exitIndex);
+        var exitIndex = _displayOffset + exitRelative;
+        var beforeExitMarker = new string(_output, _displayOffset, exitIndex - _displayOffset);
+        var markerLineEnd = _output.AsSpan(exitIndex, _outputLength - exitIndex).IndexOf('\n');
         if (markerLineEnd < 0)
         {
             _displayOffset = exitIndex;
             return WithholdTrailingNewlines(beforeExitMarker);
         }
 
-        _displayOffset = output.Length;
+        _displayOffset = _outputLength;
         _displayCompleted = true;
 
         // Drop trailing newlines entirely: the exit-marker printf always injects one,
