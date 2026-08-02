@@ -58,13 +58,17 @@ public sealed class Utf8ChunkAssembler
             if ((b & 0b1100_0000) == 0b1000_0000)
                 continue; // Continuation byte; keep walking back to its lead byte.
 
+            // Only real lead bytes start a sequence worth waiting for. C0/C1 (overlong)
+            // and F5-FF (beyond U+10FFFF) can never begin one, so withholding them would
+            // strand bytes that the parser should have seen — and drop them outright when
+            // they end the final packet.
             var needed = b switch
             {
                 < 0x80 => 1, // ASCII
-                >= 0xC0 and < 0xE0 => 2,
-                >= 0xE0 and < 0xF0 => 3,
-                >= 0xF0 => 4,
-                _ => 1, // 0x80-0xBF are handled above; anything else is invalid, pass it on.
+                >= 0xC2 and <= 0xDF => 2,
+                >= 0xE0 and <= 0xEF => 3,
+                >= 0xF0 and <= 0xF4 => 4,
+                _ => 1, // 0x80-0xBF handled above; C0/C1 and F5-FF are invalid, pass them on.
             };
 
             return needed <= back ? data.Length : data.Length - back;

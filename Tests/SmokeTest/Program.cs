@@ -1161,6 +1161,41 @@ try
     Check(fixedText.Contains("中文测试", StringComparison.Ordinal) && !fixedText.Contains('\uFFFD'),
           "Terminal receives intact Chinese when fed via Utf8StreamDecoder + Feed(string)");
 
+    // --- Utf8ChunkAssembler (the AI panel feeds bytes straight to the parser) ---
+    var assemblerBytes = Encoding.UTF8.GetBytes("中文 ascii 🎉 テスト");
+    var perByteAssembler = new Utf8ChunkAssembler();
+    var assembled = new List<byte>();
+    var assemblerSplitCharacter = false;
+    foreach (var assemblerByte in assemblerBytes)
+    {
+        var segment = perByteAssembler.Append([assemblerByte]);
+        // Whatever is handed out must stand on its own: no partial character may escape.
+        if (new UTF8Encoding(false, false).GetString(segment.AsSpan()).Contains('�'))
+            assemblerSplitCharacter = true;
+        assembled.AddRange(segment.AsSpan());
+    }
+    Check(assembled.SequenceEqual(assemblerBytes) && !assemblerSplitCharacter,
+          "Utf8ChunkAssembler preserves bytes and never emits a partial character, one byte at a time");
+
+    // Invalid lead bytes can never start a sequence, so they must go straight through
+    // rather than being withheld (and then dropped when the stream ends).
+    foreach (var invalidLead in new byte[] { 0xC0, 0xC1, 0xF5, 0xFF })
+    {
+        var invalidAssembler = new Utf8ChunkAssembler();
+        var passedThrough = invalidAssembler.Append([(byte)'a', invalidLead]);
+        Check(passedThrough.Count == 2 && passedThrough[1] == invalidLead,
+              $"Utf8ChunkAssembler passes invalid lead byte 0x{invalidLead:X2} through instead of withholding it");
+    }
+
+    // A genuinely truncated sequence still waits for the rest.
+    var truncatedAssembler = new Utf8ChunkAssembler();
+    var heldBack = truncatedAssembler.Append(chineseUtf8.AsSpan(0, 2));
+    var completedChar = truncatedAssembler.Append(chineseUtf8.AsSpan(2, 1));
+    Check(heldBack.Count == 0
+          && completedChar.Count == 3
+          && completedChar.AsSpan().SequenceEqual(chineseUtf8.AsSpan(0, 3)),
+          "Utf8ChunkAssembler withholds a truncated multi-byte character until the rest arrives");
+
     // --- Terminal clipboard text ---
     var softWrapTerminal = new TerminalControlModel(new TerminalOptions { Cols = 10, Rows = 5, Scrollback = 10 });
     softWrapTerminal.Feed("abcdefghijklmnop\r\nXYZ");
