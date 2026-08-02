@@ -931,6 +931,7 @@ public partial class TerminalView : UserControl
 
         if (show)
         {
+            _fileBrowserViewModel.NotifyPanelShown();
             // Open at the remembered height (shared across tabs, persisted across runs).
             _fileBrowserHeight = Math.Clamp(
                 (DataContext as MainWindowViewModel)?.FileBrowserPanelHeight ?? _fileBrowserHeight, 120, 1600);
@@ -942,6 +943,7 @@ public partial class TerminalView : UserControl
         }
         else
         {
+            _fileBrowserViewModel.NotifyPanelHidden();
             // Collapse the row so it leaves no gap.
             FileBrowserRow.MinHeight = 0;
             FileBrowserRow.Height = new GridLength(0, GridUnitType.Pixel);

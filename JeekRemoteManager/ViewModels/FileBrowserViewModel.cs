@@ -118,10 +118,15 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     private readonly Dictionary<string, RemoteEditSession> _editSessions = new();
     private IFileSystemSession? _browseSession;
     private IFileSystemSession? _transferSession;
+    private CancellationTokenSource? _hiddenSessionRelease;
+    private int _activeSessionOperations;
+    private bool _isPanelVisible;
+    private bool _sessionsReleasedWhileHidden;
     private bool _loadedOnce;
     private bool _disposed;
 
     private const int ListingCacheCapacity = 256;
+    internal TimeSpan HiddenSessionIdleTimeoutForDebug { get; set; } = TimeSpan.FromMinutes(1);
 
     public FileBrowserViewModel(
         Func<IFileSystemSession> createSession,
@@ -204,10 +209,42 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     /// <summary>First open of the panel: connect and show the home directory.</summary>
     public async Task EnsureLoadedAsync()
     {
-        if (_loadedOnce || _disposed)
+        if (_disposed)
             return;
+
+        if (_loadedOnce)
+        {
+            if (!_sessionsReleasedWhileHidden)
+                return;
+
+            _sessionsReleasedWhileHidden = false;
+            await LoadDirectoryAsync(
+                string.IsNullOrEmpty(CurrentPath) ? null : CurrentPath,
+                bypassCache: true);
+            return;
+        }
+
         await LoadDirectoryAsync(null);
     }
+
+    /// <summary>Marks the browser visible and cancels pending idle teardown.</summary>
+    public void NotifyPanelShown()
+    {
+        _isPanelVisible = true;
+        CancelHiddenSessionRelease();
+    }
+
+    /// <summary>Marks the browser hidden. Connected SFTP sessions are recycled after
+    /// an idle grace period, but never during browsing, transfer, or remote editing.</summary>
+    public void NotifyPanelHidden()
+    {
+        _isPanelVisible = false;
+        ScheduleHiddenSessionRelease();
+    }
+
+    public bool HasBrowseSession => _browseSession is not null;
+
+    public bool HasTransferSession => _transferSession is not null;
 
     // ---- Navigation ----
 
@@ -300,7 +337,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         try
         {
             var session = _browseSession ??= _createSession();
-            var (target, entries) = await session.RunAsync(ops =>
+            var (target, entries) = await RunSessionAsync(session, ops =>
             {
                 var dir = path ?? session.HomePath ?? ops.WorkingDirectory;
                 return (dir, ListEntries(ops, dir));
@@ -405,7 +442,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         try
         {
             var session = _browseSession ??= _createSession();
-            var entries = await session.RunAsync(ops => ListEntries(ops, path));
+            var entries = await RunSessionAsync(session, ops => ListEntries(ops, path));
             if (_disposed)
                 return;
 
@@ -632,7 +669,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         try
         {
             var session = _browseSession ??= _createSession();
-            await session.RunAsync(ops =>
+            await RunSessionAsync(session, ops =>
             {
                 operation(ops);
                 return true;
@@ -773,7 +810,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
             try
             {
                 var session = _transferSession ??= _createSession();
-                var files = await session.RunAsync(ops =>
+                var files = await RunSessionAsync(session, ops =>
                 {
                     var found = new List<(string Remote, string Relative, long Length)>();
                     CollectFilesRecursive(ops, remoteRoot, "", found);
@@ -941,7 +978,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
             }
 
             var session = _transferSession ??= _createSession();
-            await session.RunAsync(ops =>
+            await RunSessionAsync(session, ops =>
             {
                 ExecuteTransfer(ops, item);
                 return true;
@@ -979,6 +1016,24 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         finally
         {
             _transferPump.Release();
+            ScheduleHiddenSessionRelease();
+        }
+    }
+
+    private async Task<T> RunSessionAsync<T>(
+        IFileSystemSession session,
+        Func<IFileSystemOps, T> operation,
+        CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref _activeSessionOperations);
+        try
+        {
+            return await session.RunAsync(operation, cancellationToken);
+        }
+        finally
+        {
+            if (Interlocked.Decrement(ref _activeSessionOperations) == 0)
+                Dispatcher.UIThread.Post(ScheduleHiddenSessionRelease);
         }
     }
 
@@ -1042,7 +1097,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private static void SetTransferState(FileTransferItem item, string status, bool finished, double? progress = null)
+    private void SetTransferState(FileTransferItem item, string status, bool finished, double? progress = null)
     {
         Dispatcher.UIThread.Post(() =>
         {
@@ -1050,7 +1105,77 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
             item.IsFinished = finished;
             if (progress is { } value)
                 item.Progress = value;
+            if (finished)
+                ScheduleHiddenSessionRelease();
         });
+    }
+
+    private void ScheduleHiddenSessionRelease()
+    {
+        if (_disposed || _isPanelVisible || !SupportsPermissions)
+            return;
+
+        CancelHiddenSessionRelease();
+        var cancellation = new CancellationTokenSource();
+        _hiddenSessionRelease = cancellation;
+        _ = ReleaseHiddenSessionsAfterDelayAsync(cancellation);
+    }
+
+    private async Task ReleaseHiddenSessionsAfterDelayAsync(CancellationTokenSource cancellation)
+    {
+        try
+        {
+            await Task.Delay(HiddenSessionIdleTimeoutForDebug, cancellation.Token);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (ReferenceEquals(_hiddenSessionRelease, cancellation))
+                {
+                    _hiddenSessionRelease = null;
+                    ReleaseHiddenSessionsIfIdle();
+                }
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            // Panel reopened or later activity restarted the idle window.
+        }
+        finally
+        {
+            cancellation.Dispose();
+        }
+    }
+
+    private bool ReleaseHiddenSessionsIfIdle()
+    {
+        if (_disposed
+            || _isPanelVisible
+            || !SupportsPermissions
+            || IsBusy
+            || _revalidateRunning
+            || Volatile.Read(ref _activeSessionOperations) != 0
+            || _editSessions.Count != 0
+            || Transfers.Any(transfer => !transfer.IsFinished))
+        {
+            return false;
+        }
+
+        var browse = _browseSession;
+        var transfer = _transferSession;
+        _browseSession = null;
+        _transferSession = null;
+        _sessionsReleasedWhileHidden |= browse is not null || transfer is not null;
+        browse?.Dispose();
+        transfer?.Dispose();
+        return browse is not null || transfer is not null;
+    }
+
+    private void CancelHiddenSessionRelease()
+    {
+        var cancellation = _hiddenSessionRelease;
+        _hiddenSessionRelease = null;
+        if (cancellation is null)
+            return;
+        cancellation.Cancel();
     }
 
     [RelayCommand]
@@ -1199,6 +1324,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         if (_disposed)
             return;
         _disposed = true;
+        CancelHiddenSessionRelease();
 
         foreach (var transfer in Transfers)
             transfer.Cancellation.Cancel();

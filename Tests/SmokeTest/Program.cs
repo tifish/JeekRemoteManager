@@ -366,6 +366,9 @@ try
     Check(DebugMcpContract.BuildToolList()
               .Any(tool => tool?["name"]?.GetValue<string>() == "ai_panel_lifecycle_check"),
           "Debug MCP advertises AI-panel lifecycle verification");
+    Check(DebugMcpContract.BuildToolList()
+              .Any(tool => tool?["name"]?.GetValue<string>() == "file_browser_session_lifecycle_check"),
+          "Debug MCP advertises file-browser session lifecycle verification");
     Check(!mainWindowXaml.Contains("LoginCommandsFlowPreview", StringComparison.Ordinal)
           && mainWindowXaml.Contains("LoginCommandsValidationMessage", StringComparison.Ordinal),
           "SSH login commands show validation errors without the parsed flow text");

@@ -112,6 +112,7 @@ internal static class DebugMcpServer
         host.AddTool("terminal_tab_lifecycle_check", _ => TerminalTabLifecycleCheckAsync());
         host.AddTool("terminal_output_coalescing_check", _ => TerminalOutputCoalescingCheckAsync());
         host.AddTool("ai_panel_lifecycle_check", _ => AiPanelLifecycleCheckAsync());
+        host.AddTool("file_browser_session_lifecycle_check", _ => FileBrowserSessionLifecycleCheckAsync());
         host.AddTool("ai_cli_ctrl_c_check", _ => AiCliCtrlCCheckAsync());
         host.AddTool("agent_cli_locate_check", AgentCliLocateCheckAsync);
         host.AddTool("agent_cli_mcp_config_check", AgentCliMcpConfigCheckAsync);
@@ -301,6 +302,154 @@ internal static class DebugMcpServer
                 }
                 return true;
             });
+        }
+    }
+
+    private static async Task<JsonObject> FileBrowserSessionLifecycleCheckAsync()
+    {
+        var created = 0;
+        var disposed = 0;
+        FileBrowserViewModel? viewModel = null;
+        try
+        {
+            viewModel = await OnUiAsync(() =>
+                new FileBrowserViewModel(
+                    () =>
+                    {
+                        created++;
+                        return new LifecycleProbeFileSystemSession(() => disposed++);
+                    },
+                    _ => { },
+                    "lifecycle-probe")
+                {
+                    HiddenSessionIdleTimeoutForDebug = TimeSpan.FromMilliseconds(25),
+                });
+
+            var firstLoad = await OnUiAsync(() =>
+            {
+                viewModel.NotifyPanelShown();
+                return viewModel.EnsureLoadedAsync();
+            });
+            await firstLoad;
+
+            var firstSessionReady = await OnUiAsync(() =>
+            {
+                var ready = created == 1 && viewModel.HasBrowseSession;
+                viewModel.NotifyPanelHidden();
+                var activeTransfer = new FileTransferItem("active", isUpload: true);
+                viewModel.Transfers.Add(activeTransfer);
+                return ready;
+            });
+
+            await Task.Delay(75);
+            var transferBlockedRelease = await OnUiAsync(() =>
+            {
+                var blocked = viewModel.HasBrowseSession;
+                var activeTransfer = viewModel.Transfers.Single();
+                activeTransfer.IsFinished = true;
+                viewModel.Transfers.Clear();
+                viewModel.NotifyPanelHidden();
+                return blocked;
+            });
+
+            await Task.Delay(75);
+            var released = await OnUiAsync(() =>
+                !viewModel.HasBrowseSession && disposed == 1);
+
+            var reload = await OnUiAsync(() =>
+            {
+                viewModel.NotifyPanelShown();
+                return viewModel.EnsureLoadedAsync();
+            });
+            await reload;
+
+            var reopened = await OnUiAsync(() =>
+                created == 2
+                && viewModel.HasBrowseSession
+                && viewModel.CurrentPath == "/home/probe");
+            var passed = firstSessionReady
+                         && transferBlockedRelease
+                         && released
+                         && reopened;
+            return ToolText(
+                $"{(passed ? "PASS" : "FAIL")}: hidden file-browser sessions recycle safely.\n"
+                + $"firstSessionReady={firstSessionReady}\n"
+                + $"activeTransferBlocked={transferBlockedRelease}\n"
+                + $"released={released}\n"
+                + $"reopened={reopened}\n"
+                + $"created={created}\n"
+                + $"disposed={disposed}",
+                isError: !passed);
+        }
+        finally
+        {
+            if (viewModel is not null)
+                await OnUiAsync(() => { viewModel.Dispose(); return true; });
+        }
+    }
+
+    private sealed class LifecycleProbeFileSystemSession(Action onDispose) : IFileSystemSession
+    {
+        private bool _disposed;
+
+        public string? HomePath => "/home/probe";
+
+        public bool SupportsPermissions => true;
+
+        public Task<T> RunAsync<T>(
+            Func<IFileSystemOps, T> operation,
+            CancellationToken cancellationToken = default)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(operation(LifecycleProbeFileSystemOps.Instance));
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+            onDispose();
+        }
+    }
+
+    private sealed class LifecycleProbeFileSystemOps : IFileSystemOps
+    {
+        public static readonly LifecycleProbeFileSystemOps Instance = new();
+
+        public string WorkingDirectory => "/home/probe";
+
+        public IEnumerable<FileSystemEntry> ListDirectory(string path) => [];
+
+        public void CreateDirectory(string path)
+        {
+        }
+
+        public void RenameFile(string oldPath, string newPath)
+        {
+        }
+
+        public void DeleteFile(string path)
+        {
+        }
+
+        public void DeleteDirectory(string path)
+        {
+        }
+
+        public bool Exists(string path) => false;
+
+        public void ChangePermissions(string path, short mode)
+        {
+        }
+
+        public void UploadFile(Stream source, string remotePath, Action<ulong> progress)
+        {
+        }
+
+        public void DownloadFile(string remotePath, Stream destination, Action<ulong> progress)
+        {
         }
     }
 
