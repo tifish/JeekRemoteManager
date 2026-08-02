@@ -46,13 +46,13 @@ try {
 
     Copy-Item -Path (Join-Path $stageDir "*") -Destination $installDir -Recurse -Force
 
-    # Remove the staging root the app created (typically
-    # %LOCALAPPDATA%\JeekRemoteManager\Update containing package\ + staged-version.txt).
-    # Fall back to deleting only the package folder for legacy temp layouts.
-    $stageRoot = Split-Path -Parent $stageDir
-    $stageRootName = Split-Path -Leaf $stageRoot
-    if ($stageRootName -eq "Update" -or $stageRootName -eq "$appName-update") {
-        Remove-Item -Recurse -Force -LiteralPath $stageRoot -ErrorAction SilentlyContinue
+    # Remove the update root the app created (typically
+    # %LOCALAPPDATA%\JeekRemoteManager\Update containing package\ + version.txt).
+    # Fall back to deleting only the package folder for legacy layouts.
+    $updateRoot = Split-Path -Parent $stageDir
+    $updateRootName = Split-Path -Leaf $updateRoot
+    if ($updateRootName -eq "Update" -or $updateRootName -eq "$appName-update") {
+        Remove-Item -Recurse -Force -LiteralPath $updateRoot -ErrorAction SilentlyContinue
     } else {
         Remove-Item -Recurse -Force -LiteralPath $stageDir -ErrorAction SilentlyContinue
     }

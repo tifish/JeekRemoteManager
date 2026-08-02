@@ -2598,9 +2598,9 @@ try
           "Auto-update script validates the staged package and waits for the app to exit");
     Check(autoUpdateScript.Contains("Best effort: bring the app back even if the install failed."),
           "Auto-update script restarts the app even when the install fails");
-    Check(autoUpdateScript.Contains("$stageRootName -eq \"Update\"")
-          && autoUpdateScript.Contains("staged-version.txt"),
-          "Auto-update script cleans the LocalAppData Update root including sidecar");
+    Check(autoUpdateScript.Contains("$updateRootName -eq \"Update\"")
+          && autoUpdateScript.Contains("version.txt"),
+          "Auto-update script cleans the LocalAppData Update root including version sidecar");
     var autoUpdateServicePath = Path.Combine(FindRepoRoot(), "JeekTools.NET", "AutoUpdater.cs");
     var autoUpdateService = File.Exists(autoUpdateServicePath)
         ? File.ReadAllText(autoUpdateServicePath)
@@ -2618,11 +2618,14 @@ try
     Check(autoUpdateService.Contains("DownloadUrls")
           && autoUpdateService.Contains("BuildDownloadUrls"),
           "In-app downloader keeps mirror fallback URLs");
-    Check(autoUpdateService.Contains("staged-version.txt")
+    Check(autoUpdateService.Contains("StagedVersionPath")
+          && autoUpdateService.Contains("StagedZipPath")
+          && autoUpdateService.Contains("Path.GetFileName(_options.VersionTxtUrl)")
+          && autoUpdateService.Contains("Path.GetFileName(_options.ReleaseZipUrl)")
           && autoUpdateService.Contains("TryGetReusableStagedPackageDir")
           && autoUpdateService.Contains("LocalApplicationData")
-          && autoUpdateService.Contains("StageRoot"),
-          "Updater stages under LocalAppData with a version sidecar for reuse");
+          && autoUpdateService.Contains("UpdateRoot"),
+          "Updater stores downloads under LocalAppData using original release file names");
     var autoUpdateAppServicePath = Path.Combine(FindRepoRoot(), "JeekRemoteManager", "Services", "AutoUpdateService.cs");
     var autoUpdateAppService = File.Exists(autoUpdateAppServicePath)
         ? File.ReadAllText(autoUpdateAppServicePath)
