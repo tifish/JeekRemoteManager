@@ -150,6 +150,8 @@ public partial class TerminalView : UserControl
     private FileBrowserViewModel? _fileBrowserViewModel;
     private double _fileBrowserHeight = 260;
     private ServerMonitorViewModel? _monitorViewModel;
+    private DispatcherTimer? _monitorSuspendTimer;
+    private bool _tabActive = true;
     private double _monitorPanelWidth = 260;
     private int _isAiCommandRunning;
     private long _aiCommandExecutionCount;
@@ -449,6 +451,14 @@ public partial class TerminalView : UserControl
         FocusTerminal();
         BeginConnectionAttempt();
     }
+
+    /// <summary>
+    /// Assigns the connection without starting one, so Debug MCP can exercise panels
+    /// that are gated on the connection kind with no network activity at all: the
+    /// monitor session then simply reports "waiting for a connection".
+    /// </summary>
+    internal void DebugAttachConnectionWithoutConnecting(Connection connection) =>
+        _connection = connection;
 
     /// <summary>
     /// Hands out this view's live SSH connection for a duplicated tab, taking a
@@ -1059,15 +1069,78 @@ public partial class TerminalView : UserControl
             MonitorColumn.MinWidth = 180;
             MonitorColumn.Width = new GridLength(_monitorPanelWidth, GridUnitType.Pixel);
             _monitorViewModel.Start();
+            ApplyMonitorSamplingState();
         }
         else
         {
             // Collapse the column so it leaves no gap.
             MonitorColumn.MinWidth = 0;
             MonitorColumn.Width = new GridLength(0, GridUnitType.Pixel);
+            _monitorSuspendTimer?.Stop();
             _monitorViewModel.Stop();
             FocusTerminal();
         }
+    }
+
+    /// <summary>
+    /// How long monitor sampling keeps running after this tab goes to the background.
+    /// Flipping between tabs (or briefly minimizing) must not stop and restart the poll
+    /// loop, so suspension waits out this delay; coming back cancels it immediately.
+    /// </summary>
+    private static readonly TimeSpan MonitorSuspendDelay = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Called by the host when this tab becomes (or stops being) the visible one, which
+    /// includes the window being hidden to the tray or minimized. Sampling a server the
+    /// user cannot see costs a remote command every two seconds for nothing.
+    /// </summary>
+    public void SetTabActive(bool isActive)
+    {
+        _tabActive = isActive;
+        ApplyMonitorSamplingState();
+    }
+
+    /// <summary>Whether monitor sampling is currently paused, exposed for Debug MCP.</summary>
+    public bool IsMonitorSamplingSuspended => _monitorViewModel?.IsMonitorSuspended == true;
+
+    /// <summary>Whether the suspend grace period is counting down, exposed for Debug MCP.</summary>
+    public bool IsMonitorSuspendPending => _monitorSuspendTimer?.IsEnabled == true;
+
+    /// <summary>Skips the remaining grace period, for Debug MCP and teardown.</summary>
+    public void FlushPendingMonitorSuspend()
+    {
+        if (_monitorSuspendTimer is not { IsEnabled: true })
+            return;
+
+        _monitorSuspendTimer.Stop();
+        _monitorViewModel?.Suspend();
+    }
+
+    private void ApplyMonitorSamplingState()
+    {
+        if (_monitorViewModel is null)
+            return;
+
+        _monitorSuspendTimer?.Stop();
+
+        // Only the visible panel of the visible tab should be talking to the server.
+        if (_tabActive && MonitorPanelHost.IsVisible)
+        {
+            _monitorViewModel.Resume();
+            return;
+        }
+
+        if (_monitorSuspendTimer is null)
+        {
+            _monitorSuspendTimer = new DispatcherTimer { Interval = MonitorSuspendDelay };
+            _monitorSuspendTimer.Tick += (_, _) =>
+            {
+                _monitorSuspendTimer!.Stop();
+                _monitorViewModel?.Suspend();
+            };
+        }
+
+        _monitorSuspendTimer.Start();
     }
 
     private ServerMonitorViewModel CreateServerMonitorViewModel()

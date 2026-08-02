@@ -62,6 +62,7 @@ public sealed class ServerMonitorSession : IDisposable
     private static readonly ILogger Log = LogManager.CreateLogger(nameof(ServerMonitorSession));
 
     private const int LightIntervalSeconds = 2;
+    private const int SuspendedPollIntervalSeconds = 1;
     private const int HeavyEveryNTicks = 5;
     private const int FailedProbeIntervalSeconds = 15;
     private const int MaxConsecutiveFailures = 3;
@@ -118,6 +119,7 @@ public sealed class ServerMonitorSession : IDisposable
     private Exception? _shellFailure;
     private long _sampleCount;
     private long _shellGeneration;
+    private bool _suspended;
 
     // Delta state between ticks (background thread only).
     private (long Total, long Idle)? _prevCpu;
@@ -160,6 +162,18 @@ public sealed class ServerMonitorSession : IDisposable
     public bool IsShellReady => _shell is not null && Volatile.Read(ref _shellFailure) is null;
     public long SampleCount => Interlocked.Read(ref _sampleCount);
     public long ShellGeneration => Interlocked.Read(ref _shellGeneration);
+    public bool IsSuspended => Volatile.Read(ref _suspended);
+
+    /// <summary>
+    /// Stops issuing samples while the panel is not on screen. The shell and its login
+    /// sequence stay open: re-running a bastion login on every tab switch would cost far
+    /// more than the samples it saves, and the point here is to stop talking to the
+    /// server, not to give up the channel.
+    /// </summary>
+    public void Suspend() => Volatile.Write(ref _suspended, true);
+
+    /// <summary>Resumes sampling; the next tick happens within a second.</summary>
+    public void Resume() => Volatile.Write(ref _suspended, false);
 
     public void Start()
     {
@@ -195,12 +209,29 @@ public sealed class ServerMonitorSession : IDisposable
         var cancellationToken = cancellation.Token;
         var tick = 0;
         var failures = 0;
+        var wasSuspended = false;
 
         try
         {
             while (!cancellationToken.IsCancellationRequested)
             {
                 var delaySeconds = LightIntervalSeconds;
+                if (Volatile.Read(ref _suspended))
+                {
+                    wasSuspended = true;
+                    await Task.Delay(TimeSpan.FromSeconds(SuspendedPollIntervalSeconds), cancellationToken)
+                        .ConfigureAwait(false);
+                    continue;
+                }
+
+                if (wasSuspended)
+                {
+                    wasSuspended = false;
+                    // The gap makes the accumulated CPU and network counters meaningless;
+                    // start the deltas over so the first sample back is not a false spike.
+                    ResetDeltas();
+                }
+
                 try
                 {
                     var client = await AcquireClientAsync(cancellationToken).ConfigureAwait(false);

@@ -116,6 +116,7 @@ internal static class DebugMcpServer
         host.AddTool("terminal_tab_focus_check", _ => TerminalTabFocusCheckAsync());
         host.AddTool("terminal_tab_lifecycle_check", _ => TerminalTabLifecycleCheckAsync());
         host.AddTool("terminal_output_coalescing_check", _ => TerminalOutputCoalescingCheckAsync());
+        host.AddTool("monitor_suspend_check", _ => MonitorSuspendCheckAsync());
         host.AddTool("terminal_font_sync_check", _ => TerminalFontSyncCheckAsync());
         host.AddTool("ai_panel_lifecycle_check", _ => AiPanelLifecycleCheckAsync());
         host.AddTool("file_browser_session_lifecycle_check", _ => FileBrowserSessionLifecycleCheckAsync());
@@ -235,6 +236,112 @@ internal static class DebugMcpServer
                     + $"renderedBytes={renderedBytes}");
             });
             return ToolText(result.Item2, isError: !result.passed);
+        }
+        finally
+        {
+            if (tab is not null)
+            {
+                await OnUiAsync(() =>
+                {
+                    if (Desktop?.MainWindow is Views.MainWindow main)
+                        main.CloseTerminalSession(tab);
+                    return true;
+                });
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifies that server monitor sampling follows tab visibility: it runs for the
+    /// visible tab, does NOT stop the moment the tab goes to the background (a grace
+    /// period absorbs tab flipping), suspends once that period elapses, and resumes
+    /// immediately when the tab comes back.
+    /// </summary>
+    private static async Task<JsonObject> MonitorSuspendCheckAsync()
+    {
+        TabItem? tab = null;
+        try
+        {
+            var report = new StringBuilder();
+            var passed = true;
+
+            void Expect(bool condition, string label)
+            {
+                passed &= condition;
+                report.Append(condition ? "  ok   " : "  FAIL ").Append(label).Append('\n');
+            }
+
+            var (view, main) = await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow window)
+                    throw new InvalidOperationException("MainWindow is not available.");
+
+                tab = window.DebugCreateSshTerminalTabForMonitorProbe();
+                var terminal = (TerminalView)tab.Content!;
+                terminal.ToggleMonitorPanel();
+                return (terminal, window);
+            });
+
+            var active = await OnUiAsync(() =>
+                (view.IsMonitorPanelOpen, view.IsMonitorSamplingSuspended, view.IsMonitorSuspendPending));
+            Expect(active.IsMonitorPanelOpen, "monitor panel opened on the SSH probe tab");
+            Expect(!active.IsMonitorSamplingSuspended, "sampling runs while the tab is visible");
+            Expect(!active.IsMonitorSuspendPending, "no suspend is pending while the tab is visible");
+
+            // Move to another tab: sampling must keep going for now.
+            await OnUiAsync(() =>
+            {
+                main.DebugSelectTab(main.DebugEditorTab);
+                return true;
+            });
+            await Task.Delay(100);
+            var backgrounded = await OnUiAsync(() =>
+                (view.IsMonitorSamplingSuspended, view.IsMonitorSuspendPending));
+            Expect(!backgrounded.IsMonitorSamplingSuspended,
+                "sampling is NOT stopped the instant the tab goes to the background");
+            Expect(backgrounded.IsMonitorSuspendPending, "a suspend is pending during the grace period");
+
+            // Flipping back within the grace period must cancel the pending suspend.
+            await OnUiAsync(() =>
+            {
+                main.DebugSelectTab(tab!);
+                return true;
+            });
+            var flippedBack = await OnUiAsync(() =>
+                (view.IsMonitorSamplingSuspended, view.IsMonitorSuspendPending));
+            Expect(!flippedBack.IsMonitorSamplingSuspended, "returning to the tab keeps sampling running");
+            Expect(!flippedBack.IsMonitorSuspendPending, "returning to the tab cancels the pending suspend");
+
+            // Background it again and let the grace period elapse.
+            await OnUiAsync(() =>
+            {
+                main.DebugSelectTab(main.DebugEditorTab);
+                return true;
+            });
+            await OnUiAsync(() =>
+            {
+                view.FlushPendingMonitorSuspend();
+                return true;
+            });
+            var suspended = await OnUiAsync(() =>
+                (view.IsMonitorSamplingSuspended, view.IsMonitorSuspendPending));
+            Expect(suspended.IsMonitorSamplingSuspended, "sampling is suspended once the grace period elapses");
+            Expect(!suspended.IsMonitorSuspendPending, "no suspend stays pending after it fired");
+
+            // Coming back resumes immediately.
+            await OnUiAsync(() =>
+            {
+                main.DebugSelectTab(tab!);
+                return true;
+            });
+            var resumed = await OnUiAsync(() =>
+                (view.IsMonitorSamplingSuspended, view.IsMonitorSuspendPending));
+            Expect(!resumed.IsMonitorSamplingSuspended, "sampling resumes when the tab is shown again");
+            Expect(!resumed.IsMonitorSuspendPending, "no suspend is pending after resuming");
+
+            return ToolText(
+                $"{(passed ? "PASS" : "FAIL")}: server monitor sampling follows tab visibility.\n{report}",
+                isError: !passed);
         }
         finally
         {

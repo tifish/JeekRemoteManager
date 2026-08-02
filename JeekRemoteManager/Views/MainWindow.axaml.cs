@@ -78,6 +78,13 @@ public partial class MainWindow : Window
         _defaultMinWidth = MinWidth;
         _defaultMinHeight = MinHeight;
         Tree.SelectionChanged += OnTreeSelectionChanged;
+        // Hiding to the tray or minimizing means no terminal tab is on screen, so the
+        // monitor panels of every tab should wind down as well.
+        PropertyChanged += (_, e) =>
+        {
+            if (e.Property == IsVisibleProperty || e.Property == WindowStateProperty)
+                UpdateTerminalTabActivation();
+        };
         Tree.AddHandler(
             InputElement.PointerPressedEvent,
             OnTreePointerPressed,
@@ -860,6 +867,32 @@ public partial class MainWindow : Window
             sourcePath: null);
         return tab;
     }
+
+    /// <summary>
+    /// An SSH-typed probe tab, so Debug MCP can exercise the server monitor panel. The
+    /// host never has to answer: the suspend/resume state machine is independent of
+    /// whether a sample ever succeeds.
+    /// </summary>
+    internal TabItem DebugCreateSshTerminalTabForMonitorProbe()
+    {
+        var connection = new Connection
+        {
+            Name = "monitor suspend probe",
+            Type = ConnectionType.Ssh,
+            Host = "127.0.0.1",
+        };
+        var (view, tab) = CreateTerminalTab(connection, sourcePath: null);
+        // Deliberately not Start(): the suspend/resume state machine is independent of
+        // whether a sample ever succeeds, and this keeps the probe off the network.
+        view.DebugAttachConnectionWithoutConnecting(connection);
+        return tab;
+    }
+
+    /// <summary>Selects a tab, so Debug MCP can push a terminal tab to the background.</summary>
+    internal void DebugSelectTab(TabItem tab) => RightTabs.SelectedItem = tab;
+
+    /// <summary>The fixed editor tab, used by Debug MCP to move off a terminal tab.</summary>
+    internal TabItem DebugEditorTab => EditorTab;
 
     /// <summary>Currently selected terminal tab, or null when another tab kind is selected.</summary>
     internal TabItem? SelectedTerminalTab =>
@@ -1783,7 +1816,27 @@ public partial class MainWindow : Window
         }
 
         UpdateTerminalPanelToggleStates();
+        UpdateTerminalTabActivation();
         view?.RestoreLastFocus();
+    }
+
+    /// <summary>
+    /// Tells every terminal tab whether it is the one on screen, so background tabs can
+    /// stop polling their server monitor. The window being hidden to the tray or
+    /// minimized counts as no tab being visible.
+    /// </summary>
+    private void UpdateTerminalTabActivation()
+    {
+        if (RightTabs is null)
+            return;
+
+        var windowVisible = IsVisible && WindowState != WindowState.Minimized;
+        var selected = RightTabs.SelectedItem;
+        foreach (var item in RightTabs.Items)
+        {
+            if (item is TabItem { Content: TerminalView view } tab)
+                view.SetTabActive(windowVisible && ReferenceEquals(tab, selected));
+        }
     }
 
     /// <summary>Syncs the monitor/AI/file-browser toolbar buttons' "on" highlight

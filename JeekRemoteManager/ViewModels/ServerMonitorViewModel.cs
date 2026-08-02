@@ -144,6 +144,11 @@ public sealed partial class ServerMonitorViewModel : ViewModelBase, IDisposable
 
     public void Start() => _session.Start();
 
+    /// <summary>Pauses/resumes sampling while the panel's tab is off screen.</summary>
+    public void Suspend() => _session.Suspend();
+
+    public void Resume() => _session.Resume();
+
     public void Stop() => _session.Stop();
 
     public void Dispose() => _session.Dispose();
@@ -154,6 +159,7 @@ public sealed partial class ServerMonitorViewModel : ViewModelBase, IDisposable
     public bool IsMonitorShellReady => _session.IsShellReady;
     public long MonitorSampleCount => _session.SampleCount;
     public long MonitorShellGeneration => _session.ShellGeneration;
+    public bool IsMonitorSuspended => _session.IsSuspended;
 
     [RelayCommand]
     private void SortProcessesByMemory() => ProcessSort = ServerMonitorProcessSort.Memory;
