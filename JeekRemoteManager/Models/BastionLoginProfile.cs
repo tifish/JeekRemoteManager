@@ -39,3 +39,31 @@ public sealed class BastionLoginProfile
         Segments = normalized;
     }
 }
+
+/// <summary>
+/// A one-click starting point matching the established interactive bastion flow:
+/// enter 2FA, type 0 for all assets, select the current connection and account,
+/// elevate with sudo, and return to the menu when switching a reused transport.
+/// </summary>
+public static class BastionLoginTemplatePreset
+{
+    public const string ConnectionLoginCommands =
+        "#template 1\n"
+        + "#select {{name}}\n"
+        + "#template 2";
+
+    public static string GetSegment(int oneBasedId) =>
+        oneBasedId switch
+        {
+            1 => "#input\n#reuse-enter\n#pagekey Ctrl-F\n0",
+            2 => "2\n#duplicate\nsudo -i\n#reuse-leave\nexit\n#key Enter",
+            3 => "",
+            4 => "",
+            _ => throw new ArgumentOutOfRangeException(nameof(oneBasedId)),
+        };
+
+    public static string UseConnectionCommandsWhenEmpty(string existingCommands) =>
+        string.IsNullOrWhiteSpace(existingCommands)
+            ? ConnectionLoginCommands.ReplaceLineEndings(Environment.NewLine)
+            : existingCommands;
+}

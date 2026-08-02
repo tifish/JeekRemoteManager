@@ -322,6 +322,9 @@ try
               .Any(tool => tool?["name"]?.GetValue<string>() == "bastion_login_template_check"),
           "Debug MCP advertises shared bastion-template verification");
     Check(DebugMcpContract.BuildToolList()
+              .Any(tool => tool?["name"]?.GetValue<string>() == "bastion_template_preset_check"),
+          "Debug MCP advertises typical bastion-template UI verification");
+    Check(DebugMcpContract.BuildToolList()
               .Any(tool => tool?["name"]?.GetValue<string>() == "login_command_variable_check"),
           "Debug MCP advertises login-command variable verification");
     Check(DebugMcpContract.BuildToolList()
@@ -368,6 +371,15 @@ try
           && !languagesCode.Contains("LoginCommandsHelpEnter\t", StringComparison.Ordinal)
           && !languagesCode.Contains("LoginCommandsHelpLeave\t", StringComparison.Ordinal),
           "Login-command help/editor share Completions and use LoginCommandsTextBox");
+    Check(mainWindowCode.Contains(
+              "Name = \"InsertTypicalBastionTemplateButton\"",
+              StringComparison.Ordinal)
+          && mainWindowCode.Contains(
+              "BastionLoginTemplatePreset.UseConnectionCommandsWhenEmpty",
+              StringComparison.Ordinal)
+          && languagesCode.Contains("BastionTemplateInsertTypical\t", StringComparison.Ordinal)
+          && languagesCode.Contains("BastionTemplateTypicalHint\t", StringComparison.Ordinal),
+          "Bastion-template dialog exposes the localized typical-template shortcut");
     Check(mainWindowXaml.Contains(
               "x:Name=\"LoginCommandsHelpGlyph\"",
               StringComparison.Ordinal)
@@ -801,6 +813,38 @@ try
           && BastionSessionPool.PoolKeyForDebug(pooledRouteA)
               != BastionSessionPool.PoolKeyForDebug(pooledOtherUser),
           "Bastion pooling groups targets automatically by normalized endpoint and credential identity");
+
+    var typicalBastionProfile = new BastionLoginProfile
+    {
+        Id = "typical",
+        Segments = Enumerable.Range(1, BastionLoginProfile.SegmentCount)
+            .Select(BastionLoginTemplatePreset.GetSegment)
+            .ToArray(),
+    };
+    var typicalBastionConnection = new Connection
+    {
+        Name = "target-a",
+        Host = "shared-bastion.test",
+        Port = 22,
+        Username = "user",
+    };
+    var typicalBastionCommands =
+        BastionLoginTemplatePreset.UseConnectionCommandsWhenEmpty(" \r\n ");
+    var typicalBastionResolved = LoginCommandSequence.TryResolve(
+        typicalBastionCommands,
+        typicalBastionProfile,
+        typicalBastionConnection,
+        out var typicalBastionExpanded,
+        out _);
+    Check(typicalBastionResolved
+          && LoginCommandSequence.Validate(
+              typicalBastionCommands,
+              typicalBastionProfile,
+              typicalBastionConnection).Count == 0
+          && typicalBastionExpanded.ReplaceLineEndings("\n")
+              == "#input\n#reuse-enter\n#pagekey Ctrl-F\n0\n#select target-a\n2\n#duplicate\nsudo -i\n#reuse-leave\nexit\n#key Enter"
+          && BastionLoginTemplatePreset.UseConnectionCommandsWhenEmpty("custom") == "custom",
+          "Typical bastion preset fills empty connection commands and preserves existing commands");
 
     var bastionTemplateConnections = Path.Combine(root, "bastion-template", "Connections");
     var bastionTemplateStore = new ConnectionStore(bastionTemplateConnections);

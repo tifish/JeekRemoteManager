@@ -2921,6 +2921,15 @@ public partial class MainWindow : Window
         if ((DataContext as MainWindowViewModel)?.Editor is not { HasBastionProfile: true } editor)
             return;
 
+        await CreateBastionTemplateEditorDialog(editor, flushAutoSave: true)
+            .ShowDialog(this);
+    }
+
+    /// <summary>Builds the real template dialog for the UI and Debug MCP probes.</summary>
+    internal Window CreateBastionTemplateEditorDialog(
+        ConnectionEditorViewModel editor,
+        bool flushAutoSave = false)
+    {
         static TextBox FragmentEditor(string name, string text) =>
             new LoginCommandsTextBox
             {
@@ -2939,6 +2948,7 @@ public partial class MainWindow : Window
             FragmentEditor("BastionTemplateSegment3", editor.BastionTemplateSegment3),
             FragmentEditor("BastionTemplateSegment4", editor.BastionTemplateSegment4),
         };
+        var insertConnectionLoginCommands = false;
 
         static StackPanel Section(string title, string hint, Control editorControl) =>
             new()
@@ -2966,6 +2976,29 @@ public partial class MainWindow : Window
             IsDefault = true,
             Classes = { "accent" },
         };
+        var insertTypical = new Button
+        {
+            Name = "InsertTypicalBastionTemplateButton",
+            Content = Localizer.Get("BastionTemplateInsertTypical"),
+            MinWidth = 144,
+        };
+        var typicalHint = new TextBlock
+        {
+            Name = "TypicalBastionTemplateHint",
+            Text = Localizer.Get("BastionTemplateTypicalHint"),
+            TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 11,
+            Classes = { "hint" },
+        };
+        var typicalRow = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("Auto,*"),
+            ColumnSpacing = 12,
+        };
+        typicalRow.Children.Add(insertTypical);
+        Grid.SetColumn(typicalHint, 1);
+        typicalRow.Children.Add(typicalHint);
         var cancel = new Button
         {
             Content = Localizer.Get("DialogCancel"),
@@ -3001,6 +3034,7 @@ public partial class MainWindow : Window
                             editor.BastionProfileEndpoint),
                         TextWrapping = TextWrapping.Wrap,
                     },
+                    typicalRow,
                     Section("1", Localizer.Get("BastionTemplateFragmentHint"), fragments[0]),
                     Section("2", Localizer.Get("BastionTemplateFragmentHint"), fragments[1]),
                     Section("3", Localizer.Get("BastionTemplateFragmentHint"), fragments[2]),
@@ -3019,6 +3053,18 @@ public partial class MainWindow : Window
         content.Children.Add(actions);
         dialog.Content = content;
 
+        insertTypical.Click += (_, _) =>
+        {
+            for (var id = 1; id <= BastionLoginProfile.SegmentCount; id++)
+            {
+                fragments[id - 1].Text = BastionLoginTemplatePreset
+                    .GetSegment(id)
+                    .ReplaceLineEndings(Environment.NewLine);
+            }
+
+            insertConnectionLoginCommands =
+                string.IsNullOrWhiteSpace(editor.LoginCommands);
+        };
         save.Click += (_, _) =>
         {
             var values = fragments
@@ -3060,12 +3106,18 @@ public partial class MainWindow : Window
             editor.BastionTemplateSegment2 = values[1];
             editor.BastionTemplateSegment3 = values[2];
             editor.BastionTemplateSegment4 = values[3];
-            if (DataContext is MainWindowViewModel mainVm)
+            if (insertConnectionLoginCommands)
+            {
+                editor.LoginCommands =
+                    BastionLoginTemplatePreset.UseConnectionCommandsWhenEmpty(
+                        editor.LoginCommands);
+            }
+            if (flushAutoSave && DataContext is MainWindowViewModel mainVm)
                 mainVm.FlushAutoSave();
             dialog.Close();
         };
         cancel.Click += (_, _) => dialog.Close();
-        await dialog.ShowDialog(this);
+        return dialog;
     }
 
     /// <summary>Shows the localized login-command guide used by the SSH editor.</summary>

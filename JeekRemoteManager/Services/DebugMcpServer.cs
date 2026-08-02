@@ -117,6 +117,7 @@ internal static class DebugMcpServer
         host.AddTool("login_command_completion_check", _ => LoginCommandCompletionCheckAsync());
         host.AddTool("login_command_variable_check", _ => LoginCommandVariableCheckAsync());
         host.AddTool("bastion_login_template_check", _ => BastionLoginTemplateCheckAsync());
+        host.AddTool("bastion_template_preset_check", _ => BastionTemplatePresetCheckAsync());
         host.AddTool("bastion_channel_limit_check", _ => BastionChannelLimitCheckAsync());
         host.AddTool("connection_editor_switch_check", _ => ConnectionEditorSwitchCheckAsync());
         host.AddTool("login_menu_select_probe", LoginMenuSelectProbeAsync);
@@ -2616,6 +2617,107 @@ internal static class DebugMcpServer
                 // Probe cleanup is best effort inside the isolated Debug temp root.
             }
         }
+    }
+
+    private static async Task<JsonObject> BastionTemplatePresetCheckAsync()
+    {
+        var (passed, report) = await OnUiAsync(() =>
+        {
+            if (Desktop?.MainWindow is not Views.MainWindow main)
+                return (false, "FAIL: MainWindow is not available.");
+
+            var editor = new ConnectionEditorViewModel
+            {
+                Type = ConnectionType.Ssh,
+                Name = "target-a",
+                Host = "bastion.example.test",
+                Port = 22,
+                Username = "probe",
+                HasBastionProfile = true,
+                BastionTemplateId = "preset-check",
+                BastionProfileEndpoint = "probe@bastion.example.test:22",
+                LoginCommands = " \r\n ",
+            };
+            var dialog = main.CreateBastionTemplateEditorDialog(editor);
+            try
+            {
+                dialog.Show(main);
+                var descendants = dialog.GetVisualDescendants().OfType<Control>().ToArray();
+                var insert = descendants
+                    .OfType<Button>()
+                    .FirstOrDefault(control =>
+                        control.Name == "InsertTypicalBastionTemplateButton");
+                var save = descendants
+                    .OfType<Button>()
+                    .FirstOrDefault(control =>
+                        control.Name == "SaveBastionTemplateButton");
+                var fragments = Enumerable.Range(1, BastionLoginProfile.SegmentCount)
+                    .Select(id => descendants
+                        .OfType<TextBox>()
+                        .FirstOrDefault(control =>
+                            control.Name == $"BastionTemplateSegment{id}"))
+                    .ToArray();
+                var hint = descendants
+                    .OfType<TextBlock>()
+                    .FirstOrDefault(control =>
+                        control.Name == "TypicalBastionTemplateHint");
+
+                insert?.RaiseEvent(
+                    new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                var dialogFilled = insert is not null
+                                   && save is not null
+                                   && fragments.All(fragment => fragment is not null)
+                                   && Enumerable.Range(1, BastionLoginProfile.SegmentCount)
+                                       .All(id =>
+                                           fragments[id - 1]!.Text
+                                               == BastionLoginTemplatePreset.GetSegment(id)
+                                                   .ReplaceLineEndings(Environment.NewLine))
+                                   && hint?.Text == Localizer.Get("BastionTemplateTypicalHint");
+                var transactionalBeforeSave = string.IsNullOrWhiteSpace(editor.LoginCommands);
+
+                save?.RaiseEvent(
+                    new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                var commandsInserted =
+                    editor.LoginCommands
+                    == BastionLoginTemplatePreset.ConnectionLoginCommands
+                        .ReplaceLineEndings(Environment.NewLine);
+                var savedSegments = new[]
+                {
+                    editor.BastionTemplateSegment1,
+                    editor.BastionTemplateSegment2,
+                    editor.BastionTemplateSegment3,
+                    editor.BastionTemplateSegment4,
+                };
+                var fragmentsSaved = Enumerable.Range(1, BastionLoginProfile.SegmentCount)
+                    .All(id =>
+                        savedSegments[id - 1]
+                        == BastionLoginTemplatePreset.GetSegment(id)
+                            .ReplaceLineEndings(Environment.NewLine));
+                var existingPreserved =
+                    BastionLoginTemplatePreset.UseConnectionCommandsWhenEmpty("custom")
+                    == "custom";
+                var ok = dialogFilled
+                         && transactionalBeforeSave
+                         && commandsInserted
+                         && fragmentsSaved
+                         && existingPreserved;
+                return (ok,
+                    $"{(ok ? "PASS" : "FAIL")}: typical bastion template preset\n"
+                    + $"buttonFound={insert is not null}\n"
+                    + $"dialogFilled={dialogFilled}\n"
+                    + $"transactionalBeforeSave={transactionalBeforeSave}\n"
+                    + $"commandsInserted={commandsInserted}\n"
+                    + $"fragmentsSaved={fragmentsSaved}\n"
+                    + $"existingCommandsPreserved={existingPreserved}");
+            }
+            finally
+            {
+                if (dialog.IsVisible)
+                    dialog.Close();
+            }
+        }).ConfigureAwait(false);
+
+        return ToolText(report, isError: !passed);
     }
 
     private static Task<JsonObject> LoginCommandVariableCheckAsync()
