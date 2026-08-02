@@ -349,6 +349,7 @@ public partial class AgentCliPanelView : UserControl
             _vm.SessionStarted -= OnSessionStarted;
             _vm.SessionStopped -= OnSessionStopped;
             _vm.GetViewportSize = null;
+            UnhookSession();
         }
 
         _vm = DataContext as AgentCliPanelViewModel;

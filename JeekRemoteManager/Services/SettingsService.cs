@@ -224,7 +224,6 @@ public class SettingsService
             AiRunMode = machineSettings.AiRunMode,
             AiGrokRunMode = machineSettings.AiGrokRunMode,
             AiHideSshTerminal = machineSettings.AiHideSshTerminal,
-            AiPanelOpen = machineSettings.AiPanelOpen,
             Language = roamingSettings.Language,
             Theme = roamingSettings.Theme,
             CheckUpdateOnStartup = roamingSettings.CheckUpdateOnStartup,
@@ -259,7 +258,6 @@ public class SettingsService
             AiRunMode = settings.AiRunMode,
             AiGrokRunMode = settings.AiGrokRunMode,
             AiHideSshTerminal = settings.AiHideSshTerminal,
-            AiPanelOpen = settings.AiPanelOpen,
         };
         NormalizeMachineSettings(machineSettings);
         return machineSettings;
@@ -308,7 +306,6 @@ public class SettingsService
         settings.AiRunMode = normalized.AiRunMode;
         settings.AiGrokRunMode = normalized.AiGrokRunMode;
         settings.AiHideSshTerminal = normalized.AiHideSshTerminal;
-        settings.AiPanelOpen = normalized.AiPanelOpen;
         settings.Language = normalized.Language;
         settings.Theme = normalized.Theme;
         settings.CheckUpdateOnStartup = normalized.CheckUpdateOnStartup;

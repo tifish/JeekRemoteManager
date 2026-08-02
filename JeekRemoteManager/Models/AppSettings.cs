@@ -136,10 +136,6 @@ public class AppSettings
     /// <summary>AI panel: hide the SSH terminal while the AI side panel is open.</summary>
     public bool AiHideSshTerminal { get; set; }
 
-    /// <summary>Whether the AI panel was open when last toggled; new SSH tabs
-    /// and restarts open it automatically when true (global, not per-connection).</summary>
-    public bool AiPanelOpen { get; set; }
-
 }
 
 /// <summary>Settings that are bound to this Windows account and machine.
@@ -210,8 +206,6 @@ public class MachineAppSettings
     /// <summary>AI panel: hide the SSH terminal while the AI side panel is open.</summary>
     public bool AiHideSshTerminal { get; set; }
 
-    /// <summary>Whether the AI panel was open when last toggled (global layout state).</summary>
-    public bool AiPanelOpen { get; set; }
 }
 
 /// <summary>Machine-independent preferences stored with the selected storage mode.</summary>

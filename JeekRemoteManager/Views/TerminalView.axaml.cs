@@ -862,40 +862,54 @@ public partial class TerminalView : UserControl
     /// per-connection MCP server and panel view-model on first open.</summary>
     public void ToggleAiPanel()
     {
+        if (AiPanelHost.IsVisible)
+        {
+            _ = CloseAiPanelAsync();
+            return;
+        }
+
         if (_aiViewModel is null)
             _aiViewModel = CreateAgentCliPanelViewModel();
 
-        var show = !AiPanelHost.IsVisible;
-        if (!show)
-            PersistAiPanelWidth();
-
-        AiPanelHost.IsVisible = show;
-        // The AI panel open state is a global preference (not per-connection):
-        // remember the last toggle so new tabs and restarts reopen it.
-        if (DataContext is MainWindowViewModel mainVm)
-            mainVm.AiPanelOpen = show;
+        AiPanelHost.IsVisible = true;
         ApplyAiPanelLayout();
         PanelStateChanged?.Invoke(this, EventArgs.Empty);
 
-        if (show)
+        // Match the main terminal font, then remeasure ConPTY against the opened column.
+        AiPanel.SetFontSize(Term.FontSize);
+        Dispatcher.UIThread.Post(async () =>
         {
-            // Match the main terminal font, then remeasure ConPTY against the opened column.
-            AiPanel.SetFontSize(Term.FontSize);
-            Dispatcher.UIThread.Post(async () =>
-            {
-                AiPanel.NotifyHostLayoutChanged();
-                // Auto-start the agent CLI so opening the panel is enough.
-                if (_aiViewModel is not null)
-                    await _aiViewModel.EnsureStartedAsync();
-                if (!IsLoginManualInputPending)
-                    AiPanel.FocusCliTerminal();
-            }, DispatcherPriority.Loaded);
-            if (IsLoginManualInputPending)
-                FocusTerminal();
-        }
-        else
+            AiPanel.NotifyHostLayoutChanged();
+            // Auto-start the agent CLI so opening the panel is enough.
+            if (_aiViewModel is not null)
+                await _aiViewModel.EnsureStartedAsync();
+            if (!IsLoginManualInputPending)
+                AiPanel.FocusCliTerminal();
+        }, DispatcherPriority.Loaded);
+        if (IsLoginManualInputPending)
             FocusTerminal();
     }
+
+    /// <summary>Closes the AI panel and releases its process/session instead of
+    /// keeping a hidden third-party CLI alive in the background.</summary>
+    public Task CloseAiPanelAsync()
+    {
+        var ai = _aiViewModel;
+        if (AiPanelHost.IsVisible)
+            PersistAiPanelWidth();
+
+        AiPanelHost.IsVisible = false;
+        _aiViewModel = null;
+        AiPanel.DataContext = null;
+        ApplyAiPanelLayout();
+        PanelStateChanged?.Invoke(this, EventArgs.Empty);
+        FocusTerminal();
+
+        return ai is null ? Task.CompletedTask : DisposeAiPanelAsync(ai);
+    }
+
+    private static async Task DisposeAiPanelAsync(AgentCliPanelViewModel ai) =>
+        await ai.DisposeAsync().ConfigureAwait(false);
 
     /// <summary>Shows or hides the SFTP file browser panel below the terminal, dialing
     /// its own SFTP connection on first open (lazy: tabs that never open it never pay).</summary>
@@ -2457,9 +2471,6 @@ public partial class TerminalView : UserControl
 
         if (connection.AutoOpenMonitorPanel && !IsMonitorPanelOpen)
             ToggleMonitorPanel();
-        // The AI panel follows the global remembered state instead of a per-connection option.
-        if ((DataContext as MainWindowViewModel)?.AiPanelOpen == true && !IsAiPanelOpen)
-            ToggleAiPanel();
         if (connection.AutoOpenFileBrowserPanel && !IsFileBrowserPanelOpen)
             ToggleFileBrowserPanel();
     }
@@ -3668,6 +3679,7 @@ public partial class TerminalView : UserControl
 
         var ai = _aiViewModel;
         _aiViewModel = null;
+        AiPanel.DataContext = null;
         if (ai is not null)
             _ = ai.DisposeAsync();
 

@@ -1157,6 +1157,8 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
     public bool HasEmbeddedSession => _session is not null;
 
+    public bool IsDisposed => _disposed;
+
     public async ValueTask DisposeAsync()
     {
         if (_disposed)

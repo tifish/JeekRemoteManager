@@ -111,6 +111,7 @@ internal static class DebugMcpServer
         host.AddTool("terminal_tab_focus_check", _ => TerminalTabFocusCheckAsync());
         host.AddTool("terminal_tab_lifecycle_check", _ => TerminalTabLifecycleCheckAsync());
         host.AddTool("terminal_output_coalescing_check", _ => TerminalOutputCoalescingCheckAsync());
+        host.AddTool("ai_panel_lifecycle_check", _ => AiPanelLifecycleCheckAsync());
         host.AddTool("ai_cli_ctrl_c_check", _ => AiCliCtrlCCheckAsync());
         host.AddTool("agent_cli_locate_check", AgentCliLocateCheckAsync);
         host.AddTool("agent_cli_mcp_config_check", AgentCliMcpConfigCheckAsync);
@@ -239,6 +240,67 @@ internal static class DebugMcpServer
                     return true;
                 });
             }
+        }
+    }
+
+    private static async Task<JsonObject> AiPanelLifecycleCheckAsync()
+    {
+        TabItem? firstTab = null;
+        TabItem? secondTab = null;
+        AgentCliPanelViewModel? closedViewModel = null;
+        try
+        {
+            var setup = await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main)
+                    throw new InvalidOperationException("MainWindow is not available.");
+
+                firstTab = main.DebugCreateTerminalTabForLifecycleProbe();
+                var firstView = (TerminalView)firstTab.Content!;
+                firstView.ToggleAiPanel();
+                closedViewModel = firstView.AiViewModel
+                                  ?? throw new InvalidOperationException("AI view model was not created.");
+                var closeTask = firstView.CloseAiPanelAsync();
+                var detached = !firstView.IsAiPanelOpen
+                               && firstView.AiViewModel is null
+                               && firstView.DebugAiPanel.DataContext is null;
+
+                secondTab = main.DebugCreateTerminalTabForLifecycleProbe();
+                var secondView = (TerminalView)secondTab.Content!;
+                var freshTabClosed = !secondView.IsAiPanelOpen && secondView.AiViewModel is null;
+                return (closeTask, detached, freshTabClosed);
+            });
+
+            await setup.closeTask;
+            var disposedViewModel = closedViewModel
+                                    ?? throw new InvalidOperationException("AI view model was not captured.");
+            var passed = setup.detached
+                         && setup.freshTabClosed
+                         && disposedViewModel.IsDisposed
+                         && !disposedViewModel.IsRunning
+                         && !disposedViewModel.HasEmbeddedSession;
+            return ToolText(
+                $"{(passed ? "PASS" : "FAIL")}: AI panel close releases its runtime.\n"
+                + $"detached={setup.detached}\n"
+                + $"disposed={disposedViewModel.IsDisposed}\n"
+                + $"running={disposedViewModel.IsRunning}\n"
+                + $"embeddedSession={disposedViewModel.HasEmbeddedSession}\n"
+                + $"freshTabClosed={setup.freshTabClosed}",
+                isError: !passed);
+        }
+        finally
+        {
+            await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is Views.MainWindow main)
+                {
+                    if (secondTab is not null)
+                        main.CloseTerminalSession(secondTab);
+                    if (firstTab is not null)
+                        main.CloseTerminalSession(firstTab);
+                }
+                return true;
+            });
         }
     }
 
@@ -989,6 +1051,19 @@ internal static class DebugMcpServer
                     _renderProbeTab = null;
                     return "closed";
                 }));
+
+            case "hide":
+                {
+                    var closeTask = await OnUiAsync(() =>
+                        _renderProbeView?.CloseAiPanelAsync());
+                    if (closeTask is null)
+                        return ToolText("not open");
+
+                    await closeTask;
+                    return ToolText(await OnUiAsync(() =>
+                        $"panelOpen={_renderProbeView?.IsAiPanelOpen == true} "
+                        + $"viewModelAttached={_renderProbeView?.AiViewModel is not null}"));
+                }
 
             default:
                 {
