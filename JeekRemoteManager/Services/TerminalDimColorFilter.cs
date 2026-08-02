@@ -15,8 +15,14 @@ public sealed class TerminalDimColorFilter
 {
     private bool _injectedDimGray;
     private bool _pendingEsc;
-    private readonly List<byte> _output = new(4096);
+    // Reused across frames: a full-screen TUI repaint runs through here dozens of times a
+    // second, and handing back a fresh array each time was pure garbage.
+    private byte[] _output = new byte[4096];
+    private int _outputLength;
     private readonly List<byte> _csiParams = new(64);
+    // Reused per SGR sequence; a TUI repaint carries hundreds of them per frame.
+    private readonly List<int> _parts = new(16);
+    private readonly List<int> _rebuilt = new(24);
     private bool _inCsi;
     private bool _csiSawQuestion;
 
@@ -28,13 +34,17 @@ public sealed class TerminalDimColorFilter
         _inCsi = false;
         _csiSawQuestion = false;
         _csiParams.Clear();
-        _output.Clear();
+        _outputLength = 0;
     }
 
-    /// <summary>Transforms a chunk of VT output. Safe to call for partial sequences across chunks.</summary>
-    public byte[] Process(ReadOnlySpan<byte> data)
+    /// <summary>
+    /// Transforms a chunk of VT output. Safe to call for partial sequences across chunks.
+    /// The segment points into a buffer this instance owns and is valid only until the
+    /// next call.
+    /// </summary>
+    public ArraySegment<byte> Process(ReadOnlySpan<byte> data)
     {
-        _output.Clear();
+        _outputLength = 0;
         var i = 0;
         if (_pendingEsc)
         {
@@ -42,7 +52,7 @@ public sealed class TerminalDimColorFilter
             if (data.Length == 0)
             {
                 _pendingEsc = true;
-                return [];
+                return ArraySegment<byte>.Empty;
             }
 
             if (data[0] == (byte)'[')
@@ -54,7 +64,7 @@ public sealed class TerminalDimColorFilter
             }
             else
             {
-                _output.Add(0x1b);
+                Emit(0x1b);
             }
         }
 
@@ -80,11 +90,11 @@ public sealed class TerminalDimColorFilter
                         continue;
                     }
 
-                    _output.Add(b);
+                    Emit(b);
                     continue;
                 }
 
-                _output.Add(b);
+                Emit(b);
                 continue;
             }
 
@@ -105,7 +115,14 @@ public sealed class TerminalDimColorFilter
             _csiParams.Add(b);
         }
 
-        return _output.Count == 0 ? [] : _output.ToArray();
+        return new ArraySegment<byte>(_output, 0, _outputLength);
+    }
+
+    private void Emit(byte value)
+    {
+        if (_outputLength == _output.Length)
+            Array.Resize(ref _output, _output.Length * 2);
+        _output[_outputLength++] = value;
     }
 
     private void FlushCsi(char final)
@@ -117,16 +134,15 @@ public sealed class TerminalDimColorFilter
             return;
         }
 
-        var raw = Encoding.ASCII.GetString(_csiParams.ToArray());
-        var parts = string.IsNullOrEmpty(raw)
-            ? new List<int> { 0 }
-            : ParseSgrParams(raw);
+        var parts = _parts;
+        ParseSgrParamsInto(parts);
 
         var hasDim = false;
         var hasNormalIntensity = false;
         var hasReset = false;
         var hasExplicitFg = false;
-        var rebuilt = new List<int>(parts.Count + 4);
+        var rebuilt = _rebuilt;
+        rebuilt.Clear();
 
         for (var i = 0; i < parts.Count; i++)
         {
@@ -226,9 +242,22 @@ public sealed class TerminalDimColorFilter
         }
     }
 
-    private static List<int> ParseSgrParams(string raw)
+    private void ParseSgrParamsInto(List<int> list)
     {
-        var list = new List<int>();
+        list.Clear();
+        if (_csiParams.Count == 0)
+        {
+            list.Add(0);
+            return;
+        }
+
+        if (TryParseSgrParamsFast(list))
+            return;
+
+        // Rare: sub-parameters (38:2:…) or other non-numeric bytes. Fall back to the
+        // string parser so unusual input keeps behaving exactly as it did before.
+        list.Clear();
+        var raw = Encoding.ASCII.GetString(_csiParams.ToArray());
         foreach (var piece in raw.Split(';'))
         {
             if (piece.Length == 0)
@@ -243,32 +272,79 @@ public sealed class TerminalDimColorFilter
 
         if (list.Count == 0)
             list.Add(0);
-        return list;
+    }
+
+    /// <summary>
+    /// Parses plain <c>digit;digit;…</c> parameters straight off the bytes. Bails out on
+    /// anything else, including runs long enough to overflow, so the slow path stays
+    /// authoritative for input this cannot reproduce exactly.
+    /// </summary>
+    private bool TryParseSgrParamsFast(List<int> list)
+    {
+        var value = 0;
+        var digits = 0;
+        foreach (var b in _csiParams)
+        {
+            if (b == (byte)';')
+            {
+                list.Add(value);
+                value = 0;
+                digits = 0;
+                continue;
+            }
+
+            if (b is < (byte)'0' or > (byte)'9' || ++digits > 9)
+                return false;
+
+            value = value * 10 + (b - (byte)'0');
+        }
+
+        list.Add(value);
+        return true;
     }
 
     private void EmitSgr(List<int> codes)
     {
-        _output.Add(0x1b);
-        _output.Add((byte)'[');
-        if (codes.Count == 0)
+        Emit(0x1b);
+        Emit((byte)'[');
+        for (var i = 0; i < codes.Count; i++)
         {
-            _output.Add((byte)'m');
+            if (i > 0)
+                Emit((byte)';');
+            EmitInt(codes[i]);
+        }
+
+        Emit((byte)'m');
+    }
+
+    private void EmitInt(int value)
+    {
+        if (value < 0)
+        {
+            Emit((byte)'-');
+            // Widen first so int.MinValue negates correctly.
+            EmitDigits((uint)-(long)value);
             return;
         }
 
-        var text = string.Join(';', codes);
-        foreach (var c in text)
-            _output.Add((byte)c);
-        _output.Add((byte)'m');
+        EmitDigits((uint)value);
+    }
+
+    private void EmitDigits(uint value)
+    {
+        if (value >= 10)
+            EmitDigits(value / 10);
+        Emit((byte)('0' + value % 10));
     }
 
     private void EmitRawCsi(char final)
     {
-        _output.Add(0x1b);
-        _output.Add((byte)'[');
+        Emit(0x1b);
+        Emit((byte)'[');
         if (_csiSawQuestion)
-            _output.Add((byte)'?');
-        _output.AddRange(_csiParams);
-        _output.Add((byte)final);
+            Emit((byte)'?');
+        foreach (var b in _csiParams)
+            Emit(b);
+        Emit((byte)final);
     }
 }

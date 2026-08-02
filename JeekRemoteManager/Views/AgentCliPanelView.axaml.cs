@@ -47,8 +47,9 @@ public partial class AgentCliPanelView : UserControl
 
     // Codex/Claude use SGR dim which this terminal does not paint; rewrite to soft gray.
     private readonly TerminalDimColorFilter _dimColorFilter = new();
-    // ConPTY output can split multi-byte UTF-8 across reads; decode before Feed(byte[]).
-    private readonly Utf8StreamDecoder _utf8Decoder = new();
+    // ConPTY output can split multi-byte UTF-8 across reads; hold back the incomplete tail
+    // so the bytes can go straight to the parser without a decode/re-encode round trip.
+    private readonly Utf8ChunkAssembler _utf8Assembler = new();
     // Present one completed terminal frame instead of every ConPTY packet in a TUI redraw.
     private readonly TerminalSessionOutputBuffer _sessionOutputBuffer = new();
 
@@ -561,7 +562,7 @@ public partial class AgentCliPanelView : UserControl
         if (clearDisplay)
         {
             _dimColorFilter.Reset();
-            _utf8Decoder.Reset();
+            _utf8Assembler.Reset();
             _sessionOutputBuffer.Clear();
             Interlocked.Exchange(ref _receivedPacketCount, 0);
             Interlocked.Exchange(ref _feedBatchCount, 0);
@@ -643,7 +644,7 @@ public partial class AgentCliPanelView : UserControl
         try
         {
             var filtered = _dimColorFilter.Process(data);
-            if (filtered.Length == 0)
+            if (filtered.Count == 0)
                 return;
 
             Interlocked.Increment(ref _feedBatchCount);
@@ -662,22 +663,21 @@ public partial class AgentCliPanelView : UserControl
     /// Uses sticky <see cref="_followOutput"/> so mouse-tracking Send() jumps and mid-feed
     /// YDisp snaps cannot re-attach follow until the user returns to the bottom.
     /// </summary>
-    private void FeedPreservingUserScroll(byte[] data)
+    private void FeedPreservingUserScroll(ArraySegment<byte> data)
     {
         var terminal = _model.Terminal;
         SyncFollowStateFromViewport();
         var followBottom = _followOutput;
         var pinnedYDisp = _pinnedYDisp;
 
-        var text = _utf8Decoder.Decode(data);
-        if (text.Length == 0)
+        var feed = _utf8Assembler.Append(data);
+        if (feed.Count == 0)
             return;
 
         // Feed the parser directly. TerminalControlModel.Feed performs its own display
         // update before this method restores scroll position, exposing intermediate Codex
         // cursor locations and then causing another refresh below.
-        var utf8 = Encoding.UTF8.GetBytes(text);
-        terminal.Feed(utf8, utf8.Length);
+        terminal.Feed(feed.Array!, feed.Count);
 
         if (followBottom)
         {
