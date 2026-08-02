@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "jrm-debug": {
+    "jeek-remote-manager-debug": {
       "type": "stdio",
       "command": "cmd",
       "args": [
