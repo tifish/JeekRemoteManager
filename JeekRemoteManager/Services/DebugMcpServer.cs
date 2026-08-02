@@ -110,6 +110,7 @@ internal static class DebugMcpServer
         host.AddTool("terminal_tab_title_check", _ => TerminalTabTitleCheckAsync());
         host.AddTool("terminal_tab_focus_check", _ => TerminalTabFocusCheckAsync());
         host.AddTool("terminal_tab_lifecycle_check", _ => TerminalTabLifecycleCheckAsync());
+        host.AddTool("terminal_output_coalescing_check", _ => TerminalOutputCoalescingCheckAsync());
         host.AddTool("ai_cli_ctrl_c_check", _ => AiCliCtrlCCheckAsync());
         host.AddTool("agent_cli_locate_check", AgentCliLocateCheckAsync);
         host.AddTool("agent_cli_mcp_config_check", AgentCliMcpConfigCheckAsync);
@@ -185,6 +186,60 @@ internal static class DebugMcpServer
         });
 
         return weakView;
+    }
+
+    private static async Task<JsonObject> TerminalOutputCoalescingCheckAsync()
+    {
+        const int packetCount = 200;
+        TabItem? tab = null;
+        try
+        {
+            await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main)
+                    throw new InvalidOperationException("MainWindow is not available.");
+
+                tab = main.DebugCreateTerminalTabForLifecycleProbe();
+                var view = (TerminalView)tab.Content!;
+                view.DebugResetTerminalOutputStats();
+                var packet = Encoding.UTF8.GetBytes("x");
+                for (var i = 0; i < packetCount; i++)
+                    view.DebugFeedUtf8Bytes(packet);
+                return true;
+            });
+
+            await Task.Delay(100);
+            var result = await OnUiAsync(() =>
+            {
+                var view = (TerminalView)tab!.Content!;
+                var stats = view.DebugTerminalOutputStats;
+                var renderedBytes = view.DebugVisibleTerminalText.Count(character => character == 'x');
+                var passed = stats.ReceivedPackets == packetCount
+                             && stats.FeedBatches == 1
+                             && stats.PendingPackets == 0
+                             && renderedBytes == packetCount;
+                return (
+                    passed,
+                    $"{(passed ? "PASS" : "FAIL")}: terminal output is coalesced per UI frame.\n"
+                    + $"packets={stats.ReceivedPackets}\n"
+                    + $"batches={stats.FeedBatches}\n"
+                    + $"pending={stats.PendingPackets}\n"
+                    + $"renderedBytes={renderedBytes}");
+            });
+            return ToolText(result.Item2, isError: !result.passed);
+        }
+        finally
+        {
+            if (tab is not null)
+            {
+                await OnUiAsync(() =>
+                {
+                    if (Desktop?.MainWindow is Views.MainWindow main)
+                        main.CloseTerminalSession(tab);
+                    return true;
+                });
+            }
+        }
     }
 
     private static Task<T> OnUiAsync<T>(Func<T> func) => Host.OnUiAsync(func);

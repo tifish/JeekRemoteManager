@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 
 namespace JeekRemoteManager.Services;
@@ -11,15 +12,16 @@ namespace JeekRemoteManager.Services;
 public sealed class TerminalSessionOutputBuffer
 {
     private readonly object _gate = new();
-    private readonly List<PendingPacket> _pending = [];
+    private readonly List<PendingChunk> _pending = [];
     private bool _drainScheduled;
+    private int _pendingPacketCount;
 
     public int PendingPacketCount
     {
         get
         {
             lock (_gate)
-                return _pending.Count;
+                return _pendingPacketCount;
         }
     }
 
@@ -34,7 +36,10 @@ public sealed class TerminalSessionOutputBuffer
 
         lock (_gate)
         {
-            _pending.Add(new PendingPacket(generation, data.ToArray()));
+            if (_pending.Count == 0 || _pending[^1].Generation != generation)
+                _pending.Add(new PendingChunk(generation));
+            _pending[^1].Buffer.Write(data);
+            _pendingPacketCount++;
             if (_drainScheduled)
                 return false;
 
@@ -56,12 +61,13 @@ public sealed class TerminalSessionOutputBuffer
             foreach (var packet in _pending)
             {
                 if (packet.Generation == generation)
-                    byteCount += packet.Data.Length;
+                    byteCount += packet.Buffer.WrittenCount;
             }
 
             if (byteCount == 0)
             {
                 _pending.Clear();
+                _pendingPacketCount = 0;
                 return [];
             }
 
@@ -72,11 +78,12 @@ public sealed class TerminalSessionOutputBuffer
                 if (packet.Generation != generation)
                     continue;
 
-                packet.Data.CopyTo(result, offset);
-                offset += packet.Data.Length;
+                packet.Buffer.WrittenSpan.CopyTo(result.AsSpan(offset));
+                offset += packet.Buffer.WrittenCount;
             }
 
             _pending.Clear();
+            _pendingPacketCount = 0;
             return result;
         }
     }
@@ -86,9 +93,15 @@ public sealed class TerminalSessionOutputBuffer
         lock (_gate)
         {
             _pending.Clear();
+            _pendingPacketCount = 0;
             _drainScheduled = false;
         }
     }
 
-    private sealed record PendingPacket(int Generation, byte[] Data);
+    private sealed class PendingChunk(int generation)
+    {
+        public int Generation { get; } = generation;
+
+        public ArrayBufferWriter<byte> Buffer { get; } = new();
+    }
 }

@@ -37,6 +37,8 @@ namespace JeekRemoteManager.Views;
 /// </summary>
 public partial class TerminalView : UserControl
 {
+    private static readonly TimeSpan OutputFrameInterval = TimeSpan.FromMilliseconds(16);
+
     private sealed class EmptyValueObservable : IObservable<object?>
     {
         public static readonly EmptyValueObservable Instance = new();
@@ -136,6 +138,10 @@ public partial class TerminalView : UserControl
     // SSH packets often split multi-byte UTF-8 (Chinese) mid-character; decode statefully
     // before TerminalControlModel.Feed, which would otherwise insert U+FFFD tofu boxes.
     private readonly Utf8StreamDecoder _utf8Decoder = new();
+    private readonly TerminalSessionOutputBuffer _sessionOutputBuffer = new();
+    private readonly Timer _outputFrameFlushTimer;
+    private long _receivedPacketCount;
+    private long _feedBatchCount;
     private Timer? _resizeOutputFlushTimer;
     private long _resizeOutputDeadlineTicks;
     private string? _pendingKeyboardCopyText;
@@ -272,6 +278,8 @@ public partial class TerminalView : UserControl
     public TerminalView()
     {
         InitializeComponent();
+        _outputFrameFlushTimer = new Timer(
+            _ => Dispatcher.UIThread.Post(DrainTerminalOutputFrame));
         ApplyLocalizedText();
         Jeek.Avalonia.Localization.Localizer.LanguageChanged += OnLanguageChanged;
 
@@ -819,6 +827,21 @@ public partial class TerminalView : UserControl
 
     /// <summary>Debug helper: reset the streaming UTF-8 decoder (as on a new connection).</summary>
     public void DebugResetUtf8Decoder() => _utf8Decoder.Reset();
+
+    public void DebugResetTerminalOutputStats()
+    {
+        _outputFrameFlushTimer.Change(Timeout.Infinite, Timeout.Infinite);
+        _sessionOutputBuffer.Clear();
+        Interlocked.Exchange(ref _receivedPacketCount, 0);
+        Interlocked.Exchange(ref _feedBatchCount, 0);
+    }
+
+    public (long ReceivedPackets, long FeedBatches, int PendingPackets) DebugTerminalOutputStats =>
+        (
+            Interlocked.Read(ref _receivedPacketCount),
+            Interlocked.Read(ref _feedBatchCount),
+            _sessionOutputBuffer.PendingPacketCount
+        );
 
     /// <summary>
     /// Debug helper: resize the terminal buffer as a window size change would and
@@ -1923,6 +1946,8 @@ public partial class TerminalView : UserControl
         _shellClosed = false;
         Volatile.Write(ref _loginSequenceState, "connecting");
         Volatile.Write(ref _bastionSessionState, "none");
+        _outputFrameFlushTimer.Change(Timeout.Infinite, Timeout.Infinite);
+        _sessionOutputBuffer.Clear();
         _utf8Decoder.Reset();
         _ = ConnectAsync(generation);
     }
@@ -2166,6 +2191,8 @@ public partial class TerminalView : UserControl
         var generation = Interlocked.Increment(ref _connectionGeneration);
         _connected = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         _shellClosed = false;
+        _outputFrameFlushTimer.Change(Timeout.Infinite, Timeout.Infinite);
+        _sessionOutputBuffer.Clear();
         _utf8Decoder.Reset();
         _connectInProgress = true;
 
@@ -3140,22 +3167,30 @@ public partial class TerminalView : UserControl
         if (data.Length == 0)
             return;
 
-        // Copy: some channel buffers may be reused after the event returns, and the
-        // UI-thread post is asynchronous.
-        var payload = new byte[data.Length];
-        Buffer.BlockCopy(data, 0, payload, 0, data.Length);
+        Interlocked.Increment(ref _receivedPacketCount);
+        var generation = Volatile.Read(ref _connectionGeneration);
+        if (!_sessionOutputBuffer.Append(data, generation))
+            return;
 
-        Dispatcher.UIThread.Post(() =>
+        _outputFrameFlushTimer.Change(OutputFrameInterval, Timeout.InfiniteTimeSpan);
+    }
+
+    private void DrainTerminalOutputFrame()
+    {
+        var generation = Volatile.Read(ref _connectionGeneration);
+        var payload = _sessionOutputBuffer.Drain(generation);
+        if (_disposed || payload.Length == 0 || generation != _connectionGeneration)
+            return;
+
+        // Decode and feed once per UI frame so split UTF-8 remains ordered while a
+        // burst of SSH packets produces one terminal refresh instead of one per read.
+        var text = _utf8Decoder.Decode(payload);
+        if (text.Length > 0)
         {
-            if (_disposed)
-                return;
-            // Decode on the UI thread so partial multi-byte sequences stay ordered with
-            // the decoder state (dispatcher queue preserves post order).
-            var text = _utf8Decoder.Decode(payload);
-            if (text.Length > 0)
-                _model.Feed(text);
-            RecordCursorRow();
-        });
+            Interlocked.Increment(ref _feedBatchCount);
+            _model.Feed(text);
+        }
+        RecordCursorRow();
     }
 
     private void ScheduleZmodemDetectionFlush()
@@ -3619,6 +3654,8 @@ public partial class TerminalView : UserControl
         _zmodemDetectionFlushTimer?.Dispose();
         _resizeOutputFlushTimer?.Dispose();
         _resizeOutputBuffer.StopAndDrain();
+        _outputFrameFlushTimer.Dispose();
+        _sessionOutputBuffer.Clear();
         _windowSizeSyncTimer?.Stop();
         Interlocked.Exchange(ref _pendingSharedClient, null)?.Release();
         DisposeTransport();
