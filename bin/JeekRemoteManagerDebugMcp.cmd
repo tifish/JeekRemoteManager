@@ -28,4 +28,4 @@ if not exist "%APP%" (
 )
 
 "%ADAPTER%" --surface debug --app "%APP%" %*
-)
+

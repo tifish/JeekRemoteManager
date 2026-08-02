@@ -35,9 +35,9 @@ namespace JeekRemoteManager.Services;
 /// probe tools, and the instance discovery file. Compiled into all
 /// configurations so Debug and Release behave identically, but the listener
 /// only starts in Debug builds. Agents reach it through the fixed per-user
-/// <c>JeekRemoteManagerMcp.exe</c> (via <c>bin\jrm-debug-mcp.cmd</c> with
-/// <c>--surface debug --app</c> this worktree's exe), which forwards stdio to
-/// this instance's named pipe — the pipe name carries the worktree's instance
+/// <c>JeekRemoteManagerMcp.exe</c> (via <c>bin\JeekRemoteManagerDebugMcp.cmd</c>
+/// with <c>--surface debug --app</c> this worktree's exe), which forwards stdio
+/// to this instance's named pipe — the pipe name carries the worktree's instance
 /// id, so parallel Debug builds never answer for each other and there is no
 /// port to collide over. Agents must not launch <c>bin\JeekRemoteManagerMcp.exe</c>
 /// directly; that path is build output (installed to the fixed path on app startup)
