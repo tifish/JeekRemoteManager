@@ -6,10 +6,14 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Data;
+using Avalonia.Diagnostics;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.LogicalTree;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -33,6 +37,26 @@ namespace JeekRemoteManager.Views;
 /// </summary>
 public partial class TerminalView : UserControl
 {
+    private sealed class EmptyValueObservable : IObservable<object?>
+    {
+        public static readonly EmptyValueObservable Instance = new();
+
+        public IDisposable Subscribe(IObserver<object?> observer)
+        {
+            observer.OnCompleted();
+            return EmptyDisposable.Instance;
+        }
+    }
+
+    private sealed class EmptyDisposable : IDisposable
+    {
+        public static readonly EmptyDisposable Instance = new();
+
+        public void Dispose()
+        {
+        }
+    }
+
     public const int BastionPoolWaitTimeoutSeconds = 15;
     public const string BastionPoolWaitingMessage =
         "[bastion reuse] Waiting for another session to finish switching targets ...";
@@ -248,6 +272,8 @@ public partial class TerminalView : UserControl
     public TerminalView()
     {
         InitializeComponent();
+        ApplyLocalizedText();
+        Jeek.Avalonia.Localization.Localizer.LanguageChanged += OnLanguageChanged;
 
         // A TerminalView instance belongs to exactly one SSH tab. Remember its
         // most recently focused descendant so switching tabs can return to the
@@ -303,6 +329,71 @@ public partial class TerminalView : UserControl
             if (!string.IsNullOrWhiteSpace(title))
                 TitleChanged?.Invoke(this, title);
         });
+    }
+
+    private void OnLanguageChanged(object? sender, EventArgs e) => ApplyLocalizedText();
+
+    private void ApplyLocalizedText()
+    {
+        ToolTip.SetTip(
+            ScrollToBottomButton,
+            Jeek.Avalonia.Localization.Localizer.Get("ScrollToLatestHint"));
+        ToolTip.SetTip(
+            CloseScriptPanelButton,
+            Jeek.Avalonia.Localization.Localizer.Get("Close"));
+        ClearScriptParametersButton.Content =
+            Jeek.Avalonia.Localization.Localizer.Get("ClearParameters");
+    }
+
+    private static void ReleaseLocalValueBindings(Control root)
+    {
+        var controls = new HashSet<Control>();
+        var pending = new Stack<Control>();
+        pending.Push(root);
+        while (pending.TryPop(out var control))
+        {
+            if (!controls.Add(control))
+                continue;
+
+            foreach (var child in control.GetVisualChildren().OfType<Control>())
+                pending.Push(child);
+            foreach (var child in control.GetLogicalChildren().OfType<Control>())
+                pending.Push(child);
+            if (control is ItemsControl itemsControl)
+            {
+                foreach (var child in itemsControl.Items.OfType<Control>())
+                    pending.Push(child);
+            }
+            if (control.ContextMenu is { } contextMenu)
+                pending.Push(contextMenu);
+            if (control is Button { Flyout: MenuFlyout menuFlyout })
+            {
+                foreach (var child in menuFlyout.Items.OfType<Control>())
+                    pending.Push(child);
+            }
+        }
+
+        // LocalizeExtension keeps its observers alive through the process-wide
+        // language event. A closed tab will never render again, so discard all
+        // local value frames (including bindings) from its detached visual tree.
+        foreach (var item in controls.Reverse())
+        {
+            var properties = AvaloniaPropertyRegistry.Instance.GetRegistered(item)
+                .Concat(AvaloniaPropertyRegistry.Instance.GetRegisteredAttached(item.GetType()))
+                .Distinct()
+                .ToArray();
+            foreach (var property in properties)
+            {
+                if (!property.IsDirect
+                    && item.GetDiagnostic(property).Priority == BindingPriority.LocalValue)
+                {
+                    // Avalonia's ClearValue leaves a local observable binding in
+                    // its private binding table. Rebinding to a completing source
+                    // disposes that subscription and then removes itself.
+                    item.Bind(property, EmptyValueObservable.Instance, BindingPriority.LocalValue);
+                }
+            }
+        }
     }
 
     /// <summary>True when the terminal viewport is not following the latest output
@@ -3543,5 +3634,10 @@ public partial class TerminalView : UserControl
         if (ai is not null)
             _ = ai.DisposeAsync();
 
+        Jeek.Avalonia.Localization.Localizer.LanguageChanged -= OnLanguageChanged;
+        ReleaseLocalValueBindings(AiPanel);
+        ReleaseLocalValueBindings(FileBrowser);
+        ReleaseLocalValueBindings(MonitorPanel);
+        ReleaseLocalValueBindings(this);
     }
 }

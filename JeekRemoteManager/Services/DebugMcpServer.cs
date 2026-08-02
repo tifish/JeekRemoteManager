@@ -109,6 +109,7 @@ internal static class DebugMcpServer
         host.AddTool("ai_runtime_snapshot", _ => AiRuntimeSnapshotAsync());
         host.AddTool("terminal_tab_title_check", _ => TerminalTabTitleCheckAsync());
         host.AddTool("terminal_tab_focus_check", _ => TerminalTabFocusCheckAsync());
+        host.AddTool("terminal_tab_lifecycle_check", _ => TerminalTabLifecycleCheckAsync());
         host.AddTool("ai_cli_ctrl_c_check", _ => AiCliCtrlCCheckAsync());
         host.AddTool("agent_cli_locate_check", AgentCliLocateCheckAsync);
         host.AddTool("agent_cli_mcp_config_check", AgentCliMcpConfigCheckAsync);
@@ -129,6 +130,61 @@ internal static class DebugMcpServer
         host.AddTool("mcp_transport_check", _ => McpTransportCheckAsync());
         host.AddTool("product_mcp_check", _ => ProductMcpCheckAsync());
         return host;
+    }
+
+    private static async Task<JsonObject> TerminalTabLifecycleCheckAsync()
+    {
+        const int cycles = 5;
+        var weakViews = new List<WeakReference<TerminalView>>(cycles);
+
+        for (var i = 0; i < cycles; i++)
+            weakViews.Add(await CreateAndCloseTerminalLifecycleProbeAsync());
+
+        // The async state machine may keep its most recently awaited result live
+        // until this method returns. Use an untracked sentinel cycle so that the
+        // five measured views have no probe-owned strong reference.
+        _ = await CreateAndCloseTerminalLifecycleProbeAsync();
+
+        // Let removal/unload work drain before forcing a compacting collection.
+        await Task.Delay(100);
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+
+        var alive = weakViews.Count(reference => reference.TryGetTarget(out _));
+        return ToolText(
+            $"{(alive == 0 ? "PASS" : "FAIL")}: closed terminal views are collectible.\n"
+            + $"cycles={cycles}\nalive={alive}");
+    }
+
+    private static async Task<WeakReference<TerminalView>> CreateAndCloseTerminalLifecycleProbeAsync()
+    {
+        var tab = await OnUiAsync(() =>
+        {
+            if (Desktop?.MainWindow is not Views.MainWindow main)
+                throw new InvalidOperationException("MainWindow is not available.");
+            return main.DebugCreateTerminalTabForLifecycleProbe();
+        });
+
+        // Give Avalonia one layout pass so the probe covers loaded bindings and
+        // compositor resources rather than only constructor-time objects.
+        await Task.Delay(75);
+        var weakView = await OnUiAsync(() =>
+        {
+            if (tab.Content is not TerminalView view)
+                throw new InvalidOperationException("Lifecycle probe tab has no TerminalView.");
+            return new WeakReference<TerminalView>(view);
+        });
+
+        await OnUiAsync(() =>
+        {
+            if (Desktop?.MainWindow is not Views.MainWindow main)
+                throw new InvalidOperationException("MainWindow is not available.");
+            main.CloseTerminalSession(tab);
+            return true;
+        });
+
+        return weakView;
     }
 
     private static Task<T> OnUiAsync<T>(Func<T> func) => Host.OnUiAsync(func);

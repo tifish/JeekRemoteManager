@@ -357,6 +357,9 @@ try
     Check(DebugMcpContract.BuildToolList()
               .Any(tool => tool?["name"]?.GetValue<string>() == "connection_editor_switch_check"),
           "Debug MCP advertises connection-editor switch performance verification");
+    Check(DebugMcpContract.BuildToolList()
+              .Any(tool => tool?["name"]?.GetValue<string>() == "terminal_tab_lifecycle_check"),
+          "Debug MCP advertises terminal-tab lifecycle verification");
     Check(!mainWindowXaml.Contains("LoginCommandsFlowPreview", StringComparison.Ordinal)
           && mainWindowXaml.Contains("LoginCommandsValidationMessage", StringComparison.Ordinal),
           "SSH login commands show validation errors without the parsed flow text");

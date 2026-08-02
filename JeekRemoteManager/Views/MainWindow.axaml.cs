@@ -832,6 +832,15 @@ public partial class MainWindow : Window
         return true;
     }
 
+    /// <summary>Creates a process-free terminal tab for the Debug MCP lifecycle probe.</summary>
+    internal TabItem DebugCreateTerminalTabForLifecycleProbe()
+    {
+        var (_, tab) = CreateTerminalTab(
+            new Connection { Name = "terminal lifecycle probe", Type = ConnectionType.Wsl },
+            sourcePath: null);
+        return tab;
+    }
+
     /// <summary>Currently selected terminal tab, or null when another tab kind is selected.</summary>
     internal TabItem? SelectedTerminalTab =>
         RightTabs.SelectedItem as TabItem is { Content: TerminalView } tab ? tab : null;
@@ -1710,6 +1719,16 @@ public partial class MainWindow : Window
             view.Close();
 
         RightTabs.Items.Remove(tab);
+        // Localized controls subscribe to the application-wide localizer. If the
+        // binding engine retains a removed TabItem through that subscription, leaving
+        // Content attached keeps the entire terminal visual tree and its native
+        // compositor resources alive. Sever every expensive branch after removal so
+        // a stale header/menu binding can retain at most the empty TabItem shell.
+        tab.Content = null;
+        tab.Header = null;
+        tab.ContextMenu = null;
+        tab.DataContext = null;
+        tab.Tag = null;
 
         if (wasSelected && RightTabs.Items.Count > 0)
             RightTabs.SelectedIndex = Math.Clamp(index - 1, 0, RightTabs.Items.Count - 1);

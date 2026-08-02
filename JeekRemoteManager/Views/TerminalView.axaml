@@ -4,7 +4,6 @@
              xmlns:terminal="using:SvcSystems.UI.Terminal"
              xmlns:vm="using:JeekRemoteManager.ViewModels"
              xmlns:views="using:JeekRemoteManager.Views"
-             xmlns:l="using:Jeek.Avalonia.Localization"
              x:Class="JeekRemoteManager.Views.TerminalView"
              x:Name="TerminalRoot"
              x:DataType="vm:MainWindowViewModel">
@@ -50,8 +49,7 @@
                     VerticalAlignment="Bottom"
                     Margin="0,0,28,16"
                     IsVisible="False"
-                    Click="OnScrollToBottomClick"
-                    ToolTip.Tip="{l:Localize ScrollToLatestHint}">
+                    Click="OnScrollToBottomClick">
                 <TextBlock FontFamily="Segoe MDL2 Assets"
                            FontSize="14"
                            Foreground="{DynamicResource AccentForegroundBrush}"
@@ -114,9 +112,9 @@
                         <TextBlock Grid.Column="0"
                                    Classes="page-title"
                                    Text="{Binding ScriptPanel.SuiteName}" />
-                        <Button Grid.Column="1"
+                        <Button x:Name="CloseScriptPanelButton"
+                                Grid.Column="1"
                                 Classes="toolbar icon-button"
-                                ToolTip.Tip="{l:Localize Close}"
                                 Command="{Binding CloseScriptExecutionCommand}">
                             <TextBlock Classes="icon"
                                        Text="&#xE711;"
@@ -224,10 +222,10 @@
                                    VerticalAlignment="Center" />
                     </Grid>
 
-                    <Button Grid.Row="3"
+                    <Button x:Name="ClearScriptParametersButton"
+                            Grid.Row="3"
                             Classes="toolbar"
                             HorizontalAlignment="Left"
-                            Content="{l:Localize ClearParameters}"
                             Command="{Binding ClearScriptParametersCommand}" />
                 </Grid>
             </Border>
