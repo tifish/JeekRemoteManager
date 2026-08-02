@@ -210,11 +210,11 @@ public partial class MainWindow : Window
 
     private void BuildMoreActionsMenu()
     {
-        if (DataContext is not MainWindowViewModel vm)
+        if (DataContext is not MainWindowViewModel)
             return;
 
         var menu = new MenuFlyout();
-        foreach (var entry in ApplicationMenuDefinition.MainWindowItems)
+        foreach (var entry in ApplicationMenuDefinition.Items)
         {
             if (menu.Items.Count > 0)
                 menu.Items.Add(new Separator());
@@ -232,41 +232,60 @@ public partial class MainWindow : Window
             if (entry.ToolTipLocalizationKey is { } toolTipKey)
                 ToolTip.SetTip(item, Localizer.Get(toolTipKey));
 
-            switch (entry.Action)
-            {
-                case ApplicationMenuAction.Settings:
-                    item.Command = vm.OpenSettingsCommand;
-                    break;
-                case ApplicationMenuAction.LinkApplicationToProject:
-                    item.Click += async (_, _) => await PickApplicationProjectFolderAsync(remove: false);
-                    break;
-                case ApplicationMenuAction.UnlinkApplicationFromProject:
-                    item.Click += async (_, _) => await PickApplicationProjectFolderAsync(remove: true);
-                    break;
-                case ApplicationMenuAction.ImportFromFinalShell:
-                    item.Command = vm.ImportFinalShellCommand;
-                    break;
-                case ApplicationMenuAction.ImportFromSecureCrt:
-                    item.Command = vm.ImportSecureCrtCommand;
-                    break;
-                case ApplicationMenuAction.ImportFromXshell:
-                    item.Command = vm.ImportXshellCommand;
-                    break;
-                case ApplicationMenuAction.CheckForUpdates:
-                    item.Command = vm.CheckForUpdatesCommand;
-                    break;
-                case ApplicationMenuAction.About:
-                    item.Click += async (_, _) => await ShowAboutDialogAsync();
-                    break;
-                case ApplicationMenuAction.Exit:
-                    item.Click += (_, _) => (Application.Current as App)?.RequestExit();
-                    break;
-            }
-
+            var action = entry.Action;
+            item.Click += (_, _) => ExecuteApplicationMenuAction(action);
             menu.Items.Add(item);
         }
 
         MoreActionsButton.Flyout = menu;
+    }
+
+    /// <summary>
+    /// Runs one shared application-menu action. Used by both the main-window
+    /// overflow menu and the tray menu so handlers stay in one place.
+    /// </summary>
+    public void ExecuteApplicationMenuAction(ApplicationMenuAction action)
+    {
+        if (DataContext is not MainWindowViewModel vm)
+            return;
+
+        switch (action)
+        {
+            case ApplicationMenuAction.Settings:
+                if (vm.OpenSettingsCommand.CanExecute(null))
+                    vm.OpenSettingsCommand.Execute(null);
+                break;
+            case ApplicationMenuAction.LinkApplicationToProject:
+                _ = PickApplicationProjectFolderAsync(remove: false);
+                break;
+            case ApplicationMenuAction.UnlinkApplicationFromProject:
+                _ = PickApplicationProjectFolderAsync(remove: true);
+                break;
+            case ApplicationMenuAction.ImportFromFinalShell:
+                if (vm.ImportFinalShellCommand.CanExecute(null))
+                    vm.ImportFinalShellCommand.Execute(null);
+                break;
+            case ApplicationMenuAction.ImportFromSecureCrt:
+                if (vm.ImportSecureCrtCommand.CanExecute(null))
+                    vm.ImportSecureCrtCommand.Execute(null);
+                break;
+            case ApplicationMenuAction.ImportFromXshell:
+                if (vm.ImportXshellCommand.CanExecute(null))
+                    vm.ImportXshellCommand.Execute(null);
+                break;
+            case ApplicationMenuAction.CheckForUpdates:
+                if (vm.CheckForUpdatesCommand.CanExecute(null))
+                    vm.CheckForUpdatesCommand.Execute(null);
+                break;
+            case ApplicationMenuAction.About:
+                _ = ShowAboutDialogAsync();
+                break;
+            case ApplicationMenuAction.Exit:
+                (Application.Current as App)?.RequestExit();
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(action), action, null);
+        }
     }
 
     private async Task PickApplicationProjectFolderAsync(bool remove)

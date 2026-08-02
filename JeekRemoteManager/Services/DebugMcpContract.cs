@@ -138,7 +138,7 @@ public static class DebugMcpContract
                 ["keep"] = Prop("boolean", "Keep the temporary project folder instead of deleting it (default false)."),
             }),
         Tool("agent_application_link_check",
-            "Drives the main window's application-wide MCP link and unlink actions against a throwaway project. Verifies the menu entries, unpinned adapter config, global operating notes, preservation of existing project config, and cleanup.",
+            "Drives the main window's application-wide MCP link and unlink actions against a throwaway project. Verifies main-window and tray menu entries stay aligned, unpinned adapter config, global operating notes, preservation of existing project config, and cleanup.",
             new() { ["keep"] = Prop("boolean", "Keep the temporary project folder instead of deleting it (default false).") }),
         Tool("global_agent_check",
             "Verifies the in-app global AI Agent starts closed, can be opened, fully closed, and reopened without launching a third-party CLI, then checks its application-wide workspace, unpinned MCP config, connection-only options, and multi-connection product tools.",

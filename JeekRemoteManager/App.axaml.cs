@@ -253,8 +253,6 @@ public partial class App : Application
 
     private void OnTrayShowClicked(object? sender, EventArgs e) => ShowMainWindow();
 
-    private void OnTrayExitClicked(object? sender, EventArgs e) => RequestExit();
-
     public void RequestExit()
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
@@ -328,13 +326,13 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Builds the tray icon's right-click menu from the same common action list
+    /// Builds the tray icon's right-click menu from the same shared action list
     /// as the main window, with a tray-specific Show item prepended. Rebuilt on
     /// language changes so the labels stay current.
     /// </summary>
     private void BuildTrayMenu()
     {
-        if (_vm is not { } vm)
+        if (_vm is null)
             return;
 
         var icon = TrayIcon.GetIcons(this)?.FirstOrDefault();
@@ -349,77 +347,40 @@ public partial class App : Application
         show.Click += OnTrayShowClicked;
         menu.Items.Add(show);
 
-        menu.Items.Add(new NativeMenuItemSeparator());
-
-        var firstCommonItem = true;
-        foreach (var entry in ApplicationMenuDefinition.CommonItems)
+        foreach (var entry in ApplicationMenuDefinition.Items)
         {
-            if (!firstCommonItem)
-                menu.Items.Add(new NativeMenuItemSeparator());
-            firstCommonItem = false;
+            menu.Items.Add(new NativeMenuItemSeparator());
 
-            var item = entry.Action switch
-            {
-                ApplicationMenuAction.Settings =>
-                    CommandItem(Localizer.Get(entry.LocalizationKey), vm.OpenSettingsCommand),
-                ApplicationMenuAction.ImportFromFinalShell =>
-                    CommandItem(Localizer.Get(entry.LocalizationKey), vm.ImportFinalShellCommand),
-                ApplicationMenuAction.ImportFromSecureCrt =>
-                    CommandItem(Localizer.Get(entry.LocalizationKey), vm.ImportSecureCrtCommand),
-                ApplicationMenuAction.ImportFromXshell =>
-                    CommandItem(Localizer.Get(entry.LocalizationKey), vm.ImportXshellCommand),
-                ApplicationMenuAction.CheckForUpdates =>
-                    CommandItem(Localizer.Get(entry.LocalizationKey), vm.CheckForUpdatesCommand),
-                ApplicationMenuAction.About =>
-                    ActionItem(Localizer.Get(entry.LocalizationKey), ShowAboutDialog),
-                ApplicationMenuAction.Exit => ActionItem(Localizer.Get(entry.LocalizationKey), RequestExit),
-                _ => throw new ArgumentOutOfRangeException(),
-            };
+            var action = entry.Action;
+            var item = new NativeMenuItem { Header = Localizer.Get(entry.LocalizationKey) };
+            item.Click += (_, _) => InvokeSharedMenuAction(action);
             menu.Items.Add(item);
         }
 
         icon.Menu = menu;
     }
 
-    private NativeMenuItem CommandItem(string header, System.Windows.Input.ICommand command)
+    /// <summary>
+    /// Invokes a shared application-menu action from the tray. Surfaces the main
+    /// window first for dialog-owned actions (ShowDialog hangs on a hidden owner).
+    /// Exit does not need the window and runs immediately.
+    /// </summary>
+    private void InvokeSharedMenuAction(ApplicationMenuAction action)
     {
-        var item = new NativeMenuItem { Header = header };
-        item.Click += (_, _) =>
+        if (action == ApplicationMenuAction.Exit)
         {
-            // Tray-invoked commands open dialogs owned by the main window;
-            // ShowDialog over a hidden owner hangs, so surface the window first.
-            if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop
-                && desktop.MainWindow is Window window)
-            {
-                window.Show();
-                if (window.WindowState == WindowState.Minimized)
-                    window.WindowState = WindowState.Normal;
-                window.Activate();
-            }
-            if (command.CanExecute(null))
-                command.Execute(null);
-        };
-        return item;
-    }
-
-    private void ShowAboutDialog()
-    {
-        if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop
-            || desktop.MainWindow is not MainWindow window)
+            RequestExit();
             return;
+        }
 
-        window.Show();
-        if (window.WindowState == WindowState.Minimized)
-            window.WindowState = WindowState.Normal;
-        window.Activate();
-        _ = window.ShowAboutDialogAsync();
-    }
-
-    private static NativeMenuItem ActionItem(string header, Action action)
-    {
-        var item = new NativeMenuItem { Header = header };
-        item.Click += (_, _) => action();
-        return item;
+        // Tray-invoked commands open dialogs owned by the main window;
+        // ShowDialog over a hidden owner hangs, so surface the window first.
+        ShowMainWindow();
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop
+            && desktop.MainWindow is MainWindow window)
+        {
+            window.ExecuteApplicationMenuAction(action);
+        }
     }
 
     private static void ApplyStoredLanguage(SettingsService settings)

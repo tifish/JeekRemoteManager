@@ -58,21 +58,7 @@ try
     Check(!McpAdapterRegistry.HaveSameFileMetadata(metadataFirst, metadataSecond),
           "MCP adapter comparison rejects a different modification time");
 
-    Check(ApplicationMenuDefinition.CommonItems.Select(item => item.Action).SequenceEqual(
-          [
-              ApplicationMenuAction.Settings,
-              ApplicationMenuAction.ImportFromFinalShell,
-              ApplicationMenuAction.ImportFromSecureCrt,
-              ApplicationMenuAction.ImportFromXshell,
-              ApplicationMenuAction.CheckForUpdates,
-              ApplicationMenuAction.About,
-              ApplicationMenuAction.Exit,
-          ]),
-          "Window and tray menus share one ordered common-action definition");
-    Check(ApplicationMenuDefinition.CommonItems.Select(item => item.LocalizationKey).Distinct().Count()
-          == ApplicationMenuDefinition.CommonItems.Count,
-          "Shared application-menu actions use unique localization keys");
-    Check(ApplicationMenuDefinition.MainWindowItems.Select(item => item.Action).SequenceEqual(
+    Check(ApplicationMenuDefinition.Items.Select(item => item.Action).SequenceEqual(
           [
               ApplicationMenuAction.Settings,
               ApplicationMenuAction.LinkApplicationToProject,
@@ -84,7 +70,10 @@ try
               ApplicationMenuAction.About,
               ApplicationMenuAction.Exit,
           ]),
-          "Main menu adds application-wide MCP link actions without adding them to the tray");
+          "Window and tray menus share one ordered application-menu definition");
+    Check(ApplicationMenuDefinition.Items.Select(item => item.LocalizationKey).Distinct().Count()
+          == ApplicationMenuDefinition.Items.Count,
+          "Shared application-menu actions use unique localization keys");
 
     var globalMcpProject = Path.Combine(root, "global-mcp-project");
     Directory.CreateDirectory(globalMcpProject);

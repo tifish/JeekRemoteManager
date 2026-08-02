@@ -2036,20 +2036,29 @@ internal static class DebugMcpServer
                 Path.Combine(project, ".codex", "config.toml"),
                 "model = \"gpt-5\"\n");
 
-            var menuHeaders = await OnUiAsync(() =>
+            var (menuHeaders, trayHeaders) = await OnUiAsync(() =>
             {
                 if (Desktop?.MainWindow is not Views.MainWindow main)
                     throw new InvalidOperationException("The main window is not available.");
                 main.WriteApplicationMcpToProject(project);
-                return main.MoreActionsMenuHeaders.ToArray();
+                var tray = (Application.Current as App)?.TrayMenuHeaders.ToArray() ?? [];
+                return (main.MoreActionsMenuHeaders.ToArray(), tray);
             });
 
+            var linkLabel = Localizer.Get("AiLinkApplicationProject");
+            var unlinkLabel = Localizer.Get("AiUnlinkApplicationProject");
+            Check("main menu exposes application-wide link", menuHeaders.Contains(linkLabel));
+            Check("main menu exposes application-wide unlink", menuHeaders.Contains(unlinkLabel));
+            Check("tray menu exposes application-wide link", trayHeaders.Contains(linkLabel));
+            Check("tray menu exposes application-wide unlink", trayHeaders.Contains(unlinkLabel));
+
+            // Shared application actions (everything after tray-only "Show") must match.
+            var sharedFromTray = trayHeaders
+                .SkipWhile(h => h == Localizer.Get("TrayShow"))
+                .ToArray();
             Check(
-                "main menu exposes application-wide link",
-                menuHeaders.Contains(Localizer.Get("AiLinkApplicationProject")));
-            Check(
-                "main menu exposes application-wide unlink",
-                menuHeaders.Contains(Localizer.Get("AiUnlinkApplicationProject")));
+                "tray and main menus share the same application actions",
+                sharedFromTray.SequenceEqual(menuHeaders));
 
             var agentsMd = File.ReadAllText(Path.Combine(project, "AGENTS.md"));
             var root = TryParseJsonObject(File.ReadAllText(Path.Combine(project, ".mcp.json")));
