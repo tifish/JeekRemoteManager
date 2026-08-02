@@ -92,16 +92,10 @@
                     <Button x:Name="AiOptionsButton"
                             Classes="toolbar icon-button"
                             ToolTip.Tip="{l:Localize AiCliOptions}"
-                            MinWidth="42"
+                            MinWidth="28"
                             MinHeight="28"
-                            Padding="4,0">
-                        <StackPanel Orientation="Horizontal" Spacing="3">
-                            <TextBlock Classes="icon" FontSize="12" Text="&#xE713;" />
-                            <TextBlock x:Name="FontSizeLabel"
-                                       VerticalAlignment="Center"
-                                       FontSize="10"
-                                       Foreground="{DynamicResource TextMutedBrush}" />
-                        </StackPanel>
+                            Padding="0">
+                        <TextBlock Classes="icon" FontSize="12" Text="&#xE713;" />
                         <Button.Flyout>
                             <MenuFlyout>
                                 <MenuItem x:Name="AutoRunMenuItem"
@@ -133,11 +127,6 @@
                                           Click="OnRemoveFromProjectClick"
                                           IsVisible="{Binding ShowConnectionOptions}"
                                           ToolTip.Tip="{l:Localize AiUnlinkProjectHint}" />
-                                <Separator />
-                                <MenuItem Header="{l:Localize FontDecrease}"
-                                          Click="OnFontDecreaseClick" />
-                                <MenuItem Header="{l:Localize FontIncrease}"
-                                          Click="OnFontIncreaseClick" />
                             </MenuFlyout>
                         </Button.Flyout>
                     </Button>

@@ -111,6 +111,7 @@ internal static class DebugMcpServer
         host.AddTool("terminal_tab_focus_check", _ => TerminalTabFocusCheckAsync());
         host.AddTool("terminal_tab_lifecycle_check", _ => TerminalTabLifecycleCheckAsync());
         host.AddTool("terminal_output_coalescing_check", _ => TerminalOutputCoalescingCheckAsync());
+        host.AddTool("terminal_font_sync_check", _ => TerminalFontSyncCheckAsync());
         host.AddTool("ai_panel_lifecycle_check", _ => AiPanelLifecycleCheckAsync());
         host.AddTool("file_browser_session_lifecycle_check", _ => FileBrowserSessionLifecycleCheckAsync());
         host.AddTool("ai_cli_ctrl_c_check", _ => AiCliCtrlCCheckAsync());
@@ -241,6 +242,108 @@ internal static class DebugMcpServer
                     return true;
                 });
             }
+        }
+    }
+
+    private static async Task<JsonObject> TerminalFontSyncCheckAsync()
+    {
+        TabItem? tab = null;
+        var globalAgentWasOpen = false;
+        var originalSize = 0;
+        var delta = 0;
+
+        try
+        {
+            var result = await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main
+                    || main.DataContext is not MainWindowViewModel vm)
+                {
+                    throw new InvalidOperationException("MainWindow is not available.");
+                }
+
+                globalAgentWasOpen = main.IsGlobalAgentTabOpen;
+                originalSize = vm.TerminalFontSize;
+                delta = originalSize < 36 ? 1 : -1;
+
+                tab = main.DebugCreateTerminalTabForLifecycleProbe();
+                var terminal = (TerminalView)tab.Content!;
+                _ = main.PrepareGlobalAgentTabForDebug();
+
+                var initialTerminalSize = terminal.DebugTerminalFontSize;
+                var initialEmbeddedAiSize = terminal.DebugAiPanel.TerminalFontSize;
+                var initialGlobalAiSize = main.DebugGlobalAgentPanel.TerminalFontSize;
+
+                if (delta > 0)
+                    vm.IncreaseTerminalFontCommand.Execute(null);
+                else
+                    vm.DecreaseTerminalFontCommand.Execute(null);
+
+                var expectedSize = originalSize + delta;
+                var terminalSize = terminal.DebugTerminalFontSize;
+                var embeddedAiSize = terminal.DebugAiPanel.TerminalFontSize;
+                var globalAiSize = main.DebugGlobalAgentPanel.TerminalFontSize;
+                var passed = initialTerminalSize == originalSize
+                             && initialEmbeddedAiSize == originalSize
+                             && initialGlobalAiSize == originalSize
+                             && vm.TerminalFontSize == expectedSize
+                             && terminalSize == expectedSize
+                             && embeddedAiSize == expectedSize
+                             && globalAiSize == expectedSize;
+
+                return (
+                    passed,
+                    expectedSize,
+                    terminalSize,
+                    embeddedAiSize,
+                    globalAiSize,
+                    initialTerminalSize,
+                    initialEmbeddedAiSize,
+                    initialGlobalAiSize);
+            });
+
+            return ToolText(
+                $"{(result.passed ? "PASS" : "FAIL")}: SSH terminal font controls update every AI CLI panel.\n"
+                + $"original={originalSize}\n"
+                + $"expected={result.expectedSize}\n"
+                + $"initialTerminal={result.initialTerminalSize}\n"
+                + $"initialEmbeddedAi={result.initialEmbeddedAiSize}\n"
+                + $"initialGlobalAi={result.initialGlobalAiSize}\n"
+                + $"terminal={result.terminalSize}\n"
+                + $"embeddedAi={result.embeddedAiSize}\n"
+                + $"globalAi={result.globalAiSize}",
+                isError: !result.passed);
+        }
+        finally
+        {
+            Task? closeGlobalAgentTask = null;
+            await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main
+                    || main.DataContext is not MainWindowViewModel vm)
+                {
+                    return false;
+                }
+
+                if (vm.TerminalFontSize != originalSize && delta != 0)
+                {
+                    if (delta > 0)
+                        vm.DecreaseTerminalFontCommand.Execute(null);
+                    else
+                        vm.IncreaseTerminalFontCommand.Execute(null);
+                }
+
+                if (tab is not null)
+                    main.CloseTerminalSession(tab);
+
+                if (!globalAgentWasOpen && main.IsGlobalAgentTabOpen)
+                    closeGlobalAgentTask = main.CloseGlobalAgentAsync();
+
+                return true;
+            });
+
+            if (closeGlobalAgentTask is not null)
+                await closeGlobalAgentTask;
         }
     }
 

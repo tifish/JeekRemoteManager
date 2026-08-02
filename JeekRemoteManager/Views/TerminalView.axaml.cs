@@ -693,6 +693,9 @@ public partial class TerminalView : UserControl
     /// <summary>Direct AI panel access for self-contained Debug MCP checks.</summary>
     internal AgentCliPanelView DebugAiPanel => AiPanel;
 
+    /// <summary>Rendered SSH terminal font size exposed for Debug MCP verification.</summary>
+    internal double DebugTerminalFontSize => Term.FontSize;
+
     /// <summary>Rendered AI header height exposed for Debug MCP layout verification.</summary>
     public double? DebugAiHeaderHeight =>
         _aiViewModel is null ? null : AiPanel.DebugHeaderHeight;

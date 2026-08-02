@@ -223,6 +223,8 @@ try
         repoRoot, "JeekRemoteManager", "Views", "MainWindow.axaml.cs"));
     var agentPanelXaml = File.ReadAllText(Path.Combine(
         repoRoot, "JeekRemoteManager", "Views", "AgentCliPanelView.axaml"));
+    var agentPanelCode = File.ReadAllText(Path.Combine(
+        repoRoot, "JeekRemoteManager", "Views", "AgentCliPanelView.axaml.cs"));
     Check(terminalViewXaml.IndexOf("x:Name=\"AiPanelHost\"", StringComparison.Ordinal)
               < terminalViewXaml.IndexOf("x:Name=\"MonitorPanelHost\"", StringComparison.Ordinal)
           && terminalViewXaml.Contains("x:Name=\"AiPanelHost\"\n                Grid.Column=\"0\"", StringComparison.Ordinal)
@@ -257,10 +259,18 @@ try
           && mainWindowCode.Contains(
               "Math.Max(editorIndex, globalAgentIndex) + 1",
               StringComparison.Ordinal)
+          && mainWindowCode.Contains(
+              "GlobalAgentPanel.SetFontSize(size);",
+              StringComparison.Ordinal)
           && agentPanelXaml.Contains(
               "IsVisible=\"{Binding ShowConnectionOptions}\"",
-              StringComparison.Ordinal),
-          "Main window exposes an on-demand closable global AI Agent surface with connection-only options hidden");
+              StringComparison.Ordinal)
+          && !agentPanelXaml.Contains("FontSizeLabel", StringComparison.Ordinal)
+          && !agentPanelXaml.Contains("OnFontDecreaseClick", StringComparison.Ordinal)
+          && !agentPanelXaml.Contains("OnFontIncreaseClick", StringComparison.Ordinal)
+          && !agentPanelCode.Contains("MinFontSize", StringComparison.Ordinal)
+          && !agentPanelCode.Contains("MaxFontSize", StringComparison.Ordinal),
+          "AI CLI panels share the SSH terminal font size without independent controls");
     Check(mainWindowCode.IndexOf("menu.Items.Add(aiPanel);", StringComparison.Ordinal)
               < mainWindowCode.IndexOf("menu.Items.Add(monitor);", StringComparison.Ordinal),
           "Terminal tab menu places AI before monitor");
@@ -309,6 +319,9 @@ try
     Check(DebugMcpContract.BuildToolList()
               .Any(tool => tool?["name"]?.GetValue<string>() == "terminal_tab_title_check"),
           "Debug MCP advertises terminal-tab title verification");
+    Check(DebugMcpContract.BuildToolList()
+              .Any(tool => tool?["name"]?.GetValue<string>() == "terminal_font_sync_check"),
+          "Debug MCP advertises shared terminal font verification");
     Check(DebugMcpContract.BuildToolList()
               .Any(tool => tool?["name"]?.GetValue<string>() == "global_agent_check"),
           "Debug MCP advertises global AI Agent verification");

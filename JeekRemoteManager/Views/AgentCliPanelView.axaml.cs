@@ -21,9 +21,6 @@ namespace JeekRemoteManager.Views;
 
 public partial class AgentCliPanelView : UserControl
 {
-    private const double MinFontSize = 10;
-    private const double MaxFontSize = 28;
-
     private static readonly TimeSpan ResizeSettleDebounce = TimeSpan.FromMilliseconds(120);
     private static readonly TimeSpan OutputFrameInterval = TimeSpan.FromMilliseconds(16);
 
@@ -59,7 +56,6 @@ public partial class AgentCliPanelView : UserControl
     private Action<byte[]>? _liveSessionDataHandler;
     private AgentCliPanelViewModel? _vm;
     private string? _pendingCliKeyboardCopyText;
-    private double _fontSize = 14;
     private int _lastSentCols;
     private int _lastSentRows;
     private int _lastFedCursorRow;
@@ -86,10 +82,9 @@ public partial class AgentCliPanelView : UserControl
         InitializeComponent();
 
         CliTerm.Model = _model;
-        CliTerm.FontSize = _fontSize;
+        CliTerm.FontSize = 14;
         TerminalTextInputMethodClient.Attach(CliTerm);
         CliTerm.HostHistoryScrolled += NoteUserHostScroll;
-        UpdateFontSizeLabel();
 
         _resizeSettleTimer.Tick += OnResizeSettleTick;
         _outputFrameTimer.Tick += OnOutputFrameTick;
@@ -320,27 +315,13 @@ public partial class AgentCliPanelView : UserControl
     private void OnCloseClick(object? sender, RoutedEventArgs e) =>
         CloseRequested?.Invoke(this, EventArgs.Empty);
 
-    private void OnFontDecreaseClick(object? sender, RoutedEventArgs e) =>
-        SetFontSize(_fontSize - 1);
-
-    private void OnFontIncreaseClick(object? sender, RoutedEventArgs e) =>
-        SetFontSize(_fontSize + 1);
-
     public void SetFontSize(double size)
     {
-        _fontSize = Math.Clamp(size, MinFontSize, MaxFontSize);
-        CliTerm.FontSize = _fontSize;
-        UpdateFontSizeLabel();
+        CliTerm.FontSize = size;
         Dispatcher.UIThread.Post(SyncViewportToConPty, DispatcherPriority.Render);
     }
 
-    public double TerminalFontSize => _fontSize;
-
-    private void UpdateFontSizeLabel()
-    {
-        if (FontSizeLabel is not null)
-            FontSizeLabel.Text = ((int)Math.Round(_fontSize)).ToString();
-    }
+    public double TerminalFontSize => CliTerm.FontSize;
 
     private void OnDataContextChanged(object? sender, EventArgs e)
     {
@@ -367,8 +348,8 @@ public partial class AgentCliPanelView : UserControl
         var rows = Math.Max(5, _model.Terminal.Rows);
         if ((cols <= 20 || rows <= 5) && TerminalHost.Bounds is { Width: > 1, Height: > 1 } bounds)
         {
-            var cellW = Math.Max(_fontSize * 0.6, 6);
-            var cellH = Math.Max(_fontSize * 1.4, 10);
+            var cellW = Math.Max(CliTerm.FontSize * 0.6, 6);
+            var cellH = Math.Max(CliTerm.FontSize * 1.4, 10);
             cols = Math.Max(20, (int)(bounds.Width / cellW));
             rows = Math.Max(5, (int)(bounds.Height / cellH));
         }

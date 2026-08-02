@@ -426,6 +426,7 @@ public partial class MainWindow : Window
         vm.EnsureSshTerminalQuietlyAsync = (connection, sourcePath) =>
             EnsureSshTerminalAsync(connection, sourcePath, forceNew: false, select: false);
         vm.ApplyTerminalFontSize = ApplyTerminalFontToOpenTabs;
+        ApplyTerminalFontToOpenTabs(vm.TerminalFontSize);
         vm.ConfirmHostKeyTrust = HostKeyDialog.PromptTrust;
         vm.RequestFocusTree = FocusSelectedTreeItem;
         vm.RequestFocusTreeNode = FocusTreeItem;
@@ -1176,10 +1177,13 @@ public partial class MainWindow : Window
 
     private void ApplyTerminalFontToOpenTabs(int size)
     {
+        GlobalAgentPanel.SetFontSize(size);
         foreach (var item in RightTabs.Items)
             if (item is TabItem { Content: TerminalView view })
                 view.SetFontSize(size);
     }
+
+    internal AgentCliPanelView DebugGlobalAgentPanel => GlobalAgentPanel;
 
     // Tab title stays the connection name; the remote OSC title does not override it.
     private static Control BuildTerminalTabHeader(
