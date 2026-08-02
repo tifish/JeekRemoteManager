@@ -29,8 +29,7 @@ public sealed class ConPtySession : IDisposable
     private readonly SafeFileHandle _job;
     private readonly FileStream _writer;
     private readonly object _writeGate = new();
-    private readonly object _recentOutputGate = new();
-    private readonly List<byte> _recentOutput = new(4096);
+    private readonly RecentOutputBuffer _recentOutput = new(MaxRecentOutputBytes);
     private volatile bool _disposed;
     private int _exitRaised;
 
@@ -144,10 +143,7 @@ public sealed class ConPtySession : IDisposable
     /// </summary>
     public string GetRecentOutputPlainText(int maxChars = 1200)
     {
-        byte[] copy;
-        lock (_recentOutputGate)
-            copy = _recentOutput.ToArray();
-
+        var copy = _recentOutput.Snapshot();
         if (copy.Length == 0 || maxChars <= 0)
             return "";
 
@@ -163,26 +159,6 @@ public sealed class ConPtySession : IDisposable
         if (text.Length > maxChars)
             text = "…" + text[^(maxChars - 1)..];
         return text;
-    }
-
-    private void RememberOutput(byte[] chunk)
-    {
-        if (chunk.Length == 0)
-            return;
-        lock (_recentOutputGate)
-        {
-            if (chunk.Length >= MaxRecentOutputBytes)
-            {
-                _recentOutput.Clear();
-                _recentOutput.AddRange(chunk.AsSpan(chunk.Length - MaxRecentOutputBytes).ToArray());
-                return;
-            }
-
-            var overflow = _recentOutput.Count + chunk.Length - MaxRecentOutputBytes;
-            if (overflow > 0)
-                _recentOutput.RemoveRange(0, Math.Min(overflow, _recentOutput.Count));
-            _recentOutput.AddRange(chunk);
-        }
     }
 
     private static string StripAnsi(string text)
@@ -214,7 +190,7 @@ public sealed class ConPtySession : IDisposable
                     var chunk = buffer.AsSpan(0, read).ToArray();
                     // Always keep a ring buffer so early-exit errors are available even when
                     // the UI has not subscribed to DataReceived yet.
-                    RememberOutput(chunk);
+                    _recentOutput.Append(chunk);
                     DataReceived?.Invoke(chunk);
                 }
             }
