@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Channels;
@@ -148,27 +149,60 @@ public sealed class ZmodemTriggerDetector
     }
 }
 
+/// <summary>
+/// Carries received bytes from the terminal's read thread to the ZMODEM state machine.
+/// Packets are queued whole and handed out from the current one, so a transfer costs a
+/// channel operation per packet rather than per byte, and the common read completes
+/// synchronously without allocating a task.
+/// </summary>
 public sealed class ZmodemByteQueue
 {
-    private readonly Channel<byte> _channel = Channel.CreateUnbounded<byte>(
+    private readonly Channel<byte[]> _channel = Channel.CreateUnbounded<byte[]>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+
+    // Reader-side state only: the chunk being handed out and how far into it we are.
+    private byte[] _current = [];
+    private int _currentOffset;
 
     public void Append(ReadOnlySpan<byte> bytes)
     {
-        foreach (var b in bytes)
-            _channel.Writer.TryWrite(b);
+        if (bytes.Length == 0)
+            return;
+
+        _channel.Writer.TryWrite(bytes.ToArray());
     }
 
-    public ValueTask<byte> ReadByteAsync(CancellationToken cancellationToken) =>
-        _channel.Reader.ReadAsync(cancellationToken);
+    public ValueTask<byte> ReadByteAsync(CancellationToken cancellationToken)
+    {
+        if (_currentOffset < _current.Length)
+            return new ValueTask<byte>(_current[_currentOffset++]);
+
+        return ReadFromNextChunkAsync(cancellationToken);
+    }
+
+    private async ValueTask<byte> ReadFromNextChunkAsync(CancellationToken cancellationToken)
+    {
+        while (_currentOffset >= _current.Length)
+        {
+            _current = await _channel.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+            _currentOffset = 0;
+        }
+
+        return _current[_currentOffset++];
+    }
 
     public byte[] DrainAvailable()
     {
-        var bytes = new List<byte>();
-        while (_channel.Reader.TryRead(out var b))
-            bytes.Add(b);
+        var remaining = new List<byte>();
+        if (_currentOffset < _current.Length)
+            remaining.AddRange(_current.AsSpan(_currentOffset));
+        _current = [];
+        _currentOffset = 0;
 
-        return bytes.ToArray();
+        while (_channel.Reader.TryRead(out var chunk))
+            remaining.AddRange(chunk);
+
+        return remaining.ToArray();
     }
 
     public void Complete(Exception? error = null)
@@ -667,7 +701,9 @@ public sealed class ZmodemSession
             for (var i = 0; i < crcBytes.Length; i++)
                 crcBytes[i] = await ReadEscapedDataByteAsync(cancellationToken).ConfigureAwait(false);
 
-            var expected = ZmodemCrc.Crc32(data, (byte)end);
+            // Span overload: the IReadOnlyList one boxes the enumerator and makes an
+            // interface call per byte of the subpacket.
+            var expected = ZmodemCrc.Crc32(CollectionsMarshal.AsSpan(data), (byte)end);
             var actual = BinaryPrimitives.ReadUInt32LittleEndian(crcBytes);
             if (expected != actual)
             {
@@ -681,7 +717,7 @@ public sealed class ZmodemSession
             for (var i = 0; i < crcBytes.Length; i++)
                 crcBytes[i] = await ReadEscapedDataByteAsync(cancellationToken).ConfigureAwait(false);
 
-            var expected = ZmodemCrc.Crc16(data, (byte)end);
+            var expected = ZmodemCrc.Crc16(CollectionsMarshal.AsSpan(data), (byte)end);
             var actual = BinaryPrimitives.ReadUInt16BigEndian(crcBytes);
             if (expected != actual)
             {
@@ -694,7 +730,9 @@ public sealed class ZmodemSession
         return new ZmodemDataSubpacket(data.ToArray(), end);
     }
 
-    private async Task<byte> ReadEscapedDataByteAsync(CancellationToken cancellationToken)
+    // ValueTask on the per-byte reads: with the queue handing bytes out synchronously
+    // these almost never suspend, and Task would allocate on every one of them.
+    private async ValueTask<byte> ReadEscapedDataByteAsync(CancellationToken cancellationToken)
     {
         while (true)
         {
@@ -704,7 +742,7 @@ public sealed class ZmodemSession
         }
     }
 
-    private async Task<ZmodemEscapedRead> ReadEscapedDataOrFrameEndAsync(CancellationToken cancellationToken)
+    private async ValueTask<ZmodemEscapedRead> ReadEscapedDataOrFrameEndAsync(CancellationToken cancellationToken)
     {
         while (true)
         {
@@ -1074,7 +1112,7 @@ internal static class ZmodemCrc
         return (ushort)crc;
     }
 
-    public static ushort Crc16(IReadOnlyList<byte> bytes, byte end)
+    public static ushort Crc16(ReadOnlySpan<byte> bytes, byte end)
     {
         var crc = 0;
         foreach (var b in bytes)
@@ -1094,16 +1132,6 @@ internal static class ZmodemCrc
     }
 
     public static uint Crc32(ReadOnlySpan<byte> bytes, byte end)
-    {
-        var crc = 0xffffffffu;
-        foreach (var b in bytes)
-            crc = UpdateCrc32(crc, b);
-
-        crc = UpdateCrc32(crc, end);
-        return ~crc;
-    }
-
-    public static uint Crc32(IReadOnlyList<byte> bytes, byte end)
     {
         var crc = 0xffffffffu;
         foreach (var b in bytes)
