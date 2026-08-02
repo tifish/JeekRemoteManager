@@ -2616,8 +2616,19 @@ try
           && autoUpdateService.Contains("i < mirrors.Length - 1 ? MinimumDownloadBytesPerSecond : 0"),
           "In-app downloader switches mirrors after sustained low download speed");
     Check(autoUpdateService.Contains("DownloadUrls")
-          && autoUpdateService.Contains("BuildDownloadUrls"),
-          "In-app downloader keeps mirror fallback URLs");
+          && autoUpdateService.Contains("BuildDownloadUrlsForPackageAsync")
+          && autoUpdateService.Contains("GetFastestMirror")
+          && autoUpdateService.Contains("_preferredMirrorIndex")
+          && autoUpdateService.Contains("RememberPreferredMirror"),
+          "First package download probes fastest mirror; later downloads prefer last success");
+    var githubMirrorsPath = Path.Combine(FindRepoRoot(), "JeekTools.NET", "GitHubMirrors.cs");
+    var githubMirrors = File.Exists(githubMirrorsPath) ? File.ReadAllText(githubMirrorsPath) : "";
+    Check(githubMirrors.Contains("GetFastestMirror")
+          && githubMirrors.Contains("DefaultProbeBytes")
+          && githubMirrors.Contains("BytesPerSecond")
+          && githubMirrors.Contains("GetMirrors")
+          && !githubMirrors.Contains("RememberPreferredMirror"),
+          "GitHubMirrors lists mirrors and probes throughput without download preference state");
     Check(autoUpdateService.Contains("StagedVersionPath")
           && autoUpdateService.Contains("StagedZipPath")
           && autoUpdateService.Contains("Path.GetFileName(_options.VersionTxtUrl)")
