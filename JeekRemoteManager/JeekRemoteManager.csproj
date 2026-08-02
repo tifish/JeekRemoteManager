@@ -87,8 +87,9 @@
 
   <!--
     JeekRemoteManagerMcp is the product MCP stdio adapter. Agents launch the fixed per-user
-    copy under LocalAppData (or bin\JeekRemoteManagerDebugMcp.cmd which does); the file next to the app is
-    only build output that the app installs to the fixed path on startup — not during build.
+    copy under LocalAppData (or the repo-root JeekRemoteManagerDebugMcp.cmd which does); the
+    file next to the app is only build output that the app installs to the fixed path on
+    startup — not during build.
     Publish it into the same output/publish directory so archives cannot omit it.
 
     Before overwriting, rename any existing exe (Windows allows renaming a running image). That

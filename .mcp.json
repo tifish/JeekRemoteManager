@@ -5,7 +5,7 @@
       "command": "cmd",
       "args": [
         "/c",
-        ".\\bin\\JeekRemoteManagerDebugMcp.cmd"
+        ".\\JeekRemoteManagerDebugMcp.cmd"
       ],
       "cwd": "."
     }

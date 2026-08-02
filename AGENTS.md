@@ -4,7 +4,7 @@
   - Add any interface it needs for testing to the debug MCP interface.
   - Automatically build and launch the program.
     - If the program from the current worktree is already running, kill only the process whose executable path matches this worktree, then run it again. Leave Debug instances from other worktrees running.
-  - Use the current worktree's Debug MCP (`bin\JeekRemoteManagerDebugMcp.cmd`, which starts the fixed per-user `JeekRemoteManagerMcp.exe` with `--surface debug --app <this worktree\bin\JeekRemoteManager.exe>` and forwards stdio to this worktree's named pipe) to test the feature or bug, if anything wrong, try to fix it and test again, until all done.
+  - Use the current worktree's Debug MCP (`JeekRemoteManagerDebugMcp.cmd` at the repo root, which starts the fixed per-user `JeekRemoteManagerMcp.exe` with `--surface debug --app <this worktree\bin\JeekRemoteManager.exe>` and forwards stdio to this worktree's named pipe) to test the feature or bug, if anything wrong, try to fix it and test again, until all done.
 - When reading code, logs and the Debug MCP are not enough to locate a problem, use a debugger:
   - Use netcoredbg on the Debug build to set breakpoints, step, and inspect variables; feed it a command script via stdin, and drive the program to the breakpoint through the Debug MCP.
   - Use dotnet-dump to analyze hangs and crashes.
@@ -18,7 +18,7 @@
 
 Agents talk to a running instance over a Windows named pipe, never a TCP port. There is no loopback HTTP listener, so nothing to allocate or collide over.
 
-- **Stable adapter path.** Agents launch `%LocalAppData%\JeekRemoteManager\Mcp\JeekRemoteManagerMcp.exe` (product configs) or this worktree's `bin\JeekRemoteManagerDebugMcp.cmd` (Debug), not `bin\JeekRemoteManagerMcp.exe`. The file under `bin\` is only the build output the app copies to the fixed path on startup; a running agent must not lock it, or rebuilds fail. Do not install the fixed adapter during the build step.
+- **Stable adapter path.** Agents launch `%LocalAppData%\JeekRemoteManager\Mcp\JeekRemoteManagerMcp.exe` (product configs) or this worktree's root `JeekRemoteManagerDebugMcp.cmd` (Debug only; not under `bin\`), not `bin\JeekRemoteManagerMcp.exe`. The file under `bin\` is only the build output the app copies to the fixed path on startup; a running agent must not lock it, or rebuilds fail. Do not install the fixed adapter during the build step.
 - **Debug routing.** `JeekRemoteManagerDebugMcp.cmd` passes `--surface debug --app <this worktree\bin\JeekRemoteManager.exe>`. The adapter derives the worktree instance id from that app directory (or uses HKCU registration) so parallel Debug worktrees never answer for each other. It reconnects on its own when the app restarts.
 - **Two surfaces, never merged.** `--surface debug` exposes the object graph, visual tree, and probes, and only listens in Debug builds. `--surface product` exposes connections, sessions, and terminal tools, and ships in Release. The debug `invoke` tool can call anything in the process, so it must never be reachable from a user's agent.
 - **Register a tool in two places.** Product: handler in `ProductMcpServer`, schema in `ProductMcpContract`. Debug: handler in `DebugMcpServer`, schema in `DebugMcpContract`. A tool missing from the contract is invisible to clients.
