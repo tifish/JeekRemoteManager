@@ -122,6 +122,7 @@ internal static class DebugMcpServer
         host.AddTool("file_browser_session_lifecycle_check", _ => FileBrowserSessionLifecycleCheckAsync());
         host.AddTool("ai_cli_ctrl_c_check", _ => AiCliCtrlCCheckAsync());
         host.AddTool("agent_cli_locate_check", AgentCliLocateCheckAsync);
+        host.AddTool("agent_discovery_cache_check", _ => AgentDiscoveryCacheCheckAsync());
         host.AddTool("agent_cli_mcp_config_check", AgentCliMcpConfigCheckAsync);
         host.AddTool("login_menu_select_check", LoginMenuSelectCheckAsync);
         host.AddTool("login_command_flow_check", LoginCommandFlowCheckAsync);
@@ -2430,6 +2431,40 @@ internal static class DebugMcpServer
                 $"FAIL: global AI Agent check threw {ex.GetType().Name}: {ex.Message}\n{report}",
                 isError: true);
         }
+    }
+
+    /// <summary>
+    /// Verifies the agent-discovery cache both saves the repeated probe and cannot go
+    /// stale: an agent installed outside the app has to appear without a restart.
+    /// </summary>
+    private static async Task<JsonObject> AgentDiscoveryCacheCheckAsync()
+    {
+        var report = new StringBuilder();
+        var passed = true;
+
+        void Expect(bool condition, string label)
+        {
+            passed &= condition;
+            report.Append(condition ? "  ok   " : "  FAIL ").Append(label).Append('\n');
+        }
+
+        // Probe() builds a fresh list every time, so reference equality tells us whether
+        // a call was answered from the cache.
+        var first = AgentCliCatalog.Discover();
+        var second = AgentCliCatalog.Discover();
+        Expect(ReferenceEquals(first, second), "a second Discover inside the TTL reuses the probe");
+
+        var forced = AgentCliCatalog.Rediscover();
+        Expect(!ReferenceEquals(second, forced), "Rediscover always re-probes");
+
+        await Task.Delay(TimeSpan.FromSeconds(6));
+        var afterTtl = AgentCliCatalog.Discover();
+        Expect(!ReferenceEquals(forced, afterTtl), "Discover re-probes once the TTL has elapsed");
+        Expect(afterTtl.Count == first.Count, "the refreshed result still lists every agent");
+
+        return ToolText(
+            $"{(passed ? "PASS" : "FAIL")}: agent discovery cache saves the repeat probe without going stale.\n{report}",
+            isError: !passed);
     }
 
     private static Task<JsonObject> AgentCliLocateCheckAsync(JsonObject args)

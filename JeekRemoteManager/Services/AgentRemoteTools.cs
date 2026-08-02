@@ -185,25 +185,48 @@ public static class AgentCliCatalog
 
     private static readonly object DiscoveryGate = new();
     private static IReadOnlyList<AgentCliDescriptor>? _cachedDiscovery;
+    private static long _cachedDiscoveryTicks;
 
     /// <summary>
-    /// The installed agents and their surfaces. Cached for the process: a probe walks
-    /// PATH for every tool plus the registry, which is hundreds of synchronous lookups,
-    /// and it ran twice on the UI thread every time an AI panel was opened. Installing
-    /// an agent is the only thing that changes the answer, so that path calls
-    /// <see cref="Rediscover"/>.
+    /// How long a probe result is reused. Long enough that the several calls made while
+    /// one AI panel opens share a single probe, but far shorter than any trip out to a
+    /// download page or an external console — an agent installed that way must show up
+    /// when the user comes back, without restarting the app.
+    /// </summary>
+    private static readonly TimeSpan DiscoveryCacheLifetime = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// The installed agents and their surfaces. Briefly cached: a probe walks PATH for
+    /// every supported tool plus the registry, which is hundreds of synchronous lookups,
+    /// and it ran twice on the UI thread every time a panel was opened. Call
+    /// <see cref="Rediscover"/> to force a fresh probe.
     /// </summary>
     public static IReadOnlyList<AgentCliDescriptor> Discover()
     {
         lock (DiscoveryGate)
-            return _cachedDiscovery ??= Probe();
+        {
+            if (_cachedDiscovery is { } cached
+                && Environment.TickCount64 - _cachedDiscoveryTicks < DiscoveryCacheLifetime.TotalMilliseconds)
+            {
+                return cached;
+            }
+
+            return StoreDiscovery(Probe());
+        }
     }
 
     /// <summary>Re-probes the disk and replaces the cached result.</summary>
     public static IReadOnlyList<AgentCliDescriptor> Rediscover()
     {
         lock (DiscoveryGate)
-            return _cachedDiscovery = Probe();
+            return StoreDiscovery(Probe());
+    }
+
+    private static IReadOnlyList<AgentCliDescriptor> StoreDiscovery(IReadOnlyList<AgentCliDescriptor> discovered)
+    {
+        _cachedDiscovery = discovered;
+        _cachedDiscoveryTicks = Environment.TickCount64;
+        return discovered;
     }
 
     private static IReadOnlyList<AgentCliDescriptor> Probe() =>

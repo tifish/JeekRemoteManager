@@ -466,6 +466,10 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
                         error,
                         Environment.NewLine);
                 }
+
+                // The install happens outside this process, so pick up an agent the user
+                // had already installed by hand rather than leaving it marked missing.
+                RediscoverProviders(preferKind: kind);
                 return;
             }
 
