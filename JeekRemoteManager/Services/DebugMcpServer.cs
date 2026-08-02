@@ -2331,7 +2331,9 @@ internal static class DebugMcpServer
         // Drive off the panel's own provider list so a newly added agent cannot be missing here,
         // and report every surface plus its missing-state action. An agent can have its CLI
         // installed but not its desktop app or IDE.
-        foreach (var descriptor in AgentCliCatalog.Discover())
+        // Rediscover, not Discover: this check exists to report what is actually on disk
+        // right now, so it must not be answered from the process-lifetime cache.
+        foreach (var descriptor in AgentCliCatalog.Rediscover())
         {
             var surfaceKinds = AgentCliCatalog.RunModesFor(descriptor.Kind)
                 .Select(AgentCliCatalog.SurfaceKindFor)

@@ -520,7 +520,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     /// <summary>Re-probes PATH/install folders and refreshes the provider picker.</summary>
     private void RediscoverProviders(AgentCliKind preferKind)
     {
-        var discovered = AgentCliCatalog.Discover();
+        var discovered = AgentCliCatalog.Rediscover();
         Providers.Clear();
         foreach (var d in discovered)
             Providers.Add(d);

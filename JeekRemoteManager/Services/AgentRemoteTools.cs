@@ -183,7 +183,30 @@ public static class AgentCliCatalog
         "file_download",
     ];
 
-    public static IReadOnlyList<AgentCliDescriptor> Discover() =>
+    private static readonly object DiscoveryGate = new();
+    private static IReadOnlyList<AgentCliDescriptor>? _cachedDiscovery;
+
+    /// <summary>
+    /// The installed agents and their surfaces. Cached for the process: a probe walks
+    /// PATH for every tool plus the registry, which is hundreds of synchronous lookups,
+    /// and it ran twice on the UI thread every time an AI panel was opened. Installing
+    /// an agent is the only thing that changes the answer, so that path calls
+    /// <see cref="Rediscover"/>.
+    /// </summary>
+    public static IReadOnlyList<AgentCliDescriptor> Discover()
+    {
+        lock (DiscoveryGate)
+            return _cachedDiscovery ??= Probe();
+    }
+
+    /// <summary>Re-probes the disk and replaces the cached result.</summary>
+    public static IReadOnlyList<AgentCliDescriptor> Rediscover()
+    {
+        lock (DiscoveryGate)
+            return _cachedDiscovery = Probe();
+    }
+
+    private static IReadOnlyList<AgentCliDescriptor> Probe() =>
     [
         new(AgentCliKind.Claude, "Claude", new Dictionary<AgentSurfaceKind, AgentSurface>
         {
