@@ -2951,7 +2951,8 @@ public partial class MainWindow : Window
     /// <summary>Builds the real template dialog for the UI and Debug MCP probes.</summary>
     internal Window CreateBastionTemplateEditorDialog(
         ConnectionEditorViewModel editor,
-        bool flushAutoSave = false)
+        bool flushAutoSave = false,
+        Func<string, string, Task<bool>>? confirmAsync = null)
     {
         static TextBox FragmentEditor(string name, string text) =>
             new LoginCommandsTextBox
@@ -3076,8 +3077,17 @@ public partial class MainWindow : Window
         content.Children.Add(actions);
         dialog.Content = content;
 
-        insertTypical.Click += (_, _) =>
+        var requestConfirmation = confirmAsync ?? ConfirmAsync;
+        insertTypical.Click += async (_, _) =>
         {
+            if (fragments.Any(fragment => !string.IsNullOrWhiteSpace(fragment.Text))
+                && !await requestConfirmation(
+                    Localizer.Get("BastionTemplateOverwriteTitle"),
+                    Localizer.Get("BastionTemplateOverwritePrompt")))
+            {
+                return;
+            }
+
             for (var id = 1; id <= BastionLoginProfile.SegmentCount; id++)
             {
                 fragments[id - 1].Text = BastionLoginTemplatePreset

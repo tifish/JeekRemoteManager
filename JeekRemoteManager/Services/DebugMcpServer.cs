@@ -3074,9 +3074,22 @@ internal static class DebugMcpServer
                 HasBastionProfile = true,
                 BastionTemplateId = "preset-check",
                 BastionProfileEndpoint = "probe@bastion.example.test:22",
+                BastionTemplateSegment1 = "keep-existing",
                 LoginCommands = " \r\n ",
             };
-            var dialog = main.CreateBastionTemplateEditorDialog(editor);
+            var approveOverwrite = false;
+            var confirmationCount = 0;
+            var localizedConfirmation = false;
+            var dialog = main.CreateBastionTemplateEditorDialog(
+                editor,
+                confirmAsync: (title, prompt) =>
+                {
+                    confirmationCount++;
+                    localizedConfirmation =
+                        title == Localizer.Get("BastionTemplateOverwriteTitle")
+                        && prompt == Localizer.Get("BastionTemplateOverwritePrompt");
+                    return Task.FromResult(approveOverwrite);
+                });
             try
             {
                 dialog.Show(main);
@@ -3102,6 +3115,15 @@ internal static class DebugMcpServer
 
                 insert?.RaiseEvent(
                     new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                var cancelledOverwritePreserved =
+                    fragments[0]?.Text == "keep-existing"
+                    && fragments.Skip(1).All(fragment =>
+                        string.IsNullOrWhiteSpace(fragment?.Text))
+                    && confirmationCount == 1;
+
+                approveOverwrite = true;
+                insert?.RaiseEvent(
+                    new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
                 var dialogFilled = insert is not null
                                    && save is not null
                                    && fragments.All(fragment => fragment is not null)
@@ -3111,6 +3133,9 @@ internal static class DebugMcpServer
                                                == BastionLoginTemplatePreset.GetSegment(id)
                                                    .ReplaceLineEndings(Environment.NewLine))
                                    && hint?.Text == Localizer.Get("BastionTemplateTypicalHint");
+                var overwriteConfirmed =
+                    confirmationCount == 2
+                    && localizedConfirmation;
                 var transactionalBeforeSave = string.IsNullOrWhiteSpace(editor.LoginCommands);
 
                 save?.RaiseEvent(
@@ -3135,6 +3160,8 @@ internal static class DebugMcpServer
                     BastionLoginTemplatePreset.UseConnectionCommandsWhenEmpty("custom")
                     == "custom";
                 var ok = dialogFilled
+                         && cancelledOverwritePreserved
+                         && overwriteConfirmed
                          && transactionalBeforeSave
                          && commandsInserted
                          && fragmentsSaved
@@ -3142,6 +3169,8 @@ internal static class DebugMcpServer
                 return (ok,
                     $"{(ok ? "PASS" : "FAIL")}: typical bastion template preset\n"
                     + $"buttonFound={insert is not null}\n"
+                    + $"cancelledOverwritePreserved={cancelledOverwritePreserved}\n"
+                    + $"overwriteConfirmed={overwriteConfirmed}\n"
                     + $"dialogFilled={dialogFilled}\n"
                     + $"transactionalBeforeSave={transactionalBeforeSave}\n"
                     + $"commandsInserted={commandsInserted}\n"

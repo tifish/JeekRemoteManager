@@ -402,9 +402,14 @@ try
           && mainWindowCode.Contains(
               "BastionLoginTemplatePreset.UseConnectionCommandsWhenEmpty",
               StringComparison.Ordinal)
+          && mainWindowCode.Contains(
+              "BastionTemplateOverwritePrompt",
+              StringComparison.Ordinal)
           && languagesCode.Contains("BastionTemplateInsertTypical\t", StringComparison.Ordinal)
-          && languagesCode.Contains("BastionTemplateTypicalHint\t", StringComparison.Ordinal),
-          "Bastion-template dialog exposes the localized typical-template shortcut");
+          && languagesCode.Contains("BastionTemplateTypicalHint\t", StringComparison.Ordinal)
+          && languagesCode.Contains("BastionTemplateOverwriteTitle\t", StringComparison.Ordinal)
+          && languagesCode.Contains("BastionTemplateOverwritePrompt\t", StringComparison.Ordinal),
+          "Bastion-template dialog exposes the localized typical-template shortcut and overwrite confirmation");
     Check(mainWindowXaml.Contains(
               "x:Name=\"LoginCommandsHelpGlyph\"",
               StringComparison.Ordinal)

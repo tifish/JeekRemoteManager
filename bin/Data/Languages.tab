@@ -78,6 +78,8 @@ BastionTemplateAppliesTo	Automatically associated with {0}.	自动关联到 {0}�
 BastionTemplateFragmentHint	May contain any login command except #template, plus {{name}}, {{host}}, {{port}}, and {{username}} variables. Reference it with #template followed by this id.	可包含除 #template 外的任何登录命令，也可使用 {{name}}、{{host}}、{{port}} 和 {{username}} 变量；通过 #template 加此 ID 引用。
 BastionTemplateInsertTypical	Insert typical template	插入典型模板
 BastionTemplateTypicalHint	Uses #input for 2FA, types 0 to enter All Assets, enables Ctrl-F paging for the following {{name}} selection, chooses account 2, runs sudo -i, then returns with exit plus Enter. This replaces all four fragments; if this connection's login commands are empty, the matching references are inserted too.	使用 #input 输入二次验证码，输入 0 进入“全部资产”，为后续按 {{name}} 选择资产启用 Ctrl-F 翻页，再选择账号 2、执行 sudo -i，最后通过 exit 加回车返回菜单。此操作会替换四个片段；如果当前连接的登录命令为空，也会插入相应引用。
+BastionTemplateOverwriteTitle	Overwrite bastion login template?	覆盖堡垒机登录模板？
+BastionTemplateOverwritePrompt	One or more template fragments already contain commands. Replace all four fragments with the typical template?	一个或多个模板片段中已有命令，是否使用典型模板覆盖全部四个片段？
 BastionTemplateSave	Save and apply	保存并应用
 AutoOpenPanels	Open after login	登录后自动开启
 Browse	Browse…	浏览…
