@@ -30,10 +30,45 @@ public sealed record ZmodemDetection(
     byte[] DisplayBytes,
     byte[] ProtocolBytes);
 
+/// <summary>
+/// Watches the terminal byte stream for the header a remote <c>sz</c>/<c>rz</c> emits.
+/// This sits on the receive path of every 8-bit-clean channel, so it has to stay cheap:
+/// the patterns are hoisted into static arrays (passed as <c>params</c> they allocated
+/// six arrays per scanned byte) and the scan hops between ZPAD bytes instead of trying
+/// every pattern at every offset.
+/// </summary>
 public sealed class ZmodemTriggerDetector
 {
+    // The longest trigger is 6 bytes, so the last 5 bytes of a packet can still be the
+    // start of one and are held back until the next packet arrives.
     private const int RetainedBytes = 5;
-    private readonly List<byte> _pending = new();
+
+    private static readonly byte[] HexDownloadTrigger =
+    [
+        ZmodemConstants.ZPAD, ZmodemConstants.ZPAD, ZmodemConstants.ZDLE, ZmodemConstants.ZHEX, (byte)'0', (byte)'0',
+    ];
+
+    private static readonly byte[] HexUploadTrigger =
+    [
+        ZmodemConstants.ZPAD, ZmodemConstants.ZPAD, ZmodemConstants.ZDLE, ZmodemConstants.ZHEX, (byte)'0', (byte)'1',
+    ];
+
+    private static readonly byte[] BinDownloadTrigger =
+        [ZmodemConstants.ZPAD, ZmodemConstants.ZDLE, ZmodemConstants.ZBIN, (byte)ZmodemHeaderType.ZRQINIT];
+
+    private static readonly byte[] Bin32DownloadTrigger =
+        [ZmodemConstants.ZPAD, ZmodemConstants.ZDLE, ZmodemConstants.ZBIN32, (byte)ZmodemHeaderType.ZRQINIT];
+
+    private static readonly byte[] BinUploadTrigger =
+        [ZmodemConstants.ZPAD, ZmodemConstants.ZDLE, ZmodemConstants.ZBIN, (byte)ZmodemHeaderType.ZRINIT];
+
+    private static readonly byte[] Bin32UploadTrigger =
+        [ZmodemConstants.ZPAD, ZmodemConstants.ZDLE, ZmodemConstants.ZBIN32, (byte)ZmodemHeaderType.ZRINIT];
+
+    // Reused across packets: it settles at the largest packet size seen and then stops
+    // growing, so a steady stream allocates only the display buffer it hands back.
+    private byte[] _pending = [];
+    private int _pendingLength;
 
     public ZmodemDetection? Append(ReadOnlySpan<byte> data, out byte[] displayBytes)
     {
@@ -41,71 +76,75 @@ public sealed class ZmodemTriggerDetector
         if (data.Length == 0)
             return null;
 
-        _pending.AddRange(data.ToArray());
-        var trigger = FindTrigger(_pending);
-        if (trigger is not null)
+        AppendPending(data);
+        var pending = _pending.AsSpan(0, _pendingLength);
+
+        if (FindTrigger(pending) is { } trigger)
         {
-            var (index, direction) = trigger.Value;
-            var prefix = _pending.Take(index).ToArray();
-            var protocol = _pending.Skip(index).ToArray();
-            _pending.Clear();
+            var (index, direction) = trigger;
+            var prefix = pending[..index].ToArray();
+            var protocol = pending[index..].ToArray();
+            _pendingLength = 0;
             return new ZmodemDetection(direction, prefix, protocol);
         }
 
-        if (_pending.Count <= RetainedBytes)
+        if (_pendingLength <= RetainedBytes)
             return null;
 
-        var flushCount = _pending.Count - RetainedBytes;
-        displayBytes = _pending.Take(flushCount).ToArray();
-        _pending.RemoveRange(0, flushCount);
+        var flushCount = _pendingLength - RetainedBytes;
+        displayBytes = pending[..flushCount].ToArray();
+        // Overlapping move; Span.CopyTo has memmove semantics.
+        pending[flushCount..].CopyTo(_pending);
+        _pendingLength = RetainedBytes;
         return null;
     }
 
     public byte[] Flush()
     {
-        if (_pending.Count == 0)
+        if (_pendingLength == 0)
             return [];
 
-        var bytes = _pending.ToArray();
-        _pending.Clear();
+        var bytes = _pending.AsSpan(0, _pendingLength).ToArray();
+        _pendingLength = 0;
         return bytes;
     }
 
-    private static (int Index, ZmodemTransferDirection Direction)? FindTrigger(IReadOnlyList<byte> bytes)
+    private void AppendPending(ReadOnlySpan<byte> data)
     {
-        for (var i = 0; i < bytes.Count; i++)
+        var required = _pendingLength + data.Length;
+        if (_pending.Length < required)
+            Array.Resize(ref _pending, Math.Max(required, 8192));
+
+        data.CopyTo(_pending.AsSpan(_pendingLength));
+        _pendingLength = required;
+    }
+
+    private static (int Index, ZmodemTransferDirection Direction)? FindTrigger(ReadOnlySpan<byte> bytes)
+    {
+        var offset = 0;
+        while (offset < bytes.Length)
         {
-            if (Matches(bytes, i, ZmodemConstants.ZPAD, ZmodemConstants.ZPAD, ZmodemConstants.ZDLE, ZmodemConstants.ZHEX, (byte)'0', (byte)'0'))
-                return (i, ZmodemTransferDirection.Download);
-            if (Matches(bytes, i, ZmodemConstants.ZPAD, ZmodemConstants.ZPAD, ZmodemConstants.ZDLE, ZmodemConstants.ZHEX, (byte)'0', (byte)'1'))
-                return (i, ZmodemTransferDirection.Upload);
+            // Every trigger starts with ZPAD, so ordinary shell output costs one
+            // vectorized scan of the packet instead of a per-byte comparison chain.
+            var found = bytes[offset..].IndexOf(ZmodemConstants.ZPAD);
+            if (found < 0)
+                return null;
 
-            if (Matches(bytes, i, ZmodemConstants.ZPAD, ZmodemConstants.ZDLE, ZmodemConstants.ZBIN, (byte)ZmodemHeaderType.ZRQINIT)
-                || Matches(bytes, i, ZmodemConstants.ZPAD, ZmodemConstants.ZDLE, ZmodemConstants.ZBIN32, (byte)ZmodemHeaderType.ZRQINIT))
-            {
-                return (i, ZmodemTransferDirection.Download);
-            }
+            var index = offset + found;
+            var window = bytes[index..];
+            if (window.StartsWith(HexDownloadTrigger))
+                return (index, ZmodemTransferDirection.Download);
+            if (window.StartsWith(HexUploadTrigger))
+                return (index, ZmodemTransferDirection.Upload);
+            if (window.StartsWith(BinDownloadTrigger) || window.StartsWith(Bin32DownloadTrigger))
+                return (index, ZmodemTransferDirection.Download);
+            if (window.StartsWith(BinUploadTrigger) || window.StartsWith(Bin32UploadTrigger))
+                return (index, ZmodemTransferDirection.Upload);
 
-            if (Matches(bytes, i, ZmodemConstants.ZPAD, ZmodemConstants.ZDLE, ZmodemConstants.ZBIN, (byte)ZmodemHeaderType.ZRINIT)
-                || Matches(bytes, i, ZmodemConstants.ZPAD, ZmodemConstants.ZDLE, ZmodemConstants.ZBIN32, (byte)ZmodemHeaderType.ZRINIT))
-            {
-                return (i, ZmodemTransferDirection.Upload);
-            }
+            offset = index + 1;
         }
 
         return null;
-    }
-
-    private static bool Matches(IReadOnlyList<byte> bytes, int offset, params byte[] pattern)
-    {
-        if (offset + pattern.Length > bytes.Count)
-            return false;
-
-        for (var i = 0; i < pattern.Length; i++)
-            if (bytes[offset + i] != pattern[i])
-                return false;
-
-        return true;
     }
 }
 
