@@ -94,6 +94,36 @@ public class ConnectionStore
     }
 
     /// <summary>Loads a connection from a file.</summary>
+    /// <summary>
+    /// The stored password blobs, for validating the master password at startup.
+    /// Deliberately not <see cref="Load"/>: that also resolves bastion profiles and
+    /// rewrites files that are missing an id, which is wasted work moments before the
+    /// tree loads every file anyway. Files with no blob in their text are never parsed.
+    /// </summary>
+    public IEnumerable<string> EnumerateStoredPasswordBlobs()
+    {
+        foreach (var file in AllConnectionFiles())
+        {
+            Connection? connection;
+            try
+            {
+                var json = File.ReadAllText(file);
+                if (!json.Contains(MasterKeyService.BlobPrefix, StringComparison.Ordinal))
+                    continue;
+
+                connection = JsonSerializer.Deserialize<Connection>(json, JsonOptions);
+            }
+            catch
+            {
+                // Unreadable or malformed files are skipped, as the tree loader does.
+                continue;
+            }
+
+            if (!string.IsNullOrEmpty(connection?.EncryptedPassword))
+                yield return connection.EncryptedPassword;
+        }
+    }
+
     public Connection Load(string filePath)
     {
         var json = File.ReadAllText(filePath);

@@ -191,52 +191,28 @@ public partial class App : Application
         _ = vm.RunBackgroundUpdateChecksAsync();
     }
 
-    private static bool UnlockedKeyCanReadStoredPasswords(ConnectionStore store, MasterKeyService master)
-    {
-        var encryptedCount = 0;
-        foreach (var file in store.AllConnectionFiles())
-        {
-            try
-            {
-                var connection = store.Load(file);
-                if (string.IsNullOrEmpty(connection.EncryptedPassword))
-                    continue;
+    private static bool UnlockedKeyCanReadStoredPasswords(ConnectionStore store, MasterKeyService master) =>
+        CanReadStoredPasswords(store, blob => master.TryDecryptPassword(blob, out _));
 
-                encryptedCount++;
-                if (master.TryDecryptPassword(connection.EncryptedPassword, out _))
-                    return true;
-            }
-            catch
-            {
-                // Ignore unreadable files here; the tree loader skips them too.
-            }
+    private static bool PasswordCanReadStoredPasswords(ConnectionStore store, string password) =>
+        CanReadStoredPasswords(store, blob => MasterKeyService.DecryptWithPassword(password, blob) is not null);
+
+    /// <summary>
+    /// True when <paramref name="canDecrypt"/> reads at least one stored password, or
+    /// when nothing is encrypted at all. Stops at the first success, so the usual case
+    /// costs a single key derivation.
+    /// </summary>
+    private static bool CanReadStoredPasswords(ConnectionStore store, Func<string, bool> canDecrypt)
+    {
+        var sawEncrypted = false;
+        foreach (var blob in store.EnumerateStoredPasswordBlobs())
+        {
+            sawEncrypted = true;
+            if (canDecrypt(blob))
+                return true;
         }
 
-        return encryptedCount == 0;
-    }
-
-    private static bool PasswordCanReadStoredPasswords(ConnectionStore store, string password)
-    {
-        var encryptedCount = 0;
-        foreach (var file in store.AllConnectionFiles())
-        {
-            try
-            {
-                var connection = store.Load(file);
-                if (string.IsNullOrEmpty(connection.EncryptedPassword))
-                    continue;
-
-                encryptedCount++;
-                if (MasterKeyService.DecryptWithPassword(password, connection.EncryptedPassword) is not null)
-                    return true;
-            }
-            catch
-            {
-                // Ignore unreadable files here; they cannot validate a master password.
-            }
-        }
-
-        return encryptedCount == 0;
+        return !sawEncrypted;
     }
 
 
