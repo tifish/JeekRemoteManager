@@ -283,6 +283,25 @@ try
     Check(!similarTabEmphasis.IsEmpty
           && similarTabTitle.Substring(similarTabEmphasis.Start, similarTabEmphasis.Length) == "2",
           "Terminal tabs isolate the differing part of similar adjacent server names");
+    Check(TerminalTabTitle.IsPureNumber("01234567890123456789")
+          && TerminalTabTitle.IsPureNumber("１２３４５")
+          && !TerminalTabTitle.IsPureNumber("12345a"),
+          "Terminal tabs recognize pure numeric differences");
+    const string numericContextTitle = "very-long-server-name-12346-singapore";
+    var numericDifferenceStart = numericContextTitle.IndexOf('6');
+    var numericDisplayRange = TerminalTabTitle.FindNumericDisplayRange(
+        numericContextTitle,
+        new TerminalTabTitleEmphasis(numericDifferenceStart, 1));
+    Check(numericContextTitle.Substring(
+              numericDisplayRange.Start,
+              numericDisplayRange.Length) == "2346",
+          "Terminal tabs keep four-digit numeric context around a differing last digit");
+    var longNumericDisplayRange = TerminalTabTitle.FindNumericDisplayRange(
+        "111111111111111111",
+        new TerminalTabTitleEmphasis(0, 18));
+    Check(longNumericDisplayRange.Start == 0
+          && longNumericDisplayRange.Length == TerminalTabTitle.NumericEmphasisMaxDigits,
+          "Terminal tabs cap an all-different numeric identifier at four digits");
     Check(TerminalTabTitle.FindEmphasis(
               similarTabTitle,
               ["unrelated-development-machine", "totally-different-host"]).IsEmpty,

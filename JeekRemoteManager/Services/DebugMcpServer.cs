@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Controls.Documents;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
@@ -558,8 +559,54 @@ internal static class DebugMcpServer
             var emphasizedParts = emphasizedTitle.Children
                 .OfType<TextBlock>()
                 .ToArray();
-            var emphasizedDifference = emphasizedParts
-                .SingleOrDefault(part => part.Classes.Contains("tab-title-emphasis"));
+            var emphasizedContext = emphasizedParts
+                .SingleOrDefault(part => part.Classes.Contains("tab-title-numeric-context"));
+            var emphasizedDifference = emphasizedContext?
+                .Inlines?
+                .OfType<Run>()
+                .SingleOrDefault(run => run.Classes.Contains("tab-title-emphasis"));
+
+            const string numericIdentifier = "111111111111111111";
+            var numericTitleText = $"production-api-node-{numericIdentifier}-singapore";
+            var numericEmphasis = TerminalTabTitle.FindEmphasis(
+                numericTitleText,
+                [
+                    "production-api-node-222222222222222222-singapore",
+                    "production-api-node-333333333333333333-singapore",
+                ]);
+            var numericTitle = Views.MainWindow.BuildTerminalTabTitle(
+                numericTitleText,
+                numericEmphasis);
+            numericTitle.Measure(new Size(180, 32));
+            numericTitle.Arrange(new Rect(0, 0, 180, 32));
+            var numericParts = numericTitle.Children.OfType<TextBlock>().ToArray();
+            var numericContext = numericParts
+                .SingleOrDefault(part => part.Classes.Contains("tab-title-numeric-context"));
+            var numericDifference = numericContext?
+                .Inlines?
+                .OfType<Run>()
+                .SingleOrDefault(run => run.Classes.Contains("tab-title-emphasis"));
+
+            const string lastDigitTitleText =
+                "very-long-production-server-name-12346-singapore";
+            var lastDigitEmphasis = TerminalTabTitle.FindEmphasis(
+                lastDigitTitleText,
+                [
+                    "very-long-production-server-name-12345-singapore",
+                    "very-long-production-server-name-12347-singapore",
+                ]);
+            var lastDigitTitle = Views.MainWindow.BuildTerminalTabTitle(
+                lastDigitTitleText,
+                lastDigitEmphasis);
+            lastDigitTitle.Measure(new Size(180, 32));
+            lastDigitTitle.Arrange(new Rect(0, 0, 180, 32));
+            var lastDigitContext = lastDigitTitle.Children
+                .OfType<TextBlock>()
+                .SingleOrDefault(part => part.Classes.Contains("tab-title-numeric-context"));
+            var lastDigitDifference = lastDigitContext?
+                .Inlines?
+                .OfType<Run>()
+                .SingleOrDefault(run => run.Classes.Contains("tab-title-emphasis"));
 
             var tooltip = ToolTip.GetTip(title)?.ToString() ?? "";
             var ok = leading?.Text == parts.LeadingText
@@ -577,12 +624,26 @@ internal static class DebugMcpServer
                      && !emphasis.IsEmpty
                      && similarTitleText.Substring(emphasis.Start, emphasis.Length) == "2"
                      && emphasizedParts.Length == 3
-                     && emphasizedParts[0].Text == "production-api-node-0"
+                     && emphasizedParts[0].Text == "production-api-node-"
+                     && emphasizedContext?.Inlines?.Text == "02"
                      && emphasizedDifference?.Text == "2"
                      && emphasizedDifference.FontWeight == Avalonia.Media.FontWeight.Bold
-                     && emphasizedDifference.Bounds.Width > 0
                      && emphasizedParts[2].Text == "-singapore"
-                     && emphasizedParts[2].TextTrimming == Avalonia.Media.TextTrimming.CharacterEllipsis;
+                     && emphasizedParts[2].TextTrimming == Avalonia.Media.TextTrimming.CharacterEllipsis
+                     && numericTitleText.Substring(numericEmphasis.Start, numericEmphasis.Length)
+                         == numericIdentifier
+                     && numericContext?.Inlines?.Text == "1111"
+                     && numericDifference?.Text == "1111"
+                     && numericContext?.Inlines?.Text?.Count(char.IsDigit)
+                         == TerminalTabTitle.NumericEmphasisMaxDigits
+                     && numericContext.TextTrimming == Avalonia.Media.TextTrimming.None
+                     && numericTitle.MaxWidth == 180
+                     && lastDigitTitleText.Substring(
+                         lastDigitEmphasis.Start,
+                         lastDigitEmphasis.Length) == "6"
+                     && lastDigitContext?.Inlines?.Text == "2346"
+                     && lastDigitDifference?.Text == "6"
+                     && lastDigitTitle.MaxWidth == 180;
 
             return (ok,
                 $"{(ok ? "PASS" : "FAIL")}: terminal-tab long-name title\n"
@@ -590,7 +651,12 @@ internal static class DebugMcpServer
                 + $"trailing: {trailing?.Text}\n"
                 + $"tooltip: {tooltip}\n"
                 + $"adjacent emphasis: {emphasizedDifference?.Text}\n"
-                + $"similar layout: {string.Join(" | ", emphasizedParts.Select(part => part.Text))}\n"
+                + $"similar layout: {string.Join(" | ", emphasizedParts.Select(
+                    part => part.Text ?? part.Inlines?.Text ?? ""))}\n"
+                + $"numeric emphasis: {numericContext?.Inlines?.Text} "
+                + $"({TerminalTabTitle.NumericEmphasisMaxDigits}/{numericIdentifier.Length} digits)\n"
+                + $"last-digit context: {lastDigitContext?.Inlines?.Text} "
+                + $"(emphasis {lastDigitDifference?.Text})\n"
                 + $"bounds: leading={leading?.Bounds}, trailing={trailing?.Bounds}\n"
                 + $"maxWidth: {title.MaxWidth}");
         });

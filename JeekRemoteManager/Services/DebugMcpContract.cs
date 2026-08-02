@@ -52,7 +52,7 @@ public static class DebugMcpContract
             "Snapshot each terminal tab's AI panel: provider, run mode (Cli/WindowsTerminal/Desktop), running/install state, SSH terminal visibility, MCP URL, and command execution counts.",
             new()),
         Tool("terminal_tab_title_check",
-            "Build and measure the real terminal-tab title controls, verifying long-name tail/tooltip behavior and emphasized differences between similar adjacent server names.",
+            "Build and measure the real terminal-tab title controls, verifying long-name tail/tooltip behavior, emphasized adjacent differences, and four-digit numeric context around the actual difference.",
             new()),
         Tool("terminal_tab_focus_check",
             "Temporarily creates two terminal tabs and verifies that each restores its own in-memory focused control after switching.",

@@ -339,6 +339,10 @@
         <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
         <Setter Property="FontWeight" Value="Bold" />
     </Style>
+    <Style Selector="Run.tab-title-emphasis">
+        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+        <Setter Property="FontWeight" Value="Bold" />
+    </Style>
     <Style Selector="MenuFlyoutPresenter">
         <Setter Property="Background" Value="{DynamicResource PopupSurfaceBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource PopupBorderBrush}" />

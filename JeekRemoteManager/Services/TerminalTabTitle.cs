@@ -13,6 +13,7 @@ public readonly record struct TerminalTabTitleEmphasis(int Start, int Length)
 public static class TerminalTabTitle
 {
     public const int TrailingTextElementCount = 6;
+    public const int NumericEmphasisMaxDigits = 4;
     private const double MinimumAdjacentSimilarity = 0.6;
 
     public static TerminalTabTitleParts Split(string title)
@@ -25,6 +26,43 @@ public static class TerminalTabTitle
 
         var trailingStart = textElementStarts[^TrailingTextElementCount];
         return new TerminalTabTitleParts(title[..trailingStart], title[trailingStart..]);
+    }
+
+    public static bool IsPureNumber(string text) =>
+        text.Length > 0 && text.All(char.IsDigit);
+
+    public static TerminalTabTitleEmphasis FindNumericDisplayRange(
+        string title,
+        TerminalTabTitleEmphasis emphasis)
+    {
+        if (emphasis.IsEmpty
+            || emphasis.Start < 0
+            || emphasis.End > title.Length
+            || !IsPureNumber(title.Substring(emphasis.Start, emphasis.Length)))
+        {
+            return emphasis;
+        }
+
+        var numericStart = emphasis.Start;
+        while (numericStart > 0 && char.IsDigit(title[numericStart - 1]))
+            numericStart--;
+
+        var numericEnd = emphasis.End;
+        while (numericEnd < title.Length && char.IsDigit(title[numericEnd]))
+            numericEnd++;
+
+        var displayedDifferenceLength = Math.Min(
+            emphasis.Length,
+            NumericEmphasisMaxDigits);
+        var contextCapacity = NumericEmphasisMaxDigits - displayedDifferenceLength;
+        var leftContextLength = Math.Min(contextCapacity, emphasis.Start - numericStart);
+        var rightContextLength = Math.Min(
+            contextCapacity - leftContextLength,
+            numericEnd - emphasis.End);
+
+        return new TerminalTabTitleEmphasis(
+            emphasis.Start - leftContextLength,
+            displayedDifferenceLength + leftContextLength + rightContextLength);
     }
 
     public static TerminalTabTitleEmphasis FindEmphasis(

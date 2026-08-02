@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
@@ -1269,18 +1270,42 @@ public partial class MainWindow : Window
         string fullTitle,
         TerminalTabTitleEmphasis emphasis)
     {
+        const double numericContextMaxWidth = 60;
+        var fullDistinctText = fullTitle.Substring(emphasis.Start, emphasis.Length);
+        var isPureNumber = TerminalTabTitle.IsPureNumber(fullDistinctText);
+        var displayRange = isPureNumber
+            ? TerminalTabTitle.FindNumericDisplayRange(fullTitle, emphasis)
+            : emphasis;
         var commonPrefix = CreateTerminalTabTitleText(
-            fullTitle[..emphasis.Start],
+            fullTitle[..displayRange.Start],
             TextTrimming.CharacterEllipsis);
-        var distinct = CreateTerminalTabTitleText(
-            fullTitle.Substring(emphasis.Start, emphasis.Length),
-            TextTrimming.CharacterEllipsis);
-        distinct.MaxWidth = 120;
-        distinct.FontWeight = FontWeight.Bold;
-        distinct.Classes.Add("tab-title-emphasis");
+        var distinct = isPureNumber
+            ? CreateTerminalTabNumericContext(fullTitle, displayRange, emphasis)
+            : CreateTerminalTabTitleText(
+                fullDistinctText,
+                TextTrimming.CharacterEllipsis);
+        if (!isPureNumber)
+        {
+            distinct.FontWeight = FontWeight.Bold;
+            distinct.Classes.Add("tab-title-emphasis");
+        }
+
         var commonSuffix = CreateTerminalTabTitleText(
-            fullTitle[emphasis.End..],
+            fullTitle[displayRange.End..],
             TextTrimming.CharacterEllipsis);
+
+        if (isPureNumber)
+        {
+            // A numeric identifier is often the only useful distinction between
+            // otherwise identical server names. Keep up to four digits together
+            // and let the shared context on both sides yield the space instead.
+            commonPrefix.MaxWidth = numericContextMaxWidth;
+            commonSuffix.MaxWidth = numericContextMaxWidth;
+        }
+        else
+        {
+            distinct.MaxWidth = 120;
+        }
 
         // In similarity mode the distinguishing text gets the fixed-width
         // center column. Common text on either side yields first, so the
@@ -1300,6 +1325,35 @@ public partial class MainWindow : Window
         title.Children.Add(distinct);
         title.Children.Add(commonSuffix);
         ToolTip.SetTip(title, fullTitle);
+        return title;
+    }
+
+    private static TextBlock CreateTerminalTabNumericContext(
+        string fullTitle,
+        TerminalTabTitleEmphasis displayRange,
+        TerminalTabTitleEmphasis emphasis)
+    {
+        var text = fullTitle.Substring(displayRange.Start, displayRange.Length);
+        var emphasisStart = Math.Max(displayRange.Start, emphasis.Start) - displayRange.Start;
+        var emphasisEnd = Math.Min(displayRange.End, emphasis.End) - displayRange.Start;
+        var inlines = new InlineCollection();
+        if (emphasisStart > 0)
+            inlines.Add(text[..emphasisStart]);
+
+        var emphasizedRun = new Run(text[emphasisStart..emphasisEnd])
+        {
+            FontWeight = FontWeight.Bold,
+        };
+        emphasizedRun.Classes.Add("tab-title-emphasis");
+        inlines.Add(emphasizedRun);
+
+        if (emphasisEnd < text.Length)
+            inlines.Add(text[emphasisEnd..]);
+
+        var title = CreateTerminalTabTitleText("", TextTrimming.None);
+        title.Text = null;
+        title.Inlines = inlines;
+        title.Classes.Add("tab-title-numeric-context");
         return title;
     }
 
