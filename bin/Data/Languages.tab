@@ -177,7 +177,7 @@ DialogRenamePrompt	New name:	新名称：
 DialogUpdateAvailableTitle	Update available	发现新版本
 DialogUpdateAvailableMessage	A newer build is available (current {0}, latest {1}).\n\nDownload it in the background now? You can keep working; you'll be asked again before the app restarts.	发现新版本（当前 {0}，最新 {1}）。\n\n是否在后台下载更新？下载期间可继续使用，应用重启前会再次确认。
 DialogUpdateReadyTitle	Update ready	更新就绪
-DialogUpdateReadyMessage	The update has been downloaded. Restart now to install it?	更新已下载完成。是否立即重启并安装？
+DialogUpdateReadyMessage	A newer build is ready to install (current {0}, latest {1}).\n\nRestart now to install it? If you choose later, the package is kept and will not be downloaded again.	新版本已准备就绪（当前 {0}，最新 {1}）。\n\n是否立即重启并安装？若选择稍后，已下载的安装包会保留，下次无需重新下载。
 DialogMoveConfigTitle	Move Config data	移动 Config 数据
 DialogMoveConfigMessage	Move existing Config data to the new location?\n\nFrom: {0}\nTo: {1}\n\nChoose No to only change the setting and leave files in their current location.	是否将现有 Config 数据移动到新位置？\n\n源：{0}\n目标：{1}\n\n选择“否”将只修改设置，文件仍保留在当前位置。
 DialogSettingsTitle	Settings	设置

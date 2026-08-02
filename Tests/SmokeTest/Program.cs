@@ -2598,6 +2598,9 @@ try
           "Auto-update script validates the staged package and waits for the app to exit");
     Check(autoUpdateScript.Contains("Best effort: bring the app back even if the install failed."),
           "Auto-update script restarts the app even when the install fails");
+    Check(autoUpdateScript.Contains("$stageRootName -eq \"Update\"")
+          && autoUpdateScript.Contains("staged-version.txt"),
+          "Auto-update script cleans the LocalAppData Update root including sidecar");
     var autoUpdateServicePath = Path.Combine(FindRepoRoot(), "JeekTools.NET", "AutoUpdater.cs");
     var autoUpdateService = File.Exists(autoUpdateServicePath)
         ? File.ReadAllText(autoUpdateServicePath)
@@ -2615,9 +2618,47 @@ try
     Check(autoUpdateService.Contains("DownloadUrls")
           && autoUpdateService.Contains("BuildDownloadUrls"),
           "In-app downloader keeps mirror fallback URLs");
+    Check(autoUpdateService.Contains("staged-version.txt")
+          && autoUpdateService.Contains("TryGetReusableStagedPackageDir")
+          && autoUpdateService.Contains("LocalApplicationData")
+          && autoUpdateService.Contains("StageRoot"),
+          "Updater stages under LocalAppData with a version sidecar for reuse");
+    var autoUpdateAppServicePath = Path.Combine(FindRepoRoot(), "JeekRemoteManager", "Services", "AutoUpdateService.cs");
+    var autoUpdateAppService = File.Exists(autoUpdateAppServicePath)
+        ? File.ReadAllText(autoUpdateAppServicePath)
+        : "";
+    Check(autoUpdateAppService.Contains("LocalApplicationData")
+          && autoUpdateAppService.Contains("\"Update\"")
+          && autoUpdateAppService.Contains("TryGetReusableStagedPackageDir"),
+          "App update service stages under %LOCALAPPDATA%\\JeekRemoteManager\\Update");
+    var mainWindowVmPath = Path.Combine(FindRepoRoot(), "JeekRemoteManager", "ViewModels", "MainWindowViewModel.cs");
+    var mainWindowVm = File.Exists(mainWindowVmPath) ? File.ReadAllText(mainWindowVmPath) : "";
+    Check(mainWindowVm.Contains("TryGetReusableStagedPackageDir")
+          && mainWindowVm.Contains("DialogUpdateReadyMessage"),
+          "Update prompt reuses a staged package and only asks once before restart");
     var runtimeBbrDir = Path.Combine(FindRepoRoot(), "bin", "Data", "Scripts", "BBR");
     Check(!Directory.Exists(runtimeBbrDir),
           "Standalone BBR script suite is removed");
+    var runtimeSystemInfoDir = Path.Combine(FindRepoRoot(), "bin", "Data", "Scripts", "System information");
+    var runtimeSystemInfoSuite = RemoteScriptStore.LoadSuite(runtimeSystemInfoDir, RemoteScriptSuiteSource.BuiltIn);
+    var runtimeSystemInfoScriptPath = Path.Combine(runtimeSystemInfoDir, "show-version.sh");
+    var runtimeSystemInfoScript = File.Exists(runtimeSystemInfoScriptPath)
+        ? File.ReadAllText(runtimeSystemInfoScriptPath)
+        : "";
+    Check(runtimeSystemInfoSuite.Errors.Count == 0
+          && runtimeSystemInfoSuite.Name == "System information"
+          && runtimeSystemInfoSuite.RelativePath == "System information"
+          && runtimeSystemInfoSuite.Parameters.Count == 0
+          && runtimeSystemInfoSuite.Scripts.Count == 1
+          && runtimeSystemInfoSuite.Scripts[0].Name == "show-version.sh"
+          && runtimeSystemInfoSuite.Scripts[0].DisplayName == "Show version",
+          "Bundled system information script is discoverable without parameters");
+    Check(runtimeSystemInfoScript.Contains("/etc/os-release")
+          && runtimeSystemInfoScript.Contains("lsb_release -ds")
+          && runtimeSystemInfoScript.Contains("/etc/redhat-release")
+          && runtimeSystemInfoScript.Contains("uname -sr")
+          && runtimeSystemInfoScript.Contains("uname -m"),
+          "Bundled system information script reports the OS, kernel, and architecture with fallbacks");
     var runtimeSingBoxDir = Path.Combine(FindRepoRoot(), "bin", "Data", "Scripts", "sing-box reality server");
     var runtimeSingBoxSuite = RemoteScriptStore.LoadSuite(runtimeSingBoxDir, RemoteScriptSuiteSource.BuiltIn);
     var runtimeSingBoxInstallPath = Path.Combine(runtimeSingBoxDir, "install.sh");

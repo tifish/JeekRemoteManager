@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using JeekTools;
@@ -17,10 +19,13 @@ public static class AutoUpdateService
         ReleaseZipUrl = "https://github.com/tifish/JeekRemoteManager/releases/download/latest_release/JeekRemoteManager.zip",
         VersionTxtUrl = "https://github.com/tifish/JeekRemoteManager/releases/download/latest_release/version.txt",
         UserAgent = "JeekRemoteManager-Updater/1.0",
-        // Debug instances never self-update, and parallel worktree instances
-        // stage into isolated temp roots so they never fight over files.
+        // Debug instances never self-update. Release stages under LocalAppData so a
+        // postponed install survives reboots and temp cleanups.
         Disabled = DebugInstanceContext.IsDebugBuild,
-        TempRoot = DebugInstanceContext.IsDebugBuild ? DebugInstanceContext.RuntimeTempRoot : null,
+        StageRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "JeekRemoteManager",
+            "Update"),
     });
 
     public static string DownloadUrl => Updater.DownloadUrl;
@@ -28,12 +33,16 @@ public static class AutoUpdateService
     public static int LocalCommitCount => Updater.LocalVersion;
     public static int RemoteCommitCount => Updater.RemoteVersion;
     public static string FailureReason => Updater.FailureReason;
+    public static string StageRoot => Updater.StageRoot;
+    public static string PackageDir => Updater.PackageDir;
 
     public static IReadOnlyList<string> GetDefaultDownloadUrls() => Updater.GetDefaultDownloadUrls();
 
     public static int GetLocalCommitCount() => Updater.GetLocalVersion();
 
     public static Task<UpdateCheckOutcome> HasUpdateAsync() => Updater.HasUpdateAsync();
+
+    public static string? TryGetReusableStagedPackageDir() => Updater.TryGetReusableStagedPackageDir();
 
     public static Task<string?> DownloadAndStageAsync(
         IReadOnlyList<string>? urls = null,

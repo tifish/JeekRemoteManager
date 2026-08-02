@@ -3158,44 +3158,40 @@ public partial class MainWindowViewModel : ViewModelBase
             case UpdateCheckOutcome.Available:
                 if (ConfirmAsync is null || _updateDownloadInProgress)
                     return;
-                var ok = await ConfirmAsync(
-                    L("DialogUpdateAvailableTitle"),
-                    L("DialogUpdateAvailableMessage",
-                        AutoUpdateService.LocalCommitCount,
-                        AutoUpdateService.RemoteCommitCount));
-                if (!ok)
-                {
-                    StatusMessage = L("StatusUpdatePostponed");
-                    return;
-                }
 
-                // Download and stage the package while the app stays fully
-                // usable; a failed download just leaves a status message.
-                string? stagedDir;
-                _updateDownloadInProgress = true;
-                try
-                {
-                    var progress = new Progress<UpdateDownloadProgress>(p =>
-                        StatusMessage = L("StatusDownloadingUpdate", FormatUpdateDownloadProgress(p)));
-                    StatusMessage = L("StatusDownloadingUpdate", "");
-                    stagedDir = await AutoUpdateService.DownloadAndStageAsync(progress: progress);
-                }
-                finally
-                {
-                    _updateDownloadInProgress = false;
-                }
-
+                // Prefer a previously postponed package when its sidecar still
+                // matches remote version.txt; otherwise download into LocalAppData.
+                string? stagedDir = AutoUpdateService.TryGetReusableStagedPackageDir();
                 if (stagedDir is null)
                 {
-                    StatusMessage = L("StatusUpdateDownloadFailed", AutoUpdateService.FailureReason ?? "");
-                    return;
+                    _updateDownloadInProgress = true;
+                    try
+                    {
+                        var progress = new Progress<UpdateDownloadProgress>(p =>
+                            StatusMessage = L("StatusDownloadingUpdate", FormatUpdateDownloadProgress(p)));
+                        StatusMessage = L("StatusDownloadingUpdate", "");
+                        stagedDir = await AutoUpdateService.DownloadAndStageAsync(progress: progress);
+                    }
+                    finally
+                    {
+                        _updateDownloadInProgress = false;
+                    }
+
+                    if (stagedDir is null)
+                    {
+                        StatusMessage = L("StatusUpdateDownloadFailed", AutoUpdateService.FailureReason ?? "");
+                        return;
+                    }
                 }
 
-                // The download may have taken a while; re-confirm before the
-                // restart so we never tear down live sessions unannounced.
+                // Package is local; ask once before restart so live sessions
+                // are never torn down unannounced. Declining keeps the stage
+                // for the next check (sidecar still matches remote version).
                 var restart = await ConfirmAsync(
                     L("DialogUpdateReadyTitle"),
-                    L("DialogUpdateReadyMessage"));
+                    L("DialogUpdateReadyMessage",
+                        AutoUpdateService.LocalCommitCount,
+                        AutoUpdateService.RemoteCommitCount));
                 if (!restart)
                 {
                     StatusMessage = L("StatusUpdatePostponed");
