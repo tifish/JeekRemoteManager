@@ -86,9 +86,13 @@
   </ItemGroup>
 
   <!--
-    JeekRemoteManagerMcp is the product MCP stdio adapter referenced by every generated agent
-    workspace. Build the release adapter into the same publish directory so
-    install/update archives cannot omit it.
+    JeekRemoteManagerMcp is the product MCP stdio adapter. Agents launch the fixed per-user
+    copy under LocalAppData (or bin\jrm-debug-mcp.cmd which does); the file next to the app is
+    only build output that the app installs to the fixed path on startup — not during build.
+    Publish it into the same output/publish directory so archives cannot omit it.
+
+    Before overwriting, rename any existing exe (Windows allows renaming a running image). That
+    way a leftover side-by-side MCP process cannot fail the main project build.
   -->
   <Target
     Name="PublishJeekRemoteManagerMcpAfterBuild"
@@ -96,7 +100,19 @@
     Condition="'$(DesignTimeBuild)' != 'true' and '$(PublishDir)' == '$(OutDir)'">
     <PropertyGroup>
       <JeekRemoteManagerMcpBuildDir>$([System.IO.Path]::GetFullPath('$(OutDir)', '$(MSBuildProjectDirectory)'))</JeekRemoteManagerMcpBuildDir>
+      <_McpUnlockExe>$([System.IO.Path]::Combine('$(JeekRemoteManagerMcpBuildDir)', 'JeekRemoteManagerMcp.exe'))</_McpUnlockExe>
+      <_McpUnlockStamp>$([System.DateTime]::UtcNow.ToString('yyyyMMddHHmmssfff'))</_McpUnlockStamp>
     </PropertyGroup>
+    <Exec
+      Condition="Exists('$(_McpUnlockExe)')"
+      Command="move /Y &quot;$(_McpUnlockExe)&quot; &quot;$(_McpUnlockExe).$(_McpUnlockStamp).old&quot;"
+      IgnoreExitCode="true"
+      StandardOutputImportance="low"
+      StandardErrorImportance="low" />
+    <ItemGroup>
+      <_McpUnlockOld Include="$(JeekRemoteManagerMcpBuildDir)\JeekRemoteManagerMcp.exe.*.old" />
+    </ItemGroup>
+    <Delete Files="@(_McpUnlockOld)" TreatErrorsAsWarnings="true" ContinueOnError="true" />
     <MSBuild
       Projects="..\Tools\JeekRemoteManagerMcp\JeekRemoteManagerMcp.csproj"
       Targets="Restore;Publish"
@@ -109,7 +125,19 @@
     Condition="'$(DesignTimeBuild)' != 'true' and '$(PublishDir)' != '$(OutDir)'">
     <PropertyGroup>
       <JeekRemoteManagerMcpPublishDir>$([System.IO.Path]::GetFullPath('$(PublishDir)', '$(MSBuildProjectDirectory)'))</JeekRemoteManagerMcpPublishDir>
+      <_McpUnlockExe>$([System.IO.Path]::Combine('$(JeekRemoteManagerMcpPublishDir)', 'JeekRemoteManagerMcp.exe'))</_McpUnlockExe>
+      <_McpUnlockStamp>$([System.DateTime]::UtcNow.ToString('yyyyMMddHHmmssfff'))</_McpUnlockStamp>
     </PropertyGroup>
+    <Exec
+      Condition="Exists('$(_McpUnlockExe)')"
+      Command="move /Y &quot;$(_McpUnlockExe)&quot; &quot;$(_McpUnlockExe).$(_McpUnlockStamp).old&quot;"
+      IgnoreExitCode="true"
+      StandardOutputImportance="low"
+      StandardErrorImportance="low" />
+    <ItemGroup>
+      <_McpUnlockOld Include="$(JeekRemoteManagerMcpPublishDir)\JeekRemoteManagerMcp.exe.*.old" />
+    </ItemGroup>
+    <Delete Files="@(_McpUnlockOld)" TreatErrorsAsWarnings="true" ContinueOnError="true" />
     <MSBuild
       Projects="..\Tools\JeekRemoteManagerMcp\JeekRemoteManagerMcp.csproj"
       Targets="Restore;Publish"
@@ -117,3 +145,5 @@
   </Target>
 
 </Project>
+
+

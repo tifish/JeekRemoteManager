@@ -12,11 +12,11 @@ public static class McpAdapterRegistration
     public static McpRegisteredInstance RegisterCurrentInstance()
     {
         var sourceAdapter = Path.Combine(AppContext.BaseDirectory, "JeekRemoteManagerMcp.exe");
-        var releaseOwnsInstalledAdapter =
-            McpAdapterRegistry.TryReadInstance("release", out _);
-        if (!McpAdapterRegistry.EnsureAdapterInstalled(
-                sourceAdapter,
-                allowUpdate: !DebugInstanceContext.IsDebugBuild || !releaseOwnsInstalledAdapter))
+        // Always refresh the fixed adapter when the side-by-side publish next to this app
+        // differs. Agents launch that fixed path (not bin\), so Debug worktrees must be able
+        // to push routing fixes even if a Release instance is also registered. A locked
+        // destination keeps the previous file — safe for this protocol-agnostic forwarder.
+        if (!McpAdapterRegistry.EnsureAdapterInstalled(sourceAdapter, allowUpdate: true))
         {
             throw new IOException("Could not install the fixed JeekRemoteManager MCP adapter.");
         }

@@ -16,9 +16,11 @@ using JeekRemoteManager.Services;
 //   { "command": "C:\\Users\\...\\AppData\\Local\\JeekRemoteManager\\Mcp\\JeekRemoteManagerMcp.exe",
 //     "args": ["--connection", "vps/bwg"] }
 //
-// The fixed adapter reads the app path and pipe names from HKCU. Release is the default route;
-// Debug configs pass their path-derived instance id so parallel worktrees stay separate. A
-// side-by-side adapter remains supported for development and direct Debug MCP checks.
+// The stable per-user install is the agent entrypoint (so builds can overwrite bin\ without
+// fighting a running MCP process). It reads the app path and pipe names from HKCU; Release is
+// the default route. Debug worktrees pass --instance <id> or --app <worktree\bin\app.exe> so
+// parallel instances stay separate. A side-by-side copy next to the app remains supported for
+// packaging and first-run install into the fixed path.
 
 var options = AdapterOptions.Parse(args);
 
@@ -208,8 +210,23 @@ internal sealed record AdapterOptions(
         var baseDirectory = AppContext.BaseDirectory;
         var sideBySideAppPath = Path.Combine(baseDirectory, "JeekRemoteManager.exe");
         var isSideBySide = File.Exists(sideBySideAppPath);
+
+        // Explicit --app pins a worktree/install even when this process is the fixed per-user
+        // adapter (not side-by-side). Instance id is always derived from the app directory.
+        string? appDirectory = null;
+        if (appPath is { Length: > 0 })
+        {
+            appPath = Path.GetFullPath(appPath);
+            appDirectory = Path.GetDirectoryName(appPath);
+        }
+
         var routeInstance = instance
+                            ?? (appDirectory is { Length: > 0 }
+                                ? McpPipeNames.InstanceId(appDirectory)
+                                : null)
                             ?? (isSideBySide ? McpPipeNames.InstanceId(baseDirectory) : "release");
+        var explicitlyRouted = instance is not null || appDirectory is { Length: > 0 };
+
         McpRegisteredInstance? registered = null;
         if (!isSideBySide
             && McpAdapterRegistry.TryReadInstance(routeInstance, out var resolved))
@@ -244,7 +261,7 @@ internal sealed record AdapterOptions(
             var bare = McpPipeNames.Resolve(surface, null);
             // An explicitly routed or fixed adapter must never fall back to Release: if a Debug
             // worktree is offline, reaching the user's installed instance would be dangerous.
-            var strictRoute = instance is not null || !isSideBySide;
+            var strictRoute = explicitlyRouted || !isSideBySide;
             pipes = derived == bare || strictRoute ? [derived] : [derived, bare];
         }
 
