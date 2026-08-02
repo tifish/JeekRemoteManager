@@ -210,23 +210,27 @@ public static class AgentCliCatalog
             {
                 return cached;
             }
-
-            return StoreDiscovery(Probe());
         }
+
+        return Rediscover();
     }
 
     /// <summary>Re-probes the disk and replaces the cached result.</summary>
     public static IReadOnlyList<AgentCliDescriptor> Rediscover()
     {
-        lock (DiscoveryGate)
-            return StoreDiscovery(Probe());
-    }
+        // Probe outside the lock: it is hundreds of file-system and registry lookups, and
+        // holding the lock across it would park every other caller behind it. Two callers
+        // racing simply both probe and one snapshot wins — either is equally current.
+        var probed = Probe();
+        var probedAt = Environment.TickCount64;
 
-    private static IReadOnlyList<AgentCliDescriptor> StoreDiscovery(IReadOnlyList<AgentCliDescriptor> discovered)
-    {
-        _cachedDiscovery = discovered;
-        _cachedDiscoveryTicks = Environment.TickCount64;
-        return discovered;
+        lock (DiscoveryGate)
+        {
+            _cachedDiscovery = probed;
+            _cachedDiscoveryTicks = probedAt;
+        }
+
+        return probed;
     }
 
     private static IReadOnlyList<AgentCliDescriptor> Probe() =>

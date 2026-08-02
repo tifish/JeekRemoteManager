@@ -191,6 +191,14 @@ public sealed class ZmodemByteQueue
         return _current[_currentOffset++];
     }
 
+    /// <summary>
+    /// Takes back everything not yet consumed, so the terminal can display bytes the
+    /// sender wrote after the protocol finished.
+    ///
+    /// Call only once the reader has stopped: <c>_current</c> belongs to the reader, and
+    /// the caller must have stopped feeding <see cref="Append"/> as well — anything
+    /// written after this returns is dropped, since nothing reads the queue afterwards.
+    /// </summary>
     public byte[] DrainAvailable()
     {
         var remaining = new List<byte>();

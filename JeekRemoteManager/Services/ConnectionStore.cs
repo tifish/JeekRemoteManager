@@ -93,7 +93,6 @@ public class ConnectionStore
         Touch();
     }
 
-    /// <summary>Loads a connection from a file.</summary>
     /// <summary>
     /// The stored password blobs, for validating the master password at startup.
     /// Deliberately not <see cref="Load"/>: that also resolves bastion profiles and
@@ -124,6 +123,7 @@ public class ConnectionStore
         }
     }
 
+    /// <summary>Loads a connection from a file.</summary>
     public Connection Load(string filePath)
     {
         var json = File.ReadAllText(filePath);
