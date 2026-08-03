@@ -19,7 +19,6 @@
     <PlatformTarget>x64</PlatformTarget>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <CETCompat>false</CETCompat>
-    <PublishReadyToRun>true</PublishReadyToRun>
     <PublishDir>$(OutDir)</PublishDir>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>

@@ -44,8 +44,8 @@ jobs:
                   Set-Content -Path version.txt -Value $count -NoNewline -Encoding ascii
                   Write-Host "commit count = $count"
 
-            - name: Publish
-              run: dotnet publish JeekRemoteManager\JeekRemoteManager.csproj -c Release -r win-x64 --no-self-contained -p:PublishReadyToRun=true -p:PublishTrimmed=false -p:PublishSingleFile=false /p:Version=${{ steps.ver.outputs.count }}
+            - name: Build Release
+              run: dotnet build JeekRemoteManager\JeekRemoteManager.csproj -c Release /p:Version=${{ steps.ver.outputs.count }}
 
             - name: Zip files
               shell: pwsh
