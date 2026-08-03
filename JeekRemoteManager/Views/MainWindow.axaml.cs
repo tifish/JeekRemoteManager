@@ -1249,6 +1249,20 @@ public partial class MainWindow : Window
         };
         close.Click += (_, _) => CloseTerminalTab(tab);
 
+        var closeOthers = new MenuItem
+        {
+            Header = Localizer.Get("CloseOthers"),
+            Icon = CreateMenuIcon("\uE8BB", "danger"),
+        };
+        closeOthers.Click += (_, _) => CloseOtherTerminalTabs(tab);
+
+        var closeAll = new MenuItem
+        {
+            Header = Localizer.Get("CloseAll"),
+            Icon = CreateMenuIcon("\uE74D", "danger"),
+        };
+        closeAll.Click += (_, _) => CloseAllTerminalTabs();
+
         var menu = new ContextMenu();
         menu.Items.Add(duplicate);
         menu.Items.Add(runScript);
@@ -1262,6 +1276,8 @@ public partial class MainWindow : Window
             menu.Items.Add(copyKey);
         menu.Items.Add(new Separator());
         menu.Items.Add(close);
+        menu.Items.Add(closeOthers);
+        menu.Items.Add(closeAll);
         return menu;
     }
 
@@ -1868,6 +1884,34 @@ public partial class MainWindow : Window
 
         if (wasSelected && RightTabs.Items.Count > 0)
             RightTabs.SelectedIndex = Math.Clamp(index - 1, 0, RightTabs.Items.Count - 1);
+    }
+
+    /// <summary>
+    /// Closes every terminal tab except <paramref name="keep"/>. Permanent tabs
+    /// (editor, global agent) are never closed.
+    /// </summary>
+    internal void CloseOtherTerminalTabs(TabItem keep)
+    {
+        foreach (var tab in EnumerateTerminalTabs().Where(t => !ReferenceEquals(t, keep)).ToList())
+            CloseTerminalTab(tab);
+    }
+
+    /// <summary>
+    /// Closes every terminal tab. Permanent tabs (editor, global agent) stay open.
+    /// </summary>
+    internal void CloseAllTerminalTabs()
+    {
+        foreach (var tab in EnumerateTerminalTabs().ToList())
+            CloseTerminalTab(tab);
+    }
+
+    private IEnumerable<TabItem> EnumerateTerminalTabs()
+    {
+        foreach (var item in RightTabs.Items)
+        {
+            if (item is TabItem { Content: TerminalView } tab)
+                yield return tab;
+        }
     }
 
     // When a terminal tab becomes active, restore the control that had keyboard

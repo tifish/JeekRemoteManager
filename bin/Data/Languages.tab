@@ -207,6 +207,8 @@ StatusPublicKeyAlreadyPresent	Public key already present on {0}.	{0} 上已存�
 StatusPublicKeyFailed	Could not install public key: {0}	无法安装公钥：{0}
 StatusTerminalConnectionMissing	This connection is no longer in the tree.	该连接已不在树中。
 Close	Close	关闭
+CloseOthers	Close others	关闭其他
+CloseAll	Close all	关闭所有
 CopyOutput	Copy output	复制输出
 ClearOutput	Clear output	清空输出
 ClearParameters	Clear all parameters	清除所有参数
