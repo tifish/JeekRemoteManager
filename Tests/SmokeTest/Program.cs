@@ -222,6 +222,14 @@ try
     Check(mainWindowXaml.IndexOf("x:Name=\"AiPanelToolbarButton\"", StringComparison.Ordinal)
               < mainWindowXaml.IndexOf("x:Name=\"MonitorToolbarButton\"", StringComparison.Ordinal),
           "Terminal toolbar places AI before monitor");
+    Check(mainWindowXaml.Contains("Command=\"{Binding ConnectCommand}\"", StringComparison.Ordinal)
+          && mainWindowXaml.Contains("Command=\"{Binding ConnectNewSessionCommand}\"", StringComparison.Ordinal)
+          && mainWindowXaml.Contains("Command=\"{Binding ConnectNewTcpConnectionCommand}\"", StringComparison.Ordinal)
+          && languagesCode.Contains("ConnectNewSession\tOpen new session\t新建会话", StringComparison.Ordinal)
+          && languagesCode.Contains(
+              "ConnectNewTcpConnection\tOpen new TCP connection\t新建 TCP 连接",
+              StringComparison.Ordinal),
+          "Connection menus distinguish connect, new session, and new TCP connection");
     var newRdpToolbarIndex = mainWindowXaml.IndexOf("x:Name=\"NewRdpToolbarButton\"", StringComparison.Ordinal);
     var globalAgentToolbarSeparatorIndex = mainWindowXaml.IndexOf(
         "x:Name=\"GlobalAgentToolbarSeparator\"",
@@ -362,6 +370,9 @@ try
     Check(DebugMcpContract.BuildToolList()
               .Any(tool => tool?["name"]?.GetValue<string>() == "terminal_tab_lifecycle_check"),
           "Debug MCP advertises terminal-tab lifecycle verification");
+    Check(DebugMcpContract.BuildToolList()
+              .Any(tool => tool?["name"]?.GetValue<string>() == "terminal_connection_actions_check"),
+          "Debug MCP advertises the three connection-action semantics");
     Check(DebugMcpContract.BuildToolList()
               .Any(tool => tool?["name"]?.GetValue<string>() == "terminal_output_coalescing_check"),
           "Debug MCP advertises terminal-output coalescing verification");

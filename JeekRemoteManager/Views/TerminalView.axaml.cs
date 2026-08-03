@@ -125,6 +125,7 @@ public partial class TerminalView : UserControl
     private readonly LoginMenuOutputCapture _loginOutputCapture = new();
     private volatile bool _loginCaptureActive;
     private bool _isDuplicatedSession;
+    private bool _forceNewTcpConnection;
     private string _loginSequenceState = "idle";
     private string _bastionSessionState = "none";
     private bool _connectInProgress;
@@ -442,12 +443,14 @@ public partial class TerminalView : UserControl
         Connection connection,
         string? sourcePath = null,
         SharedSshClient? sharedClient = null,
-        bool isDuplicatedSession = false)
+        bool isDuplicatedSession = false,
+        bool forceNewTcpConnection = false)
     {
         _connection = connection;
         _sourcePath = sourcePath;
         _pendingSharedClient = sharedClient;
         _isDuplicatedSession = isDuplicatedSession;
+        _forceNewTcpConnection = forceNewTcpConnection;
         FocusTerminal();
         BeginConnectionAttempt();
     }
@@ -459,6 +462,22 @@ public partial class TerminalView : UserControl
     /// </summary>
     internal void DebugAttachConnectionWithoutConnecting(Connection connection) =>
         _connection = connection;
+
+    /// <summary>
+    /// Marks a network-free probe tab as reusable so Debug MCP can exercise the
+    /// connection-tree open modes without dialing a real server.
+    /// </summary>
+    internal void DebugAttachReusableConnectionProbe(Connection connection)
+    {
+        _connection = connection;
+        _connectInProgress = true;
+    }
+
+    /// <summary>Connection-start policy exposed for the Debug MCP new-TCP probe.</summary>
+    internal bool DebugRequiresNewTcpConnection => _forceNewTcpConnection;
+
+    /// <summary>Login-command section selected for this tab, exposed for Debug MCP.</summary>
+    internal bool DebugIsDuplicatedSession => _isDuplicatedSession;
 
     /// <summary>
     /// Hands out this view's live SSH connection for a duplicated tab, taking a
@@ -2079,11 +2098,15 @@ public partial class TerminalView : UserControl
             return;
         }
 
-        // Legacy duplicated tabs can be handed a direct counted reference. Structured
-        // bastion workflows instead use the application pool below so the transport's
-        // current logical target can be switched safely before commands run.
+        // Legacy duplicated tabs can be handed a direct counted reference. "Open new
+        // TCP connection" explicitly forbids using it: that action promises another TCP
+        // transport, not merely another shell channel.
         var shared = Interlocked.Exchange(ref _pendingSharedClient, null);
-        if (shared is not null)
+        if (_forceNewTcpConnection)
+        {
+            shared?.Release();
+        }
+        else if (shared is not null)
         {
             FeedLine($"Opening a new session on the existing connection to {host}:{port} ...");
             Volatile.Write(ref _bastionSessionState, "direct-duplicate");
@@ -2102,7 +2125,10 @@ public partial class TerminalView : UserControl
         BastionSessionPool.BastionSessionLease? pooledLease = null;
         try
         {
-            if (BastionSessionPool is not null)
+            // Normal connects may automatically borrow a matching structured-bastion
+            // transport. A new TCP connection must bypass the pool as well as the
+            // direct duplicate path above.
+            if (!_forceNewTcpConnection && BastionSessionPool is not null)
             {
                 var hasKnownSession = BastionSessionPool.HasKnownSession(connection);
                 var hasReusableSession = BastionSessionPool.HasReusableSession(connection);
@@ -2178,7 +2204,9 @@ public partial class TerminalView : UserControl
         }
 
         FeedLine($"Connecting to {host}:{port} ...");
-        Volatile.Write(ref _bastionSessionState, "fresh");
+        Volatile.Write(
+            ref _bastionSessionState,
+            _forceNewTcpConnection ? "new-tcp-forced" : "fresh");
 
         SharedSshClient client;
         try

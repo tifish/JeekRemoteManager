@@ -28,6 +28,13 @@ public partial class MainWindow : Window
 {
     internal const string ProjectHomepage = "https://github.com/tifish/JeekRemoteManager";
 
+    private enum TerminalOpenMode
+    {
+        ReuseTab,
+        NewSession,
+        NewTcpConnection,
+    }
+
     private TreeNodeViewModel? _lastToggledFolder;
     private bool _lastToggledFolderExpanded;
     private bool _windowSizeRestored;
@@ -444,13 +451,17 @@ public partial class MainWindow : Window
         {
             _ = await EnsureSshTerminalAsync(connection, sourcePath);
         };
-        vm.OpenNewSshTerminalAsync = async (connection, sourcePath) =>
+        vm.OpenNewSshSessionAsync = async (connection, sourcePath) =>
         {
-            _ = await EnsureSshTerminalAsync(connection, sourcePath, forceNew: true);
+            _ = await EnsureSshTerminalAsync(connection, sourcePath, TerminalOpenMode.NewSession);
+        };
+        vm.OpenNewSshTcpConnectionAsync = async (connection, sourcePath) =>
+        {
+            _ = await EnsureSshTerminalAsync(connection, sourcePath, TerminalOpenMode.NewTcpConnection);
         };
         vm.EnsureSshTerminalAsync = EnsureSshTerminalAsync;
         vm.EnsureSshTerminalQuietlyAsync = (connection, sourcePath) =>
-            EnsureSshTerminalAsync(connection, sourcePath, forceNew: false, select: false);
+            EnsureSshTerminalAsync(connection, sourcePath, TerminalOpenMode.ReuseTab, select: false);
         vm.ApplyTerminalFontSize = ApplyTerminalFontToOpenTabs;
         ApplyTerminalFontToOpenTabs(vm.TerminalFontSize);
         vm.ConfirmHostKeyTrust = HostKeyDialog.PromptTrust;
@@ -757,15 +768,15 @@ public partial class MainWindow : Window
     }
 
     private Task<TerminalScriptSession?> EnsureSshTerminalAsync(Connection connection, string? sourcePath) =>
-        EnsureSshTerminalAsync(connection, sourcePath, forceNew: false);
+        EnsureSshTerminalAsync(connection, sourcePath, TerminalOpenMode.ReuseTab);
 
     private Task<TerminalScriptSession?> EnsureSshTerminalAsync(
         Connection connection,
         string? sourcePath,
-        bool forceNew,
+        TerminalOpenMode mode,
         bool select = true)
     {
-        if (!forceNew)
+        if (mode == TerminalOpenMode.ReuseTab)
         {
             var existing = FindTerminalTab(connection, sourcePath);
             while (existing is not null)
@@ -785,8 +796,29 @@ public partial class MainWindow : Window
             }
         }
 
+        var duplicateSource = mode == TerminalOpenMode.NewSession
+            ? FindTerminalTab(connection, sourcePath)
+            : null;
         var (view, tab) = CreateTerminalTab(connection, sourcePath, select);
-        view.Start(connection, sourcePath);
+        if (duplicateSource is { } source)
+        {
+            var shared = LoginCommandSequence.HasStructuredReuseWorkflow(
+                connection.EffectiveLoginCommands)
+                ? null
+                : source.View.ShareClientForDuplicate();
+            view.Start(
+                connection,
+                sourcePath,
+                shared,
+                isDuplicatedSession: true);
+        }
+        else
+        {
+            view.Start(
+                connection,
+                sourcePath,
+                forceNewTcpConnection: mode == TerminalOpenMode.NewTcpConnection);
+        }
         return Task.FromResult<TerminalScriptSession?>(CreateTerminalScriptSession(view, tab));
     }
 
@@ -866,6 +898,54 @@ public partial class MainWindow : Window
             new Connection { Name = "terminal lifecycle probe", Type = ConnectionType.Wsl },
             sourcePath: null);
         return tab;
+    }
+
+    /// <summary>
+    /// Drives all three connection-tree open modes against one network-free source
+    /// tab. The two new tabs target a refusing local port; Debug MCP inspects their
+    /// transport policies and closes them immediately.
+    /// </summary>
+    internal (
+        TabItem Source,
+        TabItem Connected,
+        TabItem NewSession,
+        TabItem NewTcpConnection) DebugOpenConnectionActionsProbe()
+    {
+        var connection = new Connection
+        {
+            Name = "connection actions probe",
+            Type = ConnectionType.Ssh,
+            Host = "127.0.0.1",
+            Port = 1,
+            Username = "probe",
+            LoginCommands = "#reuse-enter\n1\n#duplicate\n#reuse-leave\nexit",
+        };
+        var (sourceView, sourceTab) = CreateTerminalTab(connection, sourcePath: null);
+        sourceView.DebugAttachReusableConnectionProbe(connection);
+
+        _ = EnsureSshTerminalAsync(
+            connection,
+            sourcePath: null,
+            mode: TerminalOpenMode.ReuseTab);
+        var connectedTab = SelectedTerminalTab
+                           ?? throw new InvalidOperationException("Connect did not select a terminal tab.");
+
+        _ = EnsureSshTerminalAsync(
+            connection,
+            sourcePath: null,
+            mode: TerminalOpenMode.NewSession);
+        var newSessionTab = SelectedTerminalTab
+                            ?? throw new InvalidOperationException("New session did not open a terminal tab.");
+
+        _ = EnsureSshTerminalAsync(
+            connection,
+            sourcePath: null,
+            mode: TerminalOpenMode.NewTcpConnection);
+        var newTcpConnectionTab = SelectedTerminalTab
+                                  ?? throw new InvalidOperationException(
+                                      "New TCP connection did not open a terminal tab.");
+
+        return (sourceTab, connectedTab, newSessionTab, newTcpConnectionTab);
     }
 
     /// <summary>
@@ -2074,7 +2154,10 @@ public partial class MainWindow : Window
         if (DataContext is not MainWindowViewModel vm || node.Connection is null)
             return;
 
-        var session = await EnsureSshTerminalAsync(node.Connection, node.FullPath, forceNew: true);
+        var session = await EnsureSshTerminalAsync(
+            node.Connection,
+            node.FullPath,
+            TerminalOpenMode.NewSession);
         if (session is null)
             return;
 
@@ -2448,9 +2531,9 @@ public partial class MainWindow : Window
 
         if (e.Key == Key.Enter)
         {
-            // Ctrl+Enter forces a fresh session; plain Enter reuses an open tab.
+            // Ctrl+Enter opens another shell session; plain Enter reuses an open tab.
             var command = e.KeyModifiers.HasFlag(KeyModifiers.Control)
-                ? (System.Windows.Input.ICommand)vm.ConnectNewCommand
+                ? (System.Windows.Input.ICommand)vm.ConnectNewSessionCommand
                 : vm.ConnectCommand;
             if (command.CanExecute(null))
             {
@@ -2527,10 +2610,10 @@ public partial class MainWindow : Window
 
         if (vm.SelectedNode is { IsConnection: true })
         {
-            // Ctrl+double-click forces a fresh session; a plain double-click
+            // Ctrl+double-click opens another shell session; a plain double-click
             // reuses an open tab.
             var command = e.KeyModifiers.HasFlag(KeyModifiers.Control)
-                ? (System.Windows.Input.ICommand)vm.ConnectNewCommand
+                ? (System.Windows.Input.ICommand)vm.ConnectNewSessionCommand
                 : vm.ConnectCommand;
             if (command.CanExecute(null))
             {

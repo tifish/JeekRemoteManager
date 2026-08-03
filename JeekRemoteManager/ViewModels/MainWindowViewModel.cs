@@ -19,6 +19,13 @@ namespace JeekRemoteManager.ViewModels;
 
 public partial class MainWindowViewModel : ViewModelBase
 {
+    private enum ConnectionLaunchMode
+    {
+        Connect,
+        NewSession,
+        NewTcpConnection,
+    }
+
     private readonly ConnectionStore _store;
     private readonly ConnectionLauncher _launcher;
     private readonly SettingsService _settings;
@@ -116,7 +123,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
-    [NotifyCanExecuteChangedFor(nameof(ConnectNewCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConnectNewSessionCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConnectNewTcpConnectionCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeleteCommand))]
     [NotifyCanExecuteChangedFor(nameof(RenameCommand))]
     [NotifyCanExecuteChangedFor(nameof(CopyCommand))]
@@ -168,7 +176,8 @@ public partial class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(ShowPlaceholder));
         OnPropertyChanged(nameof(PlaceholderHint));
         NotifyTreeActionCanExecuteChanged();
-        ConnectNewCommand.NotifyCanExecuteChanged();
+        ConnectNewSessionCommand.NotifyCanExecuteChanged();
+        ConnectNewTcpConnectionCommand.NotifyCanExecuteChanged();
         RevealInTreeCommand.NotifyCanExecuteChanged();
         RemoveFromRecentCommand.NotifyCanExecuteChanged();
     }
@@ -338,9 +347,12 @@ public partial class MainWindowViewModel : ViewModelBase
     /// terminal tab's context menu can act on the originating tree node.</summary>
     public Func<Connection, string?, Task>? OpenSshTerminalAsync { get; set; }
 
-    /// <summary>Like <see cref="OpenSshTerminalAsync"/>, but always opens a fresh
-    /// terminal tab instead of activating an existing one for the same connection.</summary>
-    public Func<Connection, string?, Task>? OpenNewSshTerminalAsync { get; set; }
+    /// <summary>Like <see cref="OpenSshTerminalAsync"/>, but opens another shell
+    /// session and reuses an authenticated SSH transport when one is available.</summary>
+    public Func<Connection, string?, Task>? OpenNewSshSessionAsync { get; set; }
+
+    /// <summary>Opens another terminal tab backed by a newly dialed TCP connection.</summary>
+    public Func<Connection, string?, Task>? OpenNewSshTcpConnectionAsync { get; set; }
 
     /// <summary>Returns an SSH terminal tab for script execution, reusing an open
     /// terminal for the same connection file when possible.</summary>
@@ -1496,10 +1508,10 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool CanConnect() =>
         EffectiveSelection().Any(n => n is { IsConnection: true, IsNameEditing: false });
 
-    /// <summary>Opens a fresh terminal session even when one is already open for
-    /// the connection (the plain Connect command activates the existing tab).</summary>
-    [RelayCommand(CanExecute = nameof(CanConnectNew))]
-    private async Task ConnectNew()
+    /// <summary>Opens another shell session, reusing an authenticated TCP transport
+    /// when possible. Plain Connect activates an existing tab instead.</summary>
+    [RelayCommand(CanExecute = nameof(CanOpenNewSession))]
+    private async Task ConnectNewSession()
     {
         FlushPendingAutoSave();
 
@@ -1507,18 +1519,42 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
 
         var clearStaleRecentSelection = node.IsRecent;
-        await LaunchAsync(node, forceNew: true);
+        await LaunchAsync(node, ConnectionLaunchMode.NewSession);
 
         if (clearStaleRecentSelection && ReferenceEquals(SelectedNode, node))
             SelectedNode = null;
     }
 
-    private bool CanConnectNew() =>
+    /// <summary>Opens another tab and always dials a distinct TCP connection.</summary>
+    [RelayCommand(CanExecute = nameof(CanOpenNewTcpConnection))]
+    private async Task ConnectNewTcpConnection()
+    {
+        FlushPendingAutoSave();
+
+        if (SelectedNode is not { IsConnection: true, IsNameEditing: false, Connection: not null } node)
+            return;
+
+        var clearStaleRecentSelection = node.IsRecent;
+        await LaunchAsync(node, ConnectionLaunchMode.NewTcpConnection);
+
+        if (clearStaleRecentSelection && ReferenceEquals(SelectedNode, node))
+            SelectedNode = null;
+    }
+
+    private bool CanOpenNewSession() =>
         SelectedNode is
         {
             IsConnection: true,
             IsNameEditing: false,
             Connection.Type: ConnectionType.Ssh or ConnectionType.Wsl,
+        };
+
+    private bool CanOpenNewTcpConnection() =>
+        SelectedNode is
+        {
+            IsConnection: true,
+            IsNameEditing: false,
+            Connection.Type: ConnectionType.Ssh,
         };
 
     // --- Recent group: reveal / remove / clear ---
@@ -1609,7 +1645,9 @@ public partial class MainWindowViewModel : ViewModelBase
     /// Shared by the Connect command (on real nodes) and the "Recent" group's
     /// one-click shortcut (on shadow nodes).
     /// </summary>
-    private async Task LaunchAsync(TreeNodeViewModel node, bool forceNew = false)
+    private async Task LaunchAsync(
+        TreeNodeViewModel node,
+        ConnectionLaunchMode mode = ConnectionLaunchMode.Connect)
     {
         if (node.Connection is null)
             return;
@@ -1622,7 +1660,12 @@ public partial class MainWindowViewModel : ViewModelBase
             // ConPTY) — there is no external-client path for them.
             if (connection.Type is ConnectionType.Ssh or ConnectionType.Wsl)
             {
-                var open = forceNew ? OpenNewSshTerminalAsync : OpenSshTerminalAsync;
+                var open = mode switch
+                {
+                    ConnectionLaunchMode.NewSession => OpenNewSshSessionAsync,
+                    ConnectionLaunchMode.NewTcpConnection => OpenNewSshTcpConnectionAsync,
+                    _ => OpenSshTerminalAsync,
+                };
                 if (open is null)
                     throw new InvalidOperationException("The in-app terminal is not available.");
                 StatusMessage = L("StatusLaunching", connection.Type.ToDisplayName(), connection.TargetLabel);
@@ -2148,6 +2191,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private void NotifyTreeActionCanExecuteChanged()
     {
         ConnectCommand.NotifyCanExecuteChanged();
+        ConnectNewSessionCommand.NotifyCanExecuteChanged();
+        ConnectNewTcpConnectionCommand.NotifyCanExecuteChanged();
         DeleteCommand.NotifyCanExecuteChanged();
         RenameCommand.NotifyCanExecuteChanged();
         CopyCommand.NotifyCanExecuteChanged();

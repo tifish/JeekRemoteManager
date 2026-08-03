@@ -281,9 +281,16 @@
                                             <TextBlock Classes="menu-icon connect" Text="&#xE768;" />
                                         </MenuItem.Icon>
                                     </MenuItem>
-                                    <MenuItem Header="{l:Localize ConnectNew}"
-                                              Command="{Binding ConnectNewCommand}"
+                                    <MenuItem Header="{l:Localize ConnectNewSession}"
+                                              Command="{Binding ConnectNewSessionCommand}"
                                               IsVisible="{Binding IsShellConnectionContext}">
+                                        <MenuItem.Icon>
+                                            <TextBlock Classes="menu-icon connect" Text="&#xE8C8;" />
+                                        </MenuItem.Icon>
+                                    </MenuItem>
+                                    <MenuItem Header="{l:Localize ConnectNewTcpConnection}"
+                                              Command="{Binding ConnectNewTcpConnectionCommand}"
+                                              IsVisible="{Binding IsSshConnectionContext}">
                                         <MenuItem.Icon>
                                             <TextBlock Classes="menu-icon connect" Text="&#xE8A7;" />
                                         </MenuItem.Icon>
@@ -402,8 +409,16 @@
                                         <TextBlock Classes="menu-icon connect" Text="&#xE768;" />
                                     </MenuItem.Icon>
                                 </MenuItem>
-                                <MenuItem Header="{l:Localize ConnectNew}" Command="{Binding ConnectNewCommand}"
+                                <MenuItem Header="{l:Localize ConnectNewSession}"
+                                          Command="{Binding ConnectNewSessionCommand}"
                                           IsVisible="{Binding IsShellConnectionContext}">
+                                    <MenuItem.Icon>
+                                        <TextBlock Classes="menu-icon connect" Text="&#xE8C8;" />
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="{l:Localize ConnectNewTcpConnection}"
+                                          Command="{Binding ConnectNewTcpConnectionCommand}"
+                                          IsVisible="{Binding IsSshConnectionContext}">
                                     <MenuItem.Icon>
                                         <TextBlock Classes="menu-icon connect" Text="&#xE8A7;" />
                                     </MenuItem.Icon>

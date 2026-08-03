@@ -115,6 +115,7 @@ internal static class DebugMcpServer
         host.AddTool("terminal_tab_title_check", _ => TerminalTabTitleCheckAsync());
         host.AddTool("terminal_tab_focus_check", _ => TerminalTabFocusCheckAsync());
         host.AddTool("terminal_tab_lifecycle_check", _ => TerminalTabLifecycleCheckAsync());
+        host.AddTool("terminal_connection_actions_check", _ => TerminalConnectionActionsCheckAsync());
         host.AddTool("terminal_output_coalescing_check", _ => TerminalOutputCoalescingCheckAsync());
         host.AddTool("monitor_suspend_check", _ => MonitorSuspendCheckAsync());
         host.AddTool("terminal_font_sync_check", _ => TerminalFontSyncCheckAsync());
@@ -196,6 +197,73 @@ internal static class DebugMcpServer
         });
 
         return weakView;
+    }
+
+    private static async Task<JsonObject> TerminalConnectionActionsCheckAsync()
+    {
+        var tabs = new List<TabItem>();
+        try
+        {
+            var result = await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main)
+                    throw new InvalidOperationException("MainWindow is not available.");
+
+                var before = main.EnumerateTerminalSessions().Count;
+                var probe = main.DebugOpenConnectionActionsProbe();
+                tabs.Add(probe.Source);
+                tabs.Add(probe.NewSession);
+                tabs.Add(probe.NewTcpConnection);
+                var newSessionView = (TerminalView)probe.NewSession.Content!;
+                var newTcpView = (TerminalView)probe.NewTcpConnection.Content!;
+                var after = main.EnumerateTerminalSessions().Count;
+                var connectReusedTab = ReferenceEquals(probe.Source, probe.Connected);
+                var newSessionUsesDuplicatePolicy =
+                    newSessionView.DebugIsDuplicatedSession
+                    && !newSessionView.DebugRequiresNewTcpConnection;
+                var newTcpRequiresNewTransport =
+                    !newTcpView.DebugIsDuplicatedSession
+                    && newTcpView.DebugRequiresNewTcpConnection
+                    && newTcpView.BastionSessionState == "new-tcp-forced";
+                var passed = after == before + 3
+                             && connectReusedTab
+                             && newSessionUsesDuplicatePolicy
+                             && newTcpRequiresNewTransport;
+                return (
+                    passed,
+                    before,
+                    after,
+                    connectReusedTab,
+                    newSessionUsesDuplicatePolicy,
+                    newTcpRequiresNewTransport,
+                    newTcpView.BastionSessionState);
+            });
+
+            return ToolText(
+                $"{(result.passed ? "PASS" : "FAIL")}: connection actions have distinct transport semantics.\n"
+                + $"tabsBefore={result.before}\n"
+                + $"tabsAfter={result.after}\n"
+                + $"connectReusedTab={result.connectReusedTab}\n"
+                + $"newSessionUsesDuplicatePolicy={result.newSessionUsesDuplicatePolicy}\n"
+                + $"newTcpRequiresNewTransport={result.newTcpRequiresNewTransport}\n"
+                + $"transportState={result.BastionSessionState}",
+                isError: !result.passed);
+        }
+        finally
+        {
+            if (tabs.Count > 0)
+            {
+                await OnUiAsync(() =>
+                {
+                    if (Desktop?.MainWindow is Views.MainWindow main)
+                    {
+                        for (var i = tabs.Count - 1; i >= 0; i--)
+                            main.CloseTerminalSession(tabs[i]);
+                    }
+                    return true;
+                });
+            }
+        }
     }
 
     private static async Task<JsonObject> TerminalOutputCoalescingCheckAsync()
