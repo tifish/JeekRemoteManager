@@ -1485,7 +1485,7 @@ public partial class TerminalView : UserControl
                             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
                             Margin = new Avalonia.Thickness(12, 8, 12, 12),
                             [DockPanel.DockProperty] = Dock.Bottom,
-                            Children = { deny, allow },
+                            Children = { allow, deny },
                         },
                         new ScrollViewer { Content = prompt },
                     },

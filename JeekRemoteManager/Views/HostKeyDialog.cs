@@ -96,7 +96,7 @@ public static class HostKeyDialog
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Right,
                         Spacing = 8,
-                        Children = { reject, trust },
+                        Children = { trust, reject },
                     },
                 },
             },

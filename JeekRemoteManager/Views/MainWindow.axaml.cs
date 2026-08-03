@@ -3108,7 +3108,7 @@ public partial class MainWindow : Window
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Right,
                         Spacing = 8,
-                        Children = { no, yes },
+                        Children = { yes, no },
                     },
                 },
             },
@@ -3270,7 +3270,7 @@ public partial class MainWindow : Window
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
             Spacing = 8,
-            Children = { cancel, save },
+            Children = { save, cancel },
         };
         Grid.SetRow(actions, 1);
         content.Children.Add(actions);
@@ -3485,7 +3485,7 @@ public partial class MainWindow : Window
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Right,
                         Spacing = 8,
-                        Children = { cancel, ok },
+                        Children = { ok, cancel },
                     },
                 },
             },
@@ -3712,7 +3712,7 @@ public partial class MainWindow : Window
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Right,
                         Spacing = 8,
-                        Children = { cancel, ok },
+                        Children = { ok, cancel },
                     },
                 },
             },
