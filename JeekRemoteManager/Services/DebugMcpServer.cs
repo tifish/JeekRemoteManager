@@ -131,6 +131,7 @@ internal static class DebugMcpServer
         host.AddTool("login_command_variable_check", _ => LoginCommandVariableCheckAsync());
         host.AddTool("bastion_login_template_check", _ => BastionLoginTemplateCheckAsync());
         host.AddTool("bastion_template_preset_check", _ => BastionTemplatePresetCheckAsync());
+        host.AddTool("conpty_teardown_race_check", _ => ConPtyTeardownRaceCheckAsync());
         host.AddTool("bastion_channel_limit_check", _ => BastionChannelLimitCheckAsync());
         host.AddTool("connection_editor_switch_check", _ => ConnectionEditorSwitchCheckAsync());
         host.AddTool("login_menu_select_probe", LoginMenuSelectProbeAsync);
@@ -3497,6 +3498,137 @@ internal static class DebugMcpServer
     {
         public bool IsDisposed { get; private set; }
         public void Dispose() => IsDisposed = true;
+    }
+
+    /// <summary>
+    /// Closing a WSL or agent-CLI tab disposes the ConPTY session while keystrokes and
+    /// layout-driven resizes are still in flight. Both used to check a plain flag outside
+    /// the write gate, so a Write could land on a closed FileStream and a Resize on an
+    /// already-closed HPCON. This drives that window directly on real sessions.
+    /// </summary>
+    private static async Task<JsonObject> ConPtyTeardownRaceCheckAsync()
+    {
+        const int rounds = 10;
+        const int writersPerRound = 6;
+        var writes = 0;
+        var resizes = 0;
+        var failures = new List<string>();
+
+        // A child that never drains stdin. Once the console input buffer fills, ConPTY
+        // stops reading our pipe and Write blocks inside the FileStream — which is the
+        // window Dispose has to respect. Small keystroke-sized payloads always drain and
+        // never reproduce it, so push 64 KiB at a time.
+        var payload = new byte[64 * 1024];
+        Array.Fill(payload, (byte)'x');
+
+        for (var round = 0; round < rounds; round++)
+        {
+            ConPtySession session;
+            try
+            {
+                session = ConPtySession.Start(
+                    Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe",
+                    ["/c", "ping -n 30 127.0.0.1 > nul"],
+                    80,
+                    25);
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"round {round}: could not start a pseudo console: {ex.Message}");
+                break;
+            }
+
+            var roundNumber = round;
+            using var stop = new CancellationTokenSource();
+            void Record(string what, Exception ex)
+            {
+                lock (failures)
+                    failures.Add($"round {roundNumber}: {what} threw {ex.GetType().Name}: {ex.Message}");
+            }
+
+            var workers = new List<Task>(writersPerRound + 1);
+            for (var writerIndex = 0; writerIndex < writersPerRound; writerIndex++)
+            {
+                workers.Add(Task.Run(() =>
+                {
+                    // Keystroke-sized writes first: they drain, so they prove the normal
+                    // path still works. The big ones then wedge and set up the race.
+                    var keystroke = "\r\n"u8.ToArray();
+                    for (var i = 0; i < 8 && !stop.IsCancellationRequested; i++)
+                    {
+                        try
+                        {
+                            session.Write(keystroke);
+                            Interlocked.Increment(ref writes);
+                        }
+                        catch (Exception ex)
+                        {
+                            Record("Write", ex);
+                            return;
+                        }
+                    }
+
+                    while (!stop.IsCancellationRequested)
+                    {
+                        try
+                        {
+                            session.Write(payload);
+                            Interlocked.Increment(ref writes);
+                        }
+                        catch (Exception ex)
+                        {
+                            Record("Write", ex);
+                            return;
+                        }
+                    }
+                }));
+            }
+            workers.Add(Task.Run(() =>
+            {
+                var columns = 80;
+                while (!stop.IsCancellationRequested)
+                {
+                    try
+                    {
+                        session.Resize(columns = columns == 80 ? 120 : 80, 25);
+                        Interlocked.Increment(ref resizes);
+                    }
+                    catch (Exception ex)
+                    {
+                        Record("Resize", ex);
+                        return;
+                    }
+                }
+            }));
+
+            // Let the writers wedge on a full pipe so Dispose lands mid-write.
+            await Task.Delay(120);
+            session.Dispose();
+            stop.Cancel();
+            await Task.WhenAll(workers);
+
+            // Post-dispose calls must be silent no-ops, not throws.
+            try
+            {
+                session.Write(payload);
+                session.Resize(100, 30);
+                session.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Record("post-dispose call", ex);
+            }
+        }
+
+        var passed = failures.Count == 0 && writes > 0 && resizes > 0;
+        var report =
+            $"{(passed ? "PASS" : "FAIL")}: ConPTY teardown races with concurrent Write/Resize\n"
+            + $"rounds={rounds}\n"
+            + $"writes={writes}\n"
+            + $"resizes={resizes}\n"
+            + $"failures={failures.Count}"
+            + (failures.Count == 0 ? "" : "\n" + string.Join("\n", failures.Take(10)));
+        return ToolText(report, isError: !passed);
     }
 
     private static async Task<JsonObject> BastionChannelLimitCheckAsync()

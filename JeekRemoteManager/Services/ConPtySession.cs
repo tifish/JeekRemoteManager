@@ -29,6 +29,10 @@ public sealed class ConPtySession : IDisposable
     private readonly SafeFileHandle _job;
     private readonly FileStream _writer;
     private readonly object _writeGate = new();
+    // Separate from _writeGate on purpose. ResizePseudoConsole and ClosePseudoConsole
+    // both return promptly, so serializing them is safe; a Write can block indefinitely
+    // on a full input pipe, so Dispose must never wait behind one.
+    private readonly object _consoleGate = new();
     private readonly RecentOutputBuffer _recentOutput = new(MaxRecentOutputBytes);
     private volatile bool _disposed;
     private int _exitRaised;
@@ -118,23 +122,47 @@ public sealed class ConPtySession : IDisposable
         }
     }
 
+    /// <summary>
+    /// Sends input to the child. Writes are serialized but not synchronized against
+    /// teardown: a write can wedge on a full input pipe when the child stops reading, so
+    /// making Dispose wait for one would hang closing the tab. Dispose closes the stream
+    /// underneath instead, and the resulting failure is swallowed — the caller is a
+    /// keystroke handler on the UI thread, and the session is already gone.
+    /// </summary>
     public void Write(byte[] data)
     {
         if (_disposed || data.Length == 0)
             return;
         lock (_writeGate)
         {
-            _writer.Write(data, 0, data.Length);
-            _writer.Flush();
+            if (_disposed)
+                return;
+            try
+            {
+                _writer.Write(data, 0, data.Length);
+                _writer.Flush();
+            }
+            catch (Exception ex) when (_disposed && ex is ObjectDisposedException or IOException)
+            {
+                // Torn down mid-write. A live session's pipe errors still propagate.
+            }
         }
     }
 
+    /// <summary>
+    /// Applies a new window size. Unlike <see cref="Write"/> this holds the console gate:
+    /// the HPCON is a raw handle, so resizing one that Dispose has already closed is a
+    /// native use-after-free that no catch block can contain.
+    /// </summary>
     public void Resize(int cols, int rows)
     {
-        if (_disposed)
-            return;
         var size = new Coord { X = (short)Math.Max(20, cols), Y = (short)Math.Max(5, rows) };
-        ResizePseudoConsole(_pseudoConsole, size);
+        lock (_consoleGate)
+        {
+            if (_disposed)
+                return;
+            ResizePseudoConsole(_pseudoConsole, size);
+        }
     }
 
     /// <summary>
@@ -235,16 +263,24 @@ public sealed class ConPtySession : IDisposable
 
     public void Dispose()
     {
-        if (_disposed)
-            return;
-        _disposed = true;
-        Interlocked.Exchange(ref _exitRaised, 1);
+        // Publishing _disposed and closing the HPCON under one lock is what makes a
+        // concurrent Resize safe: it either runs entirely before this, or sees the flag
+        // and does nothing. A blocked Write is never waited on — see Write.
+        lock (_consoleGate)
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+            Interlocked.Exchange(ref _exitRaised, 1);
 
-        // Kill the tree first so the child stops writing, then close the pseudo
-        // console. ClosePseudoConsole blocks until the output pipe is drained —
-        // the read thread keeps draining until it sees EOF, so this cannot hang.
-        try { TerminateJobObject(_job, 0); } catch { /* already dead */ }
-        try { ClosePseudoConsole(_pseudoConsole); } catch { /* ignore */ }
+            // Kill the tree first so the child stops writing, then close the pseudo
+            // console. ClosePseudoConsole blocks until the output pipe is drained —
+            // the read thread keeps draining until it sees EOF, so this cannot hang.
+            try { TerminateJobObject(_job, 0); } catch { /* already dead */ }
+            try { ClosePseudoConsole(_pseudoConsole); } catch { /* ignore */ }
+        }
+
+        // Unblocks a write wedged on the input pipe; that thread swallows the failure.
         try { _writer.Dispose(); } catch { /* ignore */ }
         _process.Dispose();
         _job.Dispose();
