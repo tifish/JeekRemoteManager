@@ -639,7 +639,9 @@ try
     Check(sshLaunchRejected, "ConnectionLauncher rejects SSH connections");
     Check(ConnectionType.Ssh.ToDisplayName() == "SSH" && ConnectionType.Rdp.ToDisplayName() == "RDP",
           "Connection types display as uppercase acronyms");
+    var missingKeyPath = Path.Combine(root, "missing-key");
     var missingPageantIgnored = false;
+    var missingKeyNamed = false;
     try
     {
         _ = SshConnectionFactory.Build(new Connection
@@ -647,18 +649,41 @@ try
             Type = ConnectionType.Ssh,
             Host = "example.com",
             Username = "root",
-            PrivateKeyPath = Path.Combine(root, "missing-key"),
+            PrivateKeyPath = missingKeyPath,
         });
         missingPageantIgnored = true;
     }
     catch (InvalidOperationException ex)
     {
-        missingPageantIgnored =
-            ex.Message.StartsWith("No usable credential", StringComparison.Ordinal)
-            && !ex.ToString().Contains("Pageant Window not found", StringComparison.Ordinal);
+        missingPageantIgnored = !ex.ToString().Contains("Pageant Window not found", StringComparison.Ordinal);
+        // A configured key file that is not there is named, rather than being folded
+        // into the generic message and leaving the user to guess.
+        missingKeyNamed = ex.Message.Contains(missingKeyPath, StringComparison.Ordinal);
     }
     Check(missingPageantIgnored,
           "Missing Pageant is ignored during SSH credential discovery");
+    Check(missingKeyNamed,
+          "A configured private key file that does not exist is named in the failure");
+
+    // With no key path configured at all the generic message is still the right one.
+    // This machine may have agent or default ~/.ssh keys, in which case Build succeeds
+    // and there is nothing to assert about the message.
+    var noCredentialReported = true;
+    try
+    {
+        _ = SshConnectionFactory.Build(new Connection
+        {
+            Type = ConnectionType.Ssh,
+            Host = "example.com",
+            Username = "root",
+        });
+    }
+    catch (InvalidOperationException ex)
+    {
+        noCredentialReported = ex.Message.StartsWith("No usable credential", StringComparison.Ordinal);
+    }
+    Check(noCredentialReported,
+          "A connection with no key path configured reports the generic credential message");
 
     // --- Login-command directives ---
     const string loginCommands = "first\r\n#input\nsecond\n#duplicate\nduplicate-first\n#DUPLICATE\nduplicate-second";
