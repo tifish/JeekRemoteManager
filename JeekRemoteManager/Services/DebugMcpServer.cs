@@ -3515,6 +3515,23 @@ internal static class DebugMcpServer
         capacity.MarkOpened();
         var fullAgainWithoutProbe = capacity.ActiveChannels == 3 && !capacity.HasCapacity;
 
+        // A timeout on a transport that never opened a channel must not be turned into a
+        // ceiling: that would leave HasCapacity false forever and retire a healthy link.
+        var coldTracker = new ShellChannelCapacityTracker();
+        var coldTimeoutRecordsNothing = coldTracker.TryRecordTimedOutLimit() is null
+                                        && coldTracker.KnownLimit is null
+                                        && coldTracker.HasCapacity;
+        coldTracker.MarkOpened();
+        coldTracker.MarkOpened();
+        var warmTimeoutRecordsLimit = coldTracker.TryRecordTimedOutLimit() == 2
+                                      && !coldTracker.HasCapacity;
+
+        // An outright refusal at zero open channels is the server's own answer, so the
+        // ceiling stands — and the pool has to retire the transport instead of holding it.
+        var refusedTracker = new ShellChannelCapacityTracker();
+        var refusedAtZero = refusedTracker.RecordObservedLimit() == 0
+                            && !refusedTracker.HasCapacity;
+
         var source = new TaskCompletionSource<LateChannelProbe>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var timedOut = false;
@@ -3559,6 +3576,9 @@ internal static class DebugMcpServer
                      && fullAtObservedLimit
                      && reusableAfterClose
                      && fullAgainWithoutProbe
+                     && coldTimeoutRecordsNothing
+                     && warmTimeoutRecordsLimit
+                     && refusedAtZero
                      && visibleWait
                      && boundedQueue
                      && visibleFull
@@ -3574,6 +3594,9 @@ internal static class DebugMcpServer
             + $"fullAtObservedLimit={fullAtObservedLimit}\n"
             + $"reusableAfterClose={reusableAfterClose}\n"
             + $"fullAgainWithoutProbe={fullAgainWithoutProbe}\n"
+            + $"coldTimeoutRecordsNothing={coldTimeoutRecordsNothing}\n"
+            + $"warmTimeoutRecordsLimit={warmTimeoutRecordsLimit}\n"
+            + $"refusedAtZero={refusedAtZero}\n"
             + $"visibleWait={visibleWait}\n"
             + $"boundedQueue={boundedQueue}\n"
             + $"visibleFull={visibleFull}\n"

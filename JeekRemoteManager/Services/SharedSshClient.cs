@@ -47,6 +47,10 @@ public sealed class SharedSshClient
 
     public bool HasShellChannelCapacity => _shellCapacity.HasCapacity;
 
+    /// <summary>True when the server refused this transport's very first shell channel,
+    /// so no future open can succeed either and pooling it only wastes a slot.</summary>
+    public bool IsShellChannelExhausted => _shellCapacity.KnownLimit is 0;
+
     public bool IsConnected
     {
         get
@@ -122,7 +126,17 @@ public sealed class SharedSshClient
             }
             catch (TimeoutException ex)
             {
-                var limit = _shellCapacity.RecordObservedLimit();
+                // A timeout is an inference, not an answer: it only means "no channels
+                // left" once this transport has actually opened some. With none open it
+                // is far more likely a slow or half-dead link, and recording a ceiling
+                // of zero would retire an otherwise healthy transport for good.
+                if (_shellCapacity.TryRecordTimedOutLimit() is not { } limit)
+                {
+                    throw new TimeoutException(
+                        $"SSH shell channel did not open within {ShellOpenTimeoutSeconds} seconds.",
+                        ex);
+                }
+
                 throw new SshChannelCapacityException(
                     limit,
                     limit,
@@ -249,15 +263,30 @@ internal sealed class ShellChannelCapacityTracker
             _activeChannels = Math.Max(0, _activeChannels - 1);
     }
 
+    /// <summary>Records a ceiling the server stated outright by refusing the channel.</summary>
     public int RecordObservedLimit()
     {
         lock (_gate)
-        {
-            _knownLimit = _knownLimit is { } current
-                ? Math.Min(current, _activeChannels)
-                : _activeChannels;
-            return _knownLimit.Value;
-        }
+            return RecordLimitLocked();
+    }
+
+    /// <summary>
+    /// Records a ceiling inferred from an open that never completed, or returns null when
+    /// no channel has ever opened on this transport — there is nothing to infer from, and
+    /// a zero ceiling would make <see cref="HasCapacity"/> false permanently.
+    /// </summary>
+    public int? TryRecordTimedOutLimit()
+    {
+        lock (_gate)
+            return _activeChannels == 0 ? null : RecordLimitLocked();
+    }
+
+    private int RecordLimitLocked()
+    {
+        _knownLimit = _knownLimit is { } current
+            ? Math.Min(current, _activeChannels)
+            : _activeChannels;
+        return _knownLimit.Value;
     }
 }
 

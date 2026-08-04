@@ -293,7 +293,9 @@ public sealed class BastionSessionPool : IDisposable
                 foreach (var entry in pair.Value.ToArray())
                 {
                     if (entry.ActiveLeases != 0
-                        || entry.Client.IsConnected && entry.LastUsedUtc >= cutoff)
+                        || entry.Client.IsConnected
+                        && !entry.Client.IsShellChannelExhausted
+                        && entry.LastUsedUtc >= cutoff)
                     {
                         continue;
                     }
