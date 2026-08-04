@@ -2417,7 +2417,7 @@ try
           && machineSettingsJson.Contains(nameof(MachineAppSettings.AiRunMode))
           && machineSettingsJson.Contains(nameof(MachineAppSettings.AiGrokRunMode))
           && machineSettingsJson.Contains(nameof(MachineAppSettings.AiHideSshTerminal))
-          && !machineSettingsJson.Contains("AiPanelOpen", StringComparison.Ordinal)
+          && machineSettingsJson.Contains(nameof(MachineAppSettings.AiPanelOpen))
           && !machineSettingsJson.Contains(nameof(RoamingAppSettings.Language))
           && !machineSettingsJson.Contains(nameof(RoamingAppSettings.Theme)),
           "Machine settings persist local paths, window layout, and machine-bound AI options");
@@ -2501,6 +2501,7 @@ try
     tempSettings.Settings.AiRunMode = AgentCliRunMode.Desktop;
     tempSettings.Settings.AiGrokRunMode = AgentCliRunMode.WindowsTerminal;
     tempSettings.Settings.AiHideSshTerminal = true;
+    tempSettings.Settings.AiPanelOpen = true;
     tempSettings.Settings.ConnectionPanelCollapsed = true;
     tempSettings.Settings.MainWindowMaximized = true;
     tempSettings.Settings.MainWindowX = 120;
@@ -2511,7 +2512,7 @@ try
     Check(savedMachineJson.Contains("\"AiRunMode\": \"Desktop\"")
           && savedMachineJson.Contains("\"AiGrokRunMode\": \"WindowsTerminal\"")
           && savedMachineJson.Contains("\"AiHideSshTerminal\": true")
-          && !savedMachineJson.Contains("AiPanelOpen", StringComparison.Ordinal)
+          && savedMachineJson.Contains("\"AiPanelOpen\": true")
           && savedMachineJson.Contains("\"ConnectionPanelCollapsed\": true")
           && savedMachineJson.Contains("\"MainWindowMaximized\": true")
           && savedMachineJson.Contains("\"MainWindowX\": 120")
@@ -2523,6 +2524,7 @@ try
           && reloadedAiSettings.Settings.AiRunMode == AgentCliRunMode.Desktop
           && reloadedAiSettings.Settings.AiGrokRunMode == AgentCliRunMode.WindowsTerminal
           && reloadedAiSettings.Settings.AiHideSshTerminal
+          && reloadedAiSettings.Settings.AiPanelOpen
           && reloadedAiSettings.Settings.ConnectionPanelCollapsed
           && reloadedAiSettings.Settings.MainWindowMaximized
           && reloadedAiSettings.Settings.MainWindowX == 120

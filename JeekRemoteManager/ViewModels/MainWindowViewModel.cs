@@ -567,6 +567,20 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Global remembered in-terminal AI panel open state: toggling it in any
+    /// SSH tab is recorded here, and new SSH sessions open the panel after login when true.</summary>
+    public bool AiPanelOpen
+    {
+        get => _settings.Settings.AiPanelOpen;
+        set
+        {
+            if (_settings.Settings.AiPanelOpen == value)
+                return;
+            _settings.Settings.AiPanelOpen = value;
+            _settings.SaveIfChanged();
+        }
+    }
+
     /// <summary>True when a terminal tab is the active right-pane tab. Drives the
     /// visibility of the terminal font-size toolbar buttons.</summary>
     [ObservableProperty]

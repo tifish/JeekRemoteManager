@@ -904,6 +904,10 @@ public partial class TerminalView : UserControl
             _aiViewModel = CreateAgentCliPanelViewModel();
 
         AiPanelHost.IsVisible = true;
+        // The AI panel open state is a global preference (not per-connection):
+        // remember the last toggle so new SSH tabs and restarts reopen it after login.
+        if (DataContext is MainWindowViewModel mainVm)
+            mainVm.AiPanelOpen = true;
         ApplyAiPanelLayout();
         PanelStateChanged?.Invoke(this, EventArgs.Empty);
 
@@ -931,6 +935,10 @@ public partial class TerminalView : UserControl
             PersistAiPanelWidth();
 
         AiPanelHost.IsVisible = false;
+        // Closing is also a preference change: new SSH sessions stay closed until
+        // the user opens the panel again.
+        if (DataContext is MainWindowViewModel mainVm)
+            mainVm.AiPanelOpen = false;
         _aiViewModel = null;
         AiPanel.DataContext = null;
         ApplyAiPanelLayout();
@@ -2577,6 +2585,9 @@ public partial class TerminalView : UserControl
 
         if (connection.AutoOpenMonitorPanel && !IsMonitorPanelOpen)
             ToggleMonitorPanel();
+        // The AI panel follows the global remembered state instead of a per-connection option.
+        if ((DataContext as MainWindowViewModel)?.AiPanelOpen == true && !IsAiPanelOpen)
+            ToggleAiPanel();
         if (connection.AutoOpenFileBrowserPanel && !IsFileBrowserPanelOpen)
             ToggleFileBrowserPanel();
     }
