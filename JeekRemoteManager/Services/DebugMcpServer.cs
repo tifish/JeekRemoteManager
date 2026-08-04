@@ -120,6 +120,7 @@ internal static class DebugMcpServer
         host.AddTool(
             "terminal_output_backpressure_check",
             _ => Task.FromResult(TerminalOutputBackpressureCheck()));
+        host.AddTool("zmodem_subpacket_limit_check", _ => ZmodemSubpacketLimitCheckAsync());
         host.AddTool("monitor_suspend_check", _ => MonitorSuspendCheckAsync());
         host.AddTool("terminal_font_sync_check", _ => TerminalFontSyncCheckAsync());
         host.AddTool("ai_panel_lifecycle_check", _ => AiPanelLifecycleCheckAsync());
@@ -268,6 +269,92 @@ internal static class DebugMcpServer
                 });
             }
         }
+    }
+
+    /// <summary>
+    /// A peer that never sends a frame terminator — a garbled link, or something that is
+    /// not lrzsz at all — used to make the subpacket reader accumulate until the process
+    /// died. Drives a real receive session against exactly that and checks it gives up.
+    /// </summary>
+    private static async Task<JsonObject> ZmodemSubpacketLimitCheckAsync()
+    {
+        // "*" "*" ZDLE "B" then the 5 header bytes and their CRC16, hex-encoded. Hex
+        // headers need no escaping, so this stays readable without reaching into the
+        // session's private encoder.
+        var header = new List<byte>
+        {
+            ZmodemConstants.ZPAD, ZmodemConstants.ZPAD, ZmodemConstants.ZDLE, ZmodemConstants.ZHEX,
+        };
+        byte[] headerBytes = [(byte)ZmodemHeaderType.ZFILE, 0, 0, 0, 0];
+        var crc = ZmodemCrc.Crc16(headerBytes);
+        foreach (var b in headerBytes.Concat([(byte)(crc >> 8), (byte)crc]))
+        {
+            const string digits = "0123456789abcdef";
+            header.Add((byte)digits[b >> 4]);
+            header.Add((byte)digits[b & 0x0f]);
+        }
+        header.Add(ZmodemConstants.CR);
+        header.Add(ZmodemConstants.LF_HIGH);
+
+        // Never send a terminator: after the header it is plain data forever.
+        var scripted = header.ToArray();
+        var offset = 0;
+        long consumed = 0;
+        var runawayGuard = ZmodemSession.MaxDataSubpacketBytes * 4L;
+        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+        ValueTask<byte> ReadByte(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            consumed++;
+            if (consumed > runawayGuard)
+                throw new InvalidOperationException("runaway");
+            return new ValueTask<byte>(offset < scripted.Length ? scripted[offset++] : (byte)'A');
+        }
+
+        long written = 0;
+        Task Write(byte[] bytes, CancellationToken _)
+        {
+            written += bytes.Length;
+            return Task.CompletedTask;
+        }
+
+        var destination = Path.Combine(
+            Path.GetTempPath(),
+            "JeekRemoteManager.ZmodemLimitProbe." + Guid.NewGuid().ToString("N"));
+        var session = new ZmodemSession(Write, ReadByte);
+        string outcome;
+        var bounded = false;
+        try
+        {
+            await session.ReceiveAsync(destination, stop.Token).ConfigureAwait(false);
+            outcome = "completed without error";
+        }
+        catch (InvalidDataException ex)
+        {
+            outcome = ex.Message;
+            bounded = true;
+        }
+        catch (Exception ex)
+        {
+            outcome = $"{ex.GetType().Name}: {ex.Message}";
+        }
+        finally
+        {
+            try { Directory.Delete(destination, recursive: true); } catch { /* best effort */ }
+        }
+
+        // Bounded means it stopped near the cap, not merely that it stopped eventually.
+        var stoppedNearCap = consumed <= runawayGuard;
+        var passed = bounded && stoppedNearCap;
+        var report =
+            $"{(passed ? "PASS" : "FAIL")}: ZMODEM subpacket reads are bounded\n"
+            + $"capBytes={ZmodemSession.MaxDataSubpacketBytes}\n"
+            + $"bytesConsumed={consumed}\n"
+            + $"bytesWritten={written}\n"
+            + $"stoppedNearCap={stoppedNearCap}\n"
+            + $"outcome={outcome}";
+        return ToolText(report, isError: !passed);
     }
 
     /// <summary>

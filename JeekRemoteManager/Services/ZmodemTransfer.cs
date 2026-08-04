@@ -233,6 +233,15 @@ public sealed class ZmodemSession
 
     private static readonly TimeSpan HeaderTimeout = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// Ceiling on one data subpacket. The protocol tops out at 1024 bytes, and the
+    /// common senders negotiate 8192; anything beyond that means the frame terminator
+    /// was lost or the peer is not speaking ZMODEM at all. Without a bound the reader
+    /// accumulates whatever arrives until the process runs out of memory, so cap it
+    /// generously and fail the frame instead.
+    /// </summary>
+    public const int MaxDataSubpacketBytes = 64 * 1024;
+
     public ZmodemSession(
         Func<byte[], CancellationToken, Task> writeAsync,
         Func<CancellationToken, ValueTask<byte>> readByteAsync,
@@ -698,6 +707,13 @@ public sealed class ZmodemSession
             {
                 end = item.FrameEnd.Value;
                 break;
+            }
+
+            if (data.Count >= MaxDataSubpacketBytes)
+            {
+                Trace($"RX data subpacket exceeded {MaxDataSubpacketBytes} bytes without a frame end");
+                throw new InvalidDataException(
+                    $"ZMODEM data subpacket exceeded {MaxDataSubpacketBytes} bytes without a frame terminator.");
             }
 
             data.Add(item.Byte!.Value);
