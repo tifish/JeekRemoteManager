@@ -5,9 +5,12 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using JeekRemoteManager.Models;
+using JeekTools;
+using Microsoft.Extensions.Logging;
 using Renci.SshNet;
 using Renci.SshNet.Common;
 using SshNet.Agent;
+using ZLogger;
 
 namespace JeekRemoteManager.Services;
 
@@ -19,6 +22,8 @@ namespace JeekRemoteManager.Services;
 /// </summary>
 public static class SshConnectionFactory
 {
+    private static readonly ILogger Log = LogManager.CreateLogger(nameof(SshConnectionFactory));
+
     // Default key file names tried under ~/.ssh, in preference order, when a
     // connection has neither a password nor an explicit key path — mirrors the
     // OpenSSH client's default lookup convention.
@@ -45,15 +50,31 @@ public static class SshConnectionFactory
 
         var methods = new List<AuthenticationMethod>();
         var hasExplicitKey = !string.IsNullOrWhiteSpace(connection.PrivateKeyPath);
-        var explicitKeyMissing = hasExplicitKey && !File.Exists(connection.PrivateKeyPath);
+        var explicitKeyProblem = DescribeUnusableExplicitKey(connection);
 
         // 1. Explicit private key (with optional passphrase).
-        if (hasExplicitKey && !explicitKeyMissing)
+        if (hasExplicitKey && explicitKeyProblem is null)
         {
             var keyFile = TryLoadKey(connection.PrivateKeyPath, passphrase);
-            if (keyFile is not null)
+            if (keyFile is null)
+            {
+                // Present but unreadable: wrong passphrase, or a format SSH.NET cannot
+                // parse. Same class of configuration mistake as a missing file.
+                explicitKeyProblem =
+                    $"Private key file could not be loaded: {connection.PrivateKeyPath}";
+            }
+            else
+            {
                 methods.Add(new PrivateKeyAuthenticationMethod(user, keyFile));
+            }
         }
+
+        // Report it even when another method will carry the connection. Falling back to
+        // a password or an agent key without a word means a broken key path stays hidden
+        // until the day it is the only credential left, and then it fails at connect time
+        // with no history of having ever been wrong.
+        if (explicitKeyProblem is not null)
+            Log.ZLogWarning($"{explicitKeyProblem} (connection '{connection.Name}')");
 
         if (!string.IsNullOrEmpty(password))
         {
@@ -89,13 +110,26 @@ public static class SshConnectionFactory
         if (methods.Count == 0)
         {
             throw new InvalidOperationException(
-                explicitKeyMissing
-                    ? $"Private key file not found: {connection.PrivateKeyPath}"
-                    : "No usable credential: set a password or private key, "
-                      + "or load a key into ssh-agent / Pageant.");
+                explicitKeyProblem
+                ?? "No usable credential: set a password or private key, "
+                   + "or load a key into ssh-agent / Pageant.");
         }
 
         return new ConnectionInfo(host, port, user, methods.ToArray());
+    }
+
+    /// <summary>
+    /// Describes a configured private key that cannot be used, or null when the
+    /// connection has no explicit key path or the file is there. Path-only, so it is
+    /// deterministic and safe to call without the master password unlocked.
+    /// </summary>
+    public static string? DescribeUnusableExplicitKey(Connection connection)
+    {
+        var path = connection.PrivateKeyPath;
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+
+        return File.Exists(path) ? null : $"Private key file not found: {path}";
     }
 
     /// <summary>Per-authentication state: keyboard-interactive is a multi-round

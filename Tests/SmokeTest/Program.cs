@@ -640,30 +640,36 @@ try
     Check(ConnectionType.Ssh.ToDisplayName() == "SSH" && ConnectionType.Rdp.ToDisplayName() == "RDP",
           "Connection types display as uppercase acronyms");
     var missingKeyPath = Path.Combine(root, "missing-key");
-    var missingPageantIgnored = false;
-    var missingKeyNamed = false;
+    var missingKeyConnection = new Connection
+    {
+        Type = ConnectionType.Ssh,
+        Host = "example.com",
+        Username = "root",
+        PrivateKeyPath = missingKeyPath,
+    };
+
+    // Assert on the diagnostic itself, not on Build throwing: whether Build throws for
+    // this connection depends on whether the machine running the test happens to have
+    // ssh-agent identities or ~/.ssh keys, and the point here is that a configured key
+    // file that is not there is always named — including when another method succeeds.
+    Check(SshConnectionFactory.DescribeUnusableExplicitKey(missingKeyConnection)
+              ?.Contains(missingKeyPath, StringComparison.Ordinal) == true,
+          "A configured private key file that does not exist is always named");
+    Check(SshConnectionFactory.DescribeUnusableExplicitKey(
+              new Connection { Type = ConnectionType.Ssh, Host = "example.com", Username = "root" }) is null,
+          "A connection with no key path configured reports no key problem");
+
+    var missingPageantIgnored = true;
     try
     {
-        _ = SshConnectionFactory.Build(new Connection
-        {
-            Type = ConnectionType.Ssh,
-            Host = "example.com",
-            Username = "root",
-            PrivateKeyPath = missingKeyPath,
-        });
-        missingPageantIgnored = true;
+        _ = SshConnectionFactory.Build(missingKeyConnection);
     }
     catch (InvalidOperationException ex)
     {
         missingPageantIgnored = !ex.ToString().Contains("Pageant Window not found", StringComparison.Ordinal);
-        // A configured key file that is not there is named, rather than being folded
-        // into the generic message and leaving the user to guess.
-        missingKeyNamed = ex.Message.Contains(missingKeyPath, StringComparison.Ordinal);
     }
     Check(missingPageantIgnored,
           "Missing Pageant is ignored during SSH credential discovery");
-    Check(missingKeyNamed,
-          "A configured private key file that does not exist is named in the failure");
 
     // With no key path configured at all the generic message is still the right one.
     // This machine may have agent or default ~/.ssh keys, in which case Build succeeds

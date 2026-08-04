@@ -989,30 +989,44 @@ internal static class DebugMcpServer
             (string?)null);
 
         // A configured key path that does not exist must be named, not swallowed into a
-        // generic "no usable credential" that sends the user hunting.
+        // generic "no usable credential" that sends the user hunting — and it must be
+        // named even when the connection also has a password, which would otherwise carry
+        // the login and leave the broken path unmentioned until it is the last credential.
         var missingKeyPath = Path.Combine(Path.GetTempPath(), "JeekRemoteManager.NoSuchKey.pem");
-        var namesMissingKey = false;
-        var missingKeyMessage = "";
+        Connection KeyProbe(string? encryptedPassword = null) => new()
+        {
+            Type = ConnectionType.Ssh,
+            Host = "example.invalid",
+            Port = 22,
+            Username = "probe",
+            PrivateKeyPath = missingKeyPath,
+            EncryptedPassword = encryptedPassword ?? "",
+        };
+
+        // Drive the real Build path too, so the warning it logs is exercised rather than
+        // only the helper the assertions read. It may or may not throw here depending on
+        // whether this machine has agent or ~/.ssh keys; either outcome is fine.
         try
         {
-            SshConnectionFactory.Build(new Connection
-            {
-                Type = ConnectionType.Ssh,
-                Host = "example.invalid",
-                Port = 22,
-                Username = "probe",
-                PrivateKeyPath = missingKeyPath,
-            });
-            missingKeyMessage = "Build succeeded with a missing key file";
+            SshConnectionFactory.Build(KeyProbe());
         }
-        catch (Exception ex)
+        catch (InvalidOperationException)
         {
-            missingKeyMessage = ex.Message;
-            namesMissingKey = ex.Message.Contains(missingKeyPath, StringComparison.OrdinalIgnoreCase);
         }
 
+        var missingKeyMessage =
+            SshConnectionFactory.DescribeUnusableExplicitKey(KeyProbe()) ?? "(no problem reported)";
+        var namesMissingKey =
+            missingKeyMessage.Contains(missingKeyPath, StringComparison.OrdinalIgnoreCase);
         if (!namesMissingKey)
             failures.Add($"missing key file: {missingKeyMessage}");
+
+        // Reported independently of whether any other method would succeed.
+        if (SshConnectionFactory.DescribeUnusableExplicitKey(KeyProbe("not-a-real-blob")) is null)
+            failures.Add("missing key file is not reported when the connection has a password");
+        if (SshConnectionFactory.DescribeUnusableExplicitKey(
+                new Connection { Type = ConnectionType.Ssh, Host = "h", Username = "u" }) is not null)
+            failures.Add("a connection without a key path reported a key problem");
 
         var passed = failures.Count == 0;
         var report =
