@@ -24,6 +24,7 @@ using JeekRemoteManager.ViewModels;
 using JeekTools;
 using JeekRemoteManager.Views;
 using Microsoft.Extensions.Logging;
+using Renci.SshNet.Common;
 using ZLogger;
 
 namespace JeekRemoteManager.Services;
@@ -121,6 +122,7 @@ internal static class DebugMcpServer
             "terminal_output_backpressure_check",
             _ => Task.FromResult(TerminalOutputBackpressureCheck()));
         host.AddTool("zmodem_subpacket_limit_check", _ => ZmodemSubpacketLimitCheckAsync());
+        host.AddTool("ssh_auth_prompt_check", _ => Task.FromResult(SshAuthPromptCheck()));
         host.AddTool("monitor_suspend_check", _ => MonitorSuspendCheckAsync());
         host.AddTool("terminal_font_sync_check", _ => TerminalFontSyncCheckAsync());
         host.AddTool("ai_panel_lifecycle_check", _ => AiPanelLifecycleCheckAsync());
@@ -269,6 +271,94 @@ internal static class DebugMcpServer
                 });
             }
         }
+    }
+
+    /// <summary>
+    /// Password auth on most sshd setups arrives as keyboard-interactive, and the prompt
+    /// text is whatever PAM prints in the server's locale. Matching only the English word
+    /// left non-English servers failing to authenticate with a correct stored password.
+    /// </summary>
+    private static JsonObject SshAuthPromptCheck()
+    {
+        const string secret = "s3cret";
+        var failures = new List<string>();
+
+        static AuthenticationPromptEventArgs Challenge(params (string Request, bool Echoed)[] prompts) =>
+            new(
+                username: "probe",
+                instruction: "",
+                language: "en-US",
+                prompts
+                    .Select((prompt, index) =>
+                        new AuthenticationPrompt(index, prompt.Echoed, prompt.Request))
+                    .ToList());
+
+        void Expect(string name, AuthenticationPromptEventArgs challenge, params string?[] expected)
+        {
+            SshConnectionFactory.AnswerPasswordPrompts(challenge, secret);
+            var actual = challenge.Prompts.Select(prompt => prompt.Response).ToArray();
+            if (actual.Length != expected.Length
+                || actual.Where((response, i) => response != expected[i]).Any())
+            {
+                failures.Add(
+                    $"{name}: expected [{string.Join(", ", expected.Select(v => v ?? "<null>"))}] "
+                    + $"but got [{string.Join(", ", actual.Select(v => v ?? "<null>"))}]");
+            }
+        }
+
+        Expect("english", Challenge(("Password: ", false)), secret);
+        Expect("chinese", Challenge(("密码：", false)), secret);
+        Expect("german", Challenge(("Passwort: ", false)), secret);
+        Expect("russian", Challenge(("Пароль: ", false)), secret);
+        // No keyword at all, but a single hidden prompt is a password challenge.
+        Expect("unlabelled single hidden prompt", Challenge(("(current) UNIX: ", false)), secret);
+        // Echoed prompts ask for a user name or an OTP; answering leaks the password.
+        Expect("echoed prompt is never answered", Challenge(("Username: ", true)), (string?)null);
+        Expect(
+            "two-factor keeps the token prompt empty",
+            Challenge(("Password: ", false), ("Verification code: ", false)),
+            secret,
+            null);
+        Expect(
+            "echoed banner alongside a password prompt",
+            Challenge(("Last login banner", true), ("密码：", false)),
+            null,
+            secret);
+
+        // A configured key path that does not exist must be named, not swallowed into a
+        // generic "no usable credential" that sends the user hunting.
+        var missingKeyPath = Path.Combine(Path.GetTempPath(), "JeekRemoteManager.NoSuchKey.pem");
+        var namesMissingKey = false;
+        var missingKeyMessage = "";
+        try
+        {
+            SshConnectionFactory.Build(new Connection
+            {
+                Type = ConnectionType.Ssh,
+                Host = "example.invalid",
+                Port = 22,
+                Username = "probe",
+                PrivateKeyPath = missingKeyPath,
+            });
+            missingKeyMessage = "Build succeeded with a missing key file";
+        }
+        catch (Exception ex)
+        {
+            missingKeyMessage = ex.Message;
+            namesMissingKey = ex.Message.Contains(missingKeyPath, StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (!namesMissingKey)
+            failures.Add($"missing key file: {missingKeyMessage}");
+
+        var passed = failures.Count == 0;
+        var report =
+            $"{(passed ? "PASS" : "FAIL")}: SSH keyboard-interactive and key-path diagnostics\n"
+            + $"namesMissingKey={namesMissingKey}\n"
+            + $"missingKeyMessage={missingKeyMessage}\n"
+            + $"failures={failures.Count}"
+            + (passed ? "" : "\n" + string.Join("\n", failures));
+        return ToolText(report, isError: !passed);
     }
 
     /// <summary>

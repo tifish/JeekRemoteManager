@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using JeekRemoteManager.Models;
 using Renci.SshNet;
+using Renci.SshNet.Common;
 using SshNet.Agent;
 
 namespace JeekRemoteManager.Services;
@@ -43,9 +45,10 @@ public static class SshConnectionFactory
 
         var methods = new List<AuthenticationMethod>();
         var hasExplicitKey = !string.IsNullOrWhiteSpace(connection.PrivateKeyPath);
+        var explicitKeyMissing = hasExplicitKey && !File.Exists(connection.PrivateKeyPath);
 
         // 1. Explicit private key (with optional passphrase).
-        if (hasExplicitKey && File.Exists(connection.PrivateKeyPath))
+        if (hasExplicitKey && !explicitKeyMissing)
         {
             var keyFile = TryLoadKey(connection.PrivateKeyPath, passphrase);
             if (keyFile is not null)
@@ -59,14 +62,7 @@ public static class SshConnectionFactory
             methods.Add(new PasswordAuthenticationMethod(user, password));
 
             var keyboard = new KeyboardInteractiveAuthenticationMethod(user);
-            keyboard.AuthenticationPrompt += (_, e) =>
-            {
-                foreach (var prompt in e.Prompts)
-                {
-                    if (prompt.Request.IndexOf("password", StringComparison.OrdinalIgnoreCase) >= 0)
-                        prompt.Response = password;
-                }
-            };
+            keyboard.AuthenticationPrompt += (_, e) => AnswerPasswordPrompts(e, password);
             methods.Add(keyboard);
         }
         else
@@ -88,11 +84,63 @@ public static class SshConnectionFactory
         }
 
         if (methods.Count == 0)
+        {
             throw new InvalidOperationException(
-                "No usable credential: set a password or private key, or load a key into ssh-agent / Pageant.");
+                explicitKeyMissing
+                    ? $"Private key file not found: {connection.PrivateKeyPath}"
+                    : "No usable credential: set a password or private key, "
+                      + "or load a key into ssh-agent / Pageant.");
+        }
 
         return new ConnectionInfo(host, port, user, methods.ToArray());
     }
+
+    /// <summary>
+    /// Fills in keyboard-interactive prompts. Matching the English word "password" is
+    /// only a heuristic: a server running under a non-English locale asks for "密码" or
+    /// "Passwort", and the request text is whatever PAM was configured to print. So the
+    /// keyword is treated as a strong hint, and an unmatched single hidden prompt — which
+    /// is what a plain password challenge looks like on the wire — is answered too.
+    /// Echoed prompts are never answered: those ask for a username or a one-time code,
+    /// and sending the password there would leak it into the server's logs.
+    /// </summary>
+    internal static void AnswerPasswordPrompts(AuthenticationPromptEventArgs e, string password)
+    {
+        var prompts = e.Prompts.ToArray();
+        var answered = false;
+        foreach (var prompt in prompts)
+        {
+            if (prompt.IsEchoed || !LooksLikePasswordPrompt(prompt.Request))
+                continue;
+            prompt.Response = password;
+            answered = true;
+        }
+
+        if (answered)
+            return;
+
+        var hidden = prompts.Where(prompt => !prompt.IsEchoed).ToArray();
+        if (hidden.Length == 1)
+            hidden[0].Response = password;
+    }
+
+    private static readonly string[] PasswordPromptKeywords =
+    [
+        "password",   // English, and the default PAM prompt regardless of locale
+        "passwort",   // German
+        "mot de passe", // French
+        "contraseña", // Spanish
+        "senha",      // Portuguese
+        "пароль",     // Russian
+        "密码",        // Simplified Chinese
+        "密碼",        // Traditional Chinese
+        "パスワード",    // Japanese
+        "비밀번호",      // Korean
+    ];
+
+    private static bool LooksLikePasswordPrompt(string request) =>
+        PasswordPromptKeywords.Any(keyword =>
+            request.Contains(keyword, StringComparison.OrdinalIgnoreCase));
 
     private static PrivateKeyFile? TryLoadKey(string path, string? passphrase)
     {
