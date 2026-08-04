@@ -128,6 +128,7 @@ internal static class DebugMcpServer
         host.AddTool("ssh_auth_prompt_check", _ => Task.FromResult(SshAuthPromptCheck()));
         host.AddTool("sftp_retry_policy_check", _ => SftpRetryPolicyCheckAsync());
         host.AddTool("connection_write_watcher_check", _ => ConnectionWriteWatcherCheckAsync());
+        host.AddTool("connection_tree_reload_order_check", _ => ConnectionTreeReloadOrderCheckAsync());
         host.AddTool("connection_tree_load_check", _ => ConnectionTreeLoadCheckAsync());
         host.AddTool("monitor_suspend_check", _ => MonitorSuspendCheckAsync());
         host.AddTool("terminal_font_sync_check", _ => TerminalFontSyncCheckAsync());
@@ -518,6 +519,110 @@ internal static class DebugMcpServer
         finally
         {
             try { Directory.Delete(root, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>
+    /// The file watcher starts background reloads fire-and-forget, and on a network or
+    /// file-synced folder they finish in unpredictable order. Whichever read *started*
+    /// last saw the newest state, so any other one must be discarded — otherwise a slow
+    /// earlier read lands afterwards and puts back nodes that were deleted or renamed.
+    /// Drives exactly that interleaving with a read whose duration the probe controls.
+    /// </summary>
+    private static async Task<JsonObject> ConnectionTreeReloadOrderCheckAsync()
+    {
+        var vm = await OnUiAsync(() =>
+            Desktop?.MainWindow?.DataContext as ViewModels.MainWindowViewModel);
+        if (vm is null)
+            return ToolText("FAIL: MainWindowViewModel is not available.", isError: true);
+
+        var root = vm.RootPath;
+        static ConnectionFolderSnapshot Snapshot(string root, params string[] names) =>
+            new(
+                root,
+                [],
+                names
+                    .Select(name => new ConnectionFileSnapshot(
+                        Path.Combine(root, name + ConnectionStore.FileExtension),
+                        new Connection
+                        {
+                            Type = ConnectionType.Ssh,
+                            Name = name,
+                            Host = "probe.invalid",
+                            Port = 22,
+                            Username = "probe",
+                        }))
+                    .ToArray());
+
+        // The slow read is the OLDER one: it starts first and finishes last, which is
+        // precisely the case that used to win and resurrect the removed connection.
+        const string removed = "_probe_removed_by_newer_read";
+        const string kept = "_probe_only_in_newer_read";
+
+        var failures = new List<string>();
+        var discardedBefore = vm.StaleTreeReloadsDiscardedForDebug;
+        Task? slow = null;
+        Task? fast = null;
+        try
+        {
+            await OnUiAsync(() =>
+            {
+                vm.TreeReadOverrideForDebug = () =>
+                {
+                    Thread.Sleep(1500);
+                    return Snapshot(root, removed);
+                };
+                slow = vm.DebugReloadTreeInBackgroundAsync();
+                return true;
+            });
+
+            // Start the newer read a moment later, and let it return immediately.
+            await Task.Delay(200);
+            await OnUiAsync(() =>
+            {
+                vm.TreeReadOverrideForDebug = () => Snapshot(root, kept);
+                fast = vm.DebugReloadTreeInBackgroundAsync();
+                return true;
+            });
+
+            if (fast is not null)
+                await fast;
+            var afterNewerRead = await OnUiAsync(() => vm.Nodes.Select(node => node.Name).ToArray());
+
+            if (slow is not null)
+                await slow;
+            // Give the discarded continuation a turn before sampling the tree again.
+            await Task.Delay(200);
+            var afterOlderRead = await OnUiAsync(() => vm.Nodes.Select(node => node.Name).ToArray());
+
+            if (!afterNewerRead.Contains(kept))
+                failures.Add($"newer read did not apply: [{string.Join(", ", afterNewerRead)}]");
+            if (!afterOlderRead.Contains(kept))
+                failures.Add($"newer read was overwritten: [{string.Join(", ", afterOlderRead)}]");
+            if (afterOlderRead.Contains(removed))
+                failures.Add($"stale read resurrected a removed node: [{string.Join(", ", afterOlderRead)}]");
+            if (vm.StaleTreeReloadsDiscardedForDebug == discardedBefore)
+                failures.Add("the stale read was applied instead of discarded");
+
+            var passed = failures.Count == 0;
+            var report =
+                $"{(passed ? "PASS" : "FAIL")}: an older tree read cannot overwrite a newer one\n"
+                + $"afterNewerRead=[{string.Join(", ", afterNewerRead)}]\n"
+                + $"afterOlderRead=[{string.Join(", ", afterOlderRead)}]\n"
+                + $"staleReadsDiscarded={vm.StaleTreeReloadsDiscardedForDebug - discardedBefore}\n"
+                + $"failures={failures.Count}"
+                + (passed ? "" : "\n" + string.Join("\n", failures));
+            return ToolText(report, isError: !passed);
+        }
+        finally
+        {
+            // Always hand the real store back and rebuild from disk.
+            await OnUiAsync(() =>
+            {
+                vm.TreeReadOverrideForDebug = null;
+                vm.ReloadTreeFromDisk();
+                return true;
+            });
         }
     }
 

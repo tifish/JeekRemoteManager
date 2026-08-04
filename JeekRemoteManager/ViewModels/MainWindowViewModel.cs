@@ -1029,6 +1029,30 @@ public partial class MainWindowViewModel : ViewModelBase
     internal long TreeReloadCountForDebug { get; private set; }
 
     /// <summary>
+    /// Ticket handed out when a reload starts. Background reads are started
+    /// fire-and-forget by the file watcher and take wildly different times on a network
+    /// or file-synced folder, so a read applies its snapshot only while it is still the
+    /// most recently *started* one. Ordering by start rather than by completion is what
+    /// matters: whichever read began last saw the newest state on disk, and letting any
+    /// other one win puts deleted or renamed nodes back until the next refresh.
+    ///
+    /// Only ever touched on the UI thread — every reload starts there, and the ticket is
+    /// taken before the first await.
+    /// </summary>
+    private long _treeReloadRequestId;
+
+    /// <summary>Background reads whose snapshot was dropped because a newer reload had
+    /// started. Exposed so the Debug MCP can prove the ordering guard actually fires.</summary>
+    internal long StaleTreeReloadsDiscardedForDebug { get; private set; }
+
+    /// <summary>Debug MCP only: stands in for the off-thread tree read, so a probe can
+    /// control how long each read takes and therefore what order they finish in.</summary>
+    internal Func<ConnectionFolderSnapshot>? TreeReadOverrideForDebug { get; set; }
+
+    /// <summary>Debug MCP only: starts a background reload exactly as the file watcher does.</summary>
+    internal Task DebugReloadTreeInBackgroundAsync() => ReloadTreeAsync(requestFocus: false);
+
+    /// <summary>
     /// Reads the tree off the UI thread, then rebuilds the nodes on it. Used wherever the
     /// reload is not the direct result of a user action — startup and file-watcher
     /// changes — because reading every connection inline freezes the window, and the
@@ -1036,16 +1060,27 @@ public partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private async Task ReloadTreeAsync(string? pathToSelect = null, bool requestFocus = true)
     {
+        var requestId = ++_treeReloadRequestId;
+        var read = TreeReadOverrideForDebug ?? _store.ReadTree;
         ConnectionFolderSnapshot snapshot;
         try
         {
-            snapshot = await Task.Run(_store.ReadTree).ConfigureAwait(true);
+            snapshot = await Task.Run(read).ConfigureAwait(true);
         }
         catch
         {
             // The root went away mid-read (storage location change, unmounted share).
             // The synchronous path handles a missing root by producing an empty tree.
-            ReloadTree(pathToSelect, requestFocus);
+            if (requestId == _treeReloadRequestId)
+                ReloadTree(pathToSelect, requestFocus);
+            else
+                StaleTreeReloadsDiscardedForDebug++;
+            return;
+        }
+
+        if (requestId != _treeReloadRequestId)
+        {
+            StaleTreeReloadsDiscardedForDebug++;
             return;
         }
 
@@ -1058,6 +1093,9 @@ public partial class MainWindowViewModel : ViewModelBase
         ConnectionFolderSnapshot? snapshot = null)
     {
         TreeReloadCountForDebug++;
+        // Supersede any background read still in flight: this one reads now, so its
+        // view of the folder is at least as new as anything already running.
+        _treeReloadRequestId++;
         snapshot ??= _store.ReadTree();
         // Folder expand/collapse state is persisted in AppSettings.CollapsedFolderPaths
         // and applied as each folder node is built, so it survives both in-session
