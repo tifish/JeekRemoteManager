@@ -33,7 +33,12 @@ public sealed class WslFileSession : IFileSystemSession
 
     public bool SupportsPermissions => false;
 
-    public async Task<T> RunAsync<T>(Func<IFileSystemOps, T> operation, CancellationToken cancellationToken = default)
+    /// <summary>The UNC share has no connection to drop, so <paramref name="retry"/>
+    /// carries no meaning here — nothing is ever replayed.</summary>
+    public async Task<T> RunAsync<T>(
+        Func<IFileSystemOps, T> operation,
+        FileSystemRetry retry = FileSystemRetry.Once,
+        CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 

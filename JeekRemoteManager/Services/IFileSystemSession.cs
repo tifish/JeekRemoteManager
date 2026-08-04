@@ -48,6 +48,22 @@ public interface IFileSystemOps
 }
 
 /// <summary>
+/// Whether an operation may be replayed after the session reconnects. Only the caller
+/// knows: a listing or a transfer that reopens its streams can simply run again, but a
+/// delete or a rename that already took effect server-side — with the transport dying
+/// before the reply arrived — comes back as "no such file" on the second attempt and
+/// reports a failure for work that actually succeeded.
+/// </summary>
+public enum FileSystemRetry
+{
+    /// <summary>Run at most once. The safe default for anything that mutates.</summary>
+    Once,
+
+    /// <summary>Safe to run a second time on a fresh connection.</summary>
+    Idempotent,
+}
+
+/// <summary>
 /// One lazily-connected file-system session with all operations serialized
 /// through a single queue (see <see cref="SftpSession"/> for why).
 /// </summary>
@@ -60,5 +76,8 @@ public interface IFileSystemSession : IDisposable
     /// (WSL over UNC) — the browser hides the permissions column and chmod command.</summary>
     bool SupportsPermissions { get; }
 
-    Task<T> RunAsync<T>(Func<IFileSystemOps, T> operation, CancellationToken cancellationToken = default);
+    Task<T> RunAsync<T>(
+        Func<IFileSystemOps, T> operation,
+        FileSystemRetry retry = FileSystemRetry.Once,
+        CancellationToken cancellationToken = default);
 }

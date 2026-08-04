@@ -128,6 +128,11 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     private const int ListingCacheCapacity = 256;
     internal TimeSpan HiddenSessionIdleTimeoutForDebug { get; set; } = TimeSpan.FromMinutes(1);
 
+    /// <summary>Runs a mutation through the same path the delete/rename/chmod commands
+    /// use, so the Debug MCP can verify the retry policy those operations get.</summary>
+    internal Task DebugRunBrowseOperationAsync(Action<IFileSystemOps> operation) =>
+        RunBrowseOperationAsync(operation);
+
     public FileBrowserViewModel(
         Func<IFileSystemSession> createSession,
         Action<string> openDirectoryInTerminal,
@@ -337,11 +342,14 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         try
         {
             var session = _browseSession ??= _createSession();
-            var (target, entries) = await RunSessionAsync(session, ops =>
-            {
-                var dir = path ?? session.HomePath ?? ops.WorkingDirectory;
-                return (dir, ListEntries(ops, dir));
-            });
+            var (target, entries) = await RunSessionAsync(
+                session,
+                ops =>
+                {
+                    var dir = path ?? session.HomePath ?? ops.WorkingDirectory;
+                    return (dir, ListEntries(ops, dir));
+                },
+                FileSystemRetry.Idempotent);
 
             if (_disposed)
                 return false;
@@ -442,7 +450,10 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         try
         {
             var session = _browseSession ??= _createSession();
-            var entries = await RunSessionAsync(session, ops => ListEntries(ops, path));
+            var entries = await RunSessionAsync(
+                session,
+                ops => ListEntries(ops, path),
+                FileSystemRetry.Idempotent);
             if (_disposed)
                 return;
 
@@ -810,12 +821,15 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
             try
             {
                 var session = _transferSession ??= _createSession();
-                var files = await RunSessionAsync(session, ops =>
-                {
-                    var found = new List<(string Remote, string Relative, long Length)>();
-                    CollectFilesRecursive(ops, remoteRoot, "", found);
-                    return found;
-                });
+                var files = await RunSessionAsync(
+                    session,
+                    ops =>
+                    {
+                        var found = new List<(string Remote, string Relative, long Length)>();
+                        CollectFilesRecursive(ops, remoteRoot, "", found);
+                        return found;
+                    },
+                    FileSystemRetry.Idempotent);
 
                 foreach (var (remote, relative, length) in files)
                 {
@@ -978,11 +992,17 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
             }
 
             var session = _transferSession ??= _createSession();
-            await RunSessionAsync(session, ops =>
-            {
-                ExecuteTransfer(ops, item);
-                return true;
-            }, item.Cancellation.Token);
+            // Replayable: ExecuteTransfer reopens the local file and re-uploads from the
+            // start, so a retry produces the same result rather than a truncated file.
+            await RunSessionAsync(
+                session,
+                ops =>
+                {
+                    ExecuteTransfer(ops, item);
+                    return true;
+                },
+                FileSystemRetry.Idempotent,
+                item.Cancellation.Token);
 
             SetTransferState(item, L("TransferCompleted"), finished: true, progress: 100);
 
@@ -1023,12 +1043,13 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     private async Task<T> RunSessionAsync<T>(
         IFileSystemSession session,
         Func<IFileSystemOps, T> operation,
+        FileSystemRetry retry = FileSystemRetry.Once,
         CancellationToken cancellationToken = default)
     {
         Interlocked.Increment(ref _activeSessionOperations);
         try
         {
-            return await session.RunAsync(operation, cancellationToken);
+            return await session.RunAsync(operation, retry, cancellationToken);
         }
         finally
         {

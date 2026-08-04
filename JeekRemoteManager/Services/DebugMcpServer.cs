@@ -123,6 +123,7 @@ internal static class DebugMcpServer
             _ => Task.FromResult(TerminalOutputBackpressureCheck()));
         host.AddTool("zmodem_subpacket_limit_check", _ => ZmodemSubpacketLimitCheckAsync());
         host.AddTool("ssh_auth_prompt_check", _ => Task.FromResult(SshAuthPromptCheck()));
+        host.AddTool("sftp_retry_policy_check", _ => SftpRetryPolicyCheckAsync());
         host.AddTool("monitor_suspend_check", _ => MonitorSuspendCheckAsync());
         host.AddTool("terminal_font_sync_check", _ => TerminalFontSyncCheckAsync());
         host.AddTool("ai_panel_lifecycle_check", _ => AiPanelLifecycleCheckAsync());
@@ -271,6 +272,133 @@ internal static class DebugMcpServer
                 });
             }
         }
+    }
+
+    /// <summary>
+    /// Records what retry policy each browser action asks for, and fails the first attempt
+    /// the way a dropped transport does, so a replayed delete would show up as a second
+    /// call. The classification lives at the call sites — this is what pins it down.
+    /// </summary>
+    private sealed class RetryPolicyProbeSession : IFileSystemSession
+    {
+        private readonly List<(string Label, FileSystemRetry Retry, int Attempts)> _calls = [];
+
+        public string? HomePath => "/home/probe";
+
+        public bool SupportsPermissions => true;
+
+        /// <summary>Set before each action so the recorded call can be attributed.</summary>
+        public string CurrentLabel { get; set; } = "";
+
+        public IReadOnlyList<(string Label, FileSystemRetry Retry, int Attempts)> Calls => _calls;
+
+        public Task<T> RunAsync<T>(
+            Func<IFileSystemOps, T> operation,
+            FileSystemRetry retry = FileSystemRetry.Once,
+            CancellationToken cancellationToken = default)
+        {
+            var attempts = 0;
+            var ops = LifecycleProbeFileSystemOps.Instance;
+            T result;
+            try
+            {
+                attempts++;
+                // Mimic SftpSession: the transport dies mid-operation, and only an
+                // idempotent operation is replayed on the fresh connection.
+                throw new Renci.SshNet.Common.SshConnectionException("probe: transport dropped");
+            }
+            catch (Renci.SshNet.Common.SshConnectionException) when (retry == FileSystemRetry.Idempotent)
+            {
+                attempts++;
+                result = operation(ops);
+            }
+            finally
+            {
+                lock (_calls)
+                    _calls.Add((CurrentLabel, retry, attempts));
+            }
+
+            return Task.FromResult(result);
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private static async Task<JsonObject> SftpRetryPolicyCheckAsync()
+    {
+        var session = new RetryPolicyProbeSession();
+        var viewModel = await OnUiAsync(() => new FileBrowserViewModel(
+            () => session,
+            _ => { },
+            "probe@localhost"));
+
+        async Task Run(string label, Func<Task> action)
+        {
+            session.CurrentLabel = label;
+            try
+            {
+                await action();
+            }
+            catch
+            {
+                // The probe transport always fails the first attempt; what matters is
+                // the recorded policy and attempt count, not the surfaced error.
+            }
+        }
+
+        await Run("listing", () => OnUiAsync(() => viewModel.RefreshCommand.ExecuteAsync(null)).Unwrap());
+        await Run(
+            "delete",
+            () => OnUiAsync(() => viewModel.DebugRunBrowseOperationAsync(
+                ops => ops.DeleteFile("/tmp/probe"))).Unwrap());
+        await Run(
+            "rename",
+            () => OnUiAsync(() => viewModel.DebugRunBrowseOperationAsync(
+                ops => ops.RenameFile("/tmp/a", "/tmp/b"))).Unwrap());
+        await Run(
+            "mkdir",
+            () => OnUiAsync(() => viewModel.DebugRunBrowseOperationAsync(
+                ops => ops.CreateDirectory("/tmp/probe-dir"))).Unwrap());
+
+        await OnUiAsync(() => { viewModel.Dispose(); return true; });
+
+        var calls = session.Calls;
+        var failures = new List<string>();
+        void Require(string label, FileSystemRetry expected)
+        {
+            var matching = calls.Where(call => call.Label == label).ToArray();
+            if (matching.Length == 0)
+            {
+                failures.Add($"{label}: no session call recorded");
+                return;
+            }
+
+            foreach (var call in matching)
+            {
+                if (call.Retry != expected)
+                    failures.Add($"{label}: expected {expected} but got {call.Retry}");
+                var expectedAttempts = expected == FileSystemRetry.Idempotent ? 2 : 1;
+                if (call.Attempts != expectedAttempts)
+                    failures.Add($"{label}: expected {expectedAttempts} attempt(s), saw {call.Attempts}");
+            }
+        }
+
+        Require("listing", FileSystemRetry.Idempotent);
+        Require("delete", FileSystemRetry.Once);
+        Require("rename", FileSystemRetry.Once);
+        Require("mkdir", FileSystemRetry.Once);
+
+        var passed = failures.Count == 0;
+        var report =
+            $"{(passed ? "PASS" : "FAIL")}: SFTP reconnect replays only idempotent operations\n"
+            + string.Join(
+                "\n",
+                calls.Select(call => $"{call.Label}: retry={call.Retry} attempts={call.Attempts}"))
+            + $"\nfailures={failures.Count}"
+            + (passed ? "" : "\n" + string.Join("\n", failures));
+        return ToolText(report, isError: !passed);
     }
 
     /// <summary>
@@ -915,6 +1043,7 @@ internal static class DebugMcpServer
 
         public Task<T> RunAsync<T>(
             Func<IFileSystemOps, T> operation,
+            FileSystemRetry retry = FileSystemRetry.Once,
             CancellationToken cancellationToken = default)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);

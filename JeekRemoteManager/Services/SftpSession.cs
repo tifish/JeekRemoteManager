@@ -39,8 +39,15 @@ public sealed class SftpSession : IFileSystemSession
     /// thread. Operations are serialized: SSH.NET's SftpClient is not safe for
     /// concurrent use on one channel, and serializing also keeps a slow transfer
     /// from interleaving with directory listings (transfers get their own session).
+    ///
+    /// A dead transport is redialed before the failure surfaces, but the operation is
+    /// only replayed when <paramref name="retry"/> says it is safe — see
+    /// <see cref="FileSystemRetry"/> for why replaying a mutation reports false errors.
     /// </summary>
-    public async Task<T> RunAsync<T>(Func<IFileSystemOps, T> operation, CancellationToken cancellationToken = default)
+    public async Task<T> RunAsync<T>(
+        Func<IFileSystemOps, T> operation,
+        FileSystemRetry retry = FileSystemRetry.Once,
+        CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -58,6 +65,13 @@ public sealed class SftpSession : IFileSystemSession
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     DisposeClient();
+                    if (retry == FileSystemRetry.Once)
+                    {
+                        // Reconnect anyway so the next operation starts clean, but let
+                        // this one fail: it may well have taken effect on the server.
+                        throw;
+                    }
+
                     return operation(new SftpOps(EnsureConnected()));
                 }
             }, cancellationToken).ConfigureAwait(false);
