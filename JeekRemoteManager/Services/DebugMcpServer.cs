@@ -1267,6 +1267,12 @@ internal static class DebugMcpServer
 
         var fedBytes = (long)packetCount * packet.Length;
         var boundedWhileFilling = buffer.PendingByteCount <= TerminalSessionOutputBuffer.MaxPendingBytes;
+        // The packet count must describe what is still queued, not everything ever fed:
+        // trimming drops packets, and a counter that keeps them makes the coalescing
+        // diagnostics read as a backlog that is not there.
+        var pendingPacketsAfterTrim = buffer.PendingPacketCount;
+        var packetCountFollowsTrim = pendingPacketsAfterTrim > 0
+                                     && pendingPacketsAfterTrim < packetCount;
 
         var drained = buffer.Drain(generation);
         var dropped = buffer.TakeDroppedByteCount();
@@ -1276,7 +1282,8 @@ internal static class DebugMcpServer
         var reportsOnce = buffer.TakeDroppedByteCount() == 0;
         var emptyAfterDrain = buffer.PendingByteCount == 0 && buffer.PendingPacketCount == 0;
 
-        var passed = boundedWhileFilling
+        var passed = packetCountFollowsTrim
+                     && boundedWhileFilling
                      && boundedAfterDrain
                      && accountsForEveryByte
                      && keptNewest
@@ -1288,6 +1295,9 @@ internal static class DebugMcpServer
             + $"fedBytes={fedBytes}\n"
             + $"drainedBytes={drained.Length}\n"
             + $"droppedBytes={dropped}\n"
+            + $"packetsFed={packetCount}\n"
+            + $"pendingPacketsAfterTrim={pendingPacketsAfterTrim}\n"
+            + $"packetCountFollowsTrim={packetCountFollowsTrim}\n"
             + $"boundedWhileFilling={boundedWhileFilling}\n"
             + $"boundedAfterDrain={boundedAfterDrain}\n"
             + $"accountsForEveryByte={accountsForEveryByte}\n"

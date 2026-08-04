@@ -70,6 +70,7 @@ public sealed class TerminalSessionOutputBuffer
             if (_pending.Count == 0 || _pending[^1].Generation != generation)
                 _pending.Add(new PendingChunk(generation));
             _pending[^1].Buffer.Write(data);
+            _pending[^1].PacketCount++;
             _pendingPacketCount++;
             _pendingByteCount += data.Length;
             TrimToCapacityLocked();
@@ -96,6 +97,7 @@ public sealed class TerminalSessionOutputBuffer
             var oldest = _pending[0];
             _pending.RemoveAt(0);
             _pendingByteCount -= oldest.Buffer.WrittenCount;
+            _pendingPacketCount -= oldest.PacketCount;
             _droppedByteCount += oldest.Buffer.WrittenCount;
         }
 
@@ -109,6 +111,11 @@ public sealed class TerminalSessionOutputBuffer
         var keep = MaxPendingBytes / 2;
         var replacement = new PendingChunk(crowded.Generation);
         replacement.Buffer.Write(crowded.Buffer.WrittenSpan[^keep..]);
+        // The surviving tail is one contiguous run whose original packet boundaries are
+        // gone, so it counts as a single pending packet. Keeping the pre-trim total here
+        // would leave the diagnostic claiming packets that are no longer queued.
+        replacement.PacketCount = 1;
+        _pendingPacketCount -= crowded.PacketCount - 1;
         _pending[0] = replacement;
         _droppedByteCount += _pendingByteCount - keep;
         _pendingByteCount = keep;
@@ -185,5 +192,9 @@ public sealed class TerminalSessionOutputBuffer
         public int Generation { get; } = generation;
 
         public ArrayBufferWriter<byte> Buffer { get; } = new();
+
+        /// <summary>Appends folded into this chunk, so trimming can take them back out
+        /// of the pending total instead of leaving it counting dropped output.</summary>
+        public int PacketCount { get; set; }
     }
 }
