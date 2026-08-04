@@ -122,6 +122,9 @@ internal static class DebugMcpServer
             "terminal_output_backpressure_check",
             _ => Task.FromResult(TerminalOutputBackpressureCheck()));
         host.AddTool("zmodem_subpacket_limit_check", _ => ZmodemSubpacketLimitCheckAsync());
+        host.AddTool(
+            "zmodem_detector_latency_check",
+            _ => Task.FromResult(ZmodemDetectorLatencyCheck()));
         host.AddTool("ssh_auth_prompt_check", _ => Task.FromResult(SshAuthPromptCheck()));
         host.AddTool("sftp_retry_policy_check", _ => SftpRetryPolicyCheckAsync());
         host.AddTool("connection_write_watcher_check", _ => ConnectionWriteWatcherCheckAsync());
@@ -587,6 +590,103 @@ internal static class DebugMcpServer
             $"{(passed ? "PASS" : "FAIL")}: SSH keyboard-interactive and key-path diagnostics\n"
             + $"namesMissingKey={namesMissingKey}\n"
             + $"missingKeyMessage={missingKeyMessage}\n"
+            + $"failures={failures.Count}"
+            + (passed ? "" : "\n" + string.Join("\n", failures));
+        return ToolText(report, isError: !passed);
+    }
+
+    /// <summary>
+    /// The detector sits on the receive path of every 8-bit-clean channel. It used to
+    /// withhold the last five bytes of every packet unconditionally, which meant a single
+    /// echoed keystroke — one byte — rendered nothing at all until an 80 ms flush timer
+    /// fired. This pins down that ordinary output is released immediately while triggers
+    /// split across packets are still caught.
+    /// </summary>
+    private static JsonObject ZmodemDetectorLatencyCheck()
+    {
+        var failures = new List<string>();
+
+        static string Show(byte[] bytes) =>
+            bytes.Length == 0 ? "(none)" : Encoding.ASCII.GetString(bytes).Replace("", "<ZDLE>");
+
+        void Immediate(string name, string input)
+        {
+            var detector = new ZmodemTriggerDetector();
+            var detection = detector.Append(Encoding.ASCII.GetBytes(input), out var display);
+            var text = Encoding.ASCII.GetString(display);
+            if (detection is not null)
+                failures.Add($"{name}: unexpectedly detected a transfer");
+            if (text != input)
+                failures.Add($"{name}: expected \"{input}\" released at once, got \"{text}\"");
+            if (detector.HasPendingBytes)
+                failures.Add($"{name}: still holding bytes back");
+        }
+
+        // The keystroke-echo case, and the ordinary output cases around it.
+        Immediate("single echoed keystroke", "x");
+        Immediate("short prompt", "$ ");
+        Immediate("prompt line", "user@host:~$ ");
+        Immediate("output shorter than the old retention window", "abcd");
+        // A lone asterisk is a legitimate shell character, and must not be a trigger by
+        // itself — but it does have to be held, since it could start one.
+        {
+            var detector = new ZmodemTriggerDetector();
+            detector.Append("ls *"u8.ToArray(), out var display);
+            if (Encoding.ASCII.GetString(display) != "ls ")
+                failures.Add($"trailing asterisk: expected \"ls \" released, got \"{Show(display)}\"");
+            if (!detector.HasPendingBytes)
+                failures.Add("trailing asterisk: should be held back as a possible trigger start");
+            var flushed = detector.Flush();
+            if (Encoding.ASCII.GetString(flushed) != "*")
+                failures.Add($"trailing asterisk: flush should yield \"*\", got \"{Show(flushed)}\"");
+        }
+
+        // An asterisk that cannot become a trigger must not be held at all.
+        Immediate("asterisk followed by ordinary text", "3 * 4 = 12");
+
+        // Detection still works when a trigger arrives whole...
+        {
+            var detector = new ZmodemTriggerDetector();
+            var detection = detector.Append(Encoding.ASCII.GetBytes("**B00"), out _);
+            if (detection?.Direction != ZmodemTransferDirection.Download)
+                failures.Add("whole hex download trigger was not detected");
+        }
+
+        // ...and when it is split across packets one byte at a time, which is the reason
+        // any bytes are held back in the first place.
+        {
+            var detector = new ZmodemTriggerDetector();
+            ZmodemDetection? detection = null;
+            var released = new List<byte>();
+            foreach (var b in Encoding.ASCII.GetBytes("ready\r\n**B01"))
+            {
+                detection = detector.Append([b], out var display);
+                released.AddRange(display);
+                if (detection is not null)
+                    break;
+            }
+
+            if (detection?.Direction != ZmodemTransferDirection.Upload)
+                failures.Add("byte-by-byte upload trigger was not detected");
+            var prefix = Encoding.ASCII.GetString(released.ToArray())
+                         + Encoding.ASCII.GetString(detection?.DisplayBytes ?? []);
+            if (prefix != "ready\r\n")
+                failures.Add($"split trigger: expected \"ready\\r\\n\" displayed, got \"{prefix}\"");
+        }
+
+        // The binary triggers are shorter; make sure they survive splitting too.
+        {
+            var detector = new ZmodemTriggerDetector();
+            ZmodemDetection? detection = null;
+            foreach (var b in new byte[] { 0x2a, 0x18, 0x43, 0x00 })
+                detection ??= detector.Append([b], out _);
+            if (detection?.Direction != ZmodemTransferDirection.Download)
+                failures.Add("split bin32 ZRQINIT trigger was not detected");
+        }
+
+        var passed = failures.Count == 0;
+        var report =
+            $"{(passed ? "PASS" : "FAIL")}: ZMODEM detection adds no latency to ordinary output\n"
             + $"failures={failures.Count}"
             + (passed ? "" : "\n" + string.Join("\n", failures));
         return ToolText(report, isError: !passed);

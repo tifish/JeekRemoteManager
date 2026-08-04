@@ -2964,9 +2964,11 @@ public partial class TerminalView : UserControl
 
         ZmodemDetection? detection;
         byte[] displayData;
+        bool holdingPartialTrigger;
         lock (_zmodemDetectionGate)
         {
             detection = _zmodemDetector.Append(data, out displayData);
+            holdingPartialTrigger = _zmodemDetector.HasPendingBytes;
         }
 
         FeedBytes(displayData);
@@ -2977,7 +2979,10 @@ public partial class TerminalView : UserControl
             return;
         }
 
-        ScheduleZmodemDetectionFlush();
+        // Only arm the flush timer when bytes are actually being withheld. Ordinary
+        // output now passes straight through, so this is the rare case.
+        if (holdingPartialTrigger)
+            ScheduleZmodemDetectionFlush();
     }
 
     private void SendToShell(ReadOnlyMemory<byte> data)

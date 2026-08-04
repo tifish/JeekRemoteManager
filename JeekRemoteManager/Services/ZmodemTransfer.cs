@@ -40,9 +40,13 @@ public sealed record ZmodemDetection(
 /// </summary>
 public sealed class ZmodemTriggerDetector
 {
-    // The longest trigger is 6 bytes, so the last 5 bytes of a packet can still be the
-    // start of one and are held back until the next packet arrives.
-    private const int RetainedBytes = 5;
+    // The longest trigger is 6 bytes, so up to the last 5 bytes of a packet can still be
+    // the start of one. Holding back that many unconditionally cost every SSH terminal
+    // real latency: a single echoed keystroke is one byte, so nothing was displayed until
+    // the flush timer fired ~80 ms later. Only a tail that is genuinely the beginning of
+    // a trigger is withheld now, and every trigger starts with ZPAD — so ordinary output,
+    // which is the overwhelming majority, passes straight through.
+    private const int MaxRetainedBytes = 5;
 
     private static readonly byte[] HexDownloadTrigger =
     [
@@ -89,16 +93,52 @@ public sealed class ZmodemTriggerDetector
             return new ZmodemDetection(direction, prefix, protocol);
         }
 
-        if (_pendingLength <= RetainedBytes)
+        var retain = PartialTriggerTailLength(pending);
+        if (retain == _pendingLength)
             return null;
 
-        var flushCount = _pendingLength - RetainedBytes;
+        var flushCount = _pendingLength - retain;
         displayBytes = pending[..flushCount].ToArray();
         // Overlapping move; Span.CopyTo has memmove semantics.
         pending[flushCount..].CopyTo(_pending);
-        _pendingLength = RetainedBytes;
+        _pendingLength = retain;
         return null;
     }
+
+    /// <summary>
+    /// How many trailing bytes could still turn into a trigger once more data arrives.
+    /// A trigger starts with ZPAD, so this is the length of the longest suffix that is a
+    /// proper prefix of one — normally zero, which lets the whole packet render at once.
+    /// </summary>
+    private static int PartialTriggerTailLength(ReadOnlySpan<byte> pending)
+    {
+        var maxTail = Math.Min(MaxRetainedBytes, pending.Length);
+        for (var length = maxTail; length > 0; length--)
+        {
+            var tail = pending[^length..];
+            if (tail[0] != ZmodemConstants.ZPAD)
+                continue;
+            if (IsTriggerPrefix(tail))
+                return length;
+        }
+
+        return 0;
+    }
+
+    private static bool IsTriggerPrefix(ReadOnlySpan<byte> candidate) =>
+        StartsWith(HexDownloadTrigger, candidate)
+        || StartsWith(HexUploadTrigger, candidate)
+        || StartsWith(BinDownloadTrigger, candidate)
+        || StartsWith(Bin32DownloadTrigger, candidate)
+        || StartsWith(BinUploadTrigger, candidate)
+        || StartsWith(Bin32UploadTrigger, candidate);
+
+    /// <summary>True when <paramref name="candidate"/> is a prefix of <paramref name="trigger"/>.</summary>
+    private static bool StartsWith(ReadOnlySpan<byte> trigger, ReadOnlySpan<byte> candidate) =>
+        candidate.Length <= trigger.Length && trigger[..candidate.Length].SequenceEqual(candidate);
+
+    /// <summary>True while a partial trigger is being held back and still needs flushing.</summary>
+    public bool HasPendingBytes => _pendingLength > 0;
 
     public byte[] Flush()
     {
