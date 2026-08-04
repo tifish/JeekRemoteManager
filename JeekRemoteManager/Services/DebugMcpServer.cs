@@ -707,6 +707,44 @@ internal static class DebugMcpServer
     {
         var failures = new List<string>();
 
+        // The CRC16 table has to agree with the bit-by-bit loop it replaced, byte for
+        // byte, or every 16-bit header and subpacket silently fails its integrity check.
+        {
+            static ushort ReferenceCrc16(ReadOnlySpan<byte> bytes)
+            {
+                var crc = 0;
+                foreach (var b in bytes)
+                {
+                    crc ^= b << 8;
+                    for (var i = 0; i < 8; i++)
+                        crc = (crc & 0x8000) != 0 ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff;
+                }
+
+                return (ushort)crc;
+            }
+
+            var sample = new byte[512];
+            for (var i = 0; i < sample.Length; i++)
+                sample[i] = (byte)(i * 31 + 7);
+
+            var mismatches = 0;
+            for (var length = 0; length <= sample.Length; length++)
+            {
+                var span = sample.AsSpan(0, length);
+                if (ZmodemCrc.Crc16(span) != ReferenceCrc16(span))
+                    mismatches++;
+                // The frame-terminator overload has to match too.
+                Span<byte> withEnd = new byte[length + 1];
+                span.CopyTo(withEnd);
+                withEnd[length] = (byte)ZmodemFrameEnd.ZCRCW;
+                if (ZmodemCrc.Crc16(span, (byte)ZmodemFrameEnd.ZCRCW) != ReferenceCrc16(withEnd))
+                    mismatches++;
+            }
+
+            if (mismatches != 0)
+                failures.Add($"CRC16 table disagrees with the reference loop in {mismatches} cases");
+        }
+
         static string Show(byte[] bytes) =>
             bytes.Length == 0 ? "(none)" : Encoding.ASCII.GetString(bytes).Replace("", "<ZDLE>");
 

@@ -1166,6 +1166,7 @@ internal sealed record ZmodemFileInfo(string FileName, long? Size, DateTimeOffse
 internal static class ZmodemCrc
 {
     private static readonly uint[] Crc32Table = BuildCrc32Table();
+    private static readonly ushort[] Crc16Table = BuildCrc16Table();
 
     public static ushort Crc16(ReadOnlySpan<byte> bytes)
     {
@@ -1205,19 +1206,30 @@ internal static class ZmodemCrc
         return ~crc;
     }
 
-    private static int UpdateCrc16(int crc, byte b)
-    {
-        crc ^= b << 8;
-        for (var i = 0; i < 8; i++)
-            crc = (crc & 0x8000) != 0
-                ? ((crc << 1) ^ 0x1021) & 0xffff
-                : (crc << 1) & 0xffff;
-
-        return crc;
-    }
+    private static int UpdateCrc16(int crc, byte b) =>
+        (Crc16Table[((crc >> 8) ^ b) & 0xff] ^ (crc << 8)) & 0xffff;
 
     private static uint UpdateCrc32(uint crc, byte b) =>
         Crc32Table[(crc ^ b) & 0xff] ^ (crc >> 8);
+
+    /// <summary>
+    /// CRC-16/XMODEM, the same polynomial the bit-by-bit loop used to walk. Every
+    /// 16-bit ZMODEM header and subpacket runs through this, so pay the eight shifts
+    /// per byte once at startup rather than on every byte received.
+    /// </summary>
+    private static ushort[] BuildCrc16Table()
+    {
+        var table = new ushort[256];
+        for (var i = 0; i < table.Length; i++)
+        {
+            var crc = i << 8;
+            for (var bit = 0; bit < 8; bit++)
+                crc = (crc & 0x8000) != 0 ? (crc << 1) ^ 0x1021 : crc << 1;
+            table[i] = (ushort)crc;
+        }
+
+        return table;
+    }
 
     private static uint[] BuildCrc32Table()
     {
