@@ -58,7 +58,7 @@ public static class DebugMcpContract
             "Temporarily creates two terminal tabs and verifies that each restores its own in-memory focused control after switching.",
             new()),
         Tool("terminal_tab_lifecycle_check",
-            "Creates and closes several real terminal tabs through the production close path, forces collection, and verifies the terminal views are released.",
+            "Creates and closes several real terminal tabs through the production close path and verifies the batch closed by the previous run has been released. Run it twice: the first run only primes the batch, because views closed inside a call stay reachable from that call's own frames.",
             new()),
         Tool("terminal_connection_actions_check",
             "Drives the connection tree's Connect, New session, and New TCP connection paths and verifies their tab and transport reuse semantics.",

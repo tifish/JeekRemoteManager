@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Automation.Peers;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Input;
@@ -1884,6 +1885,38 @@ public partial class MainWindow : Window
 
         if (wasSelected && RightTabs.Items.Count > 0)
             RightTabs.SelectedIndex = Math.Clamp(index - 1, 0, RightTabs.Items.Count - 1);
+
+        RefreshAutomationPeerChildren(RightTabs);
+    }
+
+    /// <summary>
+    /// Rebuilds the cached automation-peer child lists under <paramref name="root"/>.
+    ///
+    /// A peer marks its children invalid when its owner's visual children change, but it
+    /// keeps handing back the list it built last until something asks for children again
+    /// — and nothing does unless a screen reader is attached. That stale list still holds
+    /// the closed tab's peer, and a peer owns its control, so the whole TerminalView (its
+    /// visual tree, terminal buffer and view models) stays alive behind it.
+    ///
+    /// Only refreshes peers that already exist; it never creates one, so this costs
+    /// nothing when no automation client has ever asked.
+    /// </summary>
+    private static void RefreshAutomationPeerChildren(Visual root)
+    {
+        foreach (var visual in root.GetSelfAndVisualDescendants())
+        {
+            if (visual is not Control control)
+                continue;
+
+            try
+            {
+                ControlAutomationPeer.FromElement(control)?.GetChildren();
+            }
+            catch
+            {
+                // A peer for a control that is mid-teardown is not worth failing a close over.
+            }
+        }
     }
 
     /// <summary>
