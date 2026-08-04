@@ -5,6 +5,8 @@
   - Automatically build and launch the program **as Debug** (e.g. `Run.cmd` or `dotnet build` without `-c Release`). Debug MCP only listens in Debug builds.
     - Do **not** use root `Build.cmd` for this loop: it is the **Release** ship script (cleans `bin`, strips PDBs). Use it for packaging/deploy, not agent feature testing.
     - If the program from the current worktree is already running, kill only the process whose executable path matches this worktree, then run it again. Leave Debug instances from other worktrees running.
+    - Kill it before **any** build that reaches this project, including `dotnet run` on `tests\SmokeTest` — that rebuilds `JeekRemoteManager`, and the running app holds `bin`, so the NetBeauty post-processing step fails with MSB3073. Nothing is wrong with the code when that happens.
+    - After stopping the app, also kill leftover `JeekRemoteManagerMcp.exe` adapters. Each holds a named-pipe instance, and once they accumulate the app logs "All pipe instances are busy" and further Debug MCP calls time out.
   - Use the current worktree's Debug MCP (`JeekRemoteManagerDebugMcp.cmd` at the repo root, which starts the fixed per-user `JeekRemoteManagerMcp.exe` with `--surface debug --app <this worktree\bin\JeekRemoteManager.exe>` and forwards stdio to this worktree's named pipe) to test the feature or bug, if anything wrong, try to fix it and test again, until all done.
 - When reading code, logs and the Debug MCP are not enough to locate a problem, use a debugger:
   - Use netcoredbg on the Debug build to set breakpoints, step, and inspect variables; feed it a command script via stdin, and drive the program to the breakpoint through the Debug MCP.
