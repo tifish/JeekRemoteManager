@@ -117,6 +117,9 @@ internal static class DebugMcpServer
         host.AddTool("terminal_tab_lifecycle_check", _ => TerminalTabLifecycleCheckAsync());
         host.AddTool("terminal_connection_actions_check", _ => TerminalConnectionActionsCheckAsync());
         host.AddTool("terminal_output_coalescing_check", _ => TerminalOutputCoalescingCheckAsync());
+        host.AddTool(
+            "terminal_output_backpressure_check",
+            _ => Task.FromResult(TerminalOutputBackpressureCheck()));
         host.AddTool("monitor_suspend_check", _ => MonitorSuspendCheckAsync());
         host.AddTool("terminal_font_sync_check", _ => TerminalFontSyncCheckAsync());
         host.AddTool("ai_panel_lifecycle_check", _ => AiPanelLifecycleCheckAsync());
@@ -265,6 +268,58 @@ internal static class DebugMcpServer
                 });
             }
         }
+    }
+
+    /// <summary>
+    /// The queue only grows while the UI thread cannot drain it, so a remote spraying
+    /// output used to be an out-of-memory kill. Feeds well past the cap without ever
+    /// draining and checks that memory stays bounded and the newest bytes survive.
+    /// </summary>
+    private static JsonObject TerminalOutputBackpressureCheck()
+    {
+        const int generation = 7;
+        var buffer = new TerminalSessionOutputBuffer();
+        var packet = new byte[64 * 1024];
+
+        // Four times the cap, so trimming has to happen repeatedly rather than once.
+        var packetCount = TerminalSessionOutputBuffer.MaxPendingBytes / packet.Length * 4;
+        for (var i = 0; i < packetCount; i++)
+        {
+            // Stamp each packet so the surviving tail is identifiable.
+            Array.Fill(packet, (byte)(i & 0xff));
+            buffer.Append(packet, generation);
+        }
+
+        var fedBytes = (long)packetCount * packet.Length;
+        var boundedWhileFilling = buffer.PendingByteCount <= TerminalSessionOutputBuffer.MaxPendingBytes;
+
+        var drained = buffer.Drain(generation);
+        var dropped = buffer.TakeDroppedByteCount();
+        var boundedAfterDrain = drained.Length <= TerminalSessionOutputBuffer.MaxPendingBytes;
+        var accountsForEveryByte = drained.Length + dropped == fedBytes;
+        var keptNewest = drained.Length > 0 && drained[^1] == (byte)((packetCount - 1) & 0xff);
+        var reportsOnce = buffer.TakeDroppedByteCount() == 0;
+        var emptyAfterDrain = buffer.PendingByteCount == 0 && buffer.PendingPacketCount == 0;
+
+        var passed = boundedWhileFilling
+                     && boundedAfterDrain
+                     && accountsForEveryByte
+                     && keptNewest
+                     && reportsOnce
+                     && emptyAfterDrain;
+        var report =
+            $"{(passed ? "PASS" : "FAIL")}: terminal output buffer is bounded under flood\n"
+            + $"capBytes={TerminalSessionOutputBuffer.MaxPendingBytes}\n"
+            + $"fedBytes={fedBytes}\n"
+            + $"drainedBytes={drained.Length}\n"
+            + $"droppedBytes={dropped}\n"
+            + $"boundedWhileFilling={boundedWhileFilling}\n"
+            + $"boundedAfterDrain={boundedAfterDrain}\n"
+            + $"accountsForEveryByte={accountsForEveryByte}\n"
+            + $"keptNewest={keptNewest}\n"
+            + $"reportsOnce={reportsOnce}\n"
+            + $"emptyAfterDrain={emptyAfterDrain}";
+        return ToolText(report, isError: !passed);
     }
 
     private static async Task<JsonObject> TerminalOutputCoalescingCheckAsync()

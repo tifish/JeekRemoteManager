@@ -3307,6 +3307,16 @@ public partial class TerminalView : UserControl
             Interlocked.Increment(ref _feedBatchCount);
             _model.Feed(text);
         }
+
+        // Say so rather than leaving a silent hole in the scrollback. Bytes are dropped
+        // only when the remote outran the UI badly enough to threaten the process.
+        if (_sessionOutputBuffer.TakeDroppedByteCount() is > 0 and var dropped)
+        {
+            _utf8Decoder.Reset();
+            FeedLine(
+                $"\r\n[33m[output truncated: dropped {dropped / 1024} KiB the terminal "
+                + "could not keep up with][0m");
+        }
         RecordCursorRow();
     }
 
