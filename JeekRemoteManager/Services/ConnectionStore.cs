@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -489,14 +490,32 @@ public class ConnectionStore
         return candidate;
     }
 
+    /// <summary>
+    /// The invalid set is fixed, so hoist the membership test into a lookup instead of
+    /// scanning the 41-element array for every character of every name. Every rename,
+    /// save, copy and folder operation runs through here.
+    /// </summary>
+    private static readonly SearchValues<char> InvalidFileNameChars =
+        SearchValues.Create(Path.GetInvalidFileNameChars());
+
     /// <summary>Strips characters that are invalid in Windows file names.</summary>
     public static string SanitizeName(string name)
     {
         if (string.IsNullOrWhiteSpace(name))
             return "Unnamed";
 
-        var invalid = Path.GetInvalidFileNameChars();
-        var cleaned = new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim();
-        return string.IsNullOrEmpty(cleaned) ? "Unnamed" : cleaned;
+        // Most names are already clean, so avoid building a new string for them.
+        if (!name.AsSpan().ContainsAny(InvalidFileNameChars))
+        {
+            var trimmedOnly = name.Trim();
+            return trimmedOnly.Length == 0 ? "Unnamed" : trimmedOnly;
+        }
+
+        var buffer = new char[name.Length];
+        for (var i = 0; i < name.Length; i++)
+            buffer[i] = InvalidFileNameChars.Contains(name[i]) ? '_' : name[i];
+
+        var cleaned = new string(buffer).Trim();
+        return cleaned.Length == 0 ? "Unnamed" : cleaned;
     }
 }

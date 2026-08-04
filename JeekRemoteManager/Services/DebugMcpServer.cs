@@ -362,9 +362,37 @@ internal static class DebugMcpServer
             if (ticks == 0)
                 failures.Add("the dispatcher did not run while the tree was being read");
 
+            // SanitizeName decides the file name behind every connection, so the faster
+            // lookup has to produce byte-identical results to the scan it replaced.
+            static string ReferenceSanitize(string name)
+            {
+                if (string.IsNullOrWhiteSpace(name))
+                    return "Unnamed";
+                var invalid = Path.GetInvalidFileNameChars();
+                var cleaned = new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim();
+                return string.IsNullOrEmpty(cleaned) ? "Unnamed" : cleaned;
+            }
+
+            string[] names =
+            [
+                "", "   ", "plain", " padded ", "a/b", "a\\b", "a:b", "a*b?", "a\"b", "a<b>c|d",
+                "\t\n", "...", "名字", "emoji 🚀", "trailing ", new string('/', 8),
+                "mixed 名字/with:bad*chars", "control",
+            ];
+            var sanitizeMismatches = names
+                .Where(name => ConnectionStore.SanitizeName(name) != ReferenceSanitize(name))
+                .ToArray();
+            if (sanitizeMismatches.Length != 0)
+            {
+                failures.Add(
+                    "SanitizeName disagrees with the reference for: "
+                    + string.Join(", ", sanitizeMismatches.Select(n => $"\"{n}\"")));
+            }
+
             var passed = failures.Count == 0;
             var report =
                 $"{(passed ? "PASS" : "FAIL")}: the connection tree is read off the UI thread\n"
+                + $"sanitizeNamesChecked={names.Length}\n"
                 + $"connections={found}\n"
                 + $"folders={snapshot.Folders.Count}\n"
                 + $"ranOffUiThread={!uiThreadDuringRead}\n"
