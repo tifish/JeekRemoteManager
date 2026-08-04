@@ -18,7 +18,7 @@ namespace JeekRemoteManager.Services;
 /// object, so closing the session tears down the whole process tree (wsl.exe
 /// keeps children alive otherwise).
 /// </summary>
-public sealed class ConPtySession : IDisposable
+public sealed partial class ConPtySession : IDisposable
 {
     private const int MaxRecentOutputBytes = 64 * 1024;
 
@@ -189,14 +189,25 @@ public sealed class ConPtySession : IDisposable
         return text;
     }
 
+    // Source-generated so each pattern is compiled once at build time instead of being
+    // parsed on every call; this runs over up to 64 KiB of recent output.
+    [GeneratedRegex("\u001b\\][^\\u0007\\u001b]*(?:\\u0007|\\u001b\\\\)")]
+    private static partial Regex OscSequence();
+
+    [GeneratedRegex("\u001b\\[[0-9;?]*[ -/]*[@-~]")]
+    private static partial Regex CsiSequence();
+
+    [GeneratedRegex("\u001b.")]
+    private static partial Regex SimpleEscapeSequence();
+
     private static string StripAnsi(string text)
     {
         if (string.IsNullOrEmpty(text))
             return text;
         // CSI / OSC / simple ESC sequences emitted by CLIs and ConPTY.
-        text = Regex.Replace(text, "\u001b\\][^\\u0007\\u001b]*(?:\\u0007|\\u001b\\\\)", "");
-        text = Regex.Replace(text, "\u001b\\[[0-9;?]*[ -/]*[@-~]", "");
-        text = Regex.Replace(text, "\u001b.", "");
+        text = OscSequence().Replace(text, "");
+        text = CsiSequence().Replace(text, "");
+        text = SimpleEscapeSequence().Replace(text, "");
         return text;
     }
 
