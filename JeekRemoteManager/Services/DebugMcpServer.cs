@@ -124,6 +124,7 @@ internal static class DebugMcpServer
         host.AddTool("zmodem_subpacket_limit_check", _ => ZmodemSubpacketLimitCheckAsync());
         host.AddTool("ssh_auth_prompt_check", _ => Task.FromResult(SshAuthPromptCheck()));
         host.AddTool("sftp_retry_policy_check", _ => SftpRetryPolicyCheckAsync());
+        host.AddTool("connection_write_watcher_check", _ => ConnectionWriteWatcherCheckAsync());
         host.AddTool("monitor_suspend_check", _ => MonitorSuspendCheckAsync());
         host.AddTool("terminal_font_sync_check", _ => TerminalFontSyncCheckAsync());
         host.AddTool("ai_panel_lifecycle_check", _ => AiPanelLifecycleCheckAsync());
@@ -272,6 +273,108 @@ internal static class DebugMcpServer
                 });
             }
         }
+    }
+
+    /// <summary>
+    /// Each product-MCP write should rebuild the tree exactly once, from the explicit
+    /// reload the handler performs. The file watcher recognises the app's own writes by
+    /// comparing against ConnectionStore.LastWriteTick — which is per-instance, so a
+    /// handler that built its own store left the watcher firing a second, redundant
+    /// full-tree rebuild a moment later.
+    /// </summary>
+    private static async Task<JsonObject> ConnectionWriteWatcherCheckAsync()
+    {
+        const string folder = "_mcp_watcher_selftest";
+        const string connection = folder + "/probe";
+
+        var pipeName = ProductMcpServer.PipeName;
+        if (pipeName.Length == 0)
+            return ToolText("FAIL: the product MCP server is not listening.", isError: true);
+
+        static Task<long> ReloadCountAsync() => OnUiAsync(() =>
+            (Desktop?.MainWindow?.DataContext as ViewModels.MainWindowViewModel)
+            ?.TreeReloadCountForDebug ?? -1);
+
+        var measurements = new List<(string Step, long Reloads)>();
+        var failures = new List<string>();
+
+        await using var session = await OpenPipeSessionAsync(pipeName).ConfigureAwait(false);
+        await session.CallAsync(
+                """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}""")
+            .ConfigureAwait(false);
+
+        async Task Measure(string step, string request)
+        {
+            // Let any watcher event from the previous step land before taking a baseline.
+            await Task.Delay(1200).ConfigureAwait(false);
+            var before = await ReloadCountAsync().ConfigureAwait(false);
+            await session.CallAsync(request).ConfigureAwait(false);
+            // Longer than the 400 ms watcher debounce plus the 1 s self-write window, so a
+            // watcher-driven reload has every chance to show up before we count.
+            await Task.Delay(1800).ConfigureAwait(false);
+            var after = await ReloadCountAsync().ConfigureAwait(false);
+            var reloads = after - before;
+            measurements.Add((step, reloads));
+            if (reloads != 1)
+                failures.Add($"{step}: expected 1 tree reload, saw {reloads}");
+        }
+
+        static string Call(int id, string tool, string arguments) =>
+            new JsonObject
+            {
+                ["jsonrpc"] = "2.0",
+                ["id"] = id,
+                ["method"] = "tools/call",
+                ["params"] = new JsonObject
+                {
+                    ["name"] = tool,
+                    ["arguments"] = JsonNode.Parse(arguments),
+                },
+            }.ToJsonString();
+
+        try
+        {
+            await Measure(
+                "connection_create",
+                Call(10, "connection_create",
+                    $$"""
+                      {"name":"probe","folder":"{{folder}}","type":"SSH",
+                       "host":"probe.invalid","port":22,"username":"probe"}
+                      """));
+            await Measure(
+                "connection_update",
+                Call(11, "connection_update",
+                    $$"""{"connection":"{{connection}}","host":"probe2.invalid"}"""));
+            // connection_set_secret is deliberately left out: it only writes when the
+            // master password is unlocked, so its reload count is not deterministic here.
+            await Measure(
+                "connection_move",
+                Call(13, "connection_move",
+                    $$"""{"connection":"{{connection}}","folder":""}"""));
+        }
+        finally
+        {
+            // connection_delete and folder_delete block on a GUI confirmation by design,
+            // so clean up straight through the store instead of hanging the probe.
+            await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow?.DataContext is ViewModels.MainWindowViewModel vm)
+                {
+                    vm.Store.DeleteFile(Path.Combine(vm.RootPath, "probe" + ConnectionStore.FileExtension));
+                    vm.Store.DeleteFolder(Path.Combine(vm.RootPath, folder));
+                    vm.ReloadTreeFromDisk();
+                }
+                return true;
+            }).ConfigureAwait(false);
+        }
+
+        var passed = failures.Count == 0;
+        var report =
+            $"{(passed ? "PASS" : "FAIL")}: product MCP writes reload the tree once\n"
+            + string.Join("\n", measurements.Select(m => $"{m.Step}: reloads={m.Reloads}"))
+            + $"\nfailures={failures.Count}"
+            + (passed ? "" : "\n" + string.Join("\n", failures));
+        return ToolText(report, isError: !passed);
     }
 
     /// <summary>

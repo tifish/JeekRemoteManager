@@ -167,7 +167,7 @@ internal static class ProductMcpServer
         var entries = await OnUiAsync(() =>
         {
             var root = MainVm.RootPath;
-            var store = new ConnectionStore(root);
+            var store = MainVm.Store;
             var list = new List<JsonObject>();
             foreach (var file in store.AllConnectionFiles())
             {
@@ -250,7 +250,7 @@ internal static class ProductMcpServer
         var report = await OnUiAsync(() =>
         {
             var root = MainVm.RootPath;
-            var store = new ConnectionStore(root);
+            var store = MainVm.Store;
             var targetFolder = folder.Length == 0
                 ? root
                 : Path.Combine(root, folder.Replace('/', Path.DirectorySeparatorChar));
@@ -281,7 +281,7 @@ internal static class ProductMcpServer
             ApplyEditableFields(connection, args);
 
             // Save into the same folder; a changed name renames the file and drops the old one.
-            var store = new ConnectionStore(MainVm.RootPath);
+            var store = MainVm.Store;
             var folder = Path.GetDirectoryName(filePath) ?? MainVm.RootPath;
             var savedPath = store.Save(connection, folder, previousFilePath: filePath);
             MainVm.ReloadTreeFromDisk(savedPath);
@@ -308,7 +308,7 @@ internal static class ProductMcpServer
                 : Path.Combine(root, folder.Replace('/', Path.DirectorySeparatorChar));
             Directory.CreateDirectory(targetFolder);
 
-            var movedPath = new ConnectionStore(root).MoveFileInto(filePath, targetFolder);
+            var movedPath = MainVm.Store.MoveFileInto(filePath, targetFolder);
             MainVm.ReloadTreeFromDisk(movedPath);
 
             var described = DescribeConnection(connection, ToTreePath(root, movedPath), full: false);
@@ -343,7 +343,7 @@ internal static class ProductMcpServer
 
         await OnUiAsync(() =>
         {
-            new ConnectionStore(MainVm.RootPath).DeleteFile(filePath);
+            MainVm.Store.DeleteFile(filePath);
             MainVm.ReloadTreeFromDisk();
             return true;
         }).ConfigureAwait(false);
@@ -434,7 +434,7 @@ internal static class ProductMcpServer
             else
                 connection.EncryptedPrivateKeyPassphrase = encrypted;
 
-            new ConnectionStore(MainVm.RootPath).SaveInPlace(connection, filePath);
+            MainVm.Store.SaveInPlace(connection, filePath);
             MainVm.ReloadTreeFromDisk(filePath);
             return treePath;
         }).ConfigureAwait(false);
@@ -497,7 +497,7 @@ internal static class ProductMcpServer
     private static (Connection Connection, string TreePath, string FilePath) LoadConnection(string treePath)
     {
         var root = MainVm.RootPath;
-        var store = new ConnectionStore(root);
+        var store = MainVm.Store;
         var relative = treePath.Replace('/', Path.DirectorySeparatorChar);
         var filePath = Path.Combine(root, relative + ConnectionStore.FileExtension);
 
@@ -584,7 +584,7 @@ internal static class ProductMcpServer
 
         await OnUiAsync(() =>
         {
-            new ConnectionStore(MainVm.RootPath).DeleteFolder(path);
+            MainVm.Store.DeleteFolder(path);
             MainVm.ReloadTreeFromDisk();
             return true;
         }).ConfigureAwait(false);
@@ -607,7 +607,7 @@ internal static class ProductMcpServer
         var moved = await OnUiAsync(() =>
         {
             var root = MainVm.RootPath;
-            var store = new ConnectionStore(root);
+            var store = MainVm.Store;
             var path = Path.Combine(root, folder.Replace('/', Path.DirectorySeparatorChar));
             if (!Directory.Exists(path))
                 throw new InvalidOperationException($"No folder at '{folder}'.");
@@ -651,7 +651,7 @@ internal static class ProductMcpServer
 
         var report = await OnUiAsync(() =>
         {
-            var store = new ConnectionStore(MainVm.RootPath);
+            var store = MainVm.Store;
             var result = new JsonObject { ["source"] = source, ["path"] = path };
             switch (source)
             {

@@ -605,6 +605,15 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public string RootPath => _store.RootPath;
 
+    /// <summary>
+    /// The one store the window owns. Anything writing connection files has to go
+    /// through it rather than construct its own: <see cref="ConnectionStore.LastWriteTick"/>
+    /// is per-instance, and it is what tells the file watcher a change was ours. A
+    /// throwaway store writes without ever updating it, so the watcher treats the app's
+    /// own edit as an external one and reloads the whole tree a second time.
+    /// </summary>
+    public ConnectionStore Store => _store;
+
     public BastionLoginProfileStore BastionProfiles => _store.BastionProfiles;
 
     public bool TryGetSavedMainWindowSize(out double width, out double height)
@@ -1015,8 +1024,13 @@ public partial class MainWindowViewModel : ViewModelBase
     public void ReloadTreeFromDisk(string? pathToSelect = null) =>
         ReloadTree(pathToSelect, requestFocus: false);
 
+    /// <summary>Counts full tree rebuilds, so the Debug MCP can catch a write that
+    /// reloads twice because the file watcher did not recognise it as ours.</summary>
+    internal long TreeReloadCountForDebug { get; private set; }
+
     private void ReloadTree(string? pathToSelect = null, bool requestFocus = true)
     {
+        TreeReloadCountForDebug++;
         // Folder expand/collapse state is persisted in AppSettings.CollapsedFolderPaths
         // and applied as each folder node is built, so it survives both in-session
         // rebuilds and restarts. Drop stale entries for folders that no longer exist.
