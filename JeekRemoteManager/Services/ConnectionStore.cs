@@ -10,6 +10,19 @@ using JeekTools;
 namespace JeekRemoteManager.Services;
 
 /// <summary>
+/// One folder of the connections tree, already read from disk: sub-folders and the
+/// parsed connections inside it. Reading a whole tree into these off the UI thread is
+/// what keeps a rebuild from freezing the window — see <see cref="ConnectionStore.ReadTree"/>.
+/// </summary>
+public sealed record ConnectionFolderSnapshot(
+    string Path,
+    IReadOnlyList<ConnectionFolderSnapshot> Folders,
+    IReadOnlyList<ConnectionFileSnapshot> Connections);
+
+/// <summary>One connection file and the connection parsed out of it.</summary>
+public sealed record ConnectionFileSnapshot(string Path, Connection Connection);
+
+/// <summary>
 /// Persists connections on disk as one file per connection, organised into a
 /// folder tree. The root lives under the configured Config\Connections folder.
 /// </summary>
@@ -121,6 +134,37 @@ public class ConnectionStore
             if (!string.IsNullOrEmpty(connection?.EncryptedPassword))
                 yield return connection.EncryptedPassword;
         }
+    }
+
+    /// <summary>
+    /// Reads the whole tree — every folder and every connection file — in one pass.
+    /// Safe to call from a worker thread, and meant to be: doing this work inline meant
+    /// a rebuild read and deserialized every connection on the UI thread, which is very
+    /// visible once the folder lives on a network or file-synced drive.
+    /// Unreadable files are skipped, exactly as loading them one at a time did.
+    /// </summary>
+    public ConnectionFolderSnapshot ReadTree() => ReadFolder(RootPath);
+
+    private ConnectionFolderSnapshot ReadFolder(string folderPath)
+    {
+        var folders = new List<ConnectionFolderSnapshot>();
+        foreach (var directory in GetSubFolders(folderPath))
+            folders.Add(ReadFolder(directory));
+
+        var connections = new List<ConnectionFileSnapshot>();
+        foreach (var file in GetConnectionFiles(folderPath))
+        {
+            try
+            {
+                connections.Add(new ConnectionFileSnapshot(file, Load(file)));
+            }
+            catch
+            {
+                // Unreadable or malformed file; leave it out of the tree.
+            }
+        }
+
+        return new ConnectionFolderSnapshot(folderPath, folders, connections);
     }
 
     /// <summary>Loads a connection from a file.</summary>

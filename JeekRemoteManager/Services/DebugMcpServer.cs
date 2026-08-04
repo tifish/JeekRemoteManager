@@ -128,6 +128,7 @@ internal static class DebugMcpServer
         host.AddTool("ssh_auth_prompt_check", _ => Task.FromResult(SshAuthPromptCheck()));
         host.AddTool("sftp_retry_policy_check", _ => SftpRetryPolicyCheckAsync());
         host.AddTool("connection_write_watcher_check", _ => ConnectionWriteWatcherCheckAsync());
+        host.AddTool("connection_tree_load_check", _ => ConnectionTreeLoadCheckAsync());
         host.AddTool("monitor_suspend_check", _ => MonitorSuspendCheckAsync());
         host.AddTool("terminal_font_sync_check", _ => TerminalFontSyncCheckAsync());
         host.AddTool("ai_panel_lifecycle_check", _ => AiPanelLifecycleCheckAsync());
@@ -275,6 +276,106 @@ internal static class DebugMcpServer
                     return true;
                 });
             }
+        }
+    }
+
+    /// <summary>
+    /// Rebuilding the tree used to read and deserialize every connection file inline on
+    /// the UI thread, which is very visible when the folder is on a network or file-synced
+    /// drive and a sync burst makes the watcher fire repeatedly. Uses an isolated temp
+    /// root — never the user's real connections folder, which may be under sync.
+    /// </summary>
+    private static async Task<JsonObject> ConnectionTreeLoadCheckAsync()
+    {
+        const int foldersCount = 8;
+        const int perFolder = 40;
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "JeekRemoteManager.TreeLoadProbe." + Guid.NewGuid().ToString("N"));
+        var failures = new List<string>();
+
+        try
+        {
+            var store = new ConnectionStore(root);
+            var expected = 0;
+            for (var f = 0; f < foldersCount; f++)
+            {
+                var folder = Path.Combine(root, $"folder{f}");
+                for (var c = 0; c < perFolder; c++)
+                {
+                    store.Save(
+                        new Connection
+                        {
+                            Type = ConnectionType.Ssh,
+                            Name = $"probe{c}",
+                            Host = $"host{c}.invalid",
+                            Port = 22,
+                            Username = "probe",
+                        },
+                        folder);
+                    expected++;
+                }
+            }
+
+            // The read must be safe off the UI thread — that is the entire point.
+            var uiThreadDuringRead = true;
+            var snapshot = await Task.Run(() =>
+            {
+                uiThreadDuringRead = Dispatcher.UIThread.CheckAccess();
+                return store.ReadTree();
+            }).ConfigureAwait(false);
+
+            if (uiThreadDuringRead)
+                failures.Add("the read ran on the UI thread");
+
+            static int Count(ConnectionFolderSnapshot folder) =>
+                folder.Connections.Count + folder.Folders.Sum(Count);
+
+            var found = Count(snapshot);
+            if (found != expected)
+                failures.Add($"expected {expected} connections in the snapshot, found {found}");
+            if (snapshot.Folders.Count != foldersCount)
+                failures.Add($"expected {foldersCount} folders, found {snapshot.Folders.Count}");
+            if (snapshot.Folders.Any(folder => folder.Connections.Count != perFolder))
+                failures.Add("a folder came back with the wrong number of connections");
+            if (snapshot.Connections.Any(entry => entry.Connection.Host.Length == 0))
+                failures.Add("a connection came back unparsed");
+
+            // While a read of that tree is in flight, the dispatcher has to keep running.
+            var ticks = 0;
+            var beat = await OnUiAsync(() =>
+            {
+                var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(5) };
+                timer.Tick += (_, _) => ticks++;
+                timer.Start();
+                return timer;
+            });
+            var reread = Task.Run(() =>
+            {
+                for (var i = 0; i < 5; i++)
+                    store.ReadTree();
+                return true;
+            });
+            await reread.ConfigureAwait(false);
+            await OnUiAsync(() => { beat.Stop(); return true; });
+
+            if (ticks == 0)
+                failures.Add("the dispatcher did not run while the tree was being read");
+
+            var passed = failures.Count == 0;
+            var report =
+                $"{(passed ? "PASS" : "FAIL")}: the connection tree is read off the UI thread\n"
+                + $"connections={found}\n"
+                + $"folders={snapshot.Folders.Count}\n"
+                + $"ranOffUiThread={!uiThreadDuringRead}\n"
+                + $"dispatcherTicksDuringRead={ticks}\n"
+                + $"failures={failures.Count}"
+                + (passed ? "" : "\n" + string.Join("\n", failures));
+            return ToolText(report, isError: !passed);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* best effort */ }
         }
     }
 

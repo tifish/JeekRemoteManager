@@ -949,7 +949,7 @@ public partial class MainWindowViewModel : ViewModelBase
             // Don't clobber an in-progress edit; flush it first so the reload
             // reflects the user's latest changes too.
             FlushPendingAutoSave();
-            ReloadTree();
+            _ = ReloadTreeAsync();
             return;
         }
 
@@ -974,7 +974,7 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             FlushPendingAutoSave();
             ClearClipboard();
-            ReloadTree(_settings.Settings.LastSelectedConnectionPath);
+            _ = ReloadTreeAsync(_settings.Settings.LastSelectedConnectionPath);
             OnPropertyChanged(nameof(RootPath));
             OnPropertyChanged(nameof(TargetDescription));
         }
@@ -1028,9 +1028,37 @@ public partial class MainWindowViewModel : ViewModelBase
     /// reloads twice because the file watcher did not recognise it as ours.</summary>
     internal long TreeReloadCountForDebug { get; private set; }
 
-    private void ReloadTree(string? pathToSelect = null, bool requestFocus = true)
+    /// <summary>
+    /// Reads the tree off the UI thread, then rebuilds the nodes on it. Used wherever the
+    /// reload is not the direct result of a user action — startup and file-watcher
+    /// changes — because reading every connection inline freezes the window, and the
+    /// connections folder is often on a network or file-synced drive.
+    /// </summary>
+    private async Task ReloadTreeAsync(string? pathToSelect = null, bool requestFocus = true)
+    {
+        ConnectionFolderSnapshot snapshot;
+        try
+        {
+            snapshot = await Task.Run(_store.ReadTree).ConfigureAwait(true);
+        }
+        catch
+        {
+            // The root went away mid-read (storage location change, unmounted share).
+            // The synchronous path handles a missing root by producing an empty tree.
+            ReloadTree(pathToSelect, requestFocus);
+            return;
+        }
+
+        ReloadTree(pathToSelect, requestFocus, snapshot);
+    }
+
+    private void ReloadTree(
+        string? pathToSelect = null,
+        bool requestFocus = true,
+        ConnectionFolderSnapshot? snapshot = null)
     {
         TreeReloadCountForDebug++;
+        snapshot ??= _store.ReadTree();
         // Folder expand/collapse state is persisted in AppSettings.CollapsedFolderPaths
         // and applied as each folder node is built, so it survives both in-session
         // rebuilds and restarts. Drop stale entries for folders that no longer exist.
@@ -1051,7 +1079,7 @@ public partial class MainWindowViewModel : ViewModelBase
             Nodes.Add(recentGroup);
         }
 
-        foreach (var child in BuildChildren(_store.RootPath, parent: null))
+        foreach (var child in BuildChildren(snapshot, parent: null))
             Nodes.Add(child);
 
         // Re-apply the "cut" dimming to the source nodes so it survives reloads.
@@ -1247,33 +1275,25 @@ public partial class MainWindowViewModel : ViewModelBase
         return group;
     }
 
-    private ObservableCollection<TreeNodeViewModel> BuildChildren(string folderPath, TreeNodeViewModel? parent)
+    /// <summary>Turns an already-read folder snapshot into tree nodes. Pure in-memory
+    /// work, so it stays on the UI thread where the nodes are bound.</summary>
+    private ObservableCollection<TreeNodeViewModel> BuildChildren(
+        ConnectionFolderSnapshot folder,
+        TreeNodeViewModel? parent)
     {
         var result = new ObservableCollection<TreeNodeViewModel>();
 
-        foreach (var dir in _store.GetSubFolders(folderPath))
+        foreach (var directory in folder.Folders)
         {
-            var node = new TreeNodeViewModel(dir, isFolder: true) { Parent = parent };
-            foreach (var child in BuildChildren(dir, node))
+            var node = new TreeNodeViewModel(directory.Path, isFolder: true) { Parent = parent };
+            foreach (var child in BuildChildren(directory, node))
                 node.Children.Add(child);
             ApplyPersistedExpansion(node);
             result.Add(node);
         }
 
-        foreach (var file in _store.GetConnectionFiles(folderPath))
-        {
-            Connection connection;
-            try
-            {
-                connection = _store.Load(file);
-            }
-            catch
-            {
-                continue; // skip unreadable files
-            }
-
+        foreach (var (file, connection) in folder.Connections)
             result.Add(new TreeNodeViewModel(file, isFolder: false, connection) { Parent = parent });
-        }
 
         return result;
     }
