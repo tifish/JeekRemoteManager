@@ -770,9 +770,13 @@ internal static class DebugMcpServer
                         new AuthenticationPrompt(index, prompt.Echoed, prompt.Request))
                     .ToList());
 
-        void Expect(string name, AuthenticationPromptEventArgs challenge, params string?[] expected)
+        void Verify(
+            string name,
+            SshConnectionFactory.KeyboardInteractiveConversation conversation,
+            AuthenticationPromptEventArgs challenge,
+            params string?[] expected)
         {
-            SshConnectionFactory.AnswerPasswordPrompts(challenge, secret);
+            SshConnectionFactory.AnswerPasswordPrompts(challenge, secret, conversation);
             var actual = challenge.Prompts.Select(prompt => prompt.Response).ToArray();
             if (actual.Length != expected.Length
                 || actual.Where((response, i) => response != expected[i]).Any())
@@ -782,6 +786,10 @@ internal static class DebugMcpServer
                     + $"but got [{string.Join(", ", actual.Select(v => v ?? "<null>"))}]");
             }
         }
+
+        // Each single-round case gets a fresh conversation, like a fresh connect would.
+        void Expect(string name, AuthenticationPromptEventArgs challenge, params string?[] expected) =>
+            Verify(name, new SshConnectionFactory.KeyboardInteractiveConversation(), challenge, expected);
 
         Expect("english", Challenge(("Password: ", false)), secret);
         Expect("chinese", Challenge(("密码：", false)), secret);
@@ -801,6 +809,36 @@ internal static class DebugMcpServer
             Challenge(("Last login banner", true), ("密码：", false)),
             null,
             secret);
+
+        // The real MFA shape: the second factor arrives as its own round, one hidden
+        // prompt and nothing else — indistinguishable by shape from an unlabelled
+        // password challenge. Answering it burns an attempt against the lockout counter.
+        {
+            var mfa = new SshConnectionFactory.KeyboardInteractiveConversation();
+            Verify("mfa round 1 password", mfa, Challenge(("Password: ", false)), secret);
+            Verify("mfa round 2 verification code", mfa, Challenge(("Verification code: ", false)),(string?)null);
+        }
+
+        // Same, with the first round unlabelled so only the fallback answered it.
+        {
+            var mfa = new SshConnectionFactory.KeyboardInteractiveConversation();
+            Verify("unlabelled round 1", mfa, Challenge(("(current) UNIX: ", false)), secret);
+            Verify("unlabelled round 2 is not answered", mfa, Challenge(("Enter response: ", false)),(string?)null);
+        }
+
+        // A lone OTP prompt with no preceding password round must still be refused.
+        Expect("lone verification code prompt", Challenge(("Verification code: ", false)),(string?)null);
+        Expect("lone duo passcode prompt", Challenge(("Passcode or option (1-3): ", false)),(string?)null);
+        Expect("lone one-time password prompt", Challenge(("One-time password: ", false)),(string?)null);
+        Expect("lone authenticator prompt", Challenge(("Authenticator code: ", false)),(string?)null);
+        Expect("lone chinese otp prompt", Challenge(("验证码：", false)),(string?)null);
+        Expect("lone token prompt", Challenge(("Token: ", false)),(string?)null);
+        // A password prompt that merely mentions two-factor setup is still refused
+        // rather than risk feeding the password into a second-factor field.
+        Expect(
+            "two-factor wording wins over password wording",
+            Challenge(("Two-factor code (not your password): ", false)),
+            (string?)null);
 
         // A configured key path that does not exist must be named, not swallowed into a
         // generic "no usable credential" that sends the user hunting.

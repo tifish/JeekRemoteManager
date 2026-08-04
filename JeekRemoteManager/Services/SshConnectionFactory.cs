@@ -62,7 +62,10 @@ public static class SshConnectionFactory
             methods.Add(new PasswordAuthenticationMethod(user, password));
 
             var keyboard = new KeyboardInteractiveAuthenticationMethod(user);
-            keyboard.AuthenticationPrompt += (_, e) => AnswerPasswordPrompts(e, password);
+            // State is per ConnectionInfo, and every caller builds a fresh one per
+            // connect attempt, so this tracks exactly one authentication conversation.
+            var conversation = new KeyboardInteractiveConversation();
+            keyboard.AuthenticationPrompt += (_, e) => AnswerPasswordPrompts(e, password, conversation);
             methods.Add(keyboard);
         }
         else
@@ -95,33 +98,70 @@ public static class SshConnectionFactory
         return new ConnectionInfo(host, port, user, methods.ToArray());
     }
 
+    /// <summary>Per-authentication state: keyboard-interactive is a multi-round
+    /// conversation, and what is safe to answer depends on what came before.</summary>
+    internal sealed class KeyboardInteractiveConversation
+    {
+        public bool PasswordSupplied { get; set; }
+    }
+
     /// <summary>
     /// Fills in keyboard-interactive prompts. Matching the English word "password" is
     /// only a heuristic: a server running under a non-English locale asks for "密码" or
     /// "Passwort", and the request text is whatever PAM was configured to print. So the
-    /// keyword is treated as a strong hint, and an unmatched single hidden prompt — which
-    /// is what a plain password challenge looks like on the wire — is answered too.
-    /// Echoed prompts are never answered: those ask for a username or a one-time code,
-    /// and sending the password there would leak it into the server's logs.
+    /// keyword is a strong hint, and an unlabelled single hidden prompt is answered too.
+    ///
+    /// Two things are never answered with the password:
+    ///
+    /// Echoed prompts, which ask for a user name or an OTP — sending the password there
+    /// puts it in the server's logs.
+    ///
+    /// Anything that reads as a second factor. MFA's second round is usually one hidden
+    /// "Verification code:" prompt and nothing else, which is shaped exactly like the
+    /// unlabelled password challenge the fallback exists for. Submitting the password as
+    /// the code fails the login and burns an attempt against the lockout counter, so
+    /// second-factor wording is refused outright, and the fallback additionally gives up
+    /// once the password has already been supplied in this conversation.
     /// </summary>
-    internal static void AnswerPasswordPrompts(AuthenticationPromptEventArgs e, string password)
+    internal static void AnswerPasswordPrompts(
+        AuthenticationPromptEventArgs e,
+        string password,
+        KeyboardInteractiveConversation conversation)
     {
         var prompts = e.Prompts.ToArray();
         var answered = false;
         foreach (var prompt in prompts)
         {
-            if (prompt.IsEchoed || !LooksLikePasswordPrompt(prompt.Request))
+            if (prompt.IsEchoed
+                || LooksLikeSecondFactorPrompt(prompt.Request)
+                || !LooksLikePasswordPrompt(prompt.Request))
+            {
                 continue;
+            }
+
             prompt.Response = password;
             answered = true;
         }
 
         if (answered)
+        {
+            conversation.PasswordSupplied = true;
+            return;
+        }
+
+        // The password has already gone out, so a further unlabelled hidden prompt is
+        // the next factor, not a retry of the first one.
+        if (conversation.PasswordSupplied)
             return;
 
-        var hidden = prompts.Where(prompt => !prompt.IsEchoed).ToArray();
-        if (hidden.Length == 1)
-            hidden[0].Response = password;
+        var hidden = prompts
+            .Where(prompt => !prompt.IsEchoed && !LooksLikeSecondFactorPrompt(prompt.Request))
+            .ToArray();
+        if (hidden.Length != 1 || prompts.Any(prompt => LooksLikeSecondFactorPrompt(prompt.Request)))
+            return;
+
+        hidden[0].Response = password;
+        conversation.PasswordSupplied = true;
     }
 
     private static readonly string[] PasswordPromptKeywords =
@@ -140,6 +180,50 @@ public static class SshConnectionFactory
 
     private static bool LooksLikePasswordPrompt(string request) =>
         PasswordPromptKeywords.Any(keyword =>
+            request.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Wording used by the second factor of an MFA login. Deliberately specific phrases:
+    /// a bare "code" would also match "passcode", and mis-classifying the first-round
+    /// password prompt would break plain password logins.
+    /// </summary>
+    private static readonly string[] SecondFactorPromptKeywords =
+    [
+        "verification code",
+        "verify code",
+        "one-time",
+        "one time",
+        "onetime",
+        "otp",
+        "passcode",
+        "security code",
+        "authenticator",
+        "two-factor",
+        "two factor",
+        "second factor",
+        "2fa",
+        "duo",
+        "yubikey",
+        "token:",             // "Token:" as a whole prompt, not "token" inside prose
+        "验证码",              // Simplified/Traditional Chinese
+        "动态口令",
+        "动态码",
+        "令牌",
+        "確認コード",           // Japanese
+        "ワンタイム",
+        "인증 코드",            // Korean
+        "일회용",
+        "bestätigungscode",   // German
+        "einmalcode",
+        "code de vérification", // French
+        "code à usage unique",
+        "código de verificación", // Spanish
+        "код подтверждения",  // Russian
+        "одноразов",
+    ];
+
+    private static bool LooksLikeSecondFactorPrompt(string request) =>
+        SecondFactorPromptKeywords.Any(keyword =>
             request.Contains(keyword, StringComparison.OrdinalIgnoreCase));
 
     private static PrivateKeyFile? TryLoadKey(string path, string? passphrase)
