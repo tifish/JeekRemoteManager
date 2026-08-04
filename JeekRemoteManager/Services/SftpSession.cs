@@ -64,13 +64,13 @@ public sealed class SftpSession : IFileSystemSession
                 catch (Exception ex) when (ShouldRetryAfterReconnect(ex, client))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
+                    // Drop the dead client either way; the next operation redials through
+                    // EnsureConnected. Nothing reconnects here for a non-idempotent
+                    // operation — it is reported as failed, because it may well have
+                    // taken effect on the server before the transport went away.
                     DisposeClient();
                     if (retry == FileSystemRetry.Once)
-                    {
-                        // Reconnect anyway so the next operation starts clean, but let
-                        // this one fail: it may well have taken effect on the server.
                         throw;
-                    }
 
                     return operation(new SftpOps(EnsureConnected()));
                 }
