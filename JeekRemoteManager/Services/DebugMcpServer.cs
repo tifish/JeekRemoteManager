@@ -160,8 +160,19 @@ internal static class DebugMcpServer
     private static async Task<JsonObject> TerminalTabLifecycleCheckAsync()
     {
         const int cycles = 5;
-        var weakViews = new List<WeakReference<TerminalView>>(cycles);
 
+        // Detaching a visual marks it dirty on the window's renderer, and that set is
+        // only emptied inside a render pass. So the window has to be on screen, and the
+        // measurement has to allow for at least one pass — otherwise this reports the
+        // renderer's normal hand-off as a leak. See the retention note below.
+        await OnUiAsync(() =>
+        {
+            (Desktop?.MainWindow as Views.MainWindow)?.ActivateMainWindow();
+            return true;
+        });
+        await Task.Delay(250);
+
+        var weakViews = new List<WeakReference<TerminalView>>(cycles);
         for (var i = 0; i < cycles; i++)
             weakViews.Add(await CreateAndCloseTerminalLifecycleProbeAsync());
 
@@ -170,16 +181,119 @@ internal static class DebugMcpServer
         // five measured views have no probe-owned strong reference.
         _ = await CreateAndCloseTerminalLifecycleProbeAsync();
 
-        // Let removal/unload work drain before forcing a compacting collection.
-        await Task.Delay(100);
-        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
-        GC.WaitForPendingFinalizers();
-        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+        // Poll rather than sample once: what matters is that a closed view is not
+        // retained indefinitely, and the renderer hands it over on its own schedule.
+        var alive = cycles;
+        var waited = 0;
+        const int stepMs = 200;
+        const int limitMs = 10_000;
+        while (waited < limitMs)
+        {
+            await OnUiAsync(() =>
+            {
+                // Give the renderer something to do, so a pass is guaranteed to run.
+                Desktop?.MainWindow?.InvalidateVisual();
+                return true;
+            });
+            await Task.Delay(stepMs);
+            waited += stepMs;
 
-        var alive = weakViews.Count(reference => reference.TryGetTarget(out _));
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+            GC.WaitForPendingFinalizers();
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+
+            alive = weakViews.Count(reference => reference.TryGetTarget(out _));
+            if (alive == 0)
+                break;
+        }
+
+        if (alive == 0)
+        {
+            return ToolText(
+                "PASS: closed terminal views are collectible.\n"
+                + $"cycles={cycles}\nalive=0\nreleasedAfterMs={waited}");
+        }
+
+        // Survivors are only a leak if something other than the renderer is holding them.
+        // Detaching a visual marks it dirty, and that set is emptied inside a render pass;
+        // a window that is hidden (this app closes to tray) or not being composited at all
+        // simply has not run one yet, and everything is released as soon as it does.
+        var (pending, rendererState) = await OnUiAsync(() => CountPendingInRendererDirtySet(weakViews));
+        var leaked = alive - pending;
+        var passed = leaked == 0;
         return ToolText(
-            $"{(alive == 0 ? "PASS" : "FAIL")}: closed terminal views are collectible.\n"
-            + $"cycles={cycles}\nalive={alive}");
+            $"{(passed ? "PASS" : "FAIL")}: closed terminal views are collectible.\n"
+            + $"cycles={cycles}\n"
+            + $"alive={alive}\n"
+            + $"awaitingRenderPass={pending}\n"
+            + $"leaked={leaked}\n"
+            + $"renderer={rendererState}",
+            isError: !passed);
+    }
+
+    /// <summary>
+    /// How many of <paramref name="views"/> are sitting in the window renderer's dirty
+    /// set, plus a short description of that renderer. Reaches into Avalonia internals on
+    /// purpose: there is no public way to ask, and telling "queued for the next render
+    /// pass" apart from "genuinely leaked" is the whole point of this check.
+    /// Returns -1 pending when the internals cannot be read, so the check stays strict.
+    /// </summary>
+    private static (int Pending, string RendererState) CountPendingInRendererDirtySet(
+        IEnumerable<WeakReference<TerminalView>> views)
+    {
+        try
+        {
+            var topLevel = Desktop?.MainWindow;
+            if (topLevel is null)
+                return (0, "no main window");
+
+            var source = ReadMember(topLevel, "PresentationSource");
+            var renderer = source is null ? null : ReadMember(source, "Renderer");
+            if (renderer is null)
+                return (-1, "renderer not reachable");
+
+            if (ReadMember(renderer, "_dirty") is not System.Collections.IEnumerable dirty)
+                return (-1, "dirty set not reachable");
+
+            var dirtyVisuals = dirty.Cast<object>().ToHashSet();
+            var pending = views.Count(reference =>
+                reference.TryGetTarget(out var view) && dirtyVisuals.Contains(view));
+
+            var compositionTarget = ReadMember(renderer, "CompositionTarget");
+            var enabled = compositionTarget is null ? null : ReadMember(compositionTarget, "IsEnabled");
+            return (
+                pending,
+                $"dirtyCount={dirtyVisuals.Count}; windowVisible={topLevel.IsVisible}; enabled={enabled ?? "?"}");
+        }
+        catch (Exception ex)
+        {
+            return (-1, $"inspection failed: {ex.GetType().Name}");
+        }
+    }
+
+    /// <summary>Reads a property or field by name, walking the declaring hierarchy so a
+    /// name redeclared on a base type does not come back ambiguous.</summary>
+    private static object? ReadMember(object instance, string name)
+    {
+        const System.Reflection.BindingFlags flags =
+            System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.Public
+            | System.Reflection.BindingFlags.NonPublic
+            | System.Reflection.BindingFlags.DeclaredOnly;
+
+        for (var type = instance.GetType(); type is not null; type = type.BaseType)
+        {
+            var property = type.GetProperties(flags)
+                .FirstOrDefault(candidate => candidate.Name == name && candidate.GetIndexParameters().Length == 0);
+            if (property is not null)
+                return property.GetValue(instance);
+
+            var field = type.GetFields(flags).FirstOrDefault(candidate => candidate.Name == name);
+            if (field is not null)
+                return field.GetValue(instance);
+        }
+
+        return null;
     }
 
     private static async Task<WeakReference<TerminalView>> CreateAndCloseTerminalLifecycleProbeAsync()
