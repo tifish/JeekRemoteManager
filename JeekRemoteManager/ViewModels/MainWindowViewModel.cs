@@ -368,6 +368,9 @@ public partial class MainWindowViewModel : ViewModelBase
     /// so it must be invoked off the UI thread (the SSH handshake runs in the background).</summary>
     public Func<string, int, string, string, bool>? ConfirmHostKeyTrust { get; set; }
 
+    /// <summary>Prompts before replacing a remembered SSH host key.</summary>
+    public Func<string, int, string, string, string, bool>? ConfirmHostKeyReplacement { get; set; }
+
     /// <summary>Set by the view to push a new font size to all open terminals.</summary>
     public Action<int>? ApplyTerminalFontSize { get; set; }
 
@@ -2399,7 +2402,11 @@ public partial class MainWindowViewModel : ViewModelBase
     public Task CopyPublicKeyToServerAsync(Connection connection) =>
         CopyPublicKeyToServerAsync(
             connection,
-            publicKeyText => PublicKeyInstaller.InstallAsync(connection, publicKeyText, ConfirmHostKeyTrust));
+            publicKeyText => PublicKeyInstaller.InstallAsync(
+                connection,
+                publicKeyText,
+                ConfirmHostKeyTrust,
+                ConfirmHostKeyReplacement));
 
     /// <summary>
     /// Installs the local public key on the given connection's host

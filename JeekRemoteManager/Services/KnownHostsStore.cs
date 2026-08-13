@@ -52,6 +52,16 @@ public static class KnownHostsStore
         }
     }
 
+    /// <summary>Returns the trusted fingerprint for a host, if one is stored.</summary>
+    public static bool TryGet(string host, int port, out string fingerprintSha256)
+    {
+        lock (Gate)
+        {
+            using var lease = SharedDataFile.Acquire(FilePath);
+            return Load().TryGetValue(Key(host, port), out fingerprintSha256!);
+        }
+    }
+
     /// <summary>Every trusted host, keyed by <c>host:port</c>, with its SHA256 fingerprint.</summary>
     public static IReadOnlyDictionary<string, string> All()
     {

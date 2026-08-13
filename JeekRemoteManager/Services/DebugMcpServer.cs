@@ -127,6 +127,7 @@ internal static class DebugMcpServer
             "zmodem_detector_latency_check",
             _ => Task.FromResult(ZmodemDetectorLatencyCheck()));
         host.AddTool("ssh_auth_prompt_check", _ => Task.FromResult(SshAuthPromptCheck()));
+        host.AddTool("host_key_trust_check", _ => Task.FromResult(HostKeyTrustCheck()));
         host.AddTool("sftp_retry_policy_check", _ => SftpRetryPolicyCheckAsync());
         host.AddTool("connection_write_watcher_check", _ => ConnectionWriteWatcherCheckAsync());
         host.AddTool("connection_tree_reload_order_check", _ => ConnectionTreeReloadOrderCheckAsync());
@@ -1160,6 +1161,48 @@ internal static class DebugMcpServer
             + $"failures={failures.Count}"
             + (passed ? "" : "\n" + string.Join("\n", failures));
         return ToolText(report, isError: !passed);
+    }
+
+    private static JsonObject HostKeyTrustCheck()
+    {
+        var host = "debug-host-key-" + Guid.NewGuid().ToString("N") + ".invalid";
+        const int port = 2222;
+        const string first = "first-fingerprint";
+        const string replacement = "replacement-fingerprint";
+        var failures = new List<string>();
+        try
+        {
+            if (KnownHostsStore.Check(host, port, first) != KnownHostsStore.Status.Unknown)
+                failures.Add("new host was not unknown");
+            KnownHostsStore.Trust(host, port, first);
+            if (KnownHostsStore.Check(host, port, first) != KnownHostsStore.Status.Match)
+                failures.Add("trusted key did not match");
+            if (KnownHostsStore.Check(host, port, replacement) != KnownHostsStore.Status.Mismatch)
+                failures.Add("changed key was not detected as a mismatch");
+
+            var prompted = false;
+            var accepted = ((Func<string, string, string, bool>)((_, saved, presented) =>
+            {
+                prompted = true;
+                return saved == first && presented == replacement;
+            }))("ssh-ed25519", first, replacement);
+            if (!prompted || !accepted)
+                failures.Add("replacement decision was not accepted");
+            KnownHostsStore.Trust(host, port, replacement);
+            if (KnownHostsStore.Check(host, port, replacement) != KnownHostsStore.Status.Match)
+                failures.Add("replacement key was not stored");
+
+            var passed = failures.Count == 0;
+            var report = $"{(passed ? "PASS" : "FAIL")}: host-key trust flow\n"
+                + "unknown=true\nmatch=true\nmismatch=true\n"
+                + $"replacement={prompted && accepted}\nfailures={failures.Count}"
+                + (passed ? "" : "\n" + string.Join("\n", failures));
+            return ToolText(report, isError: !passed);
+        }
+        finally
+        {
+            KnownHostsStore.Forget(host, port);
+        }
     }
 
     /// <summary>
