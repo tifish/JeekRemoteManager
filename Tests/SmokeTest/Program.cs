@@ -95,33 +95,36 @@ try
     var globalEntry = globalJson?["mcpServers"]?[AgentProjectLink.ApplicationMcpServerName] as JsonObject;
     var globalCodex = File.ReadAllText(
         Path.Combine(globalMcpProject, ".codex", "config.toml"));
-    var expectedGlobalInstance = AgentWorkspaceLink.AdapterInstanceId;
-    var globalJsonRouteOk = expectedGlobalInstance is null
-        ? globalEntry?["args"] is null
-        : globalEntry?["args"] is JsonArray globalArgs
-          && globalArgs.Select(node => node?.GetValue<string>())
-              .SequenceEqual(["--instance", expectedGlobalInstance]);
-    var globalCodexRouteOk = expectedGlobalInstance is null
-        ? !globalCodex.Contains("--instance", StringComparison.Ordinal)
-        : globalCodex.Contains(
-            $"args = [\"--instance\", \"{expectedGlobalInstance}\"]",
-            StringComparison.Ordinal);
+    var globalLauncher = File.ReadAllText(
+        Path.Combine(globalMcpProject, AgentMcpConfigCatalog.ProjectLauncherFileName));
+    var globalJsonArgs = (globalEntry?["args"] as JsonArray)?
+        .Select(node => node?.GetValue<string>())
+        .ToArray() ?? [];
     Check(globalAgents.Contains("BEGIN JeekRemoteManager link: application", StringComparison.Ordinal)
           && globalAgents.Contains("connection_list", StringComparison.Ordinal)
           && globalAgents.Contains("whole application", StringComparison.Ordinal)
-          && globalEntry?["command"]?.GetValue<string>() == McpAdapterRegistry.AdapterPath
-          && globalJsonRouteOk
+          && globalAgents.Contains("%LocalAppData%", StringComparison.Ordinal)
+          && !globalAgents.Contains(Environment.UserName, StringComparison.Ordinal)
+          && globalEntry?["command"]?.GetValue<string>() == "cmd"
+          && globalJsonArgs.SequenceEqual(["/c", AgentMcpConfigCatalog.ProjectLauncherRelativeCommand])
+          && globalEntry["cwd"]?.GetValue<string>() == "."
           && globalEntry["url"] is null
+          && !globalJsonArgs.Contains("--instance")
           && globalJson?["mcpServers"]?["other"] is not null
+          && globalLauncher.Contains("%LocalAppData%", StringComparison.Ordinal)
+          && globalLauncher.Contains(AgentMcpConfigCatalog.ProjectLauncherMarker, StringComparison.Ordinal)
+          && !globalLauncher.Contains("--app", StringComparison.Ordinal)
+          && !globalCodex.Contains(Environment.UserName, StringComparison.Ordinal)
           && globalCodex.Contains(
               $"[mcp_servers.{AgentProjectLink.ApplicationMcpServerName}]",
               StringComparison.Ordinal)
+          && globalCodex.Contains("command = \"cmd\"", StringComparison.Ordinal)
           && !globalCodex.Contains("--connection", StringComparison.Ordinal)
-          && globalCodexRouteOk
+          && !globalCodex.Contains("--instance", StringComparison.Ordinal)
           && globalCodex.Contains(
               "default_tools_approval_mode = \"approve\"",
               StringComparison.Ordinal),
-          "Application-wide project MCP link uses the fixed adapter and preserves existing config");
+          "Application-wide project MCP link uses a portable launcher and preserves existing config");
 
     var generatedGlobalRoot = Path.Combine(root, "agent-workspaces");
     var generatedGlobalWorkspace = AgentCliWorkspace.EnsureApplication(
@@ -189,8 +192,27 @@ try
           && globalJson?["mcpServers"]?[AgentProjectLink.ApplicationMcpServerName] is null
           && globalJson?["mcpServers"]?["other"] is not null
           && !globalCodex.Contains(AgentProjectLink.ApplicationMcpServerName, StringComparison.Ordinal)
-          && globalCodex.Contains("model = \"gpt-5\"", StringComparison.Ordinal),
+          && globalCodex.Contains("model = \"gpt-5\"", StringComparison.Ordinal)
+          && !File.Exists(Path.Combine(globalMcpProject, AgentMcpConfigCatalog.ProjectLauncherFileName)),
           "Removing the application-wide MCP link restores the project's own content");
+
+    var worktreeProject = Path.Combine(root, "worktree-mcp-project");
+    Directory.CreateDirectory(worktreeProject);
+    File.WriteAllText(
+        Path.Combine(worktreeProject, "JeekRemoteManagerDebugMcp.cmd"),
+        "@echo off\n");
+    var worktreeRejected = false;
+    try
+    {
+        AgentProjectLink.WriteApplicationInto(worktreeProject, mcpToolsAutoApprove: true);
+    }
+    catch (InvalidOperationException ex)
+    {
+        worktreeRejected = ex.Message.Contains("Debug MCP", StringComparison.Ordinal);
+    }
+    Check(worktreeRejected
+          && !File.Exists(Path.Combine(worktreeProject, AgentMcpConfigCatalog.ProjectLauncherFileName)),
+          "A JeekRemoteManager worktree rejects product MCP writes and keeps only Debug MCP");
 
     var repoRoot = FindRepoRoot();
     var terminalViewXaml = File.ReadAllText(Path.Combine(

@@ -41,9 +41,9 @@ public sealed record AgentWorkspaceLink(
         $"{AgentCliWorkspace.McpServerName}-{AgentProjectLink.Slugify(NormalizedRelativePath)}";
 
     /// <summary>
-    /// The stdio adapter agents launch from its fixed per-user location. It resolves the registered
-    /// application instance and reconnects on its own, so project configs never contain an install
-    /// directory and remain valid when the application moves.
+    /// Absolute adapter path for generated (machine-local) workspaces. Linked projects do not
+    /// write this — they launch <see cref="AgentMcpConfigCatalog.ProjectLauncherFileName"/> so
+    /// committed files never contain a username.
     /// </summary>
     public static string AdapterPath =>
         McpAdapterRegistry.AdapterPath;
@@ -60,9 +60,10 @@ public sealed record AgentWorkspaceLink(
 /// without the user opening the workspace. Unlike the generated workspace, this folder belongs
 /// to the user: entries are merged in and removed again, never written over.
 ///
-/// This is a one-shot write, not an association: the MCP entry launches the local
-/// <c>JeekRemoteManagerMcp</c> adapter over a named pipe, so there is no URL, port, or token that could
-/// expire and nothing to keep in sync afterwards.
+/// This is a one-shot write, not an association: the MCP entry launches a portable
+/// <c>JeekRemoteManagerMcp.cmd</c> next to the project (which expands <c>%LocalAppData%</c>
+/// at runtime), so the files can be committed and work on every computer. There is no
+/// URL, port, token, or username path that could go stale.
 /// </summary>
 public static class AgentProjectLink
 {
@@ -91,7 +92,8 @@ public static class AgentProjectLink
             link.ProjectMcpServerName,
             BuildReferenceBlock(link),
             link.NormalizedConnectionPath,
-            link.McpToolsAutoApprove);
+            link.McpToolsAutoApprove,
+            portable: true);
         return project;
     }
 
@@ -116,7 +118,14 @@ public static class AgentProjectLink
     {
         var project = NormalizeDirectory(projectDirectory);
         ValidateProjectDirectory(project);
-        WriteApplicationWorkspace(project, mcpToolsAutoApprove);
+        Apply(
+            project,
+            ApplicationMarker,
+            ApplicationMcpServerName,
+            BuildApplicationReferenceBlock(portable: true),
+            connectionPath: null,
+            mcpToolsAutoApprove,
+            portable: true);
         return project;
     }
 
@@ -136,9 +145,10 @@ public static class AgentProjectLink
             project,
             ApplicationMarker,
             ApplicationMcpServerName,
-            BuildApplicationReferenceBlock(),
+            BuildApplicationReferenceBlock(portable: false),
             connectionPath: null,
-            mcpToolsAutoApprove);
+            mcpToolsAutoApprove,
+            portable: false);
     }
 
     /// <summary>Removes only the application-wide block and MCP entry from a project.</summary>
@@ -156,7 +166,8 @@ public static class AgentProjectLink
         string serverName,
         string body,
         string? connectionPath,
-        bool mcpToolsAutoApprove)
+        bool mcpToolsAutoApprove,
+        bool portable)
     {
         UpsertMarkdownBlock(Path.Combine(projectDirectory, "AGENTS.md"), marker, body);
 
@@ -177,7 +188,8 @@ public static class AgentProjectLink
             marker,
             serverName,
             connectionPath,
-            mcpToolsAutoApprove);
+            mcpToolsAutoApprove,
+            portable);
     }
 
     /// <summary>
@@ -216,6 +228,42 @@ public static class AgentProjectLink
                 DeleteIfEmpty(path, removeEmptyFolder: target.HasOwnFolder);
             }
         }
+
+        TryDeleteUnusedProjectLauncher(projectDirectory);
+    }
+
+    /// <summary>
+    /// Drops the portable launcher once no MCP config still points at it. Customized scripts
+    /// (missing our marker) are left alone.
+    /// </summary>
+    private static void TryDeleteUnusedProjectLauncher(string projectDirectory)
+    {
+        var path = Path.Combine(projectDirectory, AgentMcpConfigCatalog.ProjectLauncherFileName);
+        if (!File.Exists(path)
+            || !AgentMcpConfigCatalog.IsGeneratedProjectLauncher(ReadTextOrEmpty(path))
+            || ProjectReferencesLauncher(projectDirectory))
+        {
+            return;
+        }
+
+        TryDeleteFile(path);
+    }
+
+    private static bool ProjectReferencesLauncher(string projectDirectory)
+    {
+        foreach (var target in AgentMcpConfigCatalog.All)
+        {
+            var path = target.ResolvePath(projectDirectory);
+            if (File.Exists(path)
+                && ReadTextOrEmpty(path).Contains(
+                    AgentMcpConfigCatalog.ProjectLauncherFileName,
+                    StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     #region Reference block
@@ -225,8 +273,6 @@ public static class AgentProjectLink
         var relative = link.NormalizedRelativePath;
         var connection = link.NormalizedConnectionPath;
         var server = link.ProjectMcpServerName;
-        var workspaceAgents = Path.Combine(link.WorkspaceDirectory, "AGENTS.md");
-
         var sb = new StringBuilder();
         sb.Append("## Remote server via JeekRemoteManager — `").Append(relative).Append("`\n\n");
         sb.Append("JeekRemoteManager keeps an interactive **")
@@ -252,16 +298,18 @@ public static class AgentProjectLink
         sb.Append("- Passwords and two-factor codes are typed by the user in that window and are ")
           .Append("never accepted as tool arguments; no tool returns a stored password.\n");
         sb.Append("- Full operating rules, tool table, and safety notes for this connection:\n  `")
-          .Append(workspaceAgents).Append("`\n");
-        sb.Append("- The configs below launch a local adapter that talks to JeekRemoteManager over a ")
-          .Append("named pipe; it starts the app if it is closed and survives restarts, so there is ")
-          .Append("no URL to expire. JeekRemoteManager rewrites this block — do not edit it by hand.\n\n");
+          .Append(PortableWorkspaceAgentsPath(relative)).Append("`\n");
+        sb.Append("- The configs below launch `")
+          .Append(AgentMcpConfigCatalog.ProjectLauncherFileName)
+          .Append("` (which expands `%LocalAppData%` at runtime) so they can be committed and ")
+          .Append("work on every computer. There is no URL to expire. JeekRemoteManager rewrites ")
+          .Append("this block — do not edit it by hand.\n\n");
         foreach (var line in AgentMcpConfigCatalog.DocTableLines())
             sb.Append(line).Append('\n');
         return sb.ToString();
     }
 
-    private static string BuildApplicationReferenceBlock()
+    private static string BuildApplicationReferenceBlock(bool portable)
     {
         var sb = new StringBuilder();
         sb.AppendLine("## Control JeekRemoteManager through MCP");
@@ -276,7 +324,11 @@ public static class AgentProjectLink
         sb.AppendLine("- This application-wide server is not pinned to one connection. It can manage the connection tree and control any open or saved connection, subject to the tool's confirmation rules.");
         sb.AppendLine("- Use `terminal_run_danger` for destructive work so the user is asked to confirm in the JeekRemoteManager window.");
         sb.AppendLine("- Passwords and two-factor codes are entered in that window and are never returned by MCP tools.");
-        sb.AppendLine("- The local adapter starts JeekRemoteManager if needed and talks to it over a named pipe; there is no URL, port, or token to expire.");
+        sb.AppendLine(portable
+            ? "- The configs below launch `"
+              + AgentMcpConfigCatalog.ProjectLauncherFileName
+              + "` (which expands `%LocalAppData%` at runtime) so they can be committed and work on every computer. There is no URL, port, or token to expire."
+            : "- The local adapter starts JeekRemoteManager if needed and talks to it over a named pipe; there is no URL, port, or token to expire.");
         sb.AppendLine();
         foreach (var line in AgentMcpConfigCatalog.DocTableLines())
             sb.AppendLine(line);
@@ -292,17 +344,24 @@ public static class AgentProjectLink
 
     /// <summary>
     /// Merges this connection's MCP server into the project's agent configs without disturbing
-    /// entries the project already had. The entry is a stdio launch of the adapter pinned to
-    /// this connection — no URL, no port, no token, so nothing here expires between app runs.
+    /// entries the project already had. The entry launches the portable
+    /// <c>JeekRemoteManagerMcp.cmd</c> next to the project — no expanded username path, no
+    /// <c>--instance</c>, no URL — so the files can be committed and work on every computer.
     /// </summary>
     private static void WriteProjectMcpConfigs(
         string projectDirectory,
         string marker,
         string serverName,
         string? connectionPath,
-        bool mcpToolsAutoApprove)
+        bool mcpToolsAutoApprove,
+        bool portable)
     {
-        var adapter = AgentWorkspaceLink.AdapterPath;
+        var launch = portable
+            ? WritePortableLaunch(projectDirectory, connectionPath)
+            : AgentMcpConfigCatalog.AdapterLaunch.Direct(
+                AgentWorkspaceLink.AdapterPath,
+                connectionPath,
+                AgentWorkspaceLink.AdapterInstanceId);
 
         foreach (var target in AgentMcpConfigCatalog.All)
         {
@@ -313,11 +372,7 @@ public static class AgentProjectLink
                     path,
                     target,
                     serverName,
-                    AgentMcpConfigCatalog.BuildJsonEntry(
-                        target,
-                        adapter,
-                        connectionPath,
-                        AgentWorkspaceLink.AdapterInstanceId),
+                    AgentMcpConfigCatalog.BuildJsonEntry(target, launch),
                     mcpToolsAutoApprove);
             }
             else
@@ -328,12 +383,26 @@ public static class AgentProjectLink
                     AgentMcpConfigCatalog.BuildTomlEntry(
                         target,
                         serverName,
-                        adapter,
-                        connectionPath,
-                        mcpToolsAutoApprove,
-                        AgentWorkspaceLink.AdapterInstanceId));
+                        launch,
+                        mcpToolsAutoApprove));
             }
         }
+    }
+
+    /// <summary>
+    /// Writes (or refreshes) the committed <c>cmd</c> launcher. It expands
+    /// <c>%LocalAppData%</c> at runtime and talks to the installed Release instance.
+    /// </summary>
+    private static AgentMcpConfigCatalog.AdapterLaunch WritePortableLaunch(
+        string projectDirectory,
+        string? connectionPath)
+    {
+        var path = Path.Combine(projectDirectory, AgentMcpConfigCatalog.ProjectLauncherFileName);
+        File.WriteAllText(
+            path,
+            AgentMcpConfigCatalog.BuildProjectLauncherScript(),
+            Utf8);
+        return AgentMcpConfigCatalog.AdapterLaunch.PortableProject(connectionPath);
     }
 
     private static void MergeMcpJson(
@@ -588,6 +657,15 @@ public static class AgentProjectLink
             throw new InvalidOperationException(
                 "Pick a project folder outside the JeekRemoteManager agent workspaces.");
         }
+
+        // This repository already has Debug MCP (JeekRemoteManagerDebugMcp.cmd). Product
+        // configs belong in the user's own projects, not in the development tree.
+        if (AgentMcpConfigCatalog.ProjectLooksLikeJeekRemoteManagerWorktree(project))
+        {
+            throw new InvalidOperationException(
+                "This folder is a JeekRemoteManager worktree and already has Debug MCP. "
+                + "Write product MCP configs into a different project.");
+        }
     }
 
     private static bool IsInsideWorkspaceRoot(string path)
@@ -595,6 +673,16 @@ public static class AgentProjectLink
         var root = NormalizeDirectory(AgentCliWorkspace.RootPath) + Path.DirectorySeparatorChar;
         return path.StartsWith(root, StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    /// Per-connection workspace doc using <c>%LocalAppData%</c> instead of an expanded username
+    /// path, so a committed AGENTS.md block still points at the right file on every computer.
+    /// </summary>
+    internal static string PortableWorkspaceAgentsPath(string relativePath) =>
+        @"%LocalAppData%\JeekRemoteManager\"
+        + AgentCliWorkspace.RootFolderName + @"\"
+        + relativePath.Replace('/', '\\').Trim('\\')
+        + @"\AGENTS.md";
 
     /// <summary>Connection path to a TOML/MCP-safe suffix: <c>vps/bwg (2)</c> → <c>vps-bwg-2</c>.</summary>
     internal static string Slugify(string value)

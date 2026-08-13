@@ -3219,7 +3219,13 @@ internal static class DebugMcpServer
             Check("AGENTS.md keeps the project's own text", agentsMd.Contains("Project rules stay here.", StringComparison.Ordinal));
             Check("AGENTS.md gains the reference block", agentsMd.Contains("BEGIN JeekRemoteManager link: vps/bwg", StringComparison.Ordinal));
             Check("reference block names the MCP server", agentsMd.Contains(server, StringComparison.Ordinal));
-            Check("reference block points at the workspace doc", agentsMd.Contains(Path.Combine(workspace, "AGENTS.md"), StringComparison.Ordinal));
+            Check(
+                "reference block points at the portable workspace doc",
+                agentsMd.Contains(
+                    AgentProjectLink.PortableWorkspaceAgentsPath("vps/bwg"),
+                    StringComparison.Ordinal)
+                && agentsMd.Contains("%LocalAppData%", StringComparison.Ordinal)
+                && !agentsMd.Contains(Environment.UserName, StringComparison.Ordinal));
             foreach (var include in AgentMcpConfigCatalog.ContextIncludeFiles)
             {
                 var includePath = Path.Combine(project, include);
@@ -3231,23 +3237,42 @@ internal static class DebugMcpServer
                         StringComparison.Ordinal));
             }
             Check(".mcp.json keeps the project's own server", mcpJson.Contains("\"other\"", StringComparison.Ordinal));
-            Check(".mcp.json gains this connection as a stdio adapter launch",
+            Check(".mcp.json gains this connection as a portable launcher",
                 mcpJson.Contains(server, StringComparison.Ordinal)
                 && mcpJson.Contains("\"stdio\"", StringComparison.Ordinal)
-                && mcpJson.Contains("JeekRemoteManagerMcp.exe", StringComparison.Ordinal)
-                && mcpJson.Contains("--connection", StringComparison.Ordinal));
+                && mcpJson.Contains("\"cmd\"", StringComparison.Ordinal)
+                && mcpJson.Contains(AgentMcpConfigCatalog.ProjectLauncherFileName, StringComparison.Ordinal)
+                && mcpJson.Contains("--connection", StringComparison.Ordinal)
+                && !mcpJson.Contains("--instance", StringComparison.Ordinal)
+                && !mcpJson.Contains(Environment.UserName, StringComparison.Ordinal));
             Check(".mcp.json entry carries no URL, port, or token",
                 JsonNode.Parse(mcpJson)?["mcpServers"]?[server] is JsonObject entry
-                && entry["url"] is null);
+                && entry["url"] is null
+                && entry["command"]?.GetValue<string>() == "cmd"
+                && entry["cwd"]?.GetValue<string>() == ".");
             Check(".codex/config.toml keeps existing keys", codexToml.Contains("model = \"gpt-5\"", StringComparison.Ordinal));
             Check(".codex/config.toml gains the server table",
                 codexToml.Contains($"[mcp_servers.{server}]", StringComparison.Ordinal)
-                && codexToml.Contains("JeekRemoteManagerMcp.exe", StringComparison.Ordinal)
-                && codexToml.Contains("--connection", StringComparison.Ordinal));
+                && codexToml.Contains("command = \"cmd\"", StringComparison.Ordinal)
+                && codexToml.Contains(AgentMcpConfigCatalog.ProjectLauncherFileName, StringComparison.Ordinal)
+                && codexToml.Contains("--connection", StringComparison.Ordinal)
+                && !codexToml.Contains("--instance", StringComparison.Ordinal)
+                && !codexToml.Contains(Environment.UserName, StringComparison.Ordinal));
             Check(".codex approval mode follows auto-run", codexToml.Contains("default_tools_approval_mode = \"approve\"", StringComparison.Ordinal));
             Check(".grok/config.toml gains the server table",
                 grokToml.Contains($"[mcp_servers.{server}]", StringComparison.Ordinal)
-                && grokToml.Contains("JeekRemoteManagerMcp.exe", StringComparison.Ordinal));
+                && grokToml.Contains("command = \"cmd\"", StringComparison.Ordinal)
+                && grokToml.Contains(AgentMcpConfigCatalog.ProjectLauncherFileName, StringComparison.Ordinal));
+            var projectLauncher = File.Exists(
+                    Path.Combine(project, AgentMcpConfigCatalog.ProjectLauncherFileName))
+                ? File.ReadAllText(Path.Combine(project, AgentMcpConfigCatalog.ProjectLauncherFileName))
+                : "";
+            Check(
+                "portable launcher expands LocalAppData and is not a worktree pin",
+                projectLauncher.Contains("%LocalAppData%", StringComparison.Ordinal)
+                && projectLauncher.Contains(AgentMcpConfigCatalog.ProjectLauncherMarker, StringComparison.Ordinal)
+                && !projectLauncher.Contains("--app", StringComparison.Ordinal)
+                && !projectLauncher.Contains(Environment.UserName, StringComparison.Ordinal));
 
             // Every catalog config must be written, and each JSON one under the root key its
             // agent actually reads — VS Code ignores "mcpServers" without reporting anything.
@@ -3293,7 +3318,8 @@ internal static class DebugMcpServer
                 "removal deletes the files it created",
                 AgentMcpConfigCatalog.ContextIncludeFiles.All(
                     include => !File.Exists(Path.Combine(project, include)))
-                && !Directory.Exists(Path.Combine(project, ".grok")));
+                && !Directory.Exists(Path.Combine(project, ".grok"))
+                && !File.Exists(Path.Combine(project, AgentMcpConfigCatalog.ProjectLauncherFileName)));
             // Configs we created outright go, folder and all; ones we merged into keep
             // whatever the project already had.
             foreach (var target in AgentMcpConfigCatalog.All)
@@ -3420,35 +3446,43 @@ internal static class DebugMcpServer
             var root = TryParseJsonObject(File.ReadAllText(Path.Combine(project, ".mcp.json")));
             var entry = root?["mcpServers"]?[AgentProjectLink.ApplicationMcpServerName] as JsonObject;
             var codex = File.ReadAllText(Path.Combine(project, ".codex", "config.toml"));
-            var instanceId = AgentWorkspaceLink.AdapterInstanceId;
-            var jsonRouteOk = instanceId is null
-                ? entry?["args"] is null
-                : entry?["args"] is JsonArray routeArgs
-                  && routeArgs.Select(node => node?.GetValue<string>())
-                      .SequenceEqual(["--instance", instanceId]);
-            var codexRouteOk = instanceId is null
-                ? !codex.Contains("--instance", StringComparison.Ordinal)
-                : codex.Contains(
-                    $"args = [\"--instance\", \"{instanceId}\"]",
-                    StringComparison.Ordinal);
+            var launcher = File.Exists(
+                    Path.Combine(project, AgentMcpConfigCatalog.ProjectLauncherFileName))
+                ? File.ReadAllText(Path.Combine(project, AgentMcpConfigCatalog.ProjectLauncherFileName))
+                : "";
+            var jsonArgs = (entry?["args"] as JsonArray)?
+                .Select(node => node?.GetValue<string>())
+                .ToArray() ?? [];
 
             Check(
                 "AGENTS.md describes global application control",
                 agentsMd.Contains("BEGIN JeekRemoteManager link: application", StringComparison.Ordinal)
                 && agentsMd.Contains("connection_list", StringComparison.Ordinal)
-                && agentsMd.Contains("whole application", StringComparison.Ordinal));
+                && agentsMd.Contains("whole application", StringComparison.Ordinal)
+                && agentsMd.Contains("%LocalAppData%", StringComparison.Ordinal)
+                && !agentsMd.Contains(Environment.UserName, StringComparison.Ordinal));
             Check(
-                "JSON config launches the fixed adapter with only the required instance route",
-                entry?["command"]?.GetValue<string>() == McpAdapterRegistry.AdapterPath
-                && jsonRouteOk
-                && entry["url"] is null);
+                "JSON config launches the portable project launcher",
+                entry?["command"]?.GetValue<string>() == "cmd"
+                && jsonArgs.SequenceEqual(["/c", AgentMcpConfigCatalog.ProjectLauncherRelativeCommand])
+                && entry["cwd"]?.GetValue<string>() == "."
+                && entry["url"] is null
+                && !jsonArgs.Contains("--instance"));
             Check(
-                "Codex config is application-wide",
+                "Codex config is application-wide and portable",
                 codex.Contains(
                     $"[mcp_servers.{AgentProjectLink.ApplicationMcpServerName}]",
                     StringComparison.Ordinal)
+                && codex.Contains("command = \"cmd\"", StringComparison.Ordinal)
                 && !codex.Contains("--connection", StringComparison.Ordinal)
-                && codexRouteOk);
+                && !codex.Contains("--instance", StringComparison.Ordinal)
+                && !codex.Contains(Environment.UserName, StringComparison.Ordinal));
+            Check(
+                "portable launcher expands LocalAppData without a username",
+                launcher.Contains("%LocalAppData%", StringComparison.Ordinal)
+                && launcher.Contains(AgentMcpConfigCatalog.ProjectLauncherMarker, StringComparison.Ordinal)
+                && !launcher.Contains("--app", StringComparison.Ordinal)
+                && !launcher.Contains(Environment.UserName, StringComparison.Ordinal));
             Check(
                 "fixed adapter and current instance registration exist",
                 File.Exists(McpAdapterRegistry.AdapterPath)
@@ -3476,7 +3510,8 @@ internal static class DebugMcpServer
                 && root?["mcpServers"]?[AgentProjectLink.ApplicationMcpServerName] is null
                 && root?["mcpServers"]?["other"] is not null
                 && !codex.Contains(AgentProjectLink.ApplicationMcpServerName, StringComparison.Ordinal)
-                && codex.Contains("model = \"gpt-5\"", StringComparison.Ordinal));
+                && codex.Contains("model = \"gpt-5\"", StringComparison.Ordinal)
+                && !File.Exists(Path.Combine(project, AgentMcpConfigCatalog.ProjectLauncherFileName)));
 
             if (keep)
             {

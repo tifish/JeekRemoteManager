@@ -167,14 +167,14 @@ public static class DebugMcpContract
             "Connects to the app's own MCP named pipe as a client and runs initialize + tools/list plus a second concurrent session, verifying the pipe transport, its ACL, and the line framing.",
             new()),
         Tool("agent_project_link_check",
-            "Links a throwaway project folder to a synthetic agent workspace and verifies the AGENTS.md/CLAUDE.md reference block plus every merged MCP config in the catalog, then refresh (no duplicates) and unlink (project content restored, our own files and folders removed).",
+            "Links a throwaway project folder to a synthetic agent workspace and verifies the AGENTS.md/CLAUDE.md reference block plus every merged MCP config in the catalog uses the portable cmd launcher (no username path), then refresh (no duplicates) and unlink (project content restored, our own files and folders removed).",
             new()
             {
                 ["panel"] = Prop("boolean", "Also drive the live AI panel view model from the open ai_render_probe tab (default false)."),
                 ["keep"] = Prop("boolean", "Keep the temporary project folder instead of deleting it (default false)."),
             }),
         Tool("agent_application_link_check",
-            "Drives the main window's application-wide MCP link and unlink actions against a throwaway project. Verifies main-window and tray menu entries stay aligned, unpinned adapter config, global operating notes, preservation of existing project config, and cleanup.",
+            "Drives the main window's application-wide MCP link and unlink actions against a throwaway project. Verifies main-window and tray menu entries stay aligned, the portable %LocalAppData% launcher (no username path, no --instance), global operating notes, preservation of existing project config, and cleanup.",
             new() { ["keep"] = Prop("boolean", "Keep the temporary project folder instead of deleting it (default false).") }),
         Tool("global_agent_check",
             "Verifies the in-app global AI Agent starts closed, can be opened, fully closed, and reopened without launching a third-party CLI, then checks its application-wide workspace, unpinned MCP config, connection-only options, and multi-connection product tools.",

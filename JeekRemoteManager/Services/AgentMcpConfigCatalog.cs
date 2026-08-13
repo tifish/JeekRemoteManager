@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -102,6 +103,85 @@ public static class AgentMcpConfigCatalog
     public const string ContextIncludeBody = "@AGENTS.md";
 
     /// <summary>
+    /// Launcher written into a linked project. Agents run this script instead of an expanded
+    /// <c>C:\Users\…</c> path so the files can be committed and work on every machine.
+    /// </summary>
+    public const string ProjectLauncherFileName = "JeekRemoteManagerMcp.cmd";
+
+    /// <summary>Relative command agents pass to <c>cmd /c</c> from the project root.</summary>
+    public const string ProjectLauncherRelativeCommand = @".\" + ProjectLauncherFileName;
+
+    /// <summary>Comment that marks a launcher we wrote and may delete on unlink.</summary>
+    public const string ProjectLauncherMarker = "Portable JeekRemoteManager product MCP adapter";
+
+    /// <summary>
+    /// How one MCP config launches the adapter. Generated workspaces use the absolute
+    /// per-user exe; linked projects use <c>cmd /c .\JeekRemoteManagerMcp.cmd</c> so nothing
+    /// in the committed files contains a username.
+    /// </summary>
+    public sealed record AdapterLaunch(
+        string Command,
+        IReadOnlyList<string> Arguments,
+        string? WorkingDirectory = null)
+    {
+        /// <summary>Absolute exe plus optional <c>--instance</c> / <c>--connection</c>.</summary>
+        public static AdapterLaunch Direct(
+            string adapterPath,
+            string? connectionPath,
+            string? instanceId = null) =>
+            new(adapterPath, ToArgumentList(connectionPath, instanceId));
+
+        /// <summary>
+        /// Portable project launch: <c>cmd /c .\JeekRemoteManagerMcp.cmd</c> and optional
+        /// <c>--connection</c>. Never writes <c>--instance</c> — the launcher talks to the
+        /// installed Release instance.
+        /// </summary>
+        public static AdapterLaunch PortableProject(string? connectionPath)
+        {
+            var args = new List<string> { "/c", ProjectLauncherRelativeCommand };
+            args.AddRange(ToArgumentList(connectionPath, instanceId: null));
+            return new("cmd", args, ".");
+        }
+
+        public bool HasArguments => Arguments.Count > 0;
+    }
+
+    /// <summary>
+    /// True when <paramref name="projectDirectory"/> is a JeekRemoteManager worktree: the
+    /// debug launcher at the root is unique to this repository. Those folders already have
+    /// Debug MCP and must not receive product MCP configs.
+    /// </summary>
+    public static bool ProjectLooksLikeJeekRemoteManagerWorktree(string projectDirectory) =>
+        File.Exists(Path.Combine(projectDirectory, "JeekRemoteManagerDebugMcp.cmd"));
+
+    /// <summary>
+    /// Batch script that expands <c>%LocalAppData%</c> at launch so a linked project can
+    /// commit the file and run it on every computer.
+    /// </summary>
+    public static string BuildProjectLauncherScript()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("@echo off");
+        sb.Append("rem ").Append(ProjectLauncherMarker).AppendLine(".");
+        sb.AppendLine("rem Uses %LocalAppData% so this file can be committed and works on every computer.");
+        sb.AppendLine(@"set ""ADAPTER=%LocalAppData%\JeekRemoteManager\Mcp\JeekRemoteManagerMcp.exe""");
+        sb.AppendLine();
+        sb.AppendLine(@"if not exist ""%ADAPTER%"" (");
+        sb.AppendLine("  echo The fixed JeekRemoteManager MCP adapter is not installed at: 1>&2");
+        sb.AppendLine("  echo   %ADAPTER% 1>&2");
+        sb.AppendLine("  echo Launch JeekRemoteManager once, then retry. 1>&2");
+        sb.AppendLine("  exit /b 1");
+        sb.AppendLine(")");
+        sb.AppendLine();
+        sb.AppendLine(@"""%ADAPTER%"" %*");
+        return sb.ToString();
+    }
+
+    /// <summary>True when <paramref name="text"/> is a launcher this catalog generated.</summary>
+    public static bool IsGeneratedProjectLauncher(string text) =>
+        text.Contains(ProjectLauncherMarker, StringComparison.Ordinal);
+
+    /// <summary>
     /// The stdio entry every JSON config uses: launch the local adapter, optionally pinned to one
     /// connection. Omitting <paramref name="connectionPath"/> exposes the application-wide product
     /// MCP surface. There is no URL, port, or token here, so the file stays valid across restarts.
@@ -109,29 +189,23 @@ public static class AgentMcpConfigCatalog
     public static JsonObject BuildJsonEntry(
         string adapterPath,
         string? connectionPath,
-        string? instanceId = null)
-    {
-        var entry = new JsonObject
-        {
-            ["type"] = "stdio",
-            ["command"] = adapterPath,
-        };
-        var args = BuildAdapterArguments(connectionPath, instanceId);
-        if (args.Count > 0)
-            entry["args"] = args;
-        return entry;
-    }
+        string? instanceId = null) =>
+        BuildStdioEntry(AdapterLaunch.Direct(adapterPath, connectionPath, instanceId));
 
     /// <summary>Builds the spelling required by one JSON target.</summary>
     public static JsonObject BuildJsonEntry(
         Target target,
         string adapterPath,
         string? connectionPath,
-        string? instanceId = null)
+        string? instanceId = null) =>
+        BuildJsonEntry(target, AdapterLaunch.Direct(adapterPath, connectionPath, instanceId));
+
+    /// <summary>Builds the spelling required by one JSON target from a prepared launch.</summary>
+    public static JsonObject BuildJsonEntry(Target target, AdapterLaunch launch)
     {
         if (target.JsonStyle == JsonEntryStyle.Stdio)
         {
-            var entry = BuildJsonEntry(adapterPath, connectionPath, instanceId);
+            var entry = BuildStdioEntry(launch);
             // Copilot CLI requires a tool filter. Claude accepts the same field, so the shared
             // .mcp.json can explicitly enable this server without widening other configs.
             if (target.IncludeAllTools)
@@ -141,22 +215,23 @@ public static class AgentMcpConfigCatalog
 
         if (target.JsonStyle == JsonEntryStyle.ZedContextServer)
         {
-            var entry = new JsonObject { ["command"] = adapterPath };
-            var zedArgs = BuildAdapterArguments(connectionPath, instanceId);
-            if (zedArgs.Count > 0)
-                entry["args"] = zedArgs;
+            var entry = new JsonObject { ["command"] = launch.Command };
+            ApplyArguments(entry, launch);
+            ApplyWorkingDirectory(entry, launch);
             return entry;
         }
 
-        var command = new JsonArray { adapterPath };
-        foreach (var argument in BuildAdapterArguments(connectionPath, instanceId))
-            command.Add(argument?.DeepClone());
-        return new JsonObject
+        var command = new JsonArray { launch.Command };
+        foreach (var argument in launch.Arguments)
+            command.Add(argument);
+        var local = new JsonObject
         {
             ["type"] = "local",
             ["command"] = command,
             ["enabled"] = true,
         };
+        ApplyWorkingDirectory(local, launch);
+        return local;
     }
 
     /// <summary>
@@ -247,25 +322,36 @@ public static class AgentMcpConfigCatalog
         string adapterPath,
         string? connectionPath,
         bool mcpToolsAutoApprove,
-        string? instanceId = null)
+        string? instanceId = null) =>
+        BuildTomlEntry(
+            target,
+            serverName,
+            AdapterLaunch.Direct(adapterPath, connectionPath, instanceId),
+            mcpToolsAutoApprove);
+
+    /// <summary>The same entry as a TOML table body from a prepared launch.</summary>
+    public static string BuildTomlEntry(
+        Target target,
+        string serverName,
+        AdapterLaunch launch,
+        bool mcpToolsAutoApprove)
     {
         var sb = new StringBuilder();
         sb.Append("[mcp_servers.").Append(serverName).Append("]\n");
-        sb.Append("command = \"").Append(EscapeToml(adapterPath)).Append("\"\n");
-        var args = BuildAdapterArguments(connectionPath, instanceId)
-            .Select(node => node?.GetValue<string>() ?? "")
-            .ToArray();
-        if (args.Length > 0)
+        sb.Append("command = \"").Append(EscapeToml(launch.Command)).Append("\"\n");
+        if (launch.HasArguments)
         {
             sb.Append("args = [");
-            for (var i = 0; i < args.Length; i++)
+            for (var i = 0; i < launch.Arguments.Count; i++)
             {
                 if (i > 0)
                     sb.Append(", ");
-                sb.Append('"').Append(EscapeToml(args[i])).Append('"');
+                sb.Append('"').Append(EscapeToml(launch.Arguments[i])).Append('"');
             }
             sb.Append("]\n");
         }
+        if (launch.WorkingDirectory is { Length: > 0 } cwd)
+            sb.Append("cwd = \"").Append(EscapeToml(cwd)).Append("\"\n");
         if (target.SupportsApprovalMode)
         {
             sb.Append("default_tools_approval_mode = \"")
@@ -276,9 +362,37 @@ public static class AgentMcpConfigCatalog
         return sb.ToString();
     }
 
-    private static JsonArray BuildAdapterArguments(string? connectionPath, string? instanceId)
+    private static JsonObject BuildStdioEntry(AdapterLaunch launch)
     {
+        var entry = new JsonObject
+        {
+            ["type"] = "stdio",
+            ["command"] = launch.Command,
+        };
+        ApplyArguments(entry, launch);
+        ApplyWorkingDirectory(entry, launch);
+        return entry;
+    }
+
+    private static void ApplyArguments(JsonObject entry, AdapterLaunch launch)
+    {
+        if (!launch.HasArguments)
+            return;
         var args = new JsonArray();
+        foreach (var argument in launch.Arguments)
+            args.Add(argument);
+        entry["args"] = args;
+    }
+
+    private static void ApplyWorkingDirectory(JsonObject entry, AdapterLaunch launch)
+    {
+        if (launch.WorkingDirectory is { Length: > 0 } cwd)
+            entry["cwd"] = cwd;
+    }
+
+    private static IReadOnlyList<string> ToArgumentList(string? connectionPath, string? instanceId)
+    {
+        var args = new List<string>();
         if (!string.IsNullOrWhiteSpace(instanceId))
         {
             args.Add("--instance");
@@ -289,6 +403,7 @@ public static class AgentMcpConfigCatalog
             args.Add("--connection");
             args.Add(connectionPath);
         }
+
         return args;
     }
 

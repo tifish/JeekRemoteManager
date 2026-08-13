@@ -13,8 +13,9 @@ using JeekRemoteManager.Services;
 // to the running app over a named pipe. Nothing here knows about ports, so the client
 // config a user puts in their project never goes stale:
 //
-//   { "command": "C:\\Users\\...\\AppData\\Local\\JeekRemoteManager\\Mcp\\JeekRemoteManagerMcp.exe",
-//     "args": ["--connection", "vps/bwg"] }
+//   { "command": "cmd",
+//     "args": ["/c", ".\\JeekRemoteManagerMcp.cmd", "--connection", "vps/bwg"],
+//     "cwd": "." }
 //
 // The stable per-user install is the agent entrypoint (so builds can overwrite bin\ without
 // fighting a running MCP process). It reads the app path and pipe names from HKCU; Release is
