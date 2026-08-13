@@ -974,19 +974,132 @@ internal static class DebugMcpServer
             Verify("unlabelled round 2 is not answered", mfa, Challenge(("Enter response: ", false)),(string?)null);
         }
 
-        // A lone OTP prompt with no preceding password round must still be refused.
+        // A lone OTP prompt with no preceding password round must still be refused
+        // by the password filler — the connect-time handler asks the user instead.
         Expect("lone verification code prompt", Challenge(("Verification code: ", false)),(string?)null);
         Expect("lone duo passcode prompt", Challenge(("Passcode or option (1-3): ", false)),(string?)null);
         Expect("lone one-time password prompt", Challenge(("One-time password: ", false)),(string?)null);
         Expect("lone authenticator prompt", Challenge(("Authenticator code: ", false)),(string?)null);
         Expect("lone chinese otp prompt", Challenge(("验证码：", false)),(string?)null);
         Expect("lone token prompt", Challenge(("Token: ", false)),(string?)null);
+        Expect("lone bracketed otp prompt", Challenge(("[OTP Code]: ", false)),(string?)null);
         // A password prompt that merely mentions two-factor setup is still refused
         // rather than risk feeding the password into a second-factor field.
         Expect(
             "two-factor wording wins over password wording",
             Challenge(("Two-factor code (not your password): ", false)),
             (string?)null);
+
+        const string otp = "123456";
+        var context = new SshConnectionFactory.KeyboardInteractiveChallenge(
+            "zhgate.example", 2222, "probe", "", false, "");
+
+        void Handle(
+            string name,
+            SshConnectionFactory.KeyboardInteractiveConversation conversation,
+            AuthenticationPromptEventArgs challenge,
+            Func<SshConnectionFactory.KeyboardInteractiveChallenge, string?>? askUser,
+            params string?[] expected)
+        {
+            SshConnectionFactory.HandleAuthenticationPrompt(
+                challenge, secret, conversation, context, askUser);
+            var actual = challenge.Prompts.Select(prompt => prompt.Response).ToArray();
+            if (actual.Length != expected.Length
+                || actual.Where((response, i) => response != expected[i]).Any())
+            {
+                failures.Add(
+                    $"{name}: expected [{string.Join(", ", expected.Select(v => v ?? "<null>"))}] "
+                    + $"but got [{string.Join(", ", actual.Select(v => v ?? "<null>"))}]");
+            }
+        }
+
+        // Same-round password + OTP: password is filled, OTP comes from the user.
+        {
+            var asked = new List<string>();
+            Handle(
+                "same-round otp asked of the user",
+                new SshConnectionFactory.KeyboardInteractiveConversation(),
+                Challenge(("Password: ", false), ("[OTP Code]: ", false)),
+                challenge =>
+                {
+                    asked.Add(challenge.Request);
+                    return otp;
+                },
+                secret,
+                otp);
+            if (asked.Count != 1 || asked[0] != "[OTP Code]: ")
+                failures.Add($"same-round otp asked: [{string.Join(", ", asked)}]");
+        }
+
+        // The real MFA shape: password round, then a lone OTP round.
+        {
+            var mfa = new SshConnectionFactory.KeyboardInteractiveConversation();
+            var asked = new List<string>();
+            Handle(
+                "mfa handle round 1 password",
+                mfa,
+                Challenge(("Password: ", false)),
+                challenge =>
+                {
+                    asked.Add(challenge.Request);
+                    return "should-not-be-asked";
+                },
+                secret);
+            Handle(
+                "mfa handle round 2 otp",
+                mfa,
+                Challenge(("[OTP Code]: ", false)),
+                challenge =>
+                {
+                    asked.Add(challenge.Request);
+                    return otp;
+                },
+                otp);
+            if (asked.Count != 1 || asked[0] != "[OTP Code]: ")
+                failures.Add($"two-round otp asked: [{string.Join(", ", asked)}]");
+        }
+
+        // Cancelling the OTP dialog must not leave Response null for SSH.NET to trip on.
+        try
+        {
+            SshConnectionFactory.HandleAuthenticationPrompt(
+                Challenge(("[OTP Code]: ", false)),
+                secret,
+                new SshConnectionFactory.KeyboardInteractiveConversation(),
+                context,
+                _ => null);
+            failures.Add("cancelled otp prompt did not throw");
+        }
+        catch (InvalidOperationException ex)
+            when (ex.Message.Contains("cancelled", StringComparison.OrdinalIgnoreCase)
+                  && ex.Message.Contains("[OTP Code]", StringComparison.Ordinal))
+        {
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"cancelled otp prompt: {ex.GetType().Name}: {ex.Message}");
+        }
+
+        // No GUI hook: name the leftover prompt instead of SSH.NET's null-Response error.
+        try
+        {
+            SshConnectionFactory.HandleAuthenticationPrompt(
+                Challenge(("[OTP Code]: ", false)),
+                secret,
+                new SshConnectionFactory.KeyboardInteractiveConversation(),
+                context,
+                askUser: null);
+            failures.Add("missing otp callback did not throw");
+        }
+        catch (InvalidOperationException ex)
+            when (ex.Message.Contains("[OTP Code]", StringComparison.Ordinal)
+                  && !ex.Message.Contains("Response is null", StringComparison.Ordinal))
+        {
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"missing otp callback: {ex.GetType().Name}: {ex.Message}");
+        }
 
         // A configured key path that does not exist must be named, not swallowed into a
         // generic "no usable credential" that sends the user hunting — and it must be
@@ -1028,11 +1141,22 @@ internal static class DebugMcpServer
                 new Connection { Type = ConnectionType.Ssh, Host = "h", Username = "u" }) is not null)
             failures.Add("a connection without a key path reported a key problem");
 
+        if (SshConnectionFactory.PromptUser is null)
+            failures.Add("PromptUser is not wired; OTP prompts would fail at connect time");
+
+        foreach (var key in new[] { "SshAuthTitle", "SshAuthPrompt", "SshAuthResponse", "SshAuthHint", "SshAuthShow" })
+        {
+            var text = Localizer.Get(key);
+            if (string.IsNullOrWhiteSpace(text) || text == key)
+                failures.Add($"missing localization key {key}");
+        }
+
         var passed = failures.Count == 0;
         var report =
             $"{(passed ? "PASS" : "FAIL")}: SSH keyboard-interactive and key-path diagnostics\n"
             + $"namesMissingKey={namesMissingKey}\n"
             + $"missingKeyMessage={missingKeyMessage}\n"
+            + $"promptUserWired={SshConnectionFactory.PromptUser is not null}\n"
             + $"failures={failures.Count}"
             + (passed ? "" : "\n" + string.Join("\n", failures));
         return ToolText(report, isError: !passed);

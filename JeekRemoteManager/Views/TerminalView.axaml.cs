@@ -32,7 +32,8 @@ namespace JeekRemoteManager.Views;
 /// (ConPTY) process. Self-contained and reusable: a window can host one for
 /// the Phase A spike, and the right-pane tab UI (Phase B) hosts one per tab.
 /// SSH authentication is programmatic via <see cref="SshConnectionFactory"/> (the
-/// user never types a password); live bytes, keyboard, title, and window size are
+/// stored password is sent automatically; a one-time or second-factor code is
+/// typed in a dialog); live bytes, keyboard, title, and window size are
 /// wired to the channel.
 /// </summary>
 public partial class TerminalView : UserControl

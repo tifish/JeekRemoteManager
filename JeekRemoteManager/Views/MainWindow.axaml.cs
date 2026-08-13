@@ -466,6 +466,7 @@ public partial class MainWindow : Window
         vm.ApplyTerminalFontSize = ApplyTerminalFontToOpenTabs;
         ApplyTerminalFontToOpenTabs(vm.TerminalFontSize);
         vm.ConfirmHostKeyTrust = HostKeyDialog.PromptTrust;
+        SshConnectionFactory.PromptUser = KeyboardInteractiveDialog.Prompt;
         vm.RequestFocusTree = FocusSelectedTreeItem;
         vm.RequestFocusTreeNode = FocusTreeItem;
         vm.RequestFocusTreeNameEditor = FocusTreeNameEditor;

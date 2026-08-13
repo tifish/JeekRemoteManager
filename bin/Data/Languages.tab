@@ -274,6 +274,11 @@ HostKeyPrompt	The server "{0}" presented a {1} host key. Trust this host and rem
 HostKeyHint	If you don't recognize this server, rejecting is safer.	如果你不认识这台服务器，拒绝更安全。
 HostKeyTrust	Trust	信任
 HostKeyReject	Reject	拒绝
+SshAuthTitle	SSH authentication	SSH 身份验证
+SshAuthPrompt	{0} ({1}) is asking for additional authentication.	{0}（{1}）需要额外的身份验证。
+SshAuthResponse	Response	应答
+SshAuthHint	This is usually a one-time or two-factor code. It is not stored.	这通常是一次性验证码或二次验证码，不会被保存。
+SshAuthShow	Show	显示
 Passphrase	Key passphrase	私钥口令
 PassphraseWatermark	optional, only if the key is encrypted	可选，仅在私钥已加密时填写
 AiAssistant	AI assistant	AI 助手

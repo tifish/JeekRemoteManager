@@ -17,12 +17,30 @@ namespace JeekRemoteManager.Services;
 /// <summary>
 /// Builds an SSH.NET <see cref="ConnectionInfo"/> from a <see cref="Connection"/>,
 /// authenticating programmatically with the master-password-decrypted credentials
-/// so the user never has to type a password. Shared by the interactive terminal and
-/// (later) the non-interactive script runner so both use one auth path.
+/// so the user never has to type a password. A keyboard-interactive OTP or other
+/// second factor is answered in the GUI via <see cref="PromptUser"/>. Shared by
+/// the interactive terminal and the non-interactive script runner so both use
+/// one auth path.
 /// </summary>
 public static class SshConnectionFactory
 {
     private static readonly ILogger Log = LogManager.CreateLogger(nameof(SshConnectionFactory));
+
+    /// <summary>
+    /// Called from the SSH handshake thread for any keyboard-interactive prompt
+    /// the stored password cannot answer (OTP, second factor, extra PAM fields).
+    /// Return the response, or null to cancel the login.
+    /// </summary>
+    public static Func<KeyboardInteractiveChallenge, string?>? PromptUser { get; set; }
+
+    /// <summary>One keyboard-interactive prompt the stored password cannot fill.</summary>
+    public readonly record struct KeyboardInteractiveChallenge(
+        string Host,
+        int Port,
+        string Username,
+        string Request,
+        bool IsEchoed,
+        string Instruction);
 
     // Default key file names tried under ~/.ssh, in preference order, when a
     // connection has neither a password nor an explicit key path — mirrors the
@@ -78,16 +96,9 @@ public static class SshConnectionFactory
 
         if (!string.IsNullOrEmpty(password))
         {
-            // 2. Stored password -> password + keyboard-interactive (many sshd setups
-            //    expose password auth only via PAM/keyboard-interactive).
+            // 2. Stored password. Many sshd setups expose password auth only via
+            //    PAM/keyboard-interactive, so that method is attached below.
             methods.Add(new PasswordAuthenticationMethod(user, password));
-
-            var keyboard = new KeyboardInteractiveAuthenticationMethod(user);
-            // State is per ConnectionInfo, and every caller builds a fresh one per
-            // connect attempt, so this tracks exactly one authentication conversation.
-            var conversation = new KeyboardInteractiveConversation();
-            keyboard.AuthenticationPrompt += (_, e) => AnswerPasswordPrompts(e, password, conversation);
-            methods.Add(keyboard);
         }
         else
         {
@@ -115,6 +126,17 @@ public static class SshConnectionFactory
                    + "or load a key into ssh-agent / Pageant.");
         }
 
+        // Keyboard-interactive last so a working key or password is tried first.
+        // Jump hosts then ask for an OTP on a later KI round (or as extra prompts
+        // in the same round); those are answered in the GUI, never with the
+        // stored password.
+        var keyboard = new KeyboardInteractiveAuthenticationMethod(user);
+        var conversation = new KeyboardInteractiveConversation();
+        var context = new KeyboardInteractiveChallenge(host, port, user, "", false, "");
+        keyboard.AuthenticationPrompt += (_, e) =>
+            HandleAuthenticationPrompt(e, password, conversation, context, PromptUser);
+        methods.Add(keyboard);
+
         return new ConnectionInfo(host, port, user, methods.ToArray());
     }
 
@@ -137,6 +159,66 @@ public static class SshConnectionFactory
     internal sealed class KeyboardInteractiveConversation
     {
         public bool PasswordSupplied { get; set; }
+    }
+
+    /// <summary>
+    /// Connect-time keyboard-interactive handler: fill password prompts from the
+    /// stored secret, then ask the user for anything left (OTP, second factor).
+    /// Throws instead of returning with a null <see cref="AuthenticationPrompt.Response"/>,
+    /// which SSH.NET otherwise surfaces as an unreadable ArgumentNullException.
+    /// </summary>
+    internal static void HandleAuthenticationPrompt(
+        AuthenticationPromptEventArgs e,
+        string password,
+        KeyboardInteractiveConversation conversation,
+        KeyboardInteractiveChallenge context,
+        Func<KeyboardInteractiveChallenge, string?>? askUser)
+    {
+        if (!string.IsNullOrEmpty(password))
+            AnswerPasswordPrompts(e, password, conversation);
+
+        CompleteRemainingPrompts(
+            e,
+            context with { Instruction = e.Instruction ?? "" },
+            askUser);
+    }
+
+    /// <summary>
+    /// Fills every still-unanswered prompt through <paramref name="askUser"/>.
+    /// A null return (or a missing callback) cancels the login with a message
+    /// that names the server's prompt, rather than leaving Response null.
+    /// </summary>
+    internal static void CompleteRemainingPrompts(
+        AuthenticationPromptEventArgs e,
+        KeyboardInteractiveChallenge context,
+        Func<KeyboardInteractiveChallenge, string?>? askUser)
+    {
+        foreach (var prompt in e.Prompts)
+        {
+            if (prompt.Response is not null)
+                continue;
+
+            var request = prompt.Request ?? "";
+            if (askUser is null)
+            {
+                throw new InvalidOperationException(
+                    $"The server asked for \"{request.Trim()}\" during SSH authentication.");
+            }
+
+            var response = askUser(
+                context with
+                {
+                    Request = request,
+                    IsEchoed = prompt.IsEchoed,
+                });
+            if (response is null)
+            {
+                throw new InvalidOperationException(
+                    $"SSH authentication cancelled ({request.Trim()}).");
+            }
+
+            prompt.Response = response;
+        }
     }
 
     /// <summary>

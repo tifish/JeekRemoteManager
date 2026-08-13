@@ -79,7 +79,7 @@ public static class DebugMcpContract
             "Drops the SFTP transport mid-operation and verifies listings and transfers are replayed on a fresh connection while deletes, renames and mkdirs are not.",
             new()),
         Tool("ssh_auth_prompt_check",
-            "Runs the keyboard-interactive prompt filler against localized, multi-prompt, and echoed sshd challenges, and verifies a configured but missing private key file is named in the failure.",
+            "Runs the keyboard-interactive prompt filler against localized, multi-prompt, OTP, and echoed sshd challenges, verifies leftover OTP prompts are asked of the user rather than filled with the password, and verifies a configured but missing private key file is named in the failure.",
             new()),
         Tool("zmodem_detector_latency_check",
             "Verifies the ZMODEM trigger detector releases ordinary terminal output immediately, including single echoed keystrokes, while still holding back and reassembling triggers split across packets.",
