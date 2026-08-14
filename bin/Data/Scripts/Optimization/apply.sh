@@ -480,6 +480,31 @@ EOF
     info "apt autoremove completed."
 }
 
+install_command_color_bash_hook() {
+    bashrc_path=$1
+    hook_start='# >>> JeekRemoteManager command colors >>>'
+    hook_end='# <<< JeekRemoteManager command colors <<<'
+
+    if [ -e "$bashrc_path" ] && [ ! -f "$bashrc_path" ]; then
+        warn "Cannot install command color hook because ${bashrc_path} is not a regular file."
+        return 0
+    fi
+
+    if grep -Fqx "$hook_start" "$bashrc_path" 2>/dev/null; then
+        return 0
+    fi
+
+    if ! {
+        printf '\n%s\n' "$hook_start"
+        printf '%s\n' 'if [ -r /etc/profile.d/jeekremote-command-colors.sh ]; then'
+        printf '%s\n' '    . /etc/profile.d/jeekremote-command-colors.sh'
+        printf '%s\n' 'fi'
+        printf '%s\n' "$hook_end"
+    } >> "$bashrc_path"; then
+        warn "Could not install command color hook in ${bashrc_path}."
+    fi
+}
+
 enable_command_colors() {
     mkdir -p /etc/profile.d
     cat > /etc/profile.d/jeekremote-command-colors.sh <<'EOF'
@@ -533,6 +558,13 @@ fi
 export PS1
 EOF
     chmod 0644 /etc/profile.d/jeekremote-command-colors.sh
+
+    root_home=$(getent passwd 0 2>/dev/null | awk -F: 'NR == 1 { print $6 }')
+    if [ -z "$root_home" ]; then
+        root_home=/root
+    fi
+    install_command_color_bash_hook "${root_home}/.bashrc"
+
     if [ -n "${JEEKREMOTE_CURRENT_SHELL_HOOK:-}" ]; then
         {
             printf '%s\n' "if [ -r /etc/profile.d/jeekremote-command-colors.sh ]; then"

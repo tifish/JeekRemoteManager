@@ -3029,6 +3029,13 @@ try
           && runtimeServerOptimizationScript.Contains("\\w")
           && runtimeServerOptimizationScript.Contains("export PS1"),
           "Bundled server optimization script installs interactive command color defaults");
+    Check(runtimeServerOptimizationScript.Contains("install_command_color_bash_hook")
+          && runtimeServerOptimizationScript.Contains("getent passwd 0")
+          && runtimeServerOptimizationScript.Contains("${root_home}/.bashrc")
+          && runtimeServerOptimizationScript.Contains("# >>> JeekRemoteManager command colors >>>")
+          && runtimeServerOptimizationScript.Contains("grep -Fqx \"$hook_start\"")
+          && runtimeServerOptimizationScript.Contains(". /etc/profile.d/jeekremote-command-colors.sh"),
+          "Bundled server optimization keeps command colors after Ubuntu root bashrc overrides PS1");
     Check(runtimeServerOptimizationScript.Contains("JEEKREMOTE_CURRENT_SHELL_HOOK")
           && runtimeServerOptimizationScript.Contains(">> \"$JEEKREMOTE_CURRENT_SHELL_HOOK\"")
           && runtimeServerOptimizationScript.Contains(". /etc/profile.d/jeekremote-command-colors.sh >/dev/null 2>&1 || true"),
