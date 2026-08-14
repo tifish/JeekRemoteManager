@@ -465,7 +465,6 @@ public partial class MainWindow : Window
             EnsureSshTerminalAsync(connection, sourcePath, TerminalOpenMode.ReuseTab, select: false);
         vm.ApplyTerminalFontSize = ApplyTerminalFontToOpenTabs;
         ApplyTerminalFontToOpenTabs(vm.TerminalFontSize);
-        vm.ConfirmHostKeyTrust = HostKeyDialog.PromptTrust;
         vm.ConfirmHostKeyReplacement = HostKeyDialog.PromptReplace;
         SshConnectionFactory.PromptUser = KeyboardInteractiveDialog.Prompt;
         vm.RequestFocusTree = FocusSelectedTreeItem;

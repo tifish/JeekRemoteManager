@@ -82,7 +82,7 @@ public static class DebugMcpContract
             "Runs the keyboard-interactive prompt filler against localized, multi-prompt, OTP, and echoed sshd challenges, verifies leftover OTP prompts are asked of the user rather than filled with the password, and verifies a configured but missing private key file is named in the failure.",
             new()),
         Tool("host_key_trust_check",
-            "Exercises SSH host-key trust-on-first-use, match, and changed-key replacement decisions without connecting to a server.",
+            "Verifies first-seen SSH host keys are saved without prompting, while changed remembered keys require replacement confirmation.",
             new()),
         Tool("zmodem_detector_latency_check",
             "Verifies the ZMODEM trigger detector releases ordinary terminal output immediately, including single echoed keystrokes, while still holding back and reassembling triggers split across packets.",

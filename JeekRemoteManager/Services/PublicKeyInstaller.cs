@@ -80,7 +80,6 @@ public static class PublicKeyInstaller
     public static async Task<PublicKeyInstallResult> InstallAsync(
         Connection connection,
         string publicKeyText,
-        Func<string, int, string, string, bool>? confirmHostKey = null,
         Func<string, int, string, string, string, bool>? confirmHostKeyReplacement = null,
         CancellationToken cancellationToken = default)
     {
@@ -98,7 +97,6 @@ public static class PublicKeyInstaller
         {
             var sshClient = new SshClient(SshConnectionFactory.Build(connection));
             SshHostKey.Attach(sshClient, host, port,
-                onUnknown: (keyType, fingerprint) => confirmHostKey?.Invoke(host, port, keyType, fingerprint) ?? false,
                 onMismatch: (keyType, saved, fingerprint) => confirmHostKeyReplacement?.Invoke(host, port, keyType, saved, fingerprint) ?? false,
                 onRejected: message => output.Append(message).Append('\n'));
             sshClient.Connect();

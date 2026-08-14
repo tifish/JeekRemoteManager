@@ -1174,27 +1174,44 @@ internal static class DebugMcpServer
         {
             if (KnownHostsStore.Check(host, port, first) != KnownHostsStore.Status.Unknown)
                 failures.Add("new host was not unknown");
-            KnownHostsStore.Trust(host, port, first);
+
+            var unexpectedPrompt = false;
+            var firstAccepted = SshHostKey.Evaluate(
+                host,
+                port,
+                "ssh-ed25519",
+                first,
+                onMismatch: (_, _, _) =>
+                {
+                    unexpectedPrompt = true;
+                    return false;
+                });
+            if (!firstAccepted || unexpectedPrompt)
+                failures.Add("first-seen key was not accepted silently");
             if (KnownHostsStore.Check(host, port, first) != KnownHostsStore.Status.Match)
-                failures.Add("trusted key did not match");
+                failures.Add("first-seen key was not saved");
             if (KnownHostsStore.Check(host, port, replacement) != KnownHostsStore.Status.Mismatch)
                 failures.Add("changed key was not detected as a mismatch");
 
             var prompted = false;
-            var accepted = ((Func<string, string, string, bool>)((_, saved, presented) =>
-            {
-                prompted = true;
-                return saved == first && presented == replacement;
-            }))("ssh-ed25519", first, replacement);
+            var accepted = SshHostKey.Evaluate(
+                host,
+                port,
+                "ssh-ed25519",
+                replacement,
+                onMismatch: (_, saved, presented) =>
+                {
+                    prompted = true;
+                    return saved == first && presented == replacement;
+                });
             if (!prompted || !accepted)
                 failures.Add("replacement decision was not accepted");
-            KnownHostsStore.Trust(host, port, replacement);
             if (KnownHostsStore.Check(host, port, replacement) != KnownHostsStore.Status.Match)
                 failures.Add("replacement key was not stored");
 
             var passed = failures.Count == 0;
             var report = $"{(passed ? "PASS" : "FAIL")}: host-key trust flow\n"
-                + "unknown=true\nmatch=true\nmismatch=true\n"
+                + $"unknownAutoAccepted={firstAccepted && !unexpectedPrompt}\nmatch=true\nmismatch=true\n"
                 + $"replacement={prompted && accepted}\nfailures={failures.Count}"
                 + (passed ? "" : "\n" + string.Join("\n", failures));
             return ToolText(report, isError: !passed);

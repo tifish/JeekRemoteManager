@@ -363,11 +363,6 @@ public partial class MainWindowViewModel : ViewModelBase
     /// the aggregate panel.</summary>
     public Func<Connection, string?, Task<TerminalScriptSession?>>? EnsureSshTerminalQuietlyAsync { get; set; }
 
-    /// <summary>Prompts the user to trust a first-seen SSH host key (set by the view).
-    /// (host, port, keyType, sha256Fingerprint) =&gt; trust?. Blocks the calling thread,
-    /// so it must be invoked off the UI thread (the SSH handshake runs in the background).</summary>
-    public Func<string, int, string, string, bool>? ConfirmHostKeyTrust { get; set; }
-
     /// <summary>Prompts before replacing a remembered SSH host key.</summary>
     public Func<string, int, string, string, string, bool>? ConfirmHostKeyReplacement { get; set; }
 
@@ -2405,7 +2400,6 @@ public partial class MainWindowViewModel : ViewModelBase
             publicKeyText => PublicKeyInstaller.InstallAsync(
                 connection,
                 publicKeyText,
-                ConfirmHostKeyTrust,
                 ConfirmHostKeyReplacement));
 
     /// <summary>

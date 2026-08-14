@@ -2227,7 +2227,6 @@ public partial class TerminalView : UserControl
             {
                 var sshClient = new SshClient(SshConnectionFactory.Build(connection));
                 SshHostKey.Attach(sshClient, host, port,
-                onUnknown: (keyType, fingerprint) => HostKeyDialog.PromptTrust(host, port, keyType, fingerprint),
                 onMismatch: (keyType, saved, fingerprint) => HostKeyDialog.PromptReplace(host, port, keyType, saved, fingerprint),
                 onRejected: message => Dispatcher.UIThread.Post(() => FeedLine($"\r\n\u001b[31m[{message}]\u001b[0m\r\n")));
                 sshClient.KeepAliveInterval = TimeSpan.FromSeconds(30);
