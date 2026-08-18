@@ -4663,6 +4663,32 @@ internal static class DebugMcpServer
                 var existingPreserved =
                     BastionLoginTemplatePreset.UseConnectionCommandsWhenEmpty("custom")
                     == "custom";
+                var typicalProfile = new BastionLoginProfile
+                {
+                    Id = editor.BastionTemplateId,
+                    Segments = savedSegments,
+                };
+                var typicalResolved = LoginCommandSequence.TryResolve(
+                    editor.LoginCommands,
+                    typicalProfile,
+                    new Models.Connection
+                    {
+                        Name = editor.Name,
+                        Host = editor.Host,
+                        Port = editor.Port,
+                        Username = editor.Username,
+                    },
+                    out var typicalExpanded,
+                    out _);
+                var freshIncludesSudo = typicalResolved
+                    && LoginCommandSequence.Select(typicalExpanded, LoginCommandSection.Fresh)
+                        .Contains("sudo -i");
+                var reuseEnterIncludesSudo = typicalResolved
+                    && LoginCommandSequence.Select(typicalExpanded, LoginCommandSection.ReuseEnter)
+                        .Contains("sudo -i");
+                var duplicateIsSudo = typicalResolved
+                    && LoginCommandSequence.Select(typicalExpanded, LoginCommandSection.Duplicate)
+                        .SequenceEqual(["sudo -i"]);
                 var ok = dialogFilled
                          && buttonLocalized
                          && cancelledOverwritePreserved
@@ -4670,7 +4696,10 @@ internal static class DebugMcpServer
                          && transactionalBeforeSave
                          && commandsInserted
                          && fragmentsSaved
-                         && existingPreserved;
+                         && existingPreserved
+                         && freshIncludesSudo
+                         && reuseEnterIncludesSudo
+                         && duplicateIsSudo;
                 return (ok,
                     $"{(ok ? "PASS" : "FAIL")}: typical bastion template preset\n"
                     + $"buttonFound={insert is not null}\n"
@@ -4681,7 +4710,10 @@ internal static class DebugMcpServer
                     + $"transactionalBeforeSave={transactionalBeforeSave}\n"
                     + $"commandsInserted={commandsInserted}\n"
                     + $"fragmentsSaved={fragmentsSaved}\n"
-                    + $"existingCommandsPreserved={existingPreserved}");
+                    + $"existingCommandsPreserved={existingPreserved}\n"
+                    + $"freshIncludesSudo={freshIncludesSudo}\n"
+                    + $"reuseEnterIncludesSudo={reuseEnterIncludesSudo}\n"
+                    + $"duplicateIsSudo={duplicateIsSudo}");
             }
             finally
             {

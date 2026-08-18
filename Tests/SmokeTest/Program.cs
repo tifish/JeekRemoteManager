@@ -763,6 +763,10 @@ try
               out _)
           && expandedTemplateCommands.ReplaceLineEndings("\n")
               == "#input\n#reuse-enter\n#select target-a\n#duplicate\nsudo -i\n#reuse-leave\nexit\n#key Enter"
+          && LoginCommandSequence.Select(expandedTemplateCommands, LoginCommandSection.Fresh)
+              .SequenceEqual(["#input", "#select target-a", "sudo -i"])
+          && LoginCommandSequence.Select(expandedTemplateCommands, LoginCommandSection.ReuseEnter)
+              .SequenceEqual(["#select target-a", "sudo -i"])
           && LoginCommandSequence.Validate(templateCommands, fixedTemplate).Count == 0,
           "Fixed one-based bastion fragments expand before structured command parsing");
     Check(LoginCommandSequence.Validate("#template 5", fixedTemplate).Count > 0
@@ -926,6 +930,14 @@ try
               typicalBastionConnection).Count == 0
           && typicalBastionExpanded.ReplaceLineEndings("\n")
               == "#input\n#reuse-enter\n#pagekey Ctrl-F\n0\n#select target-a\n2\n#duplicate\nsudo -i\n#reuse-leave\nexit\n#key Enter"
+          && LoginCommandSequence.Select(typicalBastionExpanded, LoginCommandSection.Fresh)
+              .SequenceEqual(["#input", "#pagekey Ctrl-F", "0", "#select target-a", "2", "sudo -i"])
+          && LoginCommandSequence.Select(typicalBastionExpanded, LoginCommandSection.ReuseEnter)
+              .SequenceEqual(["#pagekey Ctrl-F", "0", "#select target-a", "2", "sudo -i"])
+          && LoginCommandSequence.Select(typicalBastionExpanded, LoginCommandSection.Duplicate)
+              .SequenceEqual(["sudo -i"])
+          && LoginCommandSequence.Select(typicalBastionExpanded, LoginCommandSection.ReuseLeave)
+              .SequenceEqual(["exit", "#key Enter"])
           && BastionLoginTemplatePreset.UseConnectionCommandsWhenEmpty("custom") == "custom",
           "Typical bastion preset fills empty connection commands and preserves existing commands");
 

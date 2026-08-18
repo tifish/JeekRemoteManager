@@ -7,11 +7,11 @@ namespace JeekRemoteManager.Services;
 /// <summary>The part of a structured login-command workflow to execute.</summary>
 public enum LoginCommandSection
 {
-    /// <summary>Initial connection: authentication prefix followed by the target-entry section.</summary>
+    /// <summary>Initial connection: authentication prefix, target entry, then post-arrival commands.</summary>
     Fresh,
-    /// <summary>Commands that enter this connection's target while reusing a bastion transport.</summary>
+    /// <summary>Enter this target on a reused bastion transport, then run post-arrival commands.</summary>
     ReuseEnter,
-    /// <summary>Commands for another channel that already defaults to this same target.</summary>
+    /// <summary>Post-arrival commands. Fresh and reuse-enter run these after entering; extra same-target channels start here.</summary>
     Duplicate,
     /// <summary>Commands that leave this target while reusing a bastion transport.</summary>
     ReuseLeave,
@@ -75,9 +75,11 @@ public static class LoginCommandSequence
 
     /// <summary>
     /// Selects one execution section. A structured workflow is:
-    /// authentication prefix, #reuse-enter target-entry commands, #duplicate same-target
-    /// channel commands, and #reuse-leave commands that return a reused channel to the
-    /// bastion menu. A fresh connection executes both the prefix and #reuse-enter section.
+    /// authentication prefix, #reuse-enter target-entry commands, #duplicate post-arrival
+    /// commands, and #reuse-leave commands that return a reused channel to the bastion
+    /// menu. Fresh and reuse-enter both continue through the #duplicate section after
+    /// landing on the target, matching the legacy "#duplicate starts extra channels here"
+    /// marker. A same-target extra channel or the monitor starts at #duplicate.
     /// </summary>
     public static string[] Select(string commands, LoginCommandSection section)
     {
@@ -105,16 +107,29 @@ public static class LoginCommandSequence
                 continue;
             }
 
-            if (current == section
-                || section == LoginCommandSection.Fresh
-                   && current is LoginCommandSection.Fresh or LoginCommandSection.ReuseEnter)
-            {
+            if (IncludesSection(section, current))
                 selected.Add(line);
-            }
         }
 
         return selected.ToArray();
     }
+
+    /// <summary>
+    /// #duplicate is a start marker, not an exclusive section: first login and
+    /// reuse-enter still run those post-arrival commands after entering the target.
+    /// </summary>
+    private static bool IncludesSection(LoginCommandSection requested, LoginCommandSection current) =>
+        requested switch
+        {
+            LoginCommandSection.Fresh =>
+                current is LoginCommandSection.Fresh
+                    or LoginCommandSection.ReuseEnter
+                    or LoginCommandSection.Duplicate,
+            LoginCommandSection.ReuseEnter =>
+                current is LoginCommandSection.ReuseEnter
+                    or LoginCommandSection.Duplicate,
+            _ => current == requested,
+        };
 
     /// <summary>
     /// True only when both cross-target boundaries are present. A partial workflow is

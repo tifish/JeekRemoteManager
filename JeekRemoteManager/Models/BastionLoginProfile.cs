@@ -43,7 +43,7 @@ public sealed class BastionLoginProfile
 /// <summary>
 /// A one-click starting point matching the established interactive bastion flow:
 /// enter 2FA, type 0 for all assets, select the current connection and account,
-/// elevate with sudo, and return to the menu when switching a reused transport.
+/// elevate with sudo after arriving, and return to the menu when switching a reused transport.
 /// </summary>
 public static class BastionLoginTemplatePreset
 {

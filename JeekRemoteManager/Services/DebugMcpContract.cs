@@ -141,7 +141,7 @@ public static class DebugMcpContract
             "Create two temporary same-bastion connections and verify default template association, four fixed fragments, expansion, persistence, and surrounding-blank-line trimming.",
             new()),
         Tool("bastion_template_preset_check",
-            "Open the real bastion-template dialog, insert the typical preset, save it into an isolated editor, and verify empty connection commands are filled while existing commands are preserved.",
+            "Open the real bastion-template dialog, insert the typical preset, save it into an isolated editor, and verify empty connection commands are filled, existing commands are preserved, and sudo -i runs on fresh, reuse-enter, and duplicate flows.",
             new()),
         Tool("conpty_teardown_race_check",
             "Start real ConPTY sessions and hammer Write/Resize from worker threads while disposing them, verifying no ObjectDisposedException escapes and the pseudo console is never touched after it is closed.",
