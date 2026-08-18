@@ -7,6 +7,11 @@ namespace JeekRemoteManager.Services;
 /// <summary>A saved logical route reached through one authenticated bastion transport.</summary>
 public sealed record BastionRoute(string RouteId, string Name, string LoginCommands)
 {
+    public static BastionRoute Unknown(string loginCommands) =>
+        new("", "(unknown)", loginCommands);
+
+    public bool IsKnown => RouteId.Length > 0;
+
     public static BastionRoute FromConnection(Connection connection) =>
         new(
             string.IsNullOrWhiteSpace(connection.ConnectionId)
@@ -22,7 +27,8 @@ public sealed record BastionRoute(string RouteId, string Name, string LoginComma
 /// <summary>
 /// Process-local pool of authenticated SSH transports. Entries are grouped automatically
 /// by endpoint, user, and credential identity; no bastion-group setting is persisted.
-/// Each entry also tracks the logical target that a newly-opened channel currently inherits.
+/// Each entry also tracks the last known logical target. A newly-opened channel
+/// typically starts at the bastion menu, not inside that target.
 /// </summary>
 public sealed class BastionSessionPool : IDisposable
 {
@@ -250,7 +256,9 @@ public sealed class BastionSessionPool : IDisposable
                 && _entries.TryGetValue(lease.Entry.Key, out var entries)
                 && entries.Contains(lease.Entry))
             {
-                lease.Entry.Route = lease.TargetRoute;
+                lease.Entry.Route = lease.RouteUncertain
+                    ? BastionRoute.Unknown(lease.Entry.Route.LoginCommands)
+                    : lease.TargetRoute;
                 lease.Entry.LastUsedUtc = DateTime.UtcNow;
             }
         }
@@ -432,9 +440,11 @@ public sealed class BastionSessionPool : IDisposable
         public BastionRoute SourceRoute => Entry.Route;
         public BastionRoute TargetRoute { get; }
         public bool RequiresSwitch =>
-            !string.Equals(SourceRoute.RouteId, TargetRoute.RouteId, StringComparison.Ordinal);
+            SourceRoute.IsKnown
+            && !string.Equals(SourceRoute.RouteId, TargetRoute.RouteId, StringComparison.Ordinal);
         public bool Completed { get; private set; }
         public bool Abandoned { get; private set; }
+        public bool RouteUncertain { get; private set; }
 
         /// <summary>Marks the channel setup successful and transfers the borrowed client
         /// reference to the terminal or monitor that will continue using it.</summary>
@@ -446,8 +456,21 @@ public sealed class BastionSessionPool : IDisposable
         }
 
         /// <summary>
+        /// Keeps the borrowed reference for manual terminal takeover and retains the
+        /// authenticated transport. The current route is marked unknown so the next
+        /// borrower will not send #reuse-leave at the bastion menu.
+        /// </summary>
+        public SharedSshClient KeepAndTakeClient()
+        {
+            Completed = true;
+            RouteUncertain = true;
+            _clientTaken = true;
+            return Client;
+        }
+
+        /// <summary>
         /// Keeps the borrowed reference for manual terminal takeover, but removes the pool
-        /// entry because a failed transition leaves the transport's default route unknown.
+        /// entry because the transport itself is no longer usable.
         /// </summary>
         public SharedSshClient AbandonAndTakeClient()
         {

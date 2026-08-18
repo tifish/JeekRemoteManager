@@ -395,6 +395,8 @@ public sealed class ServerMonitorSession : IDisposable
                 _pendingPoolLease = null;
                 _held = null;
             }
+            _loginCaptureActive = false;
+            _loginCapture.Reset();
             ReleaseShell();
             throw;
         }
@@ -402,11 +404,14 @@ public sealed class ServerMonitorSession : IDisposable
         {
             if (_pendingPoolLease is not null)
             {
-                _pendingPoolLease.Abandon();
+                // Release the borrow only. Abandoning would drop the authenticated
+                // transport and force the next target through a fresh 2FA login.
                 _pendingPoolLease.Dispose();
                 _pendingPoolLease = null;
                 _held = null;
             }
+            _loginCaptureActive = false;
+            _loginCapture.Reset();
             ReleaseShell();
             throw;
         }

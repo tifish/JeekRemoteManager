@@ -322,6 +322,7 @@ public static class SshConnectionFactory
         "yubikey",
         "token:",             // "Token:" as a whole prompt, not "token" inside prose
         "验证码",              // Simplified/Traditional Chinese
+        "二次验证",            // "二次验证密码" also contains 密码; this must win
         "动态口令",
         "动态码",
         "令牌",

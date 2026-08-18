@@ -2174,20 +2174,10 @@ public partial class TerminalView : UserControl
 
         if (pooledLease is not null)
         {
-            var phases = pooledLease.RequiresSwitch
-                ? new[]
-                {
-                    LoginCommandSequence.Select(
-                        pooledLease.SourceRoute.LoginCommands,
-                        LoginCommandSection.ReuseLeave),
-                    LoginCommandSequence.Select(effectiveLoginCommands, LoginCommandSection.ReuseEnter),
-                }
-                : new[]
-                {
-                    LoginCommandSequence.Select(
-                        effectiveLoginCommands,
-                        LoginCommandSection.Duplicate),
-                };
+            var phases = BastionLanding.SelectReusePhases(
+                pooledLease.RequiresSwitch,
+                pooledLease.SourceRoute.LoginCommands,
+                effectiveLoginCommands);
             var action = pooledLease.RequiresSwitch
                 ? $"Switching the existing bastion session from {pooledLease.SourceRoute.Name} to {connection.Name}"
                 : $"Opening {connection.Name} on the existing bastion session";
@@ -2627,7 +2617,10 @@ public partial class TerminalView : UserControl
                     if (!await RunLoginCommandsAsync(
                             phases[phaseIndex],
                             generation,
-                            waitForTrailingOutput: phaseIndex < phases.Count - 1))
+                            waitForTrailingOutput: phaseIndex < phases.Count - 1,
+                            registerAfterInput: registerFreshInPool,
+                            registerClient: clientAtStart,
+                            registerConnection: connection))
                     {
                         succeeded = false;
                         break;
@@ -2651,7 +2644,7 @@ public partial class TerminalView : UserControl
                     }
                     else if (registerFreshInPool && clientAtStart is not null)
                     {
-                        BastionSessionPool?.Register(clientAtStart, connection);
+                        TryRegisterFresh(clientAtStart, connection);
                     }
 
                     if (succeeded)
@@ -2676,6 +2669,10 @@ public partial class TerminalView : UserControl
                             Volatile.Write(ref _bastionSessionState, "pooled-route-unknown");
                         }
                     }
+                    else if (registerFreshInPool && clientAtStart is not null)
+                    {
+                        TryRegisterFresh(clientAtStart, connection);
+                    }
                     Volatile.Write(ref _loginSequenceState, "failed");
                 }
             }
@@ -2694,6 +2691,10 @@ public partial class TerminalView : UserControl
                         Volatile.Write(ref _bastionSessionState, "pooled-route-unknown");
                     }
                 }
+                else if (registerFreshInPool && clientAtStart is not null)
+                {
+                    TryRegisterFresh(clientAtStart, connection);
+                }
                 Volatile.Write(ref _loginSequenceState, "failed");
                 Dispatcher.UIThread.Post(
                     () => ReportLoginMenuFailure($"login sequence failed: {ex.Message}"),
@@ -2708,10 +2709,21 @@ public partial class TerminalView : UserControl
         });
     }
 
+    private void TryRegisterFresh(SharedSshClient client, Connection connection)
+    {
+        var registered = BastionSessionPool?.Register(client, connection) == true;
+        Volatile.Write(
+            ref _bastionSessionState,
+            registered ? "fresh-pooled" : "fresh-pool-rejected");
+    }
+
     private async Task<bool> RunLoginCommandsAsync(
         string[] lines,
         int generation,
-        bool waitForTrailingOutput = false)
+        bool waitForTrailingOutput = false,
+        bool registerAfterInput = false,
+        SharedSshClient? registerClient = null,
+        Connection? registerConnection = null)
     {
         if (lines.Length == 0)
             return true;
@@ -2791,6 +2803,11 @@ public partial class TerminalView : UserControl
                         Volatile.Write(ref _loginSequenceState, "running");
                     RefreshLoginManualInputLayout(generation);
                 }
+
+                // 2FA is done; keep the authenticated transport even if a later
+                // menu step fails, so the next target does not ask again.
+                if (registerAfterInput && registerClient is not null && registerConnection is not null)
+                    TryRegisterFresh(registerClient, registerConnection);
 
                 // The next command must wait for output produced after the
                 // user's Enter, not for what was already on screen.
@@ -2923,7 +2940,7 @@ public partial class TerminalView : UserControl
 
             _ = completeRoute
                 ? lease.CompleteAndTakeClient()
-                : lease.AbandonAndTakeClient();
+                : lease.KeepAndTakeClient();
             _ownsClientReference = true;
             return true;
         }

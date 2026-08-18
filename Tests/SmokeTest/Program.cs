@@ -362,13 +362,19 @@ try
     Check(DebugMcpContract.BuildToolList()
               .Any(tool => tool?["name"]?.GetValue<string>() == "bastion_channel_limit_check"),
           "Debug MCP advertises bastion channel-limit verification");
+    Check(DebugMcpContract.BuildToolList()
+              .Any(tool => tool?["name"]?.GetValue<string>() == "bastion_reuse_landing_check"),
+          "Debug MCP advertises bastion reuse landing verification");
     Check(terminalViewCode.Contains("BastionPoolWaitingMessage", StringComparison.Ordinal)
           && terminalViewCode.Contains("BastionPoolWaitTimeoutMessage", StringComparison.Ordinal)
           && terminalViewCode.Contains("BastionPoolFullMessage", StringComparison.Ordinal)
           && terminalViewCode.Contains("client.CreateShellStreamAsync(", StringComparison.Ordinal)
           && monitorSessionCode.Contains("client.CreateShellStreamAsync(", StringComparison.Ordinal)
           && terminalViewCode.Contains("login_sequence_state=", StringComparison.Ordinal)
-          && terminalViewCode.Contains("bastion_session_state=", StringComparison.Ordinal),
+          && terminalViewCode.Contains("bastion_session_state=", StringComparison.Ordinal)
+          && terminalViewCode.Contains("BastionLanding.SelectReusePhases", StringComparison.Ordinal)
+          && terminalViewCode.Contains("KeepAndTakeClient", StringComparison.Ordinal)
+          && monitorSessionCode.Contains("LoginCommandSection.ReuseLeave", StringComparison.Ordinal),
           "Bastion channel waits are visible and bounded for terminals and monitors");
     Check(bastionPoolCode.Contains(
               "Dictionary<string, List<Entry>>",
@@ -938,6 +944,20 @@ try
               .SequenceEqual(["sudo -i"])
           && LoginCommandSequence.Select(typicalBastionExpanded, LoginCommandSection.ReuseLeave)
               .SequenceEqual(["exit", "#key Enter"])
+          && BastionLanding.Classify(
+                  "  51: 14.18.249.113                            亚太-AI 代理机\n请选择目标资产：")
+              == BastionLandingKind.Menu
+          && BastionLanding.Classify("请输入二次验证密码：") == BastionLandingKind.AuthPrompt
+          && BastionLanding.Classify("kxjsa@yt-143-157:~ $") == BastionLandingKind.Shell
+          && BastionLanding.SelectReusePhases(
+                  requiresSwitch: true,
+                  typicalBastionExpanded,
+                  typicalBastionExpanded)
+              is { Count: 2 } switchPhases
+          && switchPhases[0].SequenceEqual(["exit", "#key Enter"])
+          && switchPhases[1].Contains("#select target-a")
+          && !switchPhases[1].Contains("#input")
+          && !BastionRoute.Unknown(typicalBastionExpanded).IsKnown
           && BastionLoginTemplatePreset.UseConnectionCommandsWhenEmpty("custom") == "custom",
           "Typical bastion preset fills empty connection commands and preserves existing commands");
 

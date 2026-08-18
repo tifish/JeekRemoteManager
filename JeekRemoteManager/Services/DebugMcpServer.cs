@@ -148,6 +148,7 @@ internal static class DebugMcpServer
         host.AddTool("bastion_template_preset_check", _ => BastionTemplatePresetCheckAsync());
         host.AddTool("conpty_teardown_race_check", _ => ConPtyTeardownRaceCheckAsync());
         host.AddTool("bastion_channel_limit_check", _ => BastionChannelLimitCheckAsync());
+        host.AddTool("bastion_reuse_landing_check", _ => Task.FromResult(BastionReuseLandingCheck()));
         host.AddTool("connection_editor_switch_check", _ => ConnectionEditorSwitchCheckAsync());
         host.AddTool("login_menu_select_probe", LoginMenuSelectProbeAsync);
         host.AddTool("auto_update_stage_check", AutoUpdateStageCheckAsync);
@@ -982,6 +983,10 @@ internal static class DebugMcpServer
         Expect("lone one-time password prompt", Challenge(("One-time password: ", false)),(string?)null);
         Expect("lone authenticator prompt", Challenge(("Authenticator code: ", false)),(string?)null);
         Expect("lone chinese otp prompt", Challenge(("验证码：", false)),(string?)null);
+        Expect(
+            "lone chinese second-factor password prompt",
+            Challenge(("请输入二次验证密码：", false)),
+            (string?)null);
         Expect("lone token prompt", Challenge(("Token: ", false)),(string?)null);
         Expect("lone bracketed otp prompt", Challenge(("[OTP Code]: ", false)),(string?)null);
         // A password prompt that merely mentions two-factor setup is still refused
@@ -5040,6 +5045,53 @@ internal static class DebugMcpServer
             + $"visibleFull={visibleFull}\n"
             + $"visibleFallback={visibleFallback}";
         return ToolText(report, isError: !passed);
+    }
+
+    private static JsonObject BastionReuseLandingCheck()
+    {
+        const string sourceCommands =
+            "#input\n#reuse-enter\n#select source\n#duplicate\nsudo -i\n#reuse-leave\nexit\n#key Enter";
+        const string targetCommands =
+            "#input\n#reuse-enter\n#select 马良画卷AI能力中台测试环境\n#duplicate\nsudo -i\n#reuse-leave\nexit\n#key Enter";
+        var menuText =
+            "  49: 172.18.251.147                           马良画卷AI能力中台测试环境\n"
+            + "  51: 14.18.249.113                            亚太-AI 代理机\n请选择目标资产：";
+        var authText = "请输入二次验证密码：";
+        var shellText = "kxjsa@yt-143-157:~ $";
+
+        var menuKind = BastionLanding.Classify(menuText);
+        var authKind = BastionLanding.Classify(authText);
+        var shellKind = BastionLanding.Classify(shellText);
+        var switchPhases = BastionLanding.SelectReusePhases(
+            requiresSwitch: true, sourceCommands, targetCommands);
+        var sameTargetPhases = BastionLanding.SelectReusePhases(
+            requiresSwitch: false, sourceCommands, targetCommands);
+        var switchJoined = string.Join(" || ", switchPhases.Select(phase => string.Join(" | ", phase)));
+        var switchRunsLeaveThenEnter = switchPhases.Count == 2
+                                       && switchPhases[0].Contains("exit", StringComparer.Ordinal)
+                                       && switchPhases[1].Contains("#select 马良画卷AI能力中台测试环境", StringComparer.Ordinal)
+                                       && !switchPhases[1].Contains("#input", StringComparer.Ordinal);
+        var sameTargetStartsAtDuplicate = sameTargetPhases.Count == 1
+                                          && sameTargetPhases[0].Contains("sudo -i", StringComparer.Ordinal)
+                                          && !sameTargetPhases[0].Contains("exit", StringComparer.Ordinal);
+        var unknownRoute = BastionRoute.Unknown(sourceCommands);
+
+        var passed = menuKind == BastionLandingKind.Menu
+                     && authKind == BastionLandingKind.AuthPrompt
+                     && shellKind == BastionLandingKind.Shell
+                     && switchRunsLeaveThenEnter
+                     && sameTargetStartsAtDuplicate
+                     && !unknownRoute.IsKnown;
+        return ToolText(
+            $"{(passed ? "PASS" : "FAIL")}: bastion reuse landing\n"
+            + $"menu={menuKind}\n"
+            + $"auth={authKind}\n"
+            + $"shell={shellKind}\n"
+            + $"switchPhases={switchJoined}\n"
+            + $"switchRunsLeaveThenEnter={switchRunsLeaveThenEnter}\n"
+            + $"sameTargetStartsAtDuplicate={sameTargetStartsAtDuplicate}\n"
+            + $"unknownRouteKnown={unknownRoute.IsKnown}",
+            isError: !passed);
     }
 
     private static async Task<JsonObject> ConnectionEditorSwitchCheckAsync()
