@@ -377,8 +377,8 @@ public sealed class McpProjectLinkDialog : Window
         {
             var project = _write(directory, SelectedTargetPaths);
             Remember(project);
-            ScanDirectory();
             SetStatus(string.Format(Localizer.Get("McpLinkWritten"), project), error: false);
+            Close();
             return project;
         }
         catch (Exception ex)
@@ -399,8 +399,8 @@ public sealed class McpProjectLinkDialog : Window
         {
             var project = _removeAll(directory);
             Remember(project);
-            ScanDirectory();
             SetStatus(string.Format(Localizer.Get("McpLinkRemoved"), project), error: false);
+            Close();
             return project;
         }
         catch (Exception ex)
