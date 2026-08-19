@@ -411,11 +411,11 @@ public static class AgentMcpConfigCatalog
     /// Rows of the "which agent reads which file" table in the generated docs. Returned as lines
     /// so each caller keeps its own line endings.
     /// </summary>
-    public static IEnumerable<string> DocTableLines()
+    public static IEnumerable<string> DocTableLines(IEnumerable<Target>? targets = null)
     {
         yield return "| Agent | Config file |";
         yield return "|-------|-------------|";
-        foreach (var target in All)
+        foreach (var target in targets ?? All)
             yield return $"| {target.Label} | `{target.RelativePath}` |";
     }
 

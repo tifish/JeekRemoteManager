@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
@@ -740,7 +741,9 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     /// <paramref name="projectDirectory"/>, so agents started there can drive it. Nothing is
     /// remembered afterwards — the entry launches the local adapter and never expires.
     /// </summary>
-    public bool WriteToProject(string projectDirectory)
+    public bool WriteToProject(
+        string projectDirectory,
+        IReadOnlyCollection<string>? selectedTargetPaths = null)
     {
         if (ResolveLinkContext?.Invoke() is not { } link)
         {
@@ -750,7 +753,9 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
         try
         {
-            StatusText = L("AiLinkProjectDone", AgentProjectLink.WriteInto(link, projectDirectory));
+            StatusText = L(
+                "AiLinkProjectDone",
+                AgentProjectLink.WriteInto(link, projectDirectory, selectedTargetPaths));
             return true;
         }
         catch (Exception ex)

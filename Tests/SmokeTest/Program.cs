@@ -62,7 +62,6 @@ try
           [
               ApplicationMenuAction.Settings,
               ApplicationMenuAction.LinkApplicationToProject,
-              ApplicationMenuAction.UnlinkApplicationFromProject,
               ApplicationMenuAction.ImportFromFinalShell,
               ApplicationMenuAction.ImportFromSecureCrt,
               ApplicationMenuAction.ImportFromXshell,
@@ -213,6 +212,33 @@ try
     Check(worktreeRejected
           && !File.Exists(Path.Combine(worktreeProject, AgentMcpConfigCatalog.ProjectLauncherFileName)),
           "A JeekRemoteManager worktree rejects product MCP writes and keeps only Debug MCP");
+
+    AgentProjectLink.WriteApplicationInto(globalMcpProject, mcpToolsAutoApprove: true);
+    var subset = new[] { ".mcp.json", ".grok/config.toml" };
+    AgentProjectLink.WriteApplicationInto(globalMcpProject, mcpToolsAutoApprove: true, subset);
+    var writtenSubset = AgentProjectLink.ListWrittenApplicationTargetPaths(globalMcpProject);
+    Check(writtenSubset.SequenceEqual(subset)
+          && File.Exists(Path.Combine(globalMcpProject, ".mcp.json"))
+          && File.Exists(Path.Combine(globalMcpProject, ".grok", "config.toml"))
+          && !Directory.Exists(Path.Combine(globalMcpProject, ".cursor"))
+          && !Directory.Exists(Path.Combine(globalMcpProject, ".vscode"))
+          && !Directory.Exists(Path.Combine(globalMcpProject, ".zed"))
+          && !Directory.Exists(Path.Combine(globalMcpProject, ".agents"))
+          && !Directory.Exists(Path.Combine(globalMcpProject, ".omp"))
+          && !File.Exists(Path.Combine(globalMcpProject, "opencode.json"))
+          && File.ReadAllText(Path.Combine(globalMcpProject, "AGENTS.md"))
+              .Contains(".grok/config.toml", StringComparison.Ordinal)
+          && !File.ReadAllText(Path.Combine(globalMcpProject, "AGENTS.md"))
+              .Contains(".cursor/mcp.json", StringComparison.Ordinal),
+          "Selective MCP write keeps chosen agents and deletes unused files and folders");
+    AgentProjectLink.WriteApplicationInto(globalMcpProject, mcpToolsAutoApprove: true, []);
+    Check(AgentProjectLink.ListWrittenApplicationTargetPaths(globalMcpProject).Count == 0
+          && File.Exists(Path.Combine(globalMcpProject, ".mcp.json"))
+          && JsonNode.Parse(File.ReadAllText(Path.Combine(globalMcpProject, ".mcp.json")))
+              ?["mcpServers"]?["other"] is not null
+          && !File.Exists(Path.Combine(globalMcpProject, AgentMcpConfigCatalog.ProjectLauncherFileName))
+          && !Directory.Exists(Path.Combine(globalMcpProject, ".grok")),
+          "Empty MCP selection removes JeekRemoteManager files while keeping the project's own config");
 
     var repoRoot = FindRepoRoot();
     var terminalViewXaml = File.ReadAllText(Path.Combine(
@@ -2472,6 +2498,7 @@ try
           && machineSettingsJson.Contains(nameof(MachineAppSettings.AiGrokRunMode))
           && machineSettingsJson.Contains(nameof(MachineAppSettings.AiHideSshTerminal))
           && machineSettingsJson.Contains(nameof(MachineAppSettings.AiPanelOpen))
+          && machineSettingsJson.Contains(nameof(MachineAppSettings.LastMcpProjectDirectory))
           && !machineSettingsJson.Contains(nameof(RoamingAppSettings.Language))
           && !machineSettingsJson.Contains(nameof(RoamingAppSettings.Theme)),
           "Machine settings persist local paths, window layout, and machine-bound AI options");
@@ -2494,7 +2521,8 @@ try
           && !roamingSettingsJson.Contains("AiPanelWidth")
           && !roamingSettingsJson.Contains("FileBrowserEditorPath")
           && !roamingSettingsJson.Contains(nameof(MachineAppSettings.RecentConnectionPaths))
-          && !roamingSettingsJson.Contains(nameof(MachineAppSettings.MainWindowWidth)),
+          && !roamingSettingsJson.Contains(nameof(MachineAppSettings.MainWindowWidth))
+          && !roamingSettingsJson.Contains(nameof(MachineAppSettings.LastMcpProjectDirectory)),
           "Roaming settings persist machine-independent preferences only");
 
     var tempMachineSettingsPath = Path.Combine(root, "LocalConfig", "settings.json");

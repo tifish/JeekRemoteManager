@@ -358,8 +358,8 @@ AiHideSshTerminal	Hide SSH terminal	隐藏 SSH 终端
 AiHideSshTerminalHint	Hide the SSH terminal and let the assistant fill the whole tab. Commands still run on the server.	隐藏 SSH 终端面板，AI 助手占满整个页面。命令仍会在服务器上执行。
 AiOpenWorkspaceFolder	Open the workspace folder	打开工作区目录
 AiOpenWorkspaceFolderHint	Opens this tab's generated agent workspace (AGENTS.md and the project MCP configs) in Explorer, so you can open it in any editor.	在资源管理器中打开本标签页生成的 AI 工作区目录（AGENTS.md 与各项目 MCP 配置），可用任意编辑器打开它。
-AiLinkProject	Let agents in a project folder use this connection…	让项目目录中的 AI 使用此连接…
-AiLinkProjectHint	Writes this connection's notes and a portable MCP launcher into that folder, so any agent started there can drive this server. The files can be committed and work on every computer.	会在该目录写入说明和可移植的 MCP 启动器，在该目录中启动的 AI 就能操作这台服务器。这些文件可以提交入库，并在每台电脑上使用。
+AiLinkProject	Write this connection's MCP…	写入本连接MCP…
+AiLinkProjectHint	Choose a project folder and which MCP agents should receive this connection. Unchecked agents are removed.	选择项目目录以及要写入本连接 MCP 的 Agent；未勾选的会从该目录移除。
 AiLinkProjectTitle	Choose the project folder whose agents should use this connection	选择要让其中 AI 使用此连接的项目目录
 AiLinkProjectDone	Agents started in {0} can now use this connection.	在 {0} 中启动的 AI 现在可以使用此连接。
 AiLinkProjectFailed	Could not update the project folder: {0}	更新项目目录失败：{0}
@@ -368,8 +368,8 @@ AiUnlinkProject	Stop agents in a project folder from using this connection…	�
 AiUnlinkProjectHint	Removes this connection's notes and MCP config from that folder. Anything the project had before is left untouched.	从该目录移除本连接的说明和 MCP 配置，项目原有内容不受影响。
 AiUnlinkProjectTitle	Choose the project folder that should stop using this connection	选择要停止使用此连接的项目目录
 AiUnlinkProjectDone	Agents in {0} no longer use this connection.	{0} 中的 AI 不再使用此连接。
-AiLinkApplicationProject	Let agents in a project folder control JeekRemoteManager…	让项目目录中的 AI 控制整个软件…
-AiLinkApplicationProjectHint	Writes JeekRemoteManager's application-wide MCP config into that folder using a portable %LocalAppData% launcher, so agents can manage connections and control any terminal session. The files can be committed and work on every computer.	在该目录写入 JeekRemoteManager 的全局 MCP 配置（使用可移植的 %LocalAppData% 启动器），让 AI 可以管理连接并控制任意终端会话。这些文件可以提交入库，并在每台电脑上使用。
+AiLinkApplicationProject	Write this software's MCP…	写入本软件MCP…
+AiLinkApplicationProjectHint	Choose a project folder and which MCP agents should control this application. Unchecked agents are removed.	选择项目目录以及要写入本软件 MCP 的 Agent；未勾选的会从该目录移除。
 AiLinkApplicationProjectTitle	Choose the project folder whose agents should control JeekRemoteManager	选择要让其中 AI 控制 JeekRemoteManager 的项目目录
 AiLinkApplicationProjectDone	Agents started in {0} can now control JeekRemoteManager.	在 {0} 中启动的 AI 现在可以控制 JeekRemoteManager。
 AiLinkApplicationProjectFailed	Could not update the project folder: {0}	更新项目目录失败：{0}
@@ -377,6 +377,21 @@ AiUnlinkApplicationProject	Stop agents in a project folder from controlling Jeek
 AiUnlinkApplicationProjectHint	Removes JeekRemoteManager's application-wide MCP notes and config from that folder. Existing project content is preserved.	从该目录移除 JeekRemoteManager 的全局 MCP 说明和配置，项目原有内容不受影响。
 AiUnlinkApplicationProjectTitle	Choose the project folder that should stop controlling JeekRemoteManager	选择要停止控制 JeekRemoteManager 的项目目录
 AiUnlinkApplicationProjectDone	Agents in {0} no longer control JeekRemoteManager.	{0} 中的 AI 不再控制 JeekRemoteManager。
+McpLinkDialogApplicationTitle	Write this software's MCP	写入本软件MCP
+McpLinkDialogConnectionTitle	Write this connection's MCP	写入本连接MCP
+McpLinkTargetDirectory	Target folder	目标目录
+McpLinkDirectoryWatermark	Project folder that should receive the MCP config	要写入 MCP 配置的项目目录
+McpLinkBrowse	Browse…	浏览…
+McpLinkPickDirectoryTitle	Choose the project folder	选择项目目录
+McpLinkAgents	MCP agents	MCP Agent
+McpLinkAgentsHint	Write updates the checked agents and removes the unchecked ones. Empty MCP files and folders are deleted.	写入会更新已勾选的 Agent，并移除未勾选的；若 MCP 文件没有其他内容，会删除该文件和目录。
+McpLinkSelectAll	Select all	全选
+McpLinkSelectNone	Select none	全不选
+McpLinkWrite	Write	写入
+McpLinkRemoveAll	Remove all	全部移除
+McpLinkDirectoryMissing	Choose an existing folder.	请选择已存在的目录。
+McpLinkWritten	Wrote MCP config to {0}.	已写入 MCP 配置到 {0}。
+McpLinkRemoved	Removed MCP config from {0}.	已从 {0} 移除 MCP 配置。
 GlobalAiAgent	Global AI Agent	全局 AI Agent
 GlobalAiAgentShort	Global AI	全局 AI
 GlobalAiAgentTooltip	Use an AI agent to manage connections and operate multiple terminal sessions.	使用 AI Agent 管理连接并操作多个终端会话。

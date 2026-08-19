@@ -3363,6 +3363,15 @@ internal static class DebugMcpServer
             codexToml = File.ReadAllText(Path.Combine(project, ".codex", "config.toml"));
             mcpJson = File.ReadAllText(Path.Combine(project, ".mcp.json"));
 
+            var subset = new[] { ".mcp.json", ".grok/config.toml" };
+            AgentProjectLink.WriteInto(link, project, subset);
+            Check(
+                "selective write keeps only chosen connection agents",
+                AgentProjectLink.ListWrittenTargetPaths(project, server).SequenceEqual(subset)
+                && !Directory.Exists(Path.Combine(project, ".cursor"))
+                && !Directory.Exists(Path.Combine(project, ".vscode")));
+            AgentProjectLink.WriteInto(link, project);
+
             Check("rewriting does not duplicate the markdown block", CountOccurrences(agentsMd, "BEGIN JeekRemoteManager link: vps/bwg") == 1);
             Check("rewriting does not duplicate the TOML block", CountOccurrences(codexToml, $"[mcp_servers.{server}]") == 1);
             Check("rewriting updates the block from the connection",
@@ -3401,6 +3410,18 @@ internal static class DebugMcpServer
                         !Directory.Exists(Path.GetDirectoryName(targetPath)!));
                 }
             }
+
+            var connectionLinkLabel = Localizer.Get("AiLinkProject");
+            var optionHeaders = await OnUiAsync(() =>
+            {
+                if (_renderProbeView is { } probe)
+                    return probe.DebugAiPanel.OptionsMenuHeaders.ToArray();
+
+                var panel = new Views.AgentCliPanelView();
+                return panel.OptionsMenuHeaders.ToArray();
+            });
+            report.AppendLine("options-menu: " + string.Join(" | ", optionHeaders));
+            Check("AI options menu exposes connection MCP write", optionHeaders.Contains(connectionLinkLabel));
 
             if (usePanel)
             {
@@ -3471,6 +3492,8 @@ internal static class DebugMcpServer
                 failures.Add(name);
         }
 
+        string? previousLastDirectory = null;
+        Views.McpProjectLinkDialog? dialog = null;
         try
         {
             Directory.CreateDirectory(project);
@@ -3487,6 +3510,8 @@ internal static class DebugMcpServer
             {
                 if (Desktop?.MainWindow is not Views.MainWindow main)
                     throw new InvalidOperationException("The main window is not available.");
+                if (main.DataContext is MainWindowViewModel vm)
+                    previousLastDirectory = vm.LastMcpProjectDirectory;
                 main.WriteApplicationMcpToProject(project);
                 var tray = (Application.Current as App)?.TrayMenuHeaders.ToArray() ?? [];
                 return (main.MoreActionsMenuHeaders.ToArray(), tray);
@@ -3494,10 +3519,10 @@ internal static class DebugMcpServer
 
             var linkLabel = Localizer.Get("AiLinkApplicationProject");
             var unlinkLabel = Localizer.Get("AiUnlinkApplicationProject");
-            Check("main menu exposes application-wide link", menuHeaders.Contains(linkLabel));
-            Check("main menu exposes application-wide unlink", menuHeaders.Contains(unlinkLabel));
-            Check("tray menu exposes application-wide link", trayHeaders.Contains(linkLabel));
-            Check("tray menu exposes application-wide unlink", trayHeaders.Contains(unlinkLabel));
+            Check("main menu exposes application-wide write", menuHeaders.Contains(linkLabel));
+            Check("main menu no longer exposes a separate unlink item", !menuHeaders.Contains(unlinkLabel));
+            Check("tray menu exposes application-wide write", trayHeaders.Contains(linkLabel));
+            Check("tray menu no longer exposes a separate unlink item", !trayHeaders.Contains(unlinkLabel));
 
             // Shared application actions (everything after tray-only "Show") must match.
             var sharedFromTray = trayHeaders
@@ -3558,17 +3583,130 @@ internal static class DebugMcpServer
                 && codex.Contains("model = \"gpt-5\"", StringComparison.Ordinal)
                 && agentsMd.Contains("Existing rules", StringComparison.Ordinal));
 
-            await OnUiAsync(() =>
+            var emptyLast = await OnUiAsync(() =>
             {
                 if (Desktop?.MainWindow is not Views.MainWindow main)
                     throw new InvalidOperationException("The main window is not available.");
-                main.RemoveApplicationMcpFromProject(project);
-                return true;
+                if (main.DataContext is not MainWindowViewModel vm)
+                    throw new InvalidOperationException("The main window view model is not available.");
+
+                vm.LastMcpProjectDirectory = null;
+                dialog = main.CreateApplicationMcpLinkDialog();
+                dialog.Show(main);
+                var emptyDisabled = !dialog.WriteEnabled && !dialog.RemoveAllEnabled
+                                    && dialog.TargetDirectoryText.Length == 0;
+                dialog.ClickSelectAll();
+                var allCount = dialog.SelectedTargetPaths.Count;
+                dialog.ClickSelectNone();
+                var noneCount = dialog.SelectedTargetPaths.Count;
+                dialog.EnterDirectoryFromTextBox(project);
+                return (
+                    Title: dialog.Title ?? "",
+                    Agents: dialog.AgentLabels.ToArray(),
+                    EmptyDisabled: emptyDisabled,
+                    AllCount: allCount,
+                    NoneCount: noneCount,
+                    AutoChecked: dialog.SelectedTargetPaths.ToArray(),
+                    ActionsEnabled: dialog.WriteEnabled && dialog.RemoveAllEnabled);
+            });
+
+            Check("MCP write dialog uses the software title",
+                emptyLast.Title == Localizer.Get("McpLinkDialogApplicationTitle"));
+            Check(
+                "MCP write dialog lists every catalog agent by name",
+                emptyLast.Agents.SequenceEqual(
+                    AgentMcpConfigCatalog.All
+                        .Select(target => target.Label)
+                        .OrderBy(label => label, StringComparer.OrdinalIgnoreCase)));
+            Check("empty folder disables Write and Remove all", emptyLast.EmptyDisabled);
+            Check(
+                "Select all / Select none click every agent",
+                emptyLast.AllCount == AgentMcpConfigCatalog.All.Count && emptyLast.NoneCount == 0);
+            Check("typing an existing folder enables Write and Remove all", emptyLast.ActionsEnabled);
+            Check("dialog checks agents already written after typing the folder",
+                emptyLast.AutoChecked.Contains(".mcp.json", StringComparer.OrdinalIgnoreCase)
+                && emptyLast.AutoChecked.Contains(".codex/config.toml", StringComparer.OrdinalIgnoreCase)
+                && emptyLast.AutoChecked.Length == AgentMcpConfigCatalog.All.Count);
+
+            var afterSubset = await OnUiAsync(() =>
+            {
+                if (dialog is null)
+                    throw new InvalidOperationException("The MCP write dialog is not open.");
+                dialog.ClickSelectNone();
+                dialog.SetSelectedTargetPaths([".mcp.json", ".grok/config.toml"]);
+                dialog.ClickWrite();
+                return (Selected: dialog.SelectedTargetPaths.ToArray(), Status: dialog.StatusText);
+            });
+
+            var remembered = await OnUiAsync(() =>
+                Desktop?.MainWindow is Views.MainWindow { DataContext: MainWindowViewModel vm }
+                    ? vm.LastMcpProjectDirectory ?? ""
+                    : "");
+            Check(
+                "Write button of a subset leaves only those agents",
+                afterSubset.Selected.SequenceEqual([".mcp.json", ".grok/config.toml"])
+                && File.Exists(Path.Combine(project, ".mcp.json"))
+                && File.Exists(Path.Combine(project, ".grok", "config.toml"))
+                && !Directory.Exists(Path.Combine(project, ".cursor"))
+                && !Directory.Exists(Path.Combine(project, ".vscode")));
+            Check(
+                "Write button reports success",
+                afterSubset.Status.Contains(project, StringComparison.Ordinal));
+            Check("dialog remembers the last project folder", remembered == project);
+
+            var missingDirState = await OnUiAsync(() =>
+            {
+                if (dialog is null)
+                    throw new InvalidOperationException("The MCP write dialog is not open.");
+                dialog.EnterDirectoryFromTextBox(
+                    Path.Combine(project, "does-not-exist-" + Guid.NewGuid().ToString("N")[..8]));
+                var missing = !dialog.WriteEnabled && !dialog.RemoveAllEnabled
+                              && dialog.SelectedTargetPaths.Count == 0;
+                dialog.EnterDirectoryFromTextBox(project);
+                return (missing, dialog.SelectedTargetPaths.ToArray());
+            });
+            Check("a missing folder disables actions and clears checks", missingDirState.missing);
+            Check(
+                "re-entering the project restores the written subset",
+                missingDirState.Item2.SequenceEqual([".mcp.json", ".grok/config.toml"]));
+
+            var worktree = Path.Combine(project, "worktree-reject");
+            Directory.CreateDirectory(worktree);
+            File.WriteAllText(Path.Combine(worktree, "JeekRemoteManagerDebugMcp.cmd"), "@echo off\n");
+            var worktreeStatus = await OnUiAsync(() =>
+            {
+                if (dialog is null)
+                    throw new InvalidOperationException("The MCP write dialog is not open.");
+                dialog.EnterDirectoryFromTextBox(worktree);
+                dialog.ClickSelectAll();
+                dialog.ClickWrite();
+                return dialog.StatusText;
+            });
+            Check(
+                "Write button surfaces a worktree rejection without writing",
+                worktreeStatus.Contains("Debug MCP", StringComparison.Ordinal)
+                && !File.Exists(Path.Combine(worktree, AgentMcpConfigCatalog.ProjectLauncherFileName)));
+
+            var afterRemove = await OnUiAsync(() =>
+            {
+                if (dialog is null)
+                    throw new InvalidOperationException("The MCP write dialog is not open.");
+                dialog.EnterDirectoryFromTextBox(project);
+                dialog.ClickRemoveAll();
+                var cleared = dialog.SelectedTargetPaths.ToArray();
+                var status = dialog.StatusText;
+                dialog.ClickCancel();
+                dialog = null;
+                return (cleared, status);
             });
 
             agentsMd = File.ReadAllText(Path.Combine(project, "AGENTS.md"));
             root = TryParseJsonObject(File.ReadAllText(Path.Combine(project, ".mcp.json")));
             codex = File.ReadAllText(Path.Combine(project, ".codex", "config.toml"));
+            Check("Remove all button clears every JeekRemoteManager agent", afterRemove.cleared.Length == 0);
+            Check(
+                "Remove all reports success",
+                afterRemove.status.Contains(project, StringComparison.Ordinal));
             Check(
                 "unlink removes only JeekRemoteManager's application entry",
                 !agentsMd.Contains("JeekRemoteManager link: application", StringComparison.Ordinal)
@@ -3577,6 +3715,86 @@ internal static class DebugMcpServer
                 && !codex.Contains(AgentProjectLink.ApplicationMcpServerName, StringComparison.Ordinal)
                 && codex.Contains("model = \"gpt-5\"", StringComparison.Ordinal)
                 && !File.Exists(Path.Combine(project, AgentMcpConfigCatalog.ProjectLauncherFileName)));
+
+            await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main)
+                    throw new InvalidOperationException("The main window is not available.");
+                main.WriteApplicationMcpToProject(project);
+                return true;
+            });
+            var cancelLeftFiles = File.Exists(
+                Path.Combine(project, AgentMcpConfigCatalog.ProjectLauncherFileName));
+            var cancelResult = await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main)
+                    throw new InvalidOperationException("The main window is not available.");
+                var cancelDialog = main.CreateApplicationMcpLinkDialog();
+                cancelDialog.Show(main);
+                var prefill = cancelDialog.TargetDirectoryText;
+                cancelDialog.ClickSelectNone();
+                cancelDialog.ClickCancel();
+                return (Closed: !cancelDialog.IsVisible, Prefill: prefill);
+            });
+            Check("dialog prefills the last project folder on open", cancelResult.Prefill == project);
+            Check("Cancel closes without writing the cleared selection",
+                cancelResult.Closed
+                && cancelLeftFiles
+                && File.Exists(Path.Combine(project, AgentMcpConfigCatalog.ProjectLauncherFileName))
+                && AgentProjectLink.ListWrittenApplicationTargetPaths(project).Count
+                    == AgentMcpConfigCatalog.All.Count);
+
+            var connectionWorkspace = Path.Combine(project, "connection-workspace");
+            Directory.CreateDirectory(connectionWorkspace);
+            var connectionServer = "";
+            var connectionTitle = "";
+            var connectionWritten = Array.Empty<string>();
+            var connectionCleared = Array.Empty<string>();
+            AgentCliPanelViewModel? connectionPanel = null;
+            await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main)
+                    throw new InvalidOperationException("The main window is not available.");
+                if (main.DataContext is not MainWindowViewModel vm)
+                    throw new InvalidOperationException("The main window view model is not available.");
+
+                connectionPanel = new AgentCliPanelViewModel(connectionWorkspace);
+                connectionPanel.ResolveLinkContext = () => new AgentWorkspaceLink(
+                    connectionWorkspace,
+                    "vps/bwg",
+                    "vps/bwg",
+                    "bwg",
+                    "SSH",
+                    "root@10.0.0.1:22",
+                    McpToolsAutoApprove: true);
+                connectionServer = connectionPanel.ResolveLinkContext()!.ProjectMcpServerName;
+                var connectionDialog = McpProjectLinkDialog.CreateConnection(connectionPanel, vm);
+                connectionDialog.Show(main);
+                connectionTitle = connectionDialog.Title ?? "";
+                connectionDialog.EnterDirectoryFromTextBox(project);
+                connectionDialog.SetSelectedTargetPaths([".mcp.json"]);
+                connectionDialog.ClickWrite();
+                connectionWritten = AgentProjectLink
+                    .ListWrittenTargetPaths(project, connectionServer)
+                    .ToArray();
+                connectionDialog.ClickRemoveAll();
+                connectionCleared = AgentProjectLink
+                    .ListWrittenTargetPaths(project, connectionServer)
+                    .ToArray();
+                connectionDialog.Close();
+                return true;
+            });
+            if (connectionPanel is not null)
+                await connectionPanel.DisposeAsync();
+            Check(
+                "connection dialog uses the connection title",
+                connectionTitle == Localizer.Get("McpLinkDialogConnectionTitle"));
+            Check(
+                "connection Write button writes only the checked agent",
+                connectionWritten.SequenceEqual([".mcp.json"]));
+            Check(
+                "connection Remove all button clears this connection",
+                connectionCleared.Length == 0);
 
             if (keep)
             {
@@ -3601,6 +3819,14 @@ internal static class DebugMcpServer
         }
         finally
         {
+            await OnUiAsync(() =>
+            {
+                try { dialog?.Close(); }
+                catch { /* already closed */ }
+                if (Desktop?.MainWindow is Views.MainWindow { DataContext: MainWindowViewModel vm })
+                    vm.LastMcpProjectDirectory = previousLastDirectory;
+                return true;
+            });
             if (!keep)
             {
                 try { Directory.Delete(project, recursive: true); }

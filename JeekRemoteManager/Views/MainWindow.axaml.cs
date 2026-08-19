@@ -271,10 +271,7 @@ public partial class MainWindow : Window
                     vm.OpenSettingsCommand.Execute(null);
                 break;
             case ApplicationMenuAction.LinkApplicationToProject:
-                _ = PickApplicationProjectFolderAsync(remove: false);
-                break;
-            case ApplicationMenuAction.UnlinkApplicationFromProject:
-                _ = PickApplicationProjectFolderAsync(remove: true);
+                _ = ShowApplicationMcpLinkDialogAsync();
                 break;
             case ApplicationMenuAction.ImportFromFinalShell:
                 if (vm.ImportFinalShellCommand.CanExecute(null))
@@ -303,43 +300,33 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task PickApplicationProjectFolderAsync(bool remove)
+    public Task ShowApplicationMcpLinkDialogAsync()
     {
         if (DataContext is not MainWindowViewModel vm)
-            return;
+            return Task.CompletedTask;
+        return McpProjectLinkDialog.ShowApplicationAsync(this, vm);
+    }
 
-        try
-        {
-            var project = await PickFolderAsync(
-                string.Empty,
-                Localizer.Get(remove
-                    ? "AiUnlinkApplicationProjectTitle"
-                    : "AiLinkApplicationProjectTitle"));
-            if (project is null)
-                return;
-
-            if (remove)
-                RemoveApplicationMcpFromProject(project);
-            else
-                WriteApplicationMcpToProject(project);
-        }
-        catch (Exception ex)
-        {
-            vm.StatusMessage = string.Format(
-                Localizer.Get("AiLinkApplicationProjectFailed"),
-                ex.Message);
-        }
+    /// <summary>Builds the application-wide MCP write dialog without showing it, for Debug MCP.</summary>
+    public McpProjectLinkDialog CreateApplicationMcpLinkDialog()
+    {
+        if (DataContext is not MainWindowViewModel vm)
+            throw new InvalidOperationException("The main window view model is not available.");
+        return McpProjectLinkDialog.CreateApplication(vm);
     }
 
     /// <summary>
     /// Writes the application-wide product MCP entry into a project folder. Public so Debug MCP
     /// can exercise the exact main-menu action after bypassing only the native folder picker.
     /// </summary>
-    public string WriteApplicationMcpToProject(string projectDirectory)
+    public string WriteApplicationMcpToProject(
+        string projectDirectory,
+        IReadOnlyCollection<string>? selectedTargetPaths = null)
     {
         var project = AgentProjectLink.WriteApplicationInto(
             projectDirectory,
-            (DataContext as MainWindowViewModel)?.AiAutoApproveDangerousCommands ?? false);
+            (DataContext as MainWindowViewModel)?.AiAutoApproveDangerousCommands ?? false,
+            selectedTargetPaths);
         if (DataContext is MainWindowViewModel vm)
             vm.StatusMessage = string.Format(Localizer.Get("AiLinkApplicationProjectDone"), project);
         return project;

@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,7 +11,6 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
-using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Jeek.Avalonia.Localization;
 using JeekRemoteManager.Services;
@@ -127,6 +128,13 @@ public partial class AgentCliPanelView : UserControl
             Dispatcher.UIThread.Post(SyncViewportToConPty, DispatcherPriority.Loaded);
         };
     }
+
+    /// <summary>Localized AI-options menu labels exposed for Debug MCP verification.</summary>
+    public IReadOnlyList<string> OptionsMenuHeaders =>
+        (AiOptionsButton.Flyout as MenuFlyout)?.Items
+        .OfType<MenuItem>()
+        .Select(item => item.Header?.ToString() ?? string.Empty)
+        .ToArray() ?? [];
 
     /// <summary>Diagnostics for Debug MCP (session attach / feed / scroll state).</summary>
     public string DebugOutputStats =>
@@ -281,36 +289,18 @@ public partial class AgentCliPanelView : UserControl
     }
 
     /// <summary>
-    /// Asks for a local project folder and writes this connection's reference block plus MCP
-    /// entry into it, so agents started there can drive the connection. A one-shot write:
-    /// the entry launches the local adapter, so there is nothing to keep in sync afterwards.
+    /// Opens the dialog that writes this connection's MCP entry into a project folder.
     /// </summary>
-    private void OnWriteToProjectClick(object? sender, RoutedEventArgs e) =>
-        _ = PickProjectFolderAsync("AiLinkProjectTitle", path => _vm?.WriteToProject(path));
-
-    /// <summary>Takes this connection back out of a project folder the user picks.</summary>
-    private void OnRemoveFromProjectClick(object? sender, RoutedEventArgs e) =>
-        _ = PickProjectFolderAsync("AiUnlinkProjectTitle", path => _vm?.RemoveFromProject(path));
-
-    private async Task PickProjectFolderAsync(string titleKey, Action<string> action)
+    private void OnWriteToProjectClick(object? sender, RoutedEventArgs e)
     {
-        if (_vm is null || TopLevel.GetTopLevel(this) is not { } topLevel)
+        if (_vm is null
+            || TopLevel.GetTopLevel(this) is not Window owner
+            || owner.DataContext is not MainWindowViewModel settings)
+        {
             return;
+        }
 
-        try
-        {
-            var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-            {
-                Title = Localizer.Get(titleKey),
-                AllowMultiple = false,
-            });
-            if (folders.Count > 0 && folders[0].TryGetLocalPath() is { Length: > 0 } path)
-                action(path);
-        }
-        catch (Exception ex)
-        {
-            _vm.StatusText = string.Format(Localizer.Get("AiLinkProjectFailed"), ex.Message);
-        }
+        _ = McpProjectLinkDialog.ShowConnectionAsync(owner, _vm, settings);
     }
 
     private void OnCloseClick(object? sender, RoutedEventArgs e) =>

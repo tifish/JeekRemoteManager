@@ -79,21 +79,35 @@ public static class AgentProjectLink
 
     /// <summary>
     /// Writes the reference block and MCP configs into <paramref name="projectDirectory"/>.
-    /// Re-running replaces the block in place. Returns the normalized project path.
+    /// Re-running replaces the block in place. When
+    /// <paramref name="selectedTargetPaths"/> is set, only those catalog files are
+    /// written and every other JeekRemoteManager entry is removed. An empty list
+    /// removes the link entirely. Returns the normalized project path.
     /// </summary>
-    public static string WriteInto(AgentWorkspaceLink link, string projectDirectory)
+    public static string WriteInto(
+        AgentWorkspaceLink link,
+        string projectDirectory,
+        IReadOnlyCollection<string>? selectedTargetPaths = null)
     {
         var project = NormalizeDirectory(projectDirectory);
         var workspace = NormalizeDirectory(link.WorkspaceDirectory);
         ValidateProjectDirectory(project, workspace);
+        var selected = ResolveTargets(selectedTargetPaths);
+        if (selected.Count == 0)
+        {
+            RemoveBlocks(project, link.NormalizedRelativePath, link.ProjectMcpServerName);
+            return project;
+        }
+
         Apply(
             project,
             link.NormalizedRelativePath,
             link.ProjectMcpServerName,
-            BuildReferenceBlock(link),
+            BuildReferenceBlock(link, selected),
             link.NormalizedConnectionPath,
             link.McpToolsAutoApprove,
-            portable: true);
+            portable: true,
+            selected);
         return project;
     }
 
@@ -114,18 +128,29 @@ public static class AgentProjectLink
     /// <see cref="WriteInto"/>, the adapter is not pinned to a connection, so the agent can browse
     /// and manage the whole connection tree and address any terminal session.
     /// </summary>
-    public static string WriteApplicationInto(string projectDirectory, bool mcpToolsAutoApprove)
+    public static string WriteApplicationInto(
+        string projectDirectory,
+        bool mcpToolsAutoApprove,
+        IReadOnlyCollection<string>? selectedTargetPaths = null)
     {
         var project = NormalizeDirectory(projectDirectory);
         ValidateProjectDirectory(project);
+        var selected = ResolveTargets(selectedTargetPaths);
+        if (selected.Count == 0)
+        {
+            RemoveBlocks(project, ApplicationMarker, ApplicationMcpServerName);
+            return project;
+        }
+
         Apply(
             project,
             ApplicationMarker,
             ApplicationMcpServerName,
-            BuildApplicationReferenceBlock(portable: true),
+            BuildApplicationReferenceBlock(portable: true, selected),
             connectionPath: null,
             mcpToolsAutoApprove,
-            portable: true);
+            portable: true,
+            selected);
         return project;
     }
 
@@ -148,8 +173,35 @@ public static class AgentProjectLink
             BuildApplicationReferenceBlock(portable: false),
             connectionPath: null,
             mcpToolsAutoApprove,
-            portable: false);
+            portable: false,
+            AgentMcpConfigCatalog.All);
     }
+
+    /// <summary>
+    /// Catalog relative paths that already contain this connection's MCP server.
+    /// Missing or unreadable files are treated as not written.
+    /// </summary>
+    public static IReadOnlyList<string> ListWrittenTargetPaths(
+        string projectDirectory,
+        string serverName)
+    {
+        if (string.IsNullOrWhiteSpace(projectDirectory) || !Directory.Exists(projectDirectory))
+            return [];
+
+        var project = NormalizeDirectory(projectDirectory);
+        var written = new List<string>();
+        foreach (var target in AgentMcpConfigCatalog.All)
+        {
+            if (ContainsServer(project, target, serverName))
+                written.Add(target.RelativePath);
+        }
+
+        return written;
+    }
+
+    /// <summary>Catalog relative paths that already contain the application-wide MCP server.</summary>
+    public static IReadOnlyList<string> ListWrittenApplicationTargetPaths(string projectDirectory) =>
+        ListWrittenTargetPaths(projectDirectory, ApplicationMcpServerName);
 
     /// <summary>Removes only the application-wide block and MCP entry from a project.</summary>
     public static string RemoveApplicationFrom(string projectDirectory)
@@ -167,7 +219,8 @@ public static class AgentProjectLink
         string body,
         string? connectionPath,
         bool mcpToolsAutoApprove,
-        bool portable)
+        bool portable,
+        IReadOnlyList<AgentMcpConfigCatalog.Target> selected)
     {
         UpsertMarkdownBlock(Path.Combine(projectDirectory, "AGENTS.md"), marker, body);
 
@@ -189,7 +242,10 @@ public static class AgentProjectLink
             serverName,
             connectionPath,
             mcpToolsAutoApprove,
-            portable);
+            portable,
+            selected);
+        RemoveUnselectedTargets(projectDirectory, marker, serverName, selected);
+        TryDeleteUnusedProjectLauncher(projectDirectory);
     }
 
     /// <summary>
@@ -268,7 +324,9 @@ public static class AgentProjectLink
 
     #region Reference block
 
-    private static string BuildReferenceBlock(AgentWorkspaceLink link)
+    private static string BuildReferenceBlock(
+        AgentWorkspaceLink link,
+        IReadOnlyList<AgentMcpConfigCatalog.Target>? targets = null)
     {
         var relative = link.NormalizedRelativePath;
         var connection = link.NormalizedConnectionPath;
@@ -304,12 +362,14 @@ public static class AgentProjectLink
           .Append("` (which expands `%LocalAppData%` at runtime) so they can be committed and ")
           .Append("work on every computer. There is no URL to expire. JeekRemoteManager rewrites ")
           .Append("this block — do not edit it by hand.\n\n");
-        foreach (var line in AgentMcpConfigCatalog.DocTableLines())
+        foreach (var line in AgentMcpConfigCatalog.DocTableLines(targets))
             sb.Append(line).Append('\n');
         return sb.ToString();
     }
 
-    private static string BuildApplicationReferenceBlock(bool portable)
+    private static string BuildApplicationReferenceBlock(
+        bool portable,
+        IReadOnlyList<AgentMcpConfigCatalog.Target>? targets = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine("## Control JeekRemoteManager through MCP");
@@ -330,7 +390,7 @@ public static class AgentProjectLink
               + "` (which expands `%LocalAppData%` at runtime) so they can be committed and work on every computer. There is no URL, port, or token to expire."
             : "- The local adapter starts JeekRemoteManager if needed and talks to it over a named pipe; there is no URL, port, or token to expire.");
         sb.AppendLine();
-        foreach (var line in AgentMcpConfigCatalog.DocTableLines())
+        foreach (var line in AgentMcpConfigCatalog.DocTableLines(targets))
             sb.AppendLine(line);
         return sb.ToString();
     }
@@ -354,7 +414,8 @@ public static class AgentProjectLink
         string serverName,
         string? connectionPath,
         bool mcpToolsAutoApprove,
-        bool portable)
+        bool portable,
+        IReadOnlyList<AgentMcpConfigCatalog.Target> selected)
     {
         var launch = portable
             ? WritePortableLaunch(projectDirectory, connectionPath)
@@ -363,7 +424,7 @@ public static class AgentProjectLink
                 connectionPath,
                 AgentWorkspaceLink.AdapterInstanceId);
 
-        foreach (var target in AgentMcpConfigCatalog.All)
+        foreach (var target in selected)
         {
             var path = target.ResolvePath(projectDirectory);
             if (target.Format == AgentMcpConfigCatalog.ConfigFormat.Json)
@@ -387,6 +448,65 @@ public static class AgentProjectLink
                         mcpToolsAutoApprove));
             }
         }
+    }
+
+    private static void RemoveUnselectedTargets(
+        string projectDirectory,
+        string marker,
+        string serverName,
+        IReadOnlyList<AgentMcpConfigCatalog.Target> selected)
+    {
+        var keep = selected.ToHashSet();
+        foreach (var target in AgentMcpConfigCatalog.All)
+        {
+            if (keep.Contains(target))
+                continue;
+
+            var path = target.ResolvePath(projectDirectory);
+            if (target.Format == AgentMcpConfigCatalog.ConfigFormat.Json)
+            {
+                RemoveMcpJsonServer(path, target, serverName);
+                if (target.HasOwnFolder)
+                    TryDeleteEmptyFolder(path);
+            }
+            else
+            {
+                RemoveTomlBlock(path, marker);
+                DeleteIfEmpty(path, removeEmptyFolder: target.HasOwnFolder);
+            }
+        }
+    }
+
+    private static IReadOnlyList<AgentMcpConfigCatalog.Target> ResolveTargets(
+        IReadOnlyCollection<string>? selectedTargetPaths)
+    {
+        if (selectedTargetPaths is null)
+            return AgentMcpConfigCatalog.All;
+
+        var selected = new HashSet<string>(selectedTargetPaths, StringComparer.OrdinalIgnoreCase);
+        return AgentMcpConfigCatalog.All
+            .Where(target => selected.Contains(target.RelativePath))
+            .ToArray();
+    }
+
+    private static bool ContainsServer(
+        string projectDirectory,
+        AgentMcpConfigCatalog.Target target,
+        string serverName)
+    {
+        var path = target.ResolvePath(projectDirectory);
+        if (!File.Exists(path))
+            return false;
+
+        if (target.Format == AgentMcpConfigCatalog.ConfigFormat.Json)
+        {
+            var root = ParseJsonObject(path);
+            return root?[target.JsonRootKey!]?[serverName] is not null;
+        }
+
+        return ReadTextOrEmpty(path).Contains(
+            $"[mcp_servers.{serverName}]",
+            StringComparison.Ordinal);
     }
 
     /// <summary>

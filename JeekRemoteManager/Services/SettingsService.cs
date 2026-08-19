@@ -225,6 +225,7 @@ public class SettingsService
             AiGrokRunMode = machineSettings.AiGrokRunMode,
             AiHideSshTerminal = machineSettings.AiHideSshTerminal,
             AiPanelOpen = machineSettings.AiPanelOpen,
+            LastMcpProjectDirectory = machineSettings.LastMcpProjectDirectory,
             Language = roamingSettings.Language,
             Theme = roamingSettings.Theme,
             CheckUpdateOnStartup = roamingSettings.CheckUpdateOnStartup,
@@ -260,6 +261,7 @@ public class SettingsService
             AiGrokRunMode = settings.AiGrokRunMode,
             AiHideSshTerminal = settings.AiHideSshTerminal,
             AiPanelOpen = settings.AiPanelOpen,
+            LastMcpProjectDirectory = settings.LastMcpProjectDirectory,
         };
         NormalizeMachineSettings(machineSettings);
         return machineSettings;
@@ -309,6 +311,7 @@ public class SettingsService
         settings.AiGrokRunMode = normalized.AiGrokRunMode;
         settings.AiHideSshTerminal = normalized.AiHideSshTerminal;
         settings.AiPanelOpen = normalized.AiPanelOpen;
+        settings.LastMcpProjectDirectory = normalized.LastMcpProjectDirectory;
         settings.Language = normalized.Language;
         settings.Theme = normalized.Theme;
         settings.CheckUpdateOnStartup = normalized.CheckUpdateOnStartup;
@@ -356,6 +359,8 @@ public class SettingsService
             : 260;
         if (string.IsNullOrWhiteSpace(settings.FileBrowserEditorPath))
             settings.FileBrowserEditorPath = null;
+        if (string.IsNullOrWhiteSpace(settings.LastMcpProjectDirectory))
+            settings.LastMcpProjectDirectory = null;
         if (!Enum.IsDefined(settings.AiRunMode))
             settings.AiRunMode = AgentCliRunMode.Cli;
         // Grok has no Desktop protocol; never persist/restore Desktop for that slot.

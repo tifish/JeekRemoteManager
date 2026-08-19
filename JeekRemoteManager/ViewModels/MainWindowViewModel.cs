@@ -579,6 +579,21 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Last folder chosen in the MCP write dialog. Shared by the
+    /// application-wide and per-connection actions.</summary>
+    public string? LastMcpProjectDirectory
+    {
+        get => _settings.Settings.LastMcpProjectDirectory;
+        set
+        {
+            var normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            if (_settings.Settings.LastMcpProjectDirectory == normalized)
+                return;
+            _settings.Settings.LastMcpProjectDirectory = normalized;
+            _settings.SaveIfChanged();
+        }
+    }
+
     /// <summary>True when a terminal tab is the active right-pane tab. Drives the
     /// visibility of the terminal font-size toolbar buttons.</summary>
     [ObservableProperty]

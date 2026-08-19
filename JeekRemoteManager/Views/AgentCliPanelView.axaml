@@ -123,10 +123,6 @@
                                           Click="OnWriteToProjectClick"
                                           IsVisible="{Binding ShowConnectionOptions}"
                                           ToolTip.Tip="{l:Localize AiLinkProjectHint}" />
-                                <MenuItem Header="{l:Localize AiUnlinkProject}"
-                                          Click="OnRemoveFromProjectClick"
-                                          IsVisible="{Binding ShowConnectionOptions}"
-                                          ToolTip.Tip="{l:Localize AiUnlinkProjectHint}" />
                             </MenuFlyout>
                         </Button.Flyout>
                     </Button>

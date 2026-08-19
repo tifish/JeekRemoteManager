@@ -140,6 +140,12 @@ public class AppSettings
     /// tabs and restarts open it after login when true (global, not per-connection).</summary>
     public bool AiPanelOpen { get; set; }
 
+    /// <summary>
+    /// Last project folder chosen in the MCP write dialog. Machine-local because it is
+    /// a path on this computer. Null/blank when none has been picked yet.
+    /// </summary>
+    public string? LastMcpProjectDirectory { get; set; }
+
 }
 
 /// <summary>Settings that are bound to this Windows account and machine.
@@ -212,6 +218,9 @@ public class MachineAppSettings
 
     /// <summary>Whether the in-terminal AI panel was open when last toggled (global layout state).</summary>
     public bool AiPanelOpen { get; set; }
+
+    /// <summary>Last project folder chosen in the MCP write dialog (a local path).</summary>
+    public string? LastMcpProjectDirectory { get; set; }
 
 }
 

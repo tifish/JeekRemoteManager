@@ -6,7 +6,6 @@ public enum ApplicationMenuAction
 {
     Settings,
     LinkApplicationToProject,
-    UnlinkApplicationFromProject,
     ImportFromFinalShell,
     ImportFromSecureCrt,
     ImportFromXshell,
@@ -44,11 +43,6 @@ public static class ApplicationMenuDefinition
             "AiLinkApplicationProject",
             "\uE8B7",
             ToolTipLocalizationKey: "AiLinkApplicationProjectHint"),
-        new(
-            ApplicationMenuAction.UnlinkApplicationFromProject,
-            "AiUnlinkApplicationProject",
-            "\uE74D",
-            ToolTipLocalizationKey: "AiUnlinkApplicationProjectHint"),
         new(ApplicationMenuAction.ImportFromFinalShell, "ImportFromFinalShell", "\uE8B5"),
         new(ApplicationMenuAction.ImportFromSecureCrt, "ImportFromSecureCrt", "\uE8B5"),
         new(ApplicationMenuAction.ImportFromXshell, "ImportFromXshell", "\uE8B5"),
