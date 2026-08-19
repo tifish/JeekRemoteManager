@@ -146,6 +146,12 @@ public class AppSettings
     /// </summary>
     public string? LastMcpProjectDirectory { get; set; }
 
+    /// <summary>
+    /// Catalog relative paths written by the last successful MCP dialog Write.
+    /// Used by the "Last used" button. Empty when nothing has been written yet.
+    /// </summary>
+    public List<string> LastMcpWrittenTargetPaths { get; set; } = new();
+
 }
 
 /// <summary>Settings that are bound to this Windows account and machine.
@@ -221,6 +227,9 @@ public class MachineAppSettings
 
     /// <summary>Last project folder chosen in the MCP write dialog (a local path).</summary>
     public string? LastMcpProjectDirectory { get; set; }
+
+    /// <summary>Catalog relative paths from the last successful MCP dialog Write.</summary>
+    public List<string> LastMcpWrittenTargetPaths { get; set; } = new();
 
 }
 

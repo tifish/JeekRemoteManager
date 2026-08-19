@@ -62,8 +62,9 @@ public sealed record AgentWorkspaceLink(
 ///
 /// This is a one-shot write, not an association: the MCP entry launches a portable
 /// <c>JeekRemoteManagerMcp.cmd</c> next to the project (which expands <c>%LocalAppData%</c>
-/// at runtime), so the files can be committed and work on every computer. There is no
-/// URL, port, token, or username path that could go stale.
+/// at runtime). Release omits <c>--instance</c> so the files can be committed and talk to
+/// the installed app. Debug includes <c>--instance</c> so an agent opened on the folder
+/// reaches this worktree instead of a different running instance.
 /// </summary>
 public static class AgentProjectLink
 {
@@ -406,7 +407,7 @@ public static class AgentProjectLink
     /// Merges this connection's MCP server into the project's agent configs without disturbing
     /// entries the project already had. The entry launches the portable
     /// <c>JeekRemoteManagerMcp.cmd</c> next to the project — no expanded username path, no
-    /// <c>--instance</c>, no URL — so the files can be committed and work on every computer.
+    /// URL. Debug pins <c>--instance</c> to this worktree; Release does not.
     /// </summary>
     private static void WriteProjectMcpConfigs(
         string projectDirectory,
@@ -511,7 +512,7 @@ public static class AgentProjectLink
 
     /// <summary>
     /// Writes (or refreshes) the committed <c>cmd</c> launcher. It expands
-    /// <c>%LocalAppData%</c> at runtime and talks to the installed Release instance.
+    /// <c>%LocalAppData%</c> at runtime. Debug pins the current worktree with <c>--instance</c>.
     /// </summary>
     private static AgentMcpConfigCatalog.AdapterLaunch WritePortableLaunch(
         string projectDirectory,
@@ -522,7 +523,9 @@ public static class AgentProjectLink
             path,
             AgentMcpConfigCatalog.BuildProjectLauncherScript(),
             Utf8);
-        return AgentMcpConfigCatalog.AdapterLaunch.PortableProject(connectionPath);
+        return AgentMcpConfigCatalog.AdapterLaunch.PortableProject(
+            connectionPath,
+            AgentWorkspaceLink.AdapterInstanceId);
     }
 
     private static void MergeMcpJson(

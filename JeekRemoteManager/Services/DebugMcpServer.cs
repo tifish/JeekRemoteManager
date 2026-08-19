@@ -1984,6 +1984,16 @@ internal static class DebugMcpServer
 
     private static Task<T> OnUiAsync<T>(Func<T> func) => Host.OnUiAsync(func);
 
+    /// <summary>
+    /// Debug writes pin <c>--instance</c> to this worktree; Release omits it so committed
+    /// project files talk to the installed app.
+    /// </summary>
+    private static bool PortableArgsPinThisInstance(string text) =>
+        AgentWorkspaceLink.AdapterInstanceId is { } instanceId
+            ? text.Contains("--instance", StringComparison.Ordinal)
+              && text.Contains(instanceId, StringComparison.Ordinal)
+            : !text.Contains("--instance", StringComparison.Ordinal);
+
     private static JsonObject ToolText(string text, bool isError = false) =>
         McpHost.ToolText(text, isError);
 
@@ -3308,7 +3318,7 @@ internal static class DebugMcpServer
                 && mcpJson.Contains("\"cmd\"", StringComparison.Ordinal)
                 && mcpJson.Contains(AgentMcpConfigCatalog.ProjectLauncherFileName, StringComparison.Ordinal)
                 && mcpJson.Contains("--connection", StringComparison.Ordinal)
-                && !mcpJson.Contains("--instance", StringComparison.Ordinal)
+                && PortableArgsPinThisInstance(mcpJson)
                 && !mcpJson.Contains(Environment.UserName, StringComparison.Ordinal));
             Check(".mcp.json entry carries no URL, port, or token",
                 JsonNode.Parse(mcpJson)?["mcpServers"]?[server] is JsonObject entry
@@ -3321,7 +3331,7 @@ internal static class DebugMcpServer
                 && codexToml.Contains("command = \"cmd\"", StringComparison.Ordinal)
                 && codexToml.Contains(AgentMcpConfigCatalog.ProjectLauncherFileName, StringComparison.Ordinal)
                 && codexToml.Contains("--connection", StringComparison.Ordinal)
-                && !codexToml.Contains("--instance", StringComparison.Ordinal)
+                && PortableArgsPinThisInstance(codexToml)
                 && !codexToml.Contains(Environment.UserName, StringComparison.Ordinal));
             Check(".codex approval mode follows auto-run", codexToml.Contains("default_tools_approval_mode = \"approve\"", StringComparison.Ordinal));
             Check(".grok/config.toml gains the server table",
@@ -3493,6 +3503,7 @@ internal static class DebugMcpServer
         }
 
         string? previousLastDirectory = null;
+        IReadOnlyList<string>? previousLastWritten = null;
         Views.McpProjectLinkDialog? dialog = null;
         try
         {
@@ -3511,7 +3522,10 @@ internal static class DebugMcpServer
                 if (Desktop?.MainWindow is not Views.MainWindow main)
                     throw new InvalidOperationException("The main window is not available.");
                 if (main.DataContext is MainWindowViewModel vm)
+                {
                     previousLastDirectory = vm.LastMcpProjectDirectory;
+                    previousLastWritten = vm.LastMcpWrittenTargetPaths.ToArray();
+                }
                 main.WriteApplicationMcpToProject(project);
                 var tray = (Application.Current as App)?.TrayMenuHeaders.ToArray() ?? [];
                 return (main.MoreActionsMenuHeaders.ToArray(), tray);
@@ -3554,10 +3568,12 @@ internal static class DebugMcpServer
             Check(
                 "JSON config launches the portable project launcher",
                 entry?["command"]?.GetValue<string>() == "cmd"
-                && jsonArgs.SequenceEqual(["/c", AgentMcpConfigCatalog.ProjectLauncherRelativeCommand])
+                && jsonArgs.SequenceEqual(
+                    AgentMcpConfigCatalog.AdapterLaunch.PortableProject(
+                        connectionPath: null,
+                        AgentWorkspaceLink.AdapterInstanceId).Arguments)
                 && entry["cwd"]?.GetValue<string>() == "."
-                && entry["url"] is null
-                && !jsonArgs.Contains("--instance"));
+                && entry["url"] is null);
             Check(
                 "Codex config is application-wide and portable",
                 codex.Contains(
@@ -3565,7 +3581,7 @@ internal static class DebugMcpServer
                     StringComparison.Ordinal)
                 && codex.Contains("command = \"cmd\"", StringComparison.Ordinal)
                 && !codex.Contains("--connection", StringComparison.Ordinal)
-                && !codex.Contains("--instance", StringComparison.Ordinal)
+                && PortableArgsPinThisInstance(codex)
                 && !codex.Contains(Environment.UserName, StringComparison.Ordinal));
             Check(
                 "portable launcher expands LocalAppData without a username",
@@ -3591,10 +3607,12 @@ internal static class DebugMcpServer
                     throw new InvalidOperationException("The main window view model is not available.");
 
                 vm.LastMcpProjectDirectory = null;
+                vm.LastMcpWrittenTargetPaths = [];
                 dialog = main.CreateApplicationMcpLinkDialog();
                 dialog.Show(main);
                 var emptyDisabled = !dialog.WriteEnabled && !dialog.RemoveAllEnabled
                                     && dialog.TargetDirectoryText.Length == 0;
+                var lastUsedDisabled = !dialog.LastUsedEnabled;
                 dialog.ClickSelectAll();
                 var allCount = dialog.SelectedTargetPaths.Count;
                 dialog.ClickSelectNone();
@@ -3607,7 +3625,8 @@ internal static class DebugMcpServer
                     AllCount: allCount,
                     NoneCount: noneCount,
                     AutoChecked: dialog.SelectedTargetPaths.ToArray(),
-                    ActionsEnabled: dialog.WriteEnabled && dialog.RemoveAllEnabled);
+                    ActionsEnabled: dialog.WriteEnabled && dialog.RemoveAllEnabled,
+                    LastUsedDisabled: lastUsedDisabled);
             });
 
             Check("MCP write dialog uses the software title",
@@ -3623,6 +3642,7 @@ internal static class DebugMcpServer
                 "Select all / Select none click every agent",
                 emptyLast.AllCount == AgentMcpConfigCatalog.All.Count && emptyLast.NoneCount == 0);
             Check("typing an existing folder enables Write and Remove all", emptyLast.ActionsEnabled);
+            Check("Last used is disabled before any successful Write", emptyLast.LastUsedDisabled);
             Check("dialog checks agents already written after typing the folder",
                 emptyLast.AutoChecked.Contains(".mcp.json", StringComparer.OrdinalIgnoreCase)
                 && emptyLast.AutoChecked.Contains(".codex/config.toml", StringComparer.OrdinalIgnoreCase)
@@ -3667,21 +3687,27 @@ internal static class DebugMcpServer
                 dialog.Show(main);
                 var prefill = dialog.TargetDirectoryText;
                 var restored = dialog.SelectedTargetPaths.ToArray();
+                dialog.ClickSelectAll();
+                dialog.ClickLastUsed();
+                var lastUsed = dialog.SelectedTargetPaths.ToArray();
                 dialog.EnterDirectoryFromTextBox(
                     Path.Combine(project, "does-not-exist-" + Guid.NewGuid().ToString("N")[..8]));
                 var missing = !dialog.WriteEnabled && !dialog.RemoveAllEnabled
                               && dialog.SelectedTargetPaths.Count == 0;
                 dialog.EnterDirectoryFromTextBox(project);
-                return (prefill, restored, missing, dialog.SelectedTargetPaths.ToArray());
+                return (prefill, restored, lastUsed, missing, dialog.SelectedTargetPaths.ToArray());
             });
             Check("dialog prefills the last project folder on open", missingDirState.prefill == project);
             Check(
                 "reopening restores the written subset",
                 missingDirState.restored.SequenceEqual([".mcp.json", ".grok/config.toml"]));
+            Check(
+                "Last used restores the agents from the last successful Write",
+                missingDirState.lastUsed.SequenceEqual([".mcp.json", ".grok/config.toml"]));
             Check("a missing folder disables actions and clears checks", missingDirState.missing);
             Check(
                 "re-entering the project restores the written subset",
-                missingDirState.Item4.SequenceEqual([".mcp.json", ".grok/config.toml"]));
+                missingDirState.Item5.SequenceEqual([".mcp.json", ".grok/config.toml"]));
 
             var worktree = Path.Combine(project, "worktree-reject");
             Directory.CreateDirectory(worktree);
@@ -3839,7 +3865,11 @@ internal static class DebugMcpServer
                 try { dialog?.Close(); }
                 catch { /* already closed */ }
                 if (Desktop?.MainWindow is Views.MainWindow { DataContext: MainWindowViewModel vm })
+                {
                     vm.LastMcpProjectDirectory = previousLastDirectory;
+                    if (previousLastWritten is not null)
+                        vm.LastMcpWrittenTargetPaths = previousLastWritten;
+                }
                 return true;
             });
             if (!keep)

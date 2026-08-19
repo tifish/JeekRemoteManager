@@ -99,16 +99,18 @@ try
     var globalJsonArgs = (globalEntry?["args"] as JsonArray)?
         .Select(node => node?.GetValue<string>())
         .ToArray() ?? [];
+    var expectedGlobalLaunch = AgentMcpConfigCatalog.AdapterLaunch.PortableProject(
+        connectionPath: null,
+        AgentWorkspaceLink.AdapterInstanceId);
     Check(globalAgents.Contains("BEGIN JeekRemoteManager link: application", StringComparison.Ordinal)
           && globalAgents.Contains("connection_list", StringComparison.Ordinal)
           && globalAgents.Contains("whole application", StringComparison.Ordinal)
           && globalAgents.Contains("%LocalAppData%", StringComparison.Ordinal)
           && !globalAgents.Contains(Environment.UserName, StringComparison.Ordinal)
           && globalEntry?["command"]?.GetValue<string>() == "cmd"
-          && globalJsonArgs.SequenceEqual(["/c", AgentMcpConfigCatalog.ProjectLauncherRelativeCommand])
+          && globalJsonArgs.SequenceEqual(expectedGlobalLaunch.Arguments)
           && globalEntry["cwd"]?.GetValue<string>() == "."
           && globalEntry["url"] is null
-          && !globalJsonArgs.Contains("--instance")
           && globalJson?["mcpServers"]?["other"] is not null
           && globalLauncher.Contains("%LocalAppData%", StringComparison.Ordinal)
           && globalLauncher.Contains(AgentMcpConfigCatalog.ProjectLauncherMarker, StringComparison.Ordinal)
@@ -119,7 +121,10 @@ try
               StringComparison.Ordinal)
           && globalCodex.Contains("command = \"cmd\"", StringComparison.Ordinal)
           && !globalCodex.Contains("--connection", StringComparison.Ordinal)
-          && !globalCodex.Contains("--instance", StringComparison.Ordinal)
+          && (AgentWorkspaceLink.AdapterInstanceId is { } globalInstanceId
+              ? globalCodex.Contains("--instance", StringComparison.Ordinal)
+                && globalCodex.Contains(globalInstanceId, StringComparison.Ordinal)
+              : !globalCodex.Contains("--instance", StringComparison.Ordinal))
           && globalCodex.Contains(
               "default_tools_approval_mode = \"approve\"",
               StringComparison.Ordinal),
@@ -2499,6 +2504,7 @@ try
           && machineSettingsJson.Contains(nameof(MachineAppSettings.AiHideSshTerminal))
           && machineSettingsJson.Contains(nameof(MachineAppSettings.AiPanelOpen))
           && machineSettingsJson.Contains(nameof(MachineAppSettings.LastMcpProjectDirectory))
+          && machineSettingsJson.Contains(nameof(MachineAppSettings.LastMcpWrittenTargetPaths))
           && !machineSettingsJson.Contains(nameof(RoamingAppSettings.Language))
           && !machineSettingsJson.Contains(nameof(RoamingAppSettings.Theme)),
           "Machine settings persist local paths, window layout, and machine-bound AI options");
@@ -2522,7 +2528,8 @@ try
           && !roamingSettingsJson.Contains("FileBrowserEditorPath")
           && !roamingSettingsJson.Contains(nameof(MachineAppSettings.RecentConnectionPaths))
           && !roamingSettingsJson.Contains(nameof(MachineAppSettings.MainWindowWidth))
-          && !roamingSettingsJson.Contains(nameof(MachineAppSettings.LastMcpProjectDirectory)),
+          && !roamingSettingsJson.Contains(nameof(MachineAppSettings.LastMcpProjectDirectory))
+          && !roamingSettingsJson.Contains(nameof(MachineAppSettings.LastMcpWrittenTargetPaths)),
           "Roaming settings persist machine-independent preferences only");
 
     var tempMachineSettingsPath = Path.Combine(root, "LocalConfig", "settings.json");

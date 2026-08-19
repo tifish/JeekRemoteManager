@@ -594,6 +594,30 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Agent configs written by the last successful MCP dialog Write.
+    /// Shared by the application-wide and per-connection dialogs.</summary>
+    public IReadOnlyList<string> LastMcpWrittenTargetPaths
+    {
+        get => _settings.Settings.LastMcpWrittenTargetPaths ?? [];
+        set
+        {
+            var next = (value ?? [])
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Select(path => path.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var current = _settings.Settings.LastMcpWrittenTargetPaths ?? [];
+            if (current.Count == next.Count
+                && current.SequenceEqual(next, StringComparer.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            _settings.Settings.LastMcpWrittenTargetPaths = next;
+            _settings.SaveIfChanged();
+        }
+    }
+
     /// <summary>True when a terminal tab is the active right-pane tab. Drives the
     /// visibility of the terminal font-size toolbar buttons.</summary>
     [ObservableProperty]

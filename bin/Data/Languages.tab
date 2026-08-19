@@ -385,6 +385,7 @@ McpLinkBrowse	Browse…	浏览…
 McpLinkPickDirectoryTitle	Choose the project folder	选择项目目录
 McpLinkAgents	MCP agents	MCP Agent
 McpLinkAgentsHint	Write updates the checked agents and removes the unchecked ones. Empty MCP files and folders are deleted.	写入会更新已勾选的 Agent，并移除未勾选的；若 MCP 文件没有其他内容，会删除该文件和目录。
+McpLinkLastUsed	Last used	上次使用
 McpLinkSelectAll	Select all	全选
 McpLinkSelectNone	Select none	全不选
 McpLinkWrite	Write	写入

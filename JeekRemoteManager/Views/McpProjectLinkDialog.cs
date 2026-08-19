@@ -28,6 +28,7 @@ public sealed class McpProjectLinkDialog : Window
     private readonly TextBlock _status;
     private readonly Button _writeButton;
     private readonly Button _removeAllButton;
+    private readonly Button _lastUsedButton;
     private readonly Button _selectAllButton;
     private readonly Button _selectNoneButton;
     private readonly Button _cancelButton;
@@ -36,12 +37,16 @@ public sealed class McpProjectLinkDialog : Window
     private readonly Func<string, IReadOnlyList<string>, string> _write;
     private readonly Func<string, string> _removeAll;
     private readonly Action<string> _rememberDirectory;
+    private readonly Action<IReadOnlyList<string>> _rememberWrittenAgents;
+    private IReadOnlyList<string> _lastWrittenAgents;
     private bool _suppressDirectoryScan;
 
     private McpProjectLinkDialog(
         string title,
         string? lastDirectory,
         Action<string> rememberDirectory,
+        IReadOnlyList<string> lastWrittenAgents,
+        Action<IReadOnlyList<string>> rememberWrittenAgents,
         Func<string, IReadOnlyList<string>> detectWritten,
         Func<string, IReadOnlyList<string>, string> write,
         Func<string, string> removeAll)
@@ -50,6 +55,8 @@ public sealed class McpProjectLinkDialog : Window
         _write = write;
         _removeAll = removeAll;
         _rememberDirectory = rememberDirectory;
+        _rememberWrittenAgents = rememberWrittenAgents;
+        _lastWrittenAgents = KnownTargetPaths(lastWrittenAgents);
 
         Name = "McpProjectLinkDialog";
         Title = title;
@@ -73,6 +80,13 @@ public sealed class McpProjectLinkDialog : Window
         };
         browse.Click += async (_, _) => await BrowseAsync();
 
+        _lastUsedButton = new Button
+        {
+            Name = "McpLastUsedButton",
+            Content = Localizer.Get("McpLinkLastUsed"),
+            MinWidth = 88,
+            IsEnabled = _lastWrittenAgents.Count > 0,
+        };
         _selectAllButton = new Button
         {
             Name = "McpSelectAllButton",
@@ -85,6 +99,7 @@ public sealed class McpProjectLinkDialog : Window
             Content = Localizer.Get("McpLinkSelectNone"),
             MinWidth = 72,
         };
+        _lastUsedButton.Click += (_, _) => ApplyLastUsed();
         _selectAllButton.Click += (_, _) => SetAllChecked(true);
         _selectNoneButton.Click += (_, _) => SetAllChecked(false);
 
@@ -162,7 +177,7 @@ public sealed class McpProjectLinkDialog : Window
 
         var agentHeader = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"),
+            ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto"),
             ColumnSpacing = 8,
         };
         var agentLabel = new TextBlock
@@ -172,9 +187,11 @@ public sealed class McpProjectLinkDialog : Window
             Classes = { "label" },
         };
         Grid.SetColumn(agentLabel, 0);
-        Grid.SetColumn(_selectAllButton, 1);
-        Grid.SetColumn(_selectNoneButton, 2);
+        Grid.SetColumn(_lastUsedButton, 1);
+        Grid.SetColumn(_selectAllButton, 2);
+        Grid.SetColumn(_selectNoneButton, 3);
         agentHeader.Children.Add(agentLabel);
+        agentHeader.Children.Add(_lastUsedButton);
         agentHeader.Children.Add(_selectAllButton);
         agentHeader.Children.Add(_selectNoneButton);
 
@@ -241,6 +258,8 @@ public sealed class McpProjectLinkDialog : Window
             Localizer.Get("McpLinkDialogApplicationTitle"),
             vm.LastMcpProjectDirectory,
             path => vm.LastMcpProjectDirectory = path,
+            vm.LastMcpWrittenTargetPaths,
+            paths => vm.LastMcpWrittenTargetPaths = paths,
             AgentProjectLink.ListWrittenApplicationTargetPaths,
             (directory, selected) =>
             {
@@ -270,6 +289,8 @@ public sealed class McpProjectLinkDialog : Window
             Localizer.Get("McpLinkDialogConnectionTitle"),
             settings.LastMcpProjectDirectory,
             path => settings.LastMcpProjectDirectory = path,
+            settings.LastMcpWrittenTargetPaths,
+            paths => settings.LastMcpWrittenTargetPaths = paths,
             directory =>
             {
                 if (panel.ResolveLinkContext?.Invoke() is not { } link)
@@ -325,6 +346,11 @@ public sealed class McpProjectLinkDialog : Window
     /// <summary>Whether Remove all is enabled (an existing folder is selected).</summary>
     public bool RemoveAllEnabled => _removeAllButton.IsEnabled;
 
+    public bool LastUsedEnabled => _lastUsedButton.IsEnabled;
+
+    public void ClickLastUsed() =>
+        _lastUsedButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
     public void ClickSelectAll() =>
         _selectAllButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
@@ -375,8 +401,11 @@ public sealed class McpProjectLinkDialog : Window
 
         try
         {
-            var project = _write(directory, SelectedTargetPaths);
+            var selected = SelectedTargetPaths;
+            var project = _write(directory, selected);
             Remember(project);
+            if (selected.Count > 0)
+                RememberWrittenAgents(selected);
             SetStatus(string.Format(Localizer.Get("McpLinkWritten"), project), error: false);
             Close();
             return project;
@@ -461,6 +490,36 @@ public sealed class McpProjectLinkDialog : Window
         }
 
         UpdateActionState();
+    }
+
+    private void ApplyLastUsed()
+    {
+        var paths = KnownTargetPaths(_lastWrittenAgents);
+        if (paths.Count == 0)
+            return;
+        SetSelectedTargetPaths(paths);
+    }
+
+    private void RememberWrittenAgents(IReadOnlyList<string> paths)
+    {
+        _lastWrittenAgents = KnownTargetPaths(paths);
+        _lastUsedButton.IsEnabled = _lastWrittenAgents.Count > 0;
+        _rememberWrittenAgents(_lastWrittenAgents);
+    }
+
+    private static IReadOnlyList<string> KnownTargetPaths(IEnumerable<string>? paths)
+    {
+        if (paths is null)
+            return [];
+
+        var catalog = new HashSet<string>(
+            AgentMcpConfigCatalog.All.Select(target => target.RelativePath),
+            StringComparer.OrdinalIgnoreCase);
+        return paths
+            .Where(path => !string.IsNullOrWhiteSpace(path) && catalog.Contains(path.Trim()))
+            .Select(path => path.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private void SetAllChecked(bool value)

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using JeekRemoteManager.Models;
@@ -226,6 +227,7 @@ public class SettingsService
             AiHideSshTerminal = machineSettings.AiHideSshTerminal,
             AiPanelOpen = machineSettings.AiPanelOpen,
             LastMcpProjectDirectory = machineSettings.LastMcpProjectDirectory,
+            LastMcpWrittenTargetPaths = machineSettings.LastMcpWrittenTargetPaths ?? new List<string>(),
             Language = roamingSettings.Language,
             Theme = roamingSettings.Theme,
             CheckUpdateOnStartup = roamingSettings.CheckUpdateOnStartup,
@@ -262,6 +264,7 @@ public class SettingsService
             AiHideSshTerminal = settings.AiHideSshTerminal,
             AiPanelOpen = settings.AiPanelOpen,
             LastMcpProjectDirectory = settings.LastMcpProjectDirectory,
+            LastMcpWrittenTargetPaths = settings.LastMcpWrittenTargetPaths ?? new List<string>(),
         };
         NormalizeMachineSettings(machineSettings);
         return machineSettings;
@@ -312,6 +315,7 @@ public class SettingsService
         settings.AiHideSshTerminal = normalized.AiHideSshTerminal;
         settings.AiPanelOpen = normalized.AiPanelOpen;
         settings.LastMcpProjectDirectory = normalized.LastMcpProjectDirectory;
+        settings.LastMcpWrittenTargetPaths = normalized.LastMcpWrittenTargetPaths;
         settings.Language = normalized.Language;
         settings.Theme = normalized.Theme;
         settings.CheckUpdateOnStartup = normalized.CheckUpdateOnStartup;
@@ -361,11 +365,24 @@ public class SettingsService
             settings.FileBrowserEditorPath = null;
         if (string.IsNullOrWhiteSpace(settings.LastMcpProjectDirectory))
             settings.LastMcpProjectDirectory = null;
+        settings.LastMcpWrittenTargetPaths = NormalizeMcpWrittenTargetPaths(settings.LastMcpWrittenTargetPaths);
         if (!Enum.IsDefined(settings.AiRunMode))
             settings.AiRunMode = AgentCliRunMode.Cli;
         // Grok has no Desktop protocol; never persist/restore Desktop for that slot.
         if (!Enum.IsDefined(settings.AiGrokRunMode) || settings.AiGrokRunMode == AgentCliRunMode.Desktop)
             settings.AiGrokRunMode = AgentCliRunMode.Cli;
+    }
+
+    private static List<string> NormalizeMcpWrittenTargetPaths(List<string>? paths)
+    {
+        if (paths is null || paths.Count == 0)
+            return new List<string>();
+
+        return paths
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => path.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private static void NormalizeRoamingSettings(RoamingAppSettings settings)

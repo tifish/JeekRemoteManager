@@ -132,14 +132,15 @@ public static class AgentMcpConfigCatalog
             new(adapterPath, ToArgumentList(connectionPath, instanceId));
 
         /// <summary>
-        /// Portable project launch: <c>cmd /c .\JeekRemoteManagerMcp.cmd</c> and optional
-        /// <c>--connection</c>. Never writes <c>--instance</c> — the launcher talks to the
-        /// installed Release instance.
+        /// Portable project launch: <c>cmd /c .\JeekRemoteManagerMcp.cmd</c> plus optional
+        /// <c>--instance</c> / <c>--connection</c>. Release omits <c>--instance</c> so the
+        /// committed files talk to the installed app; Debug includes it so agents opened on
+        /// the folder reach the worktree that wrote the config, not a different instance.
         /// </summary>
-        public static AdapterLaunch PortableProject(string? connectionPath)
+        public static AdapterLaunch PortableProject(string? connectionPath, string? instanceId = null)
         {
             var args = new List<string> { "/c", ProjectLauncherRelativeCommand };
-            args.AddRange(ToArgumentList(connectionPath, instanceId: null));
+            args.AddRange(ToArgumentList(connectionPath, instanceId));
             return new("cmd", args, ".");
         }
 
