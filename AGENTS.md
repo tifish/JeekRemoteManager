@@ -1,3 +1,7 @@
+## Design docs
+
+`docs/` holds the design intent and constraints of each mechanism (terminal pipeline, SSH/bastion, MCP surfaces, secrets, storage, AI agents, build/release, debug tooling). Read the relevant one before changing a mechanism, and update it when the intent or a constraint changes. Index: `docs/README.md`.
+
 ## Rules
 
 - After finishing a feature or fixing a bug
