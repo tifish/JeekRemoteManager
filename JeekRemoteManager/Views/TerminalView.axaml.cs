@@ -85,6 +85,12 @@ public partial class TerminalView : UserControl
         + "opening a fresh SSH connection.";
     public const string BastionReuseFallbackMessage =
         "[bastion reuse failed; opening a fresh SSH connection]";
+    public const string BastionReuseRetryMessage =
+        "[bastion reuse] The login commands did not reach the target; "
+        + "trying once more on a new channel of the same connection ...";
+    public const string BastionReuseGaveUpMessage =
+        "[bastion reuse] Still could not reach the target. The bastion session above is "
+        + "live and yours to drive by hand; use Reconnect to start over.";
 
     public static string BastionPendingLoginTimeoutMessage =>
         $"[bastion reuse busy] The other login did not finish within "
@@ -724,6 +730,10 @@ public partial class TerminalView : UserControl
     /// <summary>Held while this tab authenticates a new transport for its bastion, so
     /// other connections to the same bastion wait for it instead of logging in too.</summary>
     private BastionSessionPool.FreshLoginReservation? _freshLoginReservation;
+
+    /// <summary>Automatic retries of a reuse that failed to reach the target, so a
+    /// broken workflow cannot turn into an endless reconnect loop.</summary>
+    private int _bastionReuseRetries;
 
     public bool IsMonitorPanelOpen => MonitorPanelHost.IsVisible;
 
@@ -2667,6 +2677,7 @@ public partial class TerminalView : UserControl
         _ = Task.Run(async () =>
         {
             var succeeded = true;
+            var reuseFailed = false;
             try
             {
                 for (var phaseIndex = 0; phaseIndex < phases.Count; phaseIndex++)
@@ -2697,7 +2708,10 @@ public partial class TerminalView : UserControl
                             generation,
                             completeRoute: true);
                         if (succeeded)
+                        {
+                            _bastionReuseRetries = 0;
                             Volatile.Write(ref _bastionSessionState, "pooled-ready");
+                        }
                     }
                     else if (registerFreshInPool && clientAtStart is not null)
                     {
@@ -2725,6 +2739,9 @@ public partial class TerminalView : UserControl
                         {
                             Volatile.Write(ref _bastionSessionState, "pooled-route-unknown");
                         }
+
+                        // A shell the user closed is not a failed reuse.
+                        reuseFailed = !_shellClosed;
                     }
                     else if (registerFreshInPool && clientAtStart is not null)
                     {
@@ -2753,6 +2770,8 @@ public partial class TerminalView : UserControl
                     {
                         Volatile.Write(ref _bastionSessionState, "pooled-route-unknown");
                     }
+
+                    reuseFailed = !_shellClosed;
                 }
                 else if (registerFreshInPool && clientAtStart is not null)
                 {
@@ -2774,6 +2793,12 @@ public partial class TerminalView : UserControl
                 pooledLease?.Dispose();
                 // However this ended, nobody should keep waiting on this login.
                 ReleaseFreshLoginReservation();
+                if (reuseFailed)
+                {
+                    Dispatcher.UIThread.Post(
+                        () => RecoverFromFailedReuse(generation),
+                        DispatcherPriority.Background);
+                }
             }
         });
     }
@@ -2818,6 +2843,31 @@ public partial class TerminalView : UserControl
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// A reused channel failed to reach the target. The channel is left on screen for
+    /// the user either way; the one thing worth trying automatically is a second borrow,
+    /// because that gets a brand-new channel with a clean landing and costs no login.
+    /// A fresh transport is deliberately not dialed: that means another two-factor code,
+    /// and if the workflow itself is wrong it would fail there too.
+    /// </summary>
+    private void RecoverFromFailedReuse(int generation)
+    {
+        if (_disposed || generation != _connectionGeneration || _shellClosed)
+            return;
+
+        if (_bastionReuseRetries >= 1)
+        {
+            Volatile.Write(ref _bastionSessionState, "pooled-reuse-given-up");
+            FeedLine($"\u001b[33m{BastionReuseGaveUpMessage}\u001b[0m");
+            return;
+        }
+
+        _bastionReuseRetries++;
+        FeedLine($"\u001b[33m{BastionReuseRetryMessage}\u001b[0m");
+        DisposeTransport();
+        BeginConnectionAttempt();
     }
 
     /// <summary>Releases this tab's claim on its bastion's fresh login, letting any

@@ -414,6 +414,11 @@ try
     Check(terminalViewCode.Contains("PendingBorrowCount(connection)", StringComparison.Ordinal)
           && TerminalView.BastionPoolWaitCapSeconds > TerminalView.BastionPoolWaitTimeoutSeconds,
           "Waiting for a busy transport scales with the queue ahead instead of a flat deadline");
+    Check(terminalViewCode.Contains("RecoverFromFailedReuse", StringComparison.Ordinal)
+          && terminalViewCode.Contains("_bastionReuseRetries", StringComparison.Ordinal)
+          && TerminalView.BastionReuseRetryMessage.Contains("new channel", StringComparison.Ordinal)
+          && TerminalView.BastionReuseGaveUpMessage.Contains("by hand", StringComparison.Ordinal),
+          "A reuse that never reached the target retries once and then says so instead of leaving a silent tab");
     Check(terminalViewCode.Contains("BastionPoolWaitingMessage", StringComparison.Ordinal)
           && terminalViewCode.Contains("BastionPoolWaitTimeoutMessage", StringComparison.Ordinal)
           && terminalViewCode.Contains("BastionPoolFullMessage", StringComparison.Ordinal)
