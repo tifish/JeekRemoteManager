@@ -5453,6 +5453,20 @@ internal static class DebugMcpServer
         arrived?.KeepAndRelease();
         arrived?.Dispose();
 
+        // While one connection authenticates, the others for that bastion identity must
+        // wait for it rather than start a second login — that is a second 2FA code.
+        using var loginPool = new BastionSessionPool();
+        var reservation = loginPool.TryReserveFreshLogin(first);
+        var reserved = reservation is not null;
+        var secondClaimRefused = loginPool.TryReserveFreshLogin(second) is null;
+        var pendingSeen = loginPool.HasPendingFreshLogin(second);
+        var waiter = loginPool.WaitForFreshLoginAsync(second);
+        var waiterParked = !waiter.IsCompleted;
+        reservation?.Dispose();
+        var waiterReleased = await Task.WhenAny(waiter, Task.Delay(2000)) == waiter && waiter.Result;
+        var claimFreeAfterRelease = !loginPool.HasPendingFreshLogin(first)
+                                    && loginPool.TryReserveFreshLogin(first) is not null;
+
         var passed = registered
                      && reusableAfterRegister
                      && failedSwitches
@@ -5462,7 +5476,13 @@ internal static class DebugMcpServer
                      && droppedAfterAbandon
                      && registeredAtEntry
                      && entryStartsWithEnter
-                     && arrivalRelearnsRoute;
+                     && arrivalRelearnsRoute
+                     && reserved
+                     && secondClaimRefused
+                     && pendingSeen
+                     && waiterParked
+                     && waiterReleased
+                     && claimFreeAfterRelease;
         return ToolText(
             $"{(passed ? "PASS" : "FAIL")}: bastion pool lease endings\n"
             + $"registered={registered}\n"
@@ -5474,7 +5494,14 @@ internal static class DebugMcpServer
             + $"droppedAfterAbandon={droppedAfterAbandon}\n"
             + $"registeredAtEntry={registeredAtEntry}\n"
             + $"entryStartsWithEnter={entryStartsWithEnter}\n"
-            + $"arrivalRelearnsRoute={arrivalRelearnsRoute}",
+            + $"arrivalRelearnsRoute={arrivalRelearnsRoute}\n"
+            + $"freshLoginReserved={reserved}\n"
+            + $"secondClaimRefused={secondClaimRefused}\n"
+            + $"pendingLoginVisible={pendingSeen}\n"
+            + $"waiterParked={waiterParked}\n"
+            + $"waiterReleased={waiterReleased}\n"
+            + $"claimFreeAfterRelease={claimFreeAfterRelease}\n"
+            + $"pendingLoginWaitSeconds={TerminalView.BastionPendingLoginWaitSeconds}",
             isError: !passed);
     }
 

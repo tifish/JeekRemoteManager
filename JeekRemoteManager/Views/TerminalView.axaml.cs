@@ -61,13 +61,26 @@ public partial class TerminalView : UserControl
     }
 
     public const int BastionPoolWaitTimeoutSeconds = 15;
+
+    /// <summary>How long to wait for another connection's login to this same bastion.
+    /// Long, because the person at the keyboard may still be fetching a code — and
+    /// dialing our own transport would ask them for a second one.</summary>
+    public const int BastionPendingLoginWaitSeconds = 180;
+
     public const string BastionPoolWaitingMessage =
         "[bastion reuse] Waiting for another session to finish switching targets ...";
+    public const string BastionPendingLoginMessage =
+        "[bastion reuse] Another connection to this bastion is logging in; "
+        + "waiting for it instead of asking for a second code ...";
     public const string BastionPoolFullMessage =
         "[bastion reuse] All authenticated connections are at their observed session limits; "
         + "opening a fresh SSH connection.";
     public const string BastionReuseFallbackMessage =
         "[bastion reuse failed; opening a fresh SSH connection]";
+
+    public static string BastionPendingLoginTimeoutMessage =>
+        $"[bastion reuse busy] The other login did not finish within "
+        + $"{BastionPendingLoginWaitSeconds} seconds; opening a fresh SSH connection.";
 
     public static string BastionPoolWaitTimeoutMessage =>
         $"[bastion reuse busy] Waited {BastionPoolWaitTimeoutSeconds} seconds; "
@@ -699,6 +712,10 @@ public partial class TerminalView : UserControl
 
     /// <summary>Application-owned authenticated bastion transport pool.</summary>
     public BastionSessionPool? BastionSessionPool { get; set; }
+
+    /// <summary>Held while this tab authenticates a new transport for its bastion, so
+    /// other connections to the same bastion wait for it instead of logging in too.</summary>
+    private BastionSessionPool.FreshLoginReservation? _freshLoginReservation;
 
     public bool IsMonitorPanelOpen => MonitorPanelHost.IsVisible;
 
@@ -2165,6 +2182,12 @@ public partial class TerminalView : UserControl
                     Volatile.Write(ref _bastionSessionState, "pooled-wait-timeout");
                     FeedLine(BastionPoolWaitTimeoutMessage);
                 }
+
+                // Nothing to borrow yet, but another connection to this same bastion is
+                // authenticating right now. Waiting for it is the whole point of the
+                // pool: dialing our own transport would ask the user for a second code.
+                if (pooledLease is null)
+                    pooledLease = await BorrowAfterPendingLoginAsync(connection);
             }
         }
         catch (Exception ex)
@@ -2208,6 +2231,12 @@ public partial class TerminalView : UserControl
                 $"\u001b[33m{BastionReuseFallbackMessage}\u001b[0m");
         }
 
+        // Claim this bastion identity's fresh login, so connections started while this
+        // one authenticates wait for it instead of dialing their own transport and
+        // prompting for a second two-factor code. A null claim only means someone else
+        // got there first, which costs this one connection its own login.
+        _freshLoginReservation = BastionSessionPool?.TryReserveFreshLogin(connection);
+
         FeedLine($"Connecting to {host}:{port} ...");
         Volatile.Write(
             ref _bastionSessionState,
@@ -2234,6 +2263,7 @@ public partial class TerminalView : UserControl
         {
             _connected?.TrySetException(new InvalidOperationException($"Connection failed: {ex.Message}", ex));
             _connectInProgress = false;
+            ReleaseFreshLoginReservation();
             FeedLine($"\u001b[31m[connect failed] {ex.Message}\u001b[0m");
             FeedReconnectHint();
             return;
@@ -2243,17 +2273,23 @@ public partial class TerminalView : UserControl
         {
             _connected?.TrySetCanceled();
             _connectInProgress = false;
+            ReleaseFreshLoginReservation();
             client.Release();
             return;
         }
 
+        // On success the login sequence owns the claim and releases it as soon as the
+        // transport is pooled; a channel that never opened releases it here.
         if (!await TryOpenShellAsync(
                 client,
                 generation,
                 reportFailure: true,
                 [LoginCommandSequence.Select(effectiveLoginCommands, LoginCommandSection.Fresh)],
                 registerFreshInPool: true))
+        {
+            ReleaseFreshLoginReservation();
             client.Release();
+        }
     }
 
     /// <summary>
@@ -2721,9 +2757,58 @@ public partial class TerminalView : UserControl
                 _loginCaptureActive = false;
                 _loginOutputCapture.Reset();
                 pooledLease?.Dispose();
+                // However this ended, nobody should keep waiting on this login.
+                ReleaseFreshLoginReservation();
             }
         });
     }
+
+    /// <summary>
+    /// Waits for another connection's in-flight login to this same bastion and then
+    /// borrows the transport it authenticated. Returns null when there was nothing to
+    /// wait for, the wait ran out, or the transport is unusable — this connection then
+    /// logs in on its own.
+    /// </summary>
+    private async Task<BastionSessionPool.BastionSessionLease?> BorrowAfterPendingLoginAsync(
+        Connection connection)
+    {
+        var pool = BastionSessionPool;
+        if (pool is null || !pool.HasPendingFreshLogin(connection))
+            return null;
+
+        Volatile.Write(ref _bastionSessionState, "pooled-waiting-login");
+        FeedLine(BastionPendingLoginMessage);
+
+        using var waitTimeout = new CancellationTokenSource(
+            TimeSpan.FromSeconds(BastionPendingLoginWaitSeconds));
+        try
+        {
+            while (await pool.WaitForFreshLoginAsync(connection, waitTimeout.Token))
+            {
+                if (_disposed)
+                    return null;
+
+                if (await pool.TryAcquireAsync(connection, waitTimeout.Token) is { } lease)
+                    return lease;
+
+                // That login did not leave anything borrowable behind. If yet another
+                // one started meanwhile, wait for that one too; otherwise give up and
+                // dial our own transport.
+            }
+        }
+        catch (OperationCanceledException) when (waitTimeout.IsCancellationRequested)
+        {
+            Volatile.Write(ref _bastionSessionState, "pooled-login-wait-timeout");
+            FeedLine(BastionPendingLoginTimeoutMessage);
+        }
+
+        return null;
+    }
+
+    /// <summary>Releases this tab's claim on its bastion's fresh login, letting any
+    /// connection waiting behind it proceed.</summary>
+    private void ReleaseFreshLoginReservation() =>
+        Interlocked.Exchange(ref _freshLoginReservation, null)?.Dispose();
 
     /// <summary>
     /// Puts a freshly authenticated transport in the pool. <paramref name="route"/> must
@@ -2738,6 +2823,10 @@ public partial class TerminalView : UserControl
         string? state = null)
     {
         var registered = BastionSessionPool?.Register(client, connection, route) == true;
+        // The transport is borrowable from here on, so anyone waiting for this login
+        // can stop waiting — they do not have to sit through the menu navigation too.
+        if (registered)
+            ReleaseFreshLoginReservation();
         Volatile.Write(
             ref _bastionSessionState,
             registered ? state ?? "fresh-pooled" : "fresh-pool-rejected");
@@ -3854,6 +3943,9 @@ public partial class TerminalView : UserControl
         _sessionOutputBuffer.Clear();
         _windowSizeSyncTimer?.Stop();
         Interlocked.Exchange(ref _pendingSharedClient, null)?.Release();
+        // A tab closed mid-login must not keep other connections to the same bastion
+        // parked behind a login that will never finish.
+        ReleaseFreshLoginReservation();
         DisposeTransport();
 
         _fileBrowserViewModel?.Dispose();

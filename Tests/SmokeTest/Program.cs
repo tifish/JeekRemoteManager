@@ -405,6 +405,12 @@ try
     Check(terminalViewCode.Contains("BastionRoute.AtEntry(", StringComparison.Ordinal)
           && terminalViewCode.Contains("BastionRoute.Unknown(", StringComparison.Ordinal),
           "A fresh transport is pooled with the position it is really in, not with the target it is heading for");
+    Check(terminalViewCode.Contains("TryReserveFreshLogin(", StringComparison.Ordinal)
+          && terminalViewCode.Contains("BorrowAfterPendingLoginAsync", StringComparison.Ordinal)
+          && terminalViewCode.Contains("ReleaseFreshLoginReservation();", StringComparison.Ordinal)
+          && TerminalView.BastionPendingLoginWaitSeconds > TerminalView.BastionPoolWaitTimeoutSeconds
+          && TerminalView.BastionPendingLoginMessage.Contains("second code", StringComparison.Ordinal),
+          "A connection started during another login to the same bastion waits for it instead of asking for a second code");
     Check(terminalViewCode.Contains("BastionPoolWaitingMessage", StringComparison.Ordinal)
           && terminalViewCode.Contains("BastionPoolWaitTimeoutMessage", StringComparison.Ordinal)
           && terminalViewCode.Contains("BastionPoolFullMessage", StringComparison.Ordinal)

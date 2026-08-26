@@ -60,6 +60,7 @@ public sealed class BastionSessionPool : IDisposable
 
     private readonly object _gate = new();
     private readonly Dictionary<string, List<Entry>> _entries = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, TaskCompletionSource> _freshLogins = new(StringComparer.Ordinal);
     private readonly Timer _sweepTimer;
     private bool _disposed;
 
@@ -190,6 +191,77 @@ public sealed class BastionSessionPool : IDisposable
     }
 
     /// <summary>
+    /// Claims the right to authenticate a new transport for this bastion identity, so
+    /// other connections wait for it instead of starting a second authentication —
+    /// which on a two-factor bastion means a second code for the user. Returns null
+    /// when someone else already holds the claim; that caller should wait with
+    /// <see cref="WaitForFreshLoginAsync"/> and then borrow from the pool.
+    /// </summary>
+    public FreshLoginReservation? TryReserveFreshLogin(Connection target)
+    {
+        if (!IsEligible(target))
+            return null;
+
+        var key = BuildKey(target);
+        lock (_gate)
+        {
+            if (_disposed || _freshLogins.ContainsKey(key))
+                return null;
+
+            _freshLogins.Add(
+                key,
+                new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+        }
+
+        return new FreshLoginReservation(this, key);
+    }
+
+    /// <summary>True while another connection is authenticating a transport for this
+    /// bastion identity.</summary>
+    public bool HasPendingFreshLogin(Connection target)
+    {
+        if (!IsEligible(target))
+            return false;
+
+        lock (_gate)
+            return !_disposed && _freshLogins.ContainsKey(BuildKey(target));
+    }
+
+    /// <summary>
+    /// Waits until the in-flight authentication for this identity finishes, however it
+    /// finishes. False means there was nothing to wait for.
+    /// </summary>
+    public async Task<bool> WaitForFreshLoginAsync(
+        Connection target,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsEligible(target))
+            return false;
+
+        TaskCompletionSource? pending;
+        lock (_gate)
+        {
+            if (_disposed || !_freshLogins.TryGetValue(BuildKey(target), out pending))
+                return false;
+        }
+
+        await pending.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    private void CompleteFreshLogin(string key)
+    {
+        TaskCompletionSource? pending;
+        lock (_gate)
+        {
+            if (!_freshLogins.Remove(key, out pending))
+                return;
+        }
+
+        pending.TrySetResult();
+    }
+
+    /// <summary>
     /// Retains an authenticated fresh transport. The caller keeps its own reference;
     /// the pool takes one additional reference until expiry or application shutdown.
     /// <paramref name="route"/> says where the transport actually is: pass
@@ -264,6 +336,7 @@ public sealed class BastionSessionPool : IDisposable
     public void Dispose()
     {
         Entry[] entries;
+        TaskCompletionSource[] pendingLogins;
         lock (_gate)
         {
             if (_disposed)
@@ -271,7 +344,13 @@ public sealed class BastionSessionPool : IDisposable
             _disposed = true;
             entries = _entries.Values.SelectMany(group => group).ToArray();
             _entries.Clear();
+            pendingLogins = _freshLogins.Values.ToArray();
+            _freshLogins.Clear();
         }
+
+        // Never leave a waiter parked on a login that can no longer finish.
+        foreach (var pending in pendingLogins)
+            pending.TrySetResult();
 
         _sweepTimer.Dispose();
         foreach (var entry in entries)
@@ -433,6 +512,23 @@ public sealed class BastionSessionPool : IDisposable
         catch
         {
             return path.Trim().ToUpperInvariant();
+        }
+    }
+
+    /// <summary>
+    /// One in-flight authentication for a bastion identity. Disposing it releases the
+    /// connections waiting behind it — do that as soon as the transport is pooled and
+    /// borrowable, and unconditionally when the attempt ends.
+    /// </summary>
+    public sealed class FreshLoginReservation(BastionSessionPool owner, string key) : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                return;
+            owner.CompleteFreshLogin(key);
         }
     }
 

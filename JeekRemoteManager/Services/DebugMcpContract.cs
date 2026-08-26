@@ -153,7 +153,7 @@ public static class DebugMcpContract
             "Classify bastion channel landings and verify a target switch runs the old connection's #reuse-leave, then the new connection's #reuse-enter.",
             new()),
         Tool("bastion_pool_lease_check",
-            "Exercise session-pool bookkeeping with offline stand-in transports: a failed borrow keeps the authenticated transport pooled but marks its route unknown, a completed borrow relearns the route, and only an unusable transport is dropped.",
+            "Exercise session-pool bookkeeping with offline stand-in transports: a failed borrow keeps the authenticated transport pooled but marks its route unknown, a completed borrow relearns the route, only an unusable transport is dropped, and a second connection waits for an in-flight login instead of starting its own.",
             new()),
         Tool("connection_editor_switch_check",
             "Switch among real SSH connections on the UI thread, restore the prior selection, verify each editor is constructed, and report timing.",
