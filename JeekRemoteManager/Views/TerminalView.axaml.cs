@@ -2680,12 +2680,36 @@ public partial class TerminalView : UserControl
             var reuseFailed = false;
             try
             {
-                for (var phaseIndex = 0; phaseIndex < phases.Count; phaseIndex++)
+                var selectedPhases = phases;
+                if (pooledLease is not null)
+                {
+                    // The bastion may still be reconnecting this channel to its previous
+                    // target when the channel opens. Typing into that would answer a
+                    // screen that is about to be replaced, so wait for the landing to
+                    // settle and let it correct the phases the route implied.
+                    var landing = await DetectBastionLandingAsync(generation);
+                    selectedPhases = BastionLanding.SelectReusePhases(
+                        landing,
+                        pooledLease.ReuseStart,
+                        pooledLease.SourceRoute.LoginCommands,
+                        connection.EffectiveLoginCommands);
+                    Volatile.Write(
+                        ref _bastionSessionState,
+                        landing switch
+                        {
+                            BastionLandingKind.Menu => "pooled-menu",
+                            BastionLandingKind.AuthPrompt => "pooled-auth-prompt",
+                            BastionLandingKind.Shell => "pooled-shell",
+                            _ => "pooled-landing-unknown",
+                        });
+                }
+
+                for (var phaseIndex = 0; phaseIndex < selectedPhases.Count; phaseIndex++)
                 {
                     if (!await RunLoginCommandsAsync(
-                            phases[phaseIndex],
+                            selectedPhases[phaseIndex],
                             generation,
-                            waitForTrailingOutput: phaseIndex < phases.Count - 1,
+                            waitForTrailingOutput: phaseIndex < selectedPhases.Count - 1,
                             registerAfterInput: registerFreshInPool,
                             registerClient: clientAtStart,
                             registerConnection: connection))
@@ -2843,6 +2867,41 @@ public partial class TerminalView : UserControl
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Waits for a reused channel's landing to stop moving, so the first command is not
+    /// typed into a screen the bastion is about to replace. A credential prompt is
+    /// returned immediately — it is waiting for the user, not for more output — and an
+    /// unreadable landing simply ends the wait: the caller falls back to the route.
+    /// </summary>
+    private async Task<BastionLandingKind> DetectBastionLandingAsync(int generation)
+    {
+        const int quietMs = 500;
+        const int timeoutMs = 10_000;
+        var startedAt = Environment.TickCount64;
+        var landing = BastionLandingKind.Unknown;
+
+        while (true)
+        {
+            if (_disposed || _shellClosed || generation != _connectionGeneration)
+                return BastionLandingKind.Unknown;
+
+            landing = BastionLanding.Classify(_loginOutputCapture.Snapshot());
+            var lastData = Interlocked.Read(ref _lastShellDataTicks);
+            var now = Environment.TickCount64;
+            if (landing == BastionLandingKind.AuthPrompt
+                || (landing != BastionLandingKind.Unknown
+                    && lastData != 0
+                    && now - lastData >= quietMs))
+            {
+                return landing;
+            }
+
+            if (now - startedAt >= timeoutMs)
+                return landing;
+            await Task.Delay(50);
+        }
     }
 
     /// <summary>

@@ -55,6 +55,13 @@ public static class BastionLanding
         "动态码",
         "验证码",
         "令牌",
+        // Plain credential prompts count too: this bastion's second factor is just
+        // "2nd Password:", which matches none of the words above.
+        "password:",
+        "password：",
+        "passphrase",
+        "密码：",
+        "密码:",
     ];
 
     public static BastionLandingKind Classify(string output)
@@ -62,14 +69,50 @@ public static class BastionLanding
         if (string.IsNullOrWhiteSpace(output))
             return BastionLandingKind.Unknown;
 
-        if (LooksLikeAuthPrompt(output))
+        // This is PTY text: the prompt is colored, the window title arrives as an OSC
+        // sequence, and bash turns on bracketed paste right before printing. Matching
+        // the raw bytes would classify every real shell as Unknown.
+        var clean = LoginMenuSelection.CleanPtyText(output);
+        var lastLine = LastNonEmptyLine(clean);
+
+        if (LooksLikeAuthPrompt(lastLine))
             return BastionLandingKind.AuthPrompt;
         if (LoginMenuSelection.ParseEntries(output).Count > 0)
             return BastionLandingKind.Menu;
-        if (LooksLikeShellPrompt(output))
+        if (ShellPromptLine.IsMatch(lastLine))
             return BastionLandingKind.Shell;
         return BastionLandingKind.Unknown;
     }
+
+    /// <summary>
+    /// Corrects the pool's expectation with what the new channel actually landed on.
+    /// An unreadable landing is not a reason to give up: the remembered route is still
+    /// the best information there is, and dropping the transport would cost the user
+    /// another two-factor login.
+    /// </summary>
+    public static IReadOnlyList<string[]> SelectReusePhases(
+        BastionLandingKind landing,
+        BastionReuseStart start,
+        string sourceLoginCommands,
+        string targetLoginCommands) =>
+        landing switch
+        {
+            // At the menu nothing has to be left, whatever the pool remembered.
+            BastionLandingKind.Menu => SelectReusePhases(
+                BastionReuseStart.Enter,
+                sourceLoginCommands,
+                targetLoginCommands),
+            // The bastion is asking for credentials again: this channel needs the whole
+            // fresh workflow, starting at #input, not a menu command that would be typed
+            // into a password field.
+            BastionLandingKind.AuthPrompt =>
+            [
+                LoginCommandSequence.Select(targetLoginCommands, LoginCommandSection.Fresh),
+            ],
+            // A target shell (or unreadable output): only the pool knows which target
+            // that is, so go with the route.
+            _ => SelectReusePhases(start, sourceLoginCommands, targetLoginCommands),
+        };
 
     /// <summary>
     /// Switch: old <c>#reuse-leave</c>, then new <c>#reuse-enter</c>.
@@ -97,28 +140,31 @@ public static class BastionLanding
             ],
         };
 
-    private static bool LooksLikeAuthPrompt(string output)
+    /// <summary>
+    /// Only the last line is examined: a credential prompt is what the screen is
+    /// waiting on, while the same words scrolling by in a shell mean nothing.
+    /// </summary>
+    private static bool LooksLikeAuthPrompt(string lastLine)
     {
         foreach (var keyword in AuthPromptKeywords)
         {
-            if (output.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+            if (lastLine.Contains(keyword, StringComparison.OrdinalIgnoreCase))
                 return true;
         }
 
         return false;
     }
 
-    private static bool LooksLikeShellPrompt(string output)
+    private static string LastNonEmptyLine(string output)
     {
         var lines = output.ReplaceLineEndings("\n").Split('\n');
         for (var i = lines.Length - 1; i >= 0; i--)
         {
             var line = lines[i].TrimEnd('\r', ' ', '\t');
-            if (line.Length == 0)
-                continue;
-            return ShellPromptLine.IsMatch(line);
+            if (line.Length != 0)
+                return line;
         }
 
-        return false;
+        return "";
     }
 }

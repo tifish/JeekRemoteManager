@@ -122,6 +122,11 @@ public static class LoginMenuSelection
         return lastBlock.Count > 0 ? lastBlock : all;
     }
 
+    /// <summary>Strips ANSI/OSC sequences and control characters. Anything matching PTY
+    /// text against a pattern has to go through this first — a colored shell prompt
+    /// ends in an SGR reset, not in "$".</summary>
+    public static string CleanPtyText(string text) => Clean(text);
+
     private static string Clean(string text) =>
         AnsiAndControlChars.Replace(text, string.Empty).Replace("\r\n", "\n").Replace('\r', '\n');
 

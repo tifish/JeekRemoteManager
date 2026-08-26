@@ -1003,6 +1003,13 @@ try
               == BastionLandingKind.Menu
           && BastionLanding.Classify("请输入二次验证密码：") == BastionLandingKind.AuthPrompt
           && BastionLanding.Classify("kxjsa@yt-143-157:~ $") == BastionLandingKind.Shell
+          // The real thing: OSC title, bracketed paste, colored prompt, trailing reset.
+          && BastionLanding.Classify(
+                  "\u001b]0;kxjsa@yt-143-157:~\u0007\u001b[?2004h\u001b[1;32mkxjsa\u001b[0m@"
+                  + "\u001b[1;36myt-143-157\u001b[0m:\u001b[1;34m~\u001b[0m \u001b[1;33m$ \u001b[0m")
+              == BastionLandingKind.Shell
+          && BastionLanding.Classify("\u001b[?2004l\r\n2nd Password:")
+              == BastionLandingKind.AuthPrompt
           && BastionLanding.SelectReusePhases(
                   BastionReuseStart.Switch,
                   typicalBastionExpanded,

@@ -5337,10 +5337,33 @@ internal static class DebugMcpServer
             + "  51: 14.18.249.113                            亚太-AI 代理机\n请选择目标资产：";
         var authText = "请输入二次验证密码：";
         var shellText = "kxjsa@yt-143-157:~ $";
+        // What a real bastion channel delivers: an OSC title, bracketed paste, a
+        // colored prompt, and an SGR reset after the "$".
+        var ptyShellText =
+            "\u001b]0;kxjsa@yt-143-157:~\u0007\u001b[?2004h"
+            + "\u001b[1;32mkxjsa\u001b[0m@\u001b[1;36myt-143-157\u001b[0m:"
+            + "\u001b[1;34m~\u001b[0m \u001b[1;33m$ \u001b[0m";
+        var ptyAuthText = "\u001b[?2004l\r\n2nd Password:";
 
         var menuKind = BastionLanding.Classify(menuText);
         var authKind = BastionLanding.Classify(authText);
         var shellKind = BastionLanding.Classify(shellText);
+        var ptyShellKind = BastionLanding.Classify(ptyShellText);
+        var ptyAuthKind = BastionLanding.Classify(ptyAuthText);
+        // The landing overrules a stale route: at the menu there is nothing to leave.
+        var menuSkipsLeave = BastionLanding.SelectReusePhases(
+                BastionLandingKind.Menu,
+                BastionReuseStart.Switch,
+                sourceCommands,
+                targetCommands)
+            is { Count: 1 } menuLanded
+            && !menuLanded[0].Contains("exit", StringComparer.Ordinal);
+        // An unreadable landing keeps the route's own plan rather than giving up.
+        var unknownKeepsRoute = BastionLanding.SelectReusePhases(
+                BastionLandingKind.Unknown,
+                BastionReuseStart.Switch,
+                sourceCommands,
+                targetCommands) is { Count: 2 };
         var switchPhases = BastionLanding.SelectReusePhases(
             BastionReuseStart.Switch, sourceCommands, targetCommands);
         var sameTargetPhases = BastionLanding.SelectReusePhases(
@@ -5364,6 +5387,10 @@ internal static class DebugMcpServer
         var passed = menuKind == BastionLandingKind.Menu
                      && authKind == BastionLandingKind.AuthPrompt
                      && shellKind == BastionLandingKind.Shell
+                     && ptyShellKind == BastionLandingKind.Shell
+                     && ptyAuthKind == BastionLandingKind.AuthPrompt
+                     && menuSkipsLeave
+                     && unknownKeepsRoute
                      && switchRunsLeaveThenEnter
                      && sameTargetStartsAtDuplicate
                      && entrySkipsLeave
@@ -5375,6 +5402,10 @@ internal static class DebugMcpServer
             + $"menu={menuKind}\n"
             + $"auth={authKind}\n"
             + $"shell={shellKind}\n"
+            + $"ptyShell={ptyShellKind}\n"
+            + $"ptyAuth={ptyAuthKind}\n"
+            + $"menuSkipsLeave={menuSkipsLeave}\n"
+            + $"unknownKeepsRoute={unknownKeepsRoute}\n"
             + $"switchPhases={switchJoined}\n"
             + $"switchRunsLeaveThenEnter={switchRunsLeaveThenEnter}\n"
             + $"sameTargetStartsAtDuplicate={sameTargetStartsAtDuplicate}\n"

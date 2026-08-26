@@ -73,22 +73,21 @@
 
 "位置不确定"必须按 `Switch` 处理，不能当成同目标——猜"已经在里面了"的代价是：用户拿到的是上一台机器的 shell，标签页上却写着新目标的名字。`BastionRoute.Unknown()` 保留了旧目标的登录命令，就是为了这时候还能把 `#reuse-leave` 跑出来。
 
-`BastionLanding.Classify` 能判断新开的 shell 当前落在哪里：
+路由是"记得的"，落点是"看见的"。通道打开后 `DetectBastionLandingAsync` 先等落点**稳住**（输出安静 500ms，最多等 10 秒）再打字——堡垒机可能还在替这条通道回连上一个资产，往那个正要被替换的屏幕上发命令等于发进了空气。然后 `BastionLanding.Classify` 用看见的东西校正阶段：
 
-| 落点 | 含义 |
-| --- | --- |
-| `Menu` | 编号资产/账号菜单 |
-| `AuthPrompt` | 2FA 或密码提示。**在这里发菜单命令会烧掉验证码** |
-| `Shell` | 已经在某个目标 shell 里。只有此时 `#reuse-leave` 才有意义 |
+| 落点 | 含义 | 校正 |
+| --- | --- | --- |
+| `Menu` | 编号资产/账号菜单 | 直接 `Enter`，没有东西需要离开 |
+| `AuthPrompt` | 2FA 或密码提示。**在这里发菜单命令会烧掉验证码** | 走完整 fresh 段（从 `#input` 开始） |
+| `Shell` | 在某个目标 shell 里，但**是哪个只有池知道** | 听路由的 |
+| `Unknown` | 读不出来 | 听路由的 |
 
-**连接路径目前不用它**，阶段只按 `RequiresSwitch` 选——这是刻意的。想把它接进复用流程之前，先解决两件事，否则它会把好通道判成 `Unknown`：
+两条约束，违反任何一条它就会把好通道判死：
 
-- **分类前必须剥 ANSI/OSC**。真实提示符是彩色的，一行的结尾是 SGR reset 而不是 `$`，例如
-  `ESC]0;kxjsa@host BEL ESC[?2004h ESC[1;32mkxjsa ESC[0m@…ESC[1;33m$ ESC[0m`，
-  `LooksLikeShellPrompt` 的 `[$#%>]\s*$` 匹配不上。菜单解析已经剥了，提示符匹配没有。
-- **`AuthPromptKeywords` 覆盖不全**。齐治的二次验证提示就是一句 `2nd Password:`，一个关键词都不沾。
+- **分类前必须剥 ANSI/OSC**（`LoginMenuSelection.CleanPtyText`）。真实提示符是彩色的，行尾是 SGR reset 而不是 `$`：`ESC]0;kxjsa@host BEL ESC[?2004h ESC[1;32mkxjsa ESC[0m@…ESC[1;33m$ ESC[0m`。不剥就永远 `Unknown`。
+- **凭据提示只看最后一行**，并且关键词要覆盖普通密码提示——齐治的二次验证就是一句 `2nd Password:`。只看最后一行，是为了不把 shell 里滚过的 "password" 字样当成提示。
 
-还有一条：判不出来时**不要放弃这条已认证传输**。丢掉它意味着下一个目标重走一遍 2FA，比按旧路由猜一次的代价大得多——退回按 `RequiresSwitch` 选阶段即可。
+还有一条：**判不出来时绝不放弃这条已认证传输**。丢掉它意味着下一个目标重走一遍 2FA，比按记住的路由试一次贵得多。
 
 lease 的四种收尾方式对应四种不同的后果：
 
