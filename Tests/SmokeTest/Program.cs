@@ -396,6 +396,12 @@ try
     Check(DebugMcpContract.BuildToolList()
               .Any(tool => tool?["name"]?.GetValue<string>() == "bastion_reuse_landing_check"),
           "Debug MCP advertises bastion reuse landing verification");
+    Check(DebugMcpContract.BuildToolList()
+              .Any(tool => tool?["name"]?.GetValue<string>() == "bastion_pool_lease_check"),
+          "Debug MCP advertises session-pool lease-ending verification");
+    Check(monitorSessionCode.Contains("KeepAndRelease", StringComparison.Ordinal)
+          && monitorSessionCode.Contains("!lease.Client.IsConnected", StringComparison.Ordinal),
+          "A failed monitor borrow keeps the authenticated transport pooled unless it is dead");
     Check(terminalViewCode.Contains("BastionPoolWaitingMessage", StringComparison.Ordinal)
           && terminalViewCode.Contains("BastionPoolWaitTimeoutMessage", StringComparison.Ordinal)
           && terminalViewCode.Contains("BastionPoolFullMessage", StringComparison.Ordinal)

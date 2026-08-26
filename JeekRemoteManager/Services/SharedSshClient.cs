@@ -55,6 +55,9 @@ public sealed class SharedSshClient
     {
         get
         {
+            if (_debugConnectedOverride is { } forced)
+                return forced;
+
             try
             {
                 return Client.IsConnected;
@@ -66,6 +69,19 @@ public sealed class SharedSshClient
             }
         }
     }
+
+    private bool? _debugConnectedOverride;
+
+    /// <summary>
+    /// Debug-only stand-in that reports itself connected without a server, so the
+    /// session pool's bookkeeping (registration, borrowing, lease endings) can be
+    /// verified offline instead of only against a real bastion.
+    /// </summary>
+    internal static SharedSshClient CreateDebugProbe(bool connected = true) =>
+        new(new SshClient("debug.invalid", "probe", "probe")) { _debugConnectedOverride = connected };
+
+    /// <summary>Debug-only: makes an offline probe report a dead transport.</summary>
+    internal void DebugSetConnected(bool connected) => _debugConnectedOverride = connected;
 
     /// <summary>Takes an additional reference. Fails only when the last holder
     /// already released (the client is disposed or about to be).</summary>

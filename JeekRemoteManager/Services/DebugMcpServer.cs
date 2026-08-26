@@ -149,6 +149,7 @@ internal static class DebugMcpServer
         host.AddTool("conpty_teardown_race_check", _ => ConPtyTeardownRaceCheckAsync());
         host.AddTool("bastion_channel_limit_check", _ => BastionChannelLimitCheckAsync());
         host.AddTool("bastion_reuse_landing_check", _ => Task.FromResult(BastionReuseLandingCheck()));
+        host.AddTool("bastion_pool_lease_check", _ => BastionPoolLeaseCheckAsync());
         host.AddTool("connection_editor_switch_check", _ => ConnectionEditorSwitchCheckAsync());
         host.AddTool("login_menu_select_probe", LoginMenuSelectProbeAsync);
         host.AddTool("auto_update_stage_check", AutoUpdateStageCheckAsync);
@@ -5362,6 +5363,76 @@ internal static class DebugMcpServer
             + $"switchRunsLeaveThenEnter={switchRunsLeaveThenEnter}\n"
             + $"sameTargetStartsAtDuplicate={sameTargetStartsAtDuplicate}\n"
             + $"unknownRouteKnown={unknownRoute.IsKnown}",
+            isError: !passed);
+    }
+
+    /// <summary>
+    /// Exercises the session pool's bookkeeping offline with stand-in transports:
+    /// what a borrower's ending does to the entry and to its remembered route.
+    /// The costly mistake here is dropping a live authenticated transport, because
+    /// the next connection then has to go through two-factor authentication again.
+    /// </summary>
+    private static async Task<JsonObject> BastionPoolLeaseCheckAsync()
+    {
+        const string commands =
+            "#input\n#reuse-enter\n#select {{name}}\n#duplicate\nsudo -i\n#reuse-leave\nexit\n#key Enter";
+        static Connection Target(string id, string name) => new()
+        {
+            ConnectionId = id,
+            Name = name,
+            Host = "debug.invalid",
+            Port = 22,
+            Username = "probe",
+            LoginCommands = commands,
+        };
+
+        var first = Target("11111111-1111-1111-1111-111111111111", "target-a");
+        var second = Target("22222222-2222-2222-2222-222222222222", "target-b");
+
+        using var pool = new BastionSessionPool();
+        var client = SharedSshClient.CreateDebugProbe();
+        var registered = pool.Register(client, first);
+        var reusableAfterRegister = pool.HasReusableSession(second);
+
+        // A borrow that fails must not cost the transport its place in the pool.
+        var failed = await pool.TryAcquireAsync(second);
+        var failedSwitches = failed is { RequiresSwitch: true };
+        failed?.KeepAndRelease();
+        failed?.Dispose();
+        var keptAfterFailedBorrow = pool.HasKnownSession(first);
+
+        // ...but the next borrower must not trust the old route either.
+        var afterFailure = await pool.TryAcquireAsync(second);
+        var routeUnknownAfterFailure = afterFailure is { SourceRoute.IsKnown: false };
+        afterFailure?.CompleteAndTakeClient();
+        afterFailure?.Dispose();
+        var relearned = await pool.TryAcquireAsync(second);
+        var routeRelearned = relearned is { SourceRoute.IsKnown: true, RequiresSwitch: false };
+        relearned?.KeepAndRelease();
+        relearned?.Dispose();
+
+        // Only an unusable transport is dropped.
+        var dead = await pool.TryAcquireAsync(second);
+        dead?.Abandon();
+        dead?.Dispose();
+        var droppedAfterAbandon = !pool.HasKnownSession(first);
+
+        var passed = registered
+                     && reusableAfterRegister
+                     && failedSwitches
+                     && keptAfterFailedBorrow
+                     && routeUnknownAfterFailure
+                     && routeRelearned
+                     && droppedAfterAbandon;
+        return ToolText(
+            $"{(passed ? "PASS" : "FAIL")}: bastion pool lease endings\n"
+            + $"registered={registered}\n"
+            + $"reusableAfterRegister={reusableAfterRegister}\n"
+            + $"failedBorrowSwitches={failedSwitches}\n"
+            + $"keptAfterFailedBorrow={keptAfterFailedBorrow}\n"
+            + $"routeUnknownAfterFailure={routeUnknownAfterFailure}\n"
+            + $"routeRelearned={routeRelearned}\n"
+            + $"droppedAfterAbandon={droppedAfterAbandon}",
             isError: !passed);
     }
 

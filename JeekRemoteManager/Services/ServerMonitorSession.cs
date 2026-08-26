@@ -258,7 +258,7 @@ public sealed class ServerMonitorSession : IDisposable
                 catch (Exception ex)
                 {
                     failures++;
-                    ReleaseClient(abandonPending: ex is not SshChannelCapacityException);
+                    ReleaseClient(routeMayHaveChanged: ex is not SshChannelCapacityException);
                     ResetDeltas();
                     if (failures == MaxConsecutiveFailures)
                         Log.ZLogWarning(ex, $"Server monitor sampling failed {failures} times, backing off");
@@ -307,14 +307,23 @@ public sealed class ServerMonitorSession : IDisposable
         return _held;
     }
 
-    private void ReleaseClient(bool abandonPending = true)
+    private void ReleaseClient(bool routeMayHaveChanged = true)
     {
+        // Without a shell nothing was ever typed into the bastion, so the pooled
+        // route still describes where the transport is.
+        var typedIntoBastion = _shell is not null;
         ReleaseShell();
-        if (_pendingPoolLease is not null)
+        if (_pendingPoolLease is { } lease)
         {
-            if (abandonPending)
-                _pendingPoolLease.Abandon();
-            _pendingPoolLease.Dispose();
+            // Only a dead transport justifies dropping the pool entry. A sample that
+            // failed, or a panel that was closed mid-switch, leaves the authenticated
+            // transport perfectly usable — evicting it would send every following
+            // connection through two-factor authentication again.
+            if (!lease.Client.IsConnected)
+                lease.Abandon();
+            else if (routeMayHaveChanged && typedIntoBastion)
+                lease.KeepAndRelease();
+            lease.Dispose();
             _pendingPoolLease = null;
         }
         else

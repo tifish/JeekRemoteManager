@@ -479,7 +479,22 @@ public sealed class BastionSessionPool : IDisposable
             return Client;
         }
 
-        /// <summary>Invalidates an uncertain route and releases the borrowed client reference.</summary>
+        /// <summary>
+        /// Releases the borrowed reference but keeps the authenticated transport pooled,
+        /// with its route marked unknown. This is what a borrower that failed or was
+        /// cancelled owes the next one: the transport is still authenticated, and
+        /// dropping it would cost the next connection another two-factor login.
+        /// </summary>
+        public void KeepAndRelease()
+        {
+            Completed = true;
+            RouteUncertain = true;
+        }
+
+        /// <summary>
+        /// Drops the pool entry. Only for a transport that is no longer usable —
+        /// a failed borrow is <see cref="KeepAndRelease"/>, not this.
+        /// </summary>
         public void Abandon() => Abandoned = true;
 
         public void Dispose()
