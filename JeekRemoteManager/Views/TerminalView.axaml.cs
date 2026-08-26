@@ -71,9 +71,10 @@ public partial class TerminalView : UserControl
     public const int BastionPoolWaitCapSeconds = 120;
 
     /// <summary>How long to wait for another connection's login to this same bastion.
-    /// Long, because the person at the keyboard may still be fetching a code — and
-    /// dialing our own transport would ask them for a second one.</summary>
-    public const int BastionPendingLoginWaitSeconds = 180;
+    /// Generous on purpose: the person at the keyboard may be walking to another device
+    /// for a code, and giving up early asks them for a second one — measured at three
+    /// minutes, that is exactly what happened.</summary>
+    public const int BastionPendingLoginWaitSeconds = 600;
 
     public const string BastionPoolWaitingMessage =
         "[bastion reuse] Waiting for another session to finish switching targets ...";
