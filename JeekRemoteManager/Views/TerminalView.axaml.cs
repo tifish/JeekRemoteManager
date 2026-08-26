@@ -60,7 +60,15 @@ public partial class TerminalView : UserControl
         }
     }
 
+    /// <summary>Patience for one queued route switch. Route switches on a shared
+    /// transport are serialized, so the real budget is this times the number of
+    /// borrowers ahead — timing out costs a whole fresh login, which is far worse
+    /// than waiting out a queue that is making progress.</summary>
     public const int BastionPoolWaitTimeoutSeconds = 15;
+
+    /// <summary>Upper bound for that scaled wait, so a wedged borrower cannot park a
+    /// new connection indefinitely.</summary>
+    public const int BastionPoolWaitCapSeconds = 120;
 
     /// <summary>How long to wait for another connection's login to this same bastion.
     /// Long, because the person at the keyboard may still be fetching a code — and
@@ -82,8 +90,8 @@ public partial class TerminalView : UserControl
         $"[bastion reuse busy] The other login did not finish within "
         + $"{BastionPendingLoginWaitSeconds} seconds; opening a fresh SSH connection.";
 
-    public static string BastionPoolWaitTimeoutMessage =>
-        $"[bastion reuse busy] Waited {BastionPoolWaitTimeoutSeconds} seconds; "
+    public static string BastionPoolWaitTimeoutMessage(int waitedSeconds) =>
+        $"[bastion reuse busy] Waited {waitedSeconds} seconds; "
         + "opening a fresh SSH connection.";
 
     private const int ResizeOutputInitialWaitMs = 500;
@@ -2169,8 +2177,15 @@ public partial class TerminalView : UserControl
                     FeedLine(BastionPoolFullMessage);
                 }
 
+                // Everyone borrowing this transport switches routes one at a time, so
+                // wait out the queue that is ahead instead of giving up mid-line and
+                // paying for a whole fresh login.
+                var waitSeconds = Math.Min(
+                    BastionPoolWaitCapSeconds,
+                    BastionPoolWaitTimeoutSeconds
+                    * (1 + BastionSessionPool.PendingBorrowCount(connection)));
                 using var waitTimeout = new CancellationTokenSource(
-                    TimeSpan.FromSeconds(BastionPoolWaitTimeoutSeconds));
+                    TimeSpan.FromSeconds(waitSeconds));
                 try
                 {
                     pooledLease = await BastionSessionPool.TryAcquireAsync(
@@ -2180,7 +2195,7 @@ public partial class TerminalView : UserControl
                 catch (OperationCanceledException) when (waitTimeout.IsCancellationRequested)
                 {
                     Volatile.Write(ref _bastionSessionState, "pooled-wait-timeout");
-                    FeedLine(BastionPoolWaitTimeoutMessage);
+                    FeedLine(BastionPoolWaitTimeoutMessage(waitSeconds));
                 }
 
                 // Nothing to borrow yet, but another connection to this same bastion is

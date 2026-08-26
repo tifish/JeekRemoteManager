@@ -5271,8 +5271,15 @@ internal static class DebugMcpServer
         var visibleWait = TerminalView.BastionPoolWaitingMessage.Contains(
             "Waiting for another session",
             StringComparison.Ordinal);
+        // Bounded, but the bound has to grow with the queue: one borrower's switch takes
+        // seconds, and giving up early costs a whole fresh login.
         var boundedQueue = TerminalView.BastionPoolWaitTimeoutSeconds > 0
-                           && TerminalView.BastionPoolWaitTimeoutMessage.Contains(
+                           && TerminalView.BastionPoolWaitCapSeconds
+                           > TerminalView.BastionPoolWaitTimeoutSeconds
+                           && TerminalView.BastionPoolWaitTimeoutMessage(45).Contains(
+                               "Waited 45 seconds",
+                               StringComparison.Ordinal)
+                           && TerminalView.BastionPoolWaitTimeoutMessage(45).Contains(
                                "opening a fresh SSH connection",
                                StringComparison.Ordinal);
         var visibleFallback = TerminalView.BastionReuseFallbackMessage.Contains(

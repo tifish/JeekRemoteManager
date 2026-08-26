@@ -411,6 +411,9 @@ try
           && TerminalView.BastionPendingLoginWaitSeconds > TerminalView.BastionPoolWaitTimeoutSeconds
           && TerminalView.BastionPendingLoginMessage.Contains("second code", StringComparison.Ordinal),
           "A connection started during another login to the same bastion waits for it instead of asking for a second code");
+    Check(terminalViewCode.Contains("PendingBorrowCount(connection)", StringComparison.Ordinal)
+          && TerminalView.BastionPoolWaitCapSeconds > TerminalView.BastionPoolWaitTimeoutSeconds,
+          "Waiting for a busy transport scales with the queue ahead instead of a flat deadline");
     Check(terminalViewCode.Contains("BastionPoolWaitingMessage", StringComparison.Ordinal)
           && terminalViewCode.Contains("BastionPoolWaitTimeoutMessage", StringComparison.Ordinal)
           && terminalViewCode.Contains("BastionPoolFullMessage", StringComparison.Ordinal)

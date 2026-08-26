@@ -134,6 +134,24 @@ public sealed class BastionSessionPool : IDisposable
     }
 
     /// <summary>
+    /// How many borrows are already outstanding for this bastion identity — that is,
+    /// how many route switches a new borrower may have to queue behind. Route switches
+    /// are serialized, so a caller's own patience has to scale with this.
+    /// </summary>
+    public int PendingBorrowCount(Connection target)
+    {
+        if (!IsEligible(target))
+            return 0;
+
+        lock (_gate)
+        {
+            return _disposed || !_entries.TryGetValue(BuildKey(target), out var entries)
+                ? 0
+                : entries.Sum(entry => entry.ActiveLeases);
+        }
+    }
+
+    /// <summary>
     /// Tries to borrow an authenticated transport for a structured bastion workflow.
     /// The returned lease owns one client reference and serializes route transitions.
     /// </summary>

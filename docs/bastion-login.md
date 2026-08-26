@@ -61,7 +61,9 @@
 
 ### 借用与路由切换
 
-`TryAcquireAsync` 返回一个 lease，它持有一次客户端引用并**串行化路由切换**（`RouteGate`）。切换逻辑在 `BastionLanding.SelectReusePhases`：
+`TryAcquireAsync` 返回一个 lease，它持有一次客户端引用并**串行化路由切换**（`RouteGate`）。一次切换要走完"退出旧目标 → 菜单 → 选新目标"，实测 4~5 秒，所以借用的等待预算按 `PendingBorrowCount`（前面排了几个人）放大，而不是一个固定死线：同时打开一批连接时，固定 15 秒会让排在后面的直接退回新建连接，等于白等还多一次 2FA。上限 `BastionPoolWaitCapSeconds` 兜住卡死的借用者。
+
+切换逻辑在 `BastionLanding.SelectReusePhases`：
 
 起点由池条目记住的位置（`BastionRoutePosition`）决定，`BastionSessionLease.ReuseStart` 把它翻译成三选一：
 
