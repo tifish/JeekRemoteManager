@@ -2677,7 +2677,13 @@ public partial class TerminalView : UserControl
                     }
                     else if (registerFreshInPool && clientAtStart is not null)
                     {
-                        TryRegisterFresh(clientAtStart, connection);
+                        // Stopped somewhere between the bastion menu and the target:
+                        // keep the authenticated transport, but do not claim it arrived.
+                        TryRegisterFresh(
+                            clientAtStart,
+                            connection,
+                            BastionRoute.Unknown(connection.EffectiveLoginCommands),
+                            "fresh-pooled-route-unknown");
                     }
                     Volatile.Write(ref _loginSequenceState, "failed");
                 }
@@ -2699,7 +2705,11 @@ public partial class TerminalView : UserControl
                 }
                 else if (registerFreshInPool && clientAtStart is not null)
                 {
-                    TryRegisterFresh(clientAtStart, connection);
+                    TryRegisterFresh(
+                        clientAtStart,
+                        connection,
+                        BastionRoute.Unknown(connection.EffectiveLoginCommands),
+                        "fresh-pooled-route-unknown");
                 }
                 Volatile.Write(ref _loginSequenceState, "failed");
                 Dispatcher.UIThread.Post(
@@ -2715,12 +2725,22 @@ public partial class TerminalView : UserControl
         });
     }
 
-    private void TryRegisterFresh(SharedSshClient client, Connection connection)
+    /// <summary>
+    /// Puts a freshly authenticated transport in the pool. <paramref name="route"/> must
+    /// describe where this shell actually is — recording the target before the login
+    /// sequence has reached it makes the next borrower send that target's
+    /// <c>#reuse-leave</c> into whatever is on screen.
+    /// </summary>
+    private void TryRegisterFresh(
+        SharedSshClient client,
+        Connection connection,
+        BastionRoute? route = null,
+        string? state = null)
     {
-        var registered = BastionSessionPool?.Register(client, connection) == true;
+        var registered = BastionSessionPool?.Register(client, connection, route) == true;
         Volatile.Write(
             ref _bastionSessionState,
-            registered ? "fresh-pooled" : "fresh-pool-rejected");
+            registered ? state ?? "fresh-pooled" : "fresh-pool-rejected");
     }
 
     private async Task<bool> RunLoginCommandsAsync(
@@ -2811,9 +2831,18 @@ public partial class TerminalView : UserControl
                 }
 
                 // 2FA is done; keep the authenticated transport even if a later
-                // menu step fails, so the next target does not ask again.
+                // menu step fails, so the next target does not ask again. The shell
+                // is still at the bastion itself, so record that and not the target:
+                // the next borrower would otherwise try to leave a target this
+                // transport has never entered.
                 if (registerAfterInput && registerClient is not null && registerConnection is not null)
-                    TryRegisterFresh(registerClient, registerConnection);
+                {
+                    TryRegisterFresh(
+                        registerClient,
+                        registerConnection,
+                        BastionRoute.AtEntry(registerConnection.EffectiveLoginCommands),
+                        "fresh-pooled-entry");
+                }
 
                 // The next command must wait for output produced after the
                 // user's Enter, not for what was already on screen.

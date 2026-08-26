@@ -5436,13 +5436,33 @@ internal static class DebugMcpServer
         dead?.Dispose();
         var droppedAfterAbandon = !pool.HasKnownSession(first);
 
+        // A transport registered straight after authentication has entered nothing yet:
+        // the next channel only has to enter, and "exit" would go into the menu.
+        using var entryPool = new BastionSessionPool();
+        var entryClient = SharedSshClient.CreateDebugProbe();
+        var registeredAtEntry = entryPool.Register(
+            entryClient,
+            first,
+            BastionRoute.AtEntry(first.EffectiveLoginCommands));
+        var atEntry = await entryPool.TryAcquireAsync(second);
+        var entryStartsWithEnter = atEntry is { ReuseStart: BastionReuseStart.Enter };
+        atEntry?.CompleteAndTakeClient();
+        atEntry?.Dispose();
+        var arrived = await entryPool.TryAcquireAsync(second);
+        var arrivalRelearnsRoute = arrived is { ReuseStart: BastionReuseStart.Duplicate };
+        arrived?.KeepAndRelease();
+        arrived?.Dispose();
+
         var passed = registered
                      && reusableAfterRegister
                      && failedSwitches
                      && keptAfterFailedBorrow
                      && routeUnknownAfterFailure
                      && routeRelearned
-                     && droppedAfterAbandon;
+                     && droppedAfterAbandon
+                     && registeredAtEntry
+                     && entryStartsWithEnter
+                     && arrivalRelearnsRoute;
         return ToolText(
             $"{(passed ? "PASS" : "FAIL")}: bastion pool lease endings\n"
             + $"registered={registered}\n"
@@ -5451,7 +5471,10 @@ internal static class DebugMcpServer
             + $"keptAfterFailedBorrow={keptAfterFailedBorrow}\n"
             + $"routeUnknownAfterFailure={routeUnknownAfterFailure}\n"
             + $"routeRelearned={routeRelearned}\n"
-            + $"droppedAfterAbandon={droppedAfterAbandon}",
+            + $"droppedAfterAbandon={droppedAfterAbandon}\n"
+            + $"registeredAtEntry={registeredAtEntry}\n"
+            + $"entryStartsWithEnter={entryStartsWithEnter}\n"
+            + $"arrivalRelearnsRoute={arrivalRelearnsRoute}",
             isError: !passed);
     }
 

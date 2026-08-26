@@ -402,6 +402,9 @@ try
     Check(monitorSessionCode.Contains("KeepAndRelease", StringComparison.Ordinal)
           && monitorSessionCode.Contains("!lease.Client.IsConnected", StringComparison.Ordinal),
           "A failed monitor borrow keeps the authenticated transport pooled unless it is dead");
+    Check(terminalViewCode.Contains("BastionRoute.AtEntry(", StringComparison.Ordinal)
+          && terminalViewCode.Contains("BastionRoute.Unknown(", StringComparison.Ordinal),
+          "A fresh transport is pooled with the position it is really in, not with the target it is heading for");
     Check(terminalViewCode.Contains("BastionPoolWaitingMessage", StringComparison.Ordinal)
           && terminalViewCode.Contains("BastionPoolWaitTimeoutMessage", StringComparison.Ordinal)
           && terminalViewCode.Contains("BastionPoolFullMessage", StringComparison.Ordinal)

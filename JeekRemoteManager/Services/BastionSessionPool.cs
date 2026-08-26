@@ -190,10 +190,17 @@ public sealed class BastionSessionPool : IDisposable
     }
 
     /// <summary>
-    /// Retains a successfully logged-in fresh transport. The caller keeps its own reference;
+    /// Retains an authenticated fresh transport. The caller keeps its own reference;
     /// the pool takes one additional reference until expiry or application shutdown.
+    /// <paramref name="route"/> says where the transport actually is: pass
+    /// <see cref="BastionRoute.AtEntry"/> right after authentication, because the
+    /// target has not been entered yet, and let it default to the connection's own
+    /// route only once the login sequence has arrived there.
     /// </summary>
-    public bool Register(SharedSshClient client, Connection routeConnection)
+    public bool Register(
+        SharedSshClient client,
+        Connection routeConnection,
+        BastionRoute? route = null)
     {
         if (_disposed
             || !client.IsConnected
@@ -208,7 +215,7 @@ public sealed class BastionSessionPool : IDisposable
             key,
             BuildEndpointLabel(routeConnection),
             client,
-            BastionRoute.FromConnection(routeConnection));
+            route ?? BastionRoute.FromConnection(routeConnection));
         List<Entry>? disconnected = null;
 
         lock (_gate)
