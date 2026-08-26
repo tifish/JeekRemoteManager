@@ -61,8 +61,13 @@
 
 `TryAcquireAsync` 返回一个 lease，它持有一次客户端引用并**串行化路由切换**（`RouteGate`）。切换逻辑在 `BastionLanding.SelectReusePhases`：
 
-- 切换到不同目标：先把旧目标的 `#reuse-leave` **跑完**，再跑新目标的 `#reuse-enter`。
-- 同目标的额外通道：只从 `#duplicate` 开始。
+起点由池条目记住的位置（`BastionRoutePosition`）决定，`BastionSessionLease.ReuseStart` 把它翻译成三选一：
+
+- `Switch`（在**别的**目标里，或者位置**已经不确定**）：先把旧目标的 `#reuse-leave` **跑完**，再跑新目标的 `#reuse-enter`。
+- `Enter`（刚认证完，还没进过任何目标）：只跑 `#reuse-enter`。这里发 `#reuse-leave` 会把 `exit` 打进堡垒机自己的菜单。
+- `Duplicate`（**确定**就在这个目标里）：只从 `#duplicate` 开始。
+
+"位置不确定"必须按 `Switch` 处理，不能当成同目标——猜"已经在里面了"的代价是：用户拿到的是上一台机器的 shell，标签页上却写着新目标的名字。`BastionRoute.Unknown()` 保留了旧目标的登录命令，就是为了这时候还能把 `#reuse-leave` 跑出来。
 
 `BastionLanding.Classify` 能判断新开的 shell 当前落在哪里：
 

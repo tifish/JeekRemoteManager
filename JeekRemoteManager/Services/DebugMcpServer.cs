@@ -5335,9 +5335,15 @@ internal static class DebugMcpServer
         var authKind = BastionLanding.Classify(authText);
         var shellKind = BastionLanding.Classify(shellText);
         var switchPhases = BastionLanding.SelectReusePhases(
-            requiresSwitch: true, sourceCommands, targetCommands);
+            BastionReuseStart.Switch, sourceCommands, targetCommands);
         var sameTargetPhases = BastionLanding.SelectReusePhases(
-            requiresSwitch: false, sourceCommands, targetCommands);
+            BastionReuseStart.Duplicate, sourceCommands, targetCommands);
+        var entryPhases = BastionLanding.SelectReusePhases(
+            BastionReuseStart.Enter, sourceCommands, targetCommands);
+        // Nothing has been entered yet, so "exit" would land in the bastion's own menu.
+        var entrySkipsLeave = entryPhases.Count == 1
+                              && entryPhases[0].Contains("#select 马良画卷AI能力中台测试环境", StringComparer.Ordinal)
+                              && !entryPhases[0].Contains("exit", StringComparer.Ordinal);
         var switchJoined = string.Join(" || ", switchPhases.Select(phase => string.Join(" | ", phase)));
         var switchRunsLeaveThenEnter = switchPhases.Count == 2
                                        && switchPhases[0].Contains("exit", StringComparer.Ordinal)
@@ -5353,7 +5359,10 @@ internal static class DebugMcpServer
                      && shellKind == BastionLandingKind.Shell
                      && switchRunsLeaveThenEnter
                      && sameTargetStartsAtDuplicate
-                     && !unknownRoute.IsKnown;
+                     && entrySkipsLeave
+                     && !unknownRoute.IsKnown
+                     && unknownRoute.Position == BastionRoutePosition.Unknown
+                     && BastionRoute.AtEntry(sourceCommands).Position == BastionRoutePosition.Entry;
         return ToolText(
             $"{(passed ? "PASS" : "FAIL")}: bastion reuse landing\n"
             + $"menu={menuKind}\n"
@@ -5362,6 +5371,7 @@ internal static class DebugMcpServer
             + $"switchPhases={switchJoined}\n"
             + $"switchRunsLeaveThenEnter={switchRunsLeaveThenEnter}\n"
             + $"sameTargetStartsAtDuplicate={sameTargetStartsAtDuplicate}\n"
+            + $"entrySkipsLeave={entrySkipsLeave}\n"
             + $"unknownRouteKnown={unknownRoute.IsKnown}",
             isError: !passed);
     }
@@ -5401,13 +5411,22 @@ internal static class DebugMcpServer
         failed?.Dispose();
         var keptAfterFailedBorrow = pool.HasKnownSession(first);
 
-        // ...but the next borrower must not trust the old route either.
+        // ...but the next borrower must not trust the old route either: unknown means
+        // "leave whatever this transport is in, then enter", never "already there".
         var afterFailure = await pool.TryAcquireAsync(second);
-        var routeUnknownAfterFailure = afterFailure is { SourceRoute.IsKnown: false };
+        var routeUnknownAfterFailure = afterFailure is
+        {
+            SourceRoute.IsKnown: false,
+            ReuseStart: BastionReuseStart.Switch,
+        };
         afterFailure?.CompleteAndTakeClient();
         afterFailure?.Dispose();
         var relearned = await pool.TryAcquireAsync(second);
-        var routeRelearned = relearned is { SourceRoute.IsKnown: true, RequiresSwitch: false };
+        var routeRelearned = relearned is
+        {
+            SourceRoute.IsKnown: true,
+            ReuseStart: BastionReuseStart.Duplicate,
+        };
         relearned?.KeepAndRelease();
         relearned?.Dispose();
 

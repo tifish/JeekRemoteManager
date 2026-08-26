@@ -4,11 +4,33 @@ using JeekRemoteManager.Models;
 
 namespace JeekRemoteManager.Services;
 
-/// <summary>A saved logical route reached through one authenticated bastion transport.</summary>
-public sealed record BastionRoute(string RouteId, string Name, string LoginCommands)
+/// <summary>Where a pooled transport was last known to be sitting.</summary>
+public enum BastionRoutePosition
 {
+    /// <summary>At the bastion itself (menu or prompt); no target entered yet.</summary>
+    Entry,
+    /// <summary>Inside the target this route names.</summary>
+    Target,
+    /// <summary>Driven somewhere this process no longer tracks.</summary>
+    Unknown,
+}
+
+/// <summary>A saved logical route reached through one authenticated bastion transport.</summary>
+public sealed record BastionRoute(
+    string RouteId,
+    string Name,
+    string LoginCommands,
+    BastionRoutePosition Position)
+{
+    /// <summary>The transport was driven somewhere we lost track of. Not the same as
+    /// <see cref="AtEntry"/>: a target may well have been entered.</summary>
     public static BastionRoute Unknown(string loginCommands) =>
-        new("", "(unknown)", loginCommands);
+        new("", "(unknown)", loginCommands, BastionRoutePosition.Unknown);
+
+    /// <summary>Authenticated but still at the bastion itself. Entering a target is all
+    /// the next channel needs; a <c>#reuse-leave</c> here would type into the menu.</summary>
+    public static BastionRoute AtEntry(string loginCommands) =>
+        new("", "(bastion entry)", loginCommands, BastionRoutePosition.Entry);
 
     public bool IsKnown => RouteId.Length > 0;
 
@@ -18,7 +40,8 @@ public sealed record BastionRoute(string RouteId, string Name, string LoginComma
                 ? Fingerprint($"{connection.Host}\n{connection.Port}\n{connection.Username}\n{connection.EffectiveLoginCommands}")
                 : connection.ConnectionId,
             connection.Name,
-            connection.EffectiveLoginCommands);
+            connection.EffectiveLoginCommands,
+            BastionRoutePosition.Target);
 
     private static string Fingerprint(string value) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
@@ -439,9 +462,27 @@ public sealed class BastionSessionPool : IDisposable
         public SharedSshClient Client => Entry.Client;
         public BastionRoute SourceRoute => Entry.Route;
         public BastionRoute TargetRoute { get; }
-        public bool RequiresSwitch =>
-            SourceRoute.IsKnown
-            && !string.Equals(SourceRoute.RouteId, TargetRoute.RouteId, StringComparison.Ordinal);
+
+        /// <summary>
+        /// What a new channel on this transport has to run before it is inside the
+        /// wanted target. Only a route that is both known and identical may skip
+        /// straight to the post-arrival commands.
+        /// </summary>
+        public BastionReuseStart ReuseStart =>
+            SourceRoute.Position switch
+            {
+                BastionRoutePosition.Entry => BastionReuseStart.Enter,
+                BastionRoutePosition.Target when string.Equals(
+                    SourceRoute.RouteId,
+                    TargetRoute.RouteId,
+                    StringComparison.Ordinal) => BastionReuseStart.Duplicate,
+                // Another target, or one we lost track of. Assuming "already there"
+                // would hand the user a shell on the previous machine under the new
+                // tab's name, so leave first and enter again.
+                _ => BastionReuseStart.Switch,
+            };
+
+        public bool RequiresSwitch => ReuseStart == BastionReuseStart.Switch;
         public bool Completed { get; private set; }
         public bool Abandoned { get; private set; }
         public bool RouteUncertain { get; private set; }

@@ -2174,17 +2174,23 @@ public partial class TerminalView : UserControl
 
         if (pooledLease is not null)
         {
+            var reuseStart = pooledLease.ReuseStart;
             var phases = BastionLanding.SelectReusePhases(
-                pooledLease.RequiresSwitch,
+                reuseStart,
                 pooledLease.SourceRoute.LoginCommands,
                 effectiveLoginCommands);
-            var action = pooledLease.RequiresSwitch
+            var action = reuseStart == BastionReuseStart.Switch
                 ? $"Switching the existing bastion session from {pooledLease.SourceRoute.Name} to {connection.Name}"
                 : $"Opening {connection.Name} on the existing bastion session";
             FeedLine($"{action} ...");
             Volatile.Write(
                 ref _bastionSessionState,
-                pooledLease.RequiresSwitch ? "pooled-switching" : "pooled-reused");
+                reuseStart switch
+                {
+                    BastionReuseStart.Switch => "pooled-switching",
+                    BastionReuseStart.Enter => "pooled-entering",
+                    _ => "pooled-reused",
+                });
             if (await TryOpenShellAsync(
                     pooledLease.Client,
                     generation,

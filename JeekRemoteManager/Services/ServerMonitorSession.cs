@@ -362,27 +362,22 @@ public sealed class ServerMonitorSession : IDisposable
         {
             if (_pendingPoolLease is { } pooledLease)
             {
-                if (pooledLease.RequiresSwitch)
+                if (pooledLease.ReuseStart == BastionReuseStart.Switch)
                 {
                     await RunLoginSectionAsync(
                             pooledLease.SourceRoute.LoginCommands,
                             LoginCommandSection.ReuseLeave,
                             cancellationToken)
                         .ConfigureAwait(false);
-                    await RunLoginSectionAsync(
-                            _connection!.EffectiveLoginCommands,
-                            LoginCommandSection.ReuseEnter,
-                            cancellationToken)
-                        .ConfigureAwait(false);
                 }
-                else
-                {
-                    await RunLoginSectionAsync(
-                            _connection!.EffectiveLoginCommands,
-                            LoginCommandSection.Duplicate,
-                            cancellationToken)
-                        .ConfigureAwait(false);
-                }
+
+                await RunLoginSectionAsync(
+                        _connection!.EffectiveLoginCommands,
+                        pooledLease.ReuseStart == BastionReuseStart.Duplicate
+                            ? LoginCommandSection.Duplicate
+                            : LoginCommandSection.ReuseEnter,
+                        cancellationToken)
+                    .ConfigureAwait(false);
 
                 _held = pooledLease.CompleteAndTakeClient();
                 pooledLease.Dispose();

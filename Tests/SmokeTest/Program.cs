@@ -987,14 +987,25 @@ try
           && BastionLanding.Classify("请输入二次验证密码：") == BastionLandingKind.AuthPrompt
           && BastionLanding.Classify("kxjsa@yt-143-157:~ $") == BastionLandingKind.Shell
           && BastionLanding.SelectReusePhases(
-                  requiresSwitch: true,
+                  BastionReuseStart.Switch,
                   typicalBastionExpanded,
                   typicalBastionExpanded)
               is { Count: 2 } switchPhases
           && switchPhases[0].SequenceEqual(["exit", "#key Enter"])
           && switchPhases[1].Contains("#select target-a")
           && !switchPhases[1].Contains("#input")
+          // Authenticated but never inside a target: entering is all that is needed,
+          // and "exit" would go into the bastion's own menu.
+          && BastionLanding.SelectReusePhases(
+                  BastionReuseStart.Enter,
+                  typicalBastionExpanded,
+                  typicalBastionExpanded)
+              is { Count: 1 } entryPhases
+          && entryPhases[0].Contains("#select target-a")
+          && !entryPhases[0].Contains("exit")
           && !BastionRoute.Unknown(typicalBastionExpanded).IsKnown
+          && BastionRoute.Unknown(typicalBastionExpanded).Position == BastionRoutePosition.Unknown
+          && BastionRoute.AtEntry(typicalBastionExpanded).Position == BastionRoutePosition.Entry
           && BastionLoginTemplatePreset.UseConnectionCommandsWhenEmpty("custom") == "custom",
           "Typical bastion preset fills empty connection commands and preserves existing commands");
 

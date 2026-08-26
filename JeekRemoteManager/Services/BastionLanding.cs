@@ -2,6 +2,17 @@ using System.Text.RegularExpressions;
 
 namespace JeekRemoteManager.Services;
 
+/// <summary>Where a reused channel has to pick up the login workflow.</summary>
+public enum BastionReuseStart
+{
+    /// <summary>Already inside the wanted target: post-arrival commands only.</summary>
+    Duplicate,
+    /// <summary>At the bastion, no target entered: run the target's <c>#reuse-enter</c>.</summary>
+    Enter,
+    /// <summary>Inside another or an uncertain target: leave it first, then enter.</summary>
+    Switch,
+}
+
 /// <summary>Where a newly opened bastion shell is sitting before login commands run.</summary>
 public enum BastionLandingKind
 {
@@ -62,27 +73,29 @@ public static class BastionLanding
 
     /// <summary>
     /// Switch: old <c>#reuse-leave</c>, then new <c>#reuse-enter</c>.
+    /// Entry: <c>#reuse-enter</c> only — there is nothing to leave.
     /// Same target: <c>#duplicate</c> only.
     /// </summary>
     public static IReadOnlyList<string[]> SelectReusePhases(
-        bool requiresSwitch,
+        BastionReuseStart start,
         string sourceLoginCommands,
-        string targetLoginCommands)
-    {
-        if (requiresSwitch)
+        string targetLoginCommands) =>
+        start switch
         {
-            return
+            BastionReuseStart.Duplicate =>
+            [
+                LoginCommandSequence.Select(targetLoginCommands, LoginCommandSection.Duplicate),
+            ],
+            BastionReuseStart.Enter =>
+            [
+                LoginCommandSequence.Select(targetLoginCommands, LoginCommandSection.ReuseEnter),
+            ],
+            _ =>
             [
                 LoginCommandSequence.Select(sourceLoginCommands, LoginCommandSection.ReuseLeave),
                 LoginCommandSequence.Select(targetLoginCommands, LoginCommandSection.ReuseEnter),
-            ];
-        }
-
-        return
-        [
-            LoginCommandSequence.Select(targetLoginCommands, LoginCommandSection.Duplicate),
-        ];
-    }
+            ],
+        };
 
     private static bool LooksLikeAuthPrompt(string output)
     {
