@@ -114,6 +114,7 @@ internal static class DebugMcpServer
         host.AddTool("screenshot", _ => ScreenshotAsync());
         host.AddTool("about_dialog_probe", _ => AboutDialogProbeAsync());
         host.AddTool("ai_runtime_snapshot", _ => AiRuntimeSnapshotAsync());
+        host.AddTool("password_ime_check", _ => PasswordImeCheckAsync());
         host.AddTool("terminal_tab_title_check", _ => TerminalTabTitleCheckAsync());
         host.AddTool("terminal_tab_focus_check", _ => TerminalTabFocusCheckAsync());
         host.AddTool("terminal_tab_lifecycle_check", _ => TerminalTabLifecycleCheckAsync());
@@ -2325,6 +2326,137 @@ internal static class DebugMcpServer
     #endregion
 
     #region App probe tools
+
+    /// <summary>
+    /// Drives the real <see cref="PasswordImeGuard"/> class handlers through a throwaway window:
+    /// focusing a password box must close the IME, and leaving the box - by focus or by the
+    /// window closing under it - must put the previous open status back.
+    /// </summary>
+    private static async Task<JsonObject> PasswordImeCheckAsync()
+    {
+        var imeWindow = IntPtr.Zero;
+        var initialOpen = false;
+        Window? probe = null;
+        TextBox? password = null;
+        TextBox? plain = null;
+
+        try
+        {
+            var imeOpens = await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main)
+                    throw new InvalidOperationException("MainWindow is not available.");
+
+                main.ActivateMainWindow();
+                imeWindow = PasswordImeGuard.ImeWindowOf(
+                    main.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero);
+                if (imeWindow == IntPtr.Zero)
+                    return false;
+
+                initialOpen = PasswordImeGuard.GetOpenStatus(imeWindow);
+                // The guard can only be seen closing an IME that is open to begin with.
+                PasswordImeGuard.SetOpenStatus(imeWindow, true);
+                return PasswordImeGuard.GetOpenStatus(imeWindow);
+            });
+
+            if (imeWindow == IntPtr.Zero)
+                return ToolText("SKIP: this thread has no IME window, so there is nothing to close.");
+            if (!imeOpens)
+            {
+                return ToolText(
+                    "SKIP: the active keyboard layout has no IME that can be opened "
+                    + "(open status stays false), so the guard has nothing to act on.");
+            }
+
+            var focused = await OnUiAsync(() =>
+            {
+                var main = (Views.MainWindow)Desktop!.MainWindow!;
+                password = new TextBox { PasswordChar = '•' };
+                plain = new TextBox();
+                probe = new Window
+                {
+                    Title = "password_ime_check",
+                    Width = 240,
+                    Height = 120,
+                    ShowInTaskbar = false,
+                    WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                    Content = new StackPanel { Children = { password, plain } },
+                };
+                probe.Show(main);
+
+                password.Focus();
+                return (
+                    guarded: ReferenceEquals(PasswordImeGuard.GuardedBox, password),
+                    open: PasswordImeGuard.GetOpenStatus(imeWindow));
+            });
+
+            var restoredByFocus = await ActThenReadAsync(
+                () => plain!.Focus(),
+                () => (
+                    released: PasswordImeGuard.GuardedBox is null,
+                    open: PasswordImeGuard.GetOpenStatus(imeWindow)));
+
+            // Second round: a dialog can be closed while its password box still holds focus,
+            // and no LostFocus follows it.
+            var closedWhileGuarding = await OnUiAsync(() =>
+            {
+                password!.Focus();
+                return PasswordImeGuard.GetOpenStatus(imeWindow);
+            });
+            var afterWindowClose = await ActThenReadAsync(
+                () =>
+                {
+                    probe!.Close();
+                    probe = null;
+                },
+                () => (
+                    released: PasswordImeGuard.GuardedBox is null,
+                    open: PasswordImeGuard.GetOpenStatus(imeWindow)));
+
+            var passed = focused.guarded
+                         && !focused.open
+                         && restoredByFocus.released
+                         && restoredByFocus.open
+                         && !closedWhileGuarding
+                         && afterWindowClose.released
+                         && afterWindowClose.open;
+
+            return ToolText(
+                $"{(passed ? "PASS" : "FAIL")}: password boxes close the IME and give it back.\n"
+                + $"imeWindow=0x{imeWindow.ToInt64():X}\n"
+                + $"initialOpen={initialOpen}\n"
+                + $"onFocus.guarded={focused.guarded}\n"
+                + $"onFocus.imeOpen={focused.open}\n"
+                + $"onFocusLost.released={restoredByFocus.released}\n"
+                + $"onFocusLost.imeOpen={restoredByFocus.open}\n"
+                + $"onWindowClose.imeOpenWhileGuarding={closedWhileGuarding}\n"
+                + $"onWindowClose.released={afterWindowClose.released}\n"
+                + $"onWindowClose.imeOpen={afterWindowClose.open}",
+                isError: !passed);
+        }
+        finally
+        {
+            await OnUiAsync(() =>
+            {
+                probe?.Close();
+                if (imeWindow != IntPtr.Zero)
+                    PasswordImeGuard.SetOpenStatus(imeWindow, initialOpen);
+                return true;
+            });
+        }
+    }
+
+    /// <summary>
+    /// Runs <paramref name="act"/> on the UI thread, drains the dispatcher down to background
+    /// priority - where <see cref="PasswordImeGuard"/> posts its deferred restore - and only
+    /// then reads the outcome.
+    /// </summary>
+    private static async Task<T> ActThenReadAsync<T>(Action act, Func<T> read)
+    {
+        await OnUiAsync(() => { act(); return true; });
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+        return await OnUiAsync(read);
+    }
 
     private static async Task<JsonObject> AiRuntimeSnapshotAsync()
     {

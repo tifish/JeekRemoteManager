@@ -1,6 +1,6 @@
 # 应用外壳（窗口、标签页、托盘、本地化）
 
-涉及 `Views/MainWindow.axaml.cs`、`ViewModels/MainWindowViewModel.cs`、`TreeNodeViewModel.cs`、`Models/ApplicationMenuDefinition.cs`、`App.axaml.cs`。
+涉及 `Views/MainWindow.axaml.cs`、`ViewModels/MainWindowViewModel.cs`、`TreeNodeViewModel.cs`、`Models/ApplicationMenuDefinition.cs`、`Views/PasswordImeGuard.cs`、`App.axaml.cs`。
 
 ## 单实例与托盘
 
@@ -54,6 +54,19 @@
 命令栏的分区是普通的水平 `StackPanel`，**它们不会收缩**，窗口太窄时会互相盖住。所以每次布局之后比较按钮的自然宽度和可用宽度，放不下就加上 `compact` 样式类隐藏文字标签。注意用的是"可见子元素期望宽度之和 + 间距"，而不是被 Grid 夹紧过的 `DesiredSize`。
 
 另外有一条窗口位置的健壮性检查：窗口左上角 160×48 物理像素的一条带必须与某个屏幕的工作区相交，否则标题栏就抓不住了。
+
+## 密码框与输入法
+
+`PasswordImeGuard`（`Views/PasswordImeGuard.cs`，`App.Initialize` 里装一次）在**任何** `PasswordChar` 非空的 `TextBox` 拿到焦点时关闭 Windows 输入法，焦点离开后再把原来的开合状态还回去。装的是一个全局 class handler，所以运行期才建出来的对话框（主密码、keyboard-interactive）自动覆盖，不需要每个站点各写一遍。
+
+几条踩过的坑：
+
+- **只改开合状态，不禁用输入法**。用 `WM_IME_CONTROL` + `IMC_SETOPENSTATUS` 发给 `ImmGetDefaultIMEWnd` 拿到的窗口；不设 `IsInputMethodEnabled=false`，想用非 ASCII 密码的人仍然可以自己把输入法开回来。
+- **class handler 会在冒泡路径上的每个元素触发**，必须只认 `e.Source`，否则密码框刚被守住就会被它的祖先立刻释放掉。
+- **还回去要延后到焦点稳定之后**。Windows 是在焦点事件之后才把输入上下文挂到新控件上的，在 `GotFocus` 里同步设置的开合状态会被这次挂载吞掉，所以还原走 `Dispatcher.Post(Background)`。
+- **落在不吃文字的控件上时不还**。复选框、按钮没有输入上下文，这时候发的开启请求会被丢弃；守卫会一直欠着，直到焦点落到真正能打字的控件（`TextBox` / `TerminalControl`）再还。
+
+Debug MCP 的 `password_ime_check` 会用一个临时窗口把这三条路径（获得焦点、失去焦点、窗口带着焦点被关掉）都跑一遍；机器上没装输入法时它返回 SKIP。
 
 ## 面板尺寸与偏好
 

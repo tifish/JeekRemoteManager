@@ -32,6 +32,7 @@ public partial class App : Application
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
+        PasswordImeGuard.Install();
     }
 
     public override void OnFrameworkInitializationCompleted()
