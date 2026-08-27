@@ -331,6 +331,7 @@ public sealed class ServerMonitorSession : IDisposable
             _held?.Release();
         }
         _held = null;
+        _bastionSessionPool?.ReleaseUnusedSessions();
     }
 
     private async Task EnsureShellAsync(SharedSshClient client, CancellationToken cancellationToken)

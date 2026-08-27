@@ -4090,5 +4090,6 @@ public partial class TerminalView : UserControl
         ReleaseLocalValueBindings(FileBrowser);
         ReleaseLocalValueBindings(MonitorPanel);
         ReleaseLocalValueBindings(this);
+        BastionSessionPool?.ReleaseUnusedSessions();
     }
 }

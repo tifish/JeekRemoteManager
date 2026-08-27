@@ -118,3 +118,6 @@ lease 的四种收尾方式对应四种不同的后果：
 ## 相关调试入口
 
 `login_menu_select_check`、`login_menu_select_probe`（single/paged/switch 三种场景）、`login_command_flow_check`、`login_command_completion_check`、`login_command_variable_check`、`bastion_login_template_check`、`bastion_template_preset_check`、`bastion_channel_limit_check`、`bastion_reuse_landing_check`。
+### 会话池生命周期补充
+
+池只在仍有终端或监控持有者时保留已认证传输。最后一个外部持有者关闭后，`ReleaseUnusedSessions` 会立即移除无活动借用的池条目；下一次重新打开连接不会把上一次目标当作仍需切换的来源。

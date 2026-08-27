@@ -5442,6 +5442,26 @@ internal static class DebugMcpServer
         var registered = pool.Register(client, first);
         var reusableAfterRegister = pool.HasReusableSession(second);
 
+        using var cleanupPool = new BastionSessionPool();
+        var cleanupClient = SharedSshClient.CreateDebugProbe();
+        var cleanupRegistered = cleanupPool.Register(cleanupClient, first);
+        cleanupClient.Release(); // Leave only the pool's reference.
+        var removedWithoutExternalOwner = cleanupPool.ReleaseUnusedSessions() == 1
+                                          && !cleanupPool.HasKnownSession(first);
+
+        using var retainedPool = new BastionSessionPool();
+        var retainedClient = SharedSshClient.CreateDebugProbe();
+        var retainedRegistered = retainedPool.Register(retainedClient, first);
+        var retainedBorrow = await retainedPool.TryAcquireAsync(second);
+        var retainedBorrowed = retainedBorrow is not null;
+        retainedBorrow?.CompleteAndTakeClient();
+        retainedBorrow?.Dispose();
+        retainedClient.Release(); // Drop the test owner's reference.
+        var retainedBeforeExternalRelease = retainedPool.HasKnownSession(first);
+        retainedClient.Release(); // Simulate the last terminal closing.
+        var removedAfterLastOwner = retainedPool.ReleaseUnusedSessions() == 1
+                                    && !retainedPool.HasKnownSession(first);
+
         // A borrow that fails must not cost the transport its place in the pool.
         var failed = await pool.TryAcquireAsync(second);
         var failedSwitches = failed is { RequiresSwitch: true };
@@ -5512,6 +5532,12 @@ internal static class DebugMcpServer
                      && routeUnknownAfterFailure
                      && routeRelearned
                      && droppedAfterAbandon
+                     && cleanupRegistered
+                     && removedWithoutExternalOwner
+                     && retainedRegistered
+                     && retainedBorrowed
+                     && retainedBeforeExternalRelease
+                     && removedAfterLastOwner
                      && registeredAtEntry
                      && entryStartsWithEnter
                      && arrivalRelearnsRoute
@@ -5525,6 +5551,12 @@ internal static class DebugMcpServer
             $"{(passed ? "PASS" : "FAIL")}: bastion pool lease endings\n"
             + $"registered={registered}\n"
             + $"reusableAfterRegister={reusableAfterRegister}\n"
+            + $"cleanupRegistered={cleanupRegistered}\n"
+            + $"removedWithoutExternalOwner={removedWithoutExternalOwner}\n"
+            + $"retainedRegistered={retainedRegistered}\n"
+            + $"retainedBorrowed={retainedBorrowed}\n"
+            + $"retainedBeforeExternalRelease={retainedBeforeExternalRelease}\n"
+            + $"removedAfterLastOwner={removedAfterLastOwner}\n"
             + $"failedBorrowSwitches={failedSwitches}\n"
             + $"keptAfterFailedBorrow={keptAfterFailedBorrow}\n"
             + $"routeUnknownAfterFailure={routeUnknownAfterFailure}\n"

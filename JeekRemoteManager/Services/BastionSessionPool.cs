@@ -51,7 +51,10 @@ public sealed record BastionRoute(
 /// Process-local pool of authenticated SSH transports. Entries are grouped automatically
 /// by endpoint, user, and credential identity; no bastion-group setting is persisted.
 /// Each entry also tracks the last known logical target. A newly-opened channel
-/// typically starts at the bastion menu, not inside that target.
+/// typically starts at the bastion menu, not inside that target. The pool keeps its own
+/// reference while at least one terminal or monitor still owns the transport; when the
+/// last external reference goes away, the entry is removed instead of surviving into a
+/// later, unrelated connection attempt.
 /// </summary>
 public sealed class BastionSessionPool : IDisposable
 {
@@ -349,6 +352,43 @@ public sealed class BastionSessionPool : IDisposable
                 stale.Client.Release();
         }
         return true;
+    }
+
+    /// <summary>
+    /// Removes connected transports that have no active borrow and no owner outside the
+    /// pool. This is called after terminal/monitor teardown so a new connection cannot
+    /// switch through a route left behind by the last closed session.
+    /// </summary>
+    public int ReleaseUnusedSessions()
+    {
+        List<Entry>? unused = null;
+        lock (_gate)
+        {
+            if (_disposed)
+                return 0;
+
+            foreach (var pair in _entries.ToArray())
+            {
+                foreach (var entry in pair.Value.ToArray())
+                {
+                    if (entry.ActiveLeases != 0 || entry.Client.ReferenceCount != 1)
+                        continue;
+
+                    pair.Value.Remove(entry);
+                    (unused ??= []).Add(entry);
+                }
+
+                if (pair.Value.Count == 0)
+                    _entries.Remove(pair.Key);
+            }
+        }
+
+        if (unused is null)
+            return 0;
+
+        foreach (var entry in unused)
+            entry.Client.Release();
+        return unused.Count;
     }
 
     public void Dispose()
