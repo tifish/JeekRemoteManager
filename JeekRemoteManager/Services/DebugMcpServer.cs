@@ -4243,7 +4243,10 @@ internal static class DebugMcpServer
                 {
                     null => "(surface missing from catalog)",
                     { ExecutablePath: { Length: > 0 } executablePath } => executablePath,
-                    { IsAvailableWithoutExecutable: true } => "available via official web launcher",
+                    // A surface with no local executable is either a packaged app reached
+                    // through its registered scheme or a hosted web launcher; report which.
+                    { IsAvailableWithoutExecutable: true } =>
+                        DescribeExecutablelessSurface(descriptor.Kind, kind),
                     { CanAutoInstall: true } =>
                         DescribeAgentInstaller(descriptor.Kind, kind, surface.InstallHint),
                     _ => $"not found — download page: {surface.InstallHint}",
@@ -4302,6 +4305,23 @@ internal static class DebugMcpServer
             sb.AppendLine($"scheme {scheme}: registered={AgentCliLocator.IsUriSchemeRegistered(scheme)}");
 
         return Task.FromResult(ToolText(sb.ToString().TrimEnd()));
+    }
+
+    private static string DescribeExecutablelessSurface(
+        AgentCliKind agentKind,
+        AgentSurfaceKind surfaceKind)
+    {
+        if (surfaceKind != AgentSurfaceKind.Desktop)
+            return "available without a local executable";
+
+        // Any absolute path works here; only the scheme of the resulting URI is read.
+        var uri = AgentCliCatalog.BuildDesktopProtocolUri(agentKind, Path.GetTempPath());
+        if (uri is null)
+            return "available without a local executable";
+
+        return uri.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+            ? "available via official web launcher"
+            : $"available via registered protocol: {uri[..uri.IndexOf(':')]}";
     }
 
     private static string DescribeAgentInstaller(

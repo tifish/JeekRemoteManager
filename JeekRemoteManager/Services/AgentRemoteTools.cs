@@ -239,9 +239,13 @@ public static class AgentCliCatalog
         {
             [AgentSurfaceKind.Terminal] = Surface(
                 AgentCliKind.Claude, AgentSurfaceKind.Terminal, AgentCliLocator.FindClaude()),
+            // Claude Desktop also ships as an MSIX package, which registers the claude: scheme
+            // without a shell open command — so the scheme itself is the availability signal
+            // and the handler command, when there is one, is only shown to the user.
             [AgentSurfaceKind.Desktop] = Surface(
                 AgentCliKind.Claude, AgentSurfaceKind.Desktop,
-                AgentCliLocator.FindProtocolHandler("claude")),
+                AgentCliLocator.FindProtocolHandler("claude"),
+                isAvailableWithoutExecutable: AgentCliLocator.IsUriSchemeRegistered("claude")),
         }),
         new(AgentCliKind.Codex, "Codex", new Dictionary<AgentSurfaceKind, AgentSurface>
         {

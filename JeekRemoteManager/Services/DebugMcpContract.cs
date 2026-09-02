@@ -112,7 +112,7 @@ public static class DebugMcpContract
             "Temporarily creates a terminal tab and verifies AI CLI Ctrl+C: copies when text is selected and never sends 0x03 to the CLI.",
             new()),
         Tool("agent_cli_locate_check",
-            "Report every AI panel surface as installed, available through an official web launcher, installable in a visible external console, or downloadable from a website; optionally resolve one path through the locator's link resolution.",
+            "Report every AI panel surface as installed, reachable through a registered protocol or an official web launcher, installable in a visible external console, or downloadable from a website; optionally resolve one path through the locator's link resolution.",
             new() { ["path"] = Prop("string", "Optional file path to run through ResolveRealPath.") }),
         Tool("agent_desktop_launch_check",
             "Report how each agent that offers a Desktop run mode would be opened on a workspace — protocol URI or executable command line — without launching anything, plus which desktop URI schemes Windows has registered.",

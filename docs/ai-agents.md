@@ -65,7 +65,7 @@
 
 - **符号链接/目录联接要解析到真实安装目录**。Codex 独立安装器通过联接暴露 `codex.exe`，而 `codex.exe` 相对自身路径去找 Windows 沙箱助手；经联接启动时那个目录不存在，沙箱命令会报 "program not found"。
 - **但 argv[0] 分派型的 shim 不能解析**（例如 mise 的 `codex.exe` → `mise.exe`）：目标二进制按被调用的文件名选择行为，直接启动解析后的路径会丢掉工具身份。
-- **桌面协议可用性必须显式检查**。ShellExecute 对任何 URI 都能调用，未注册的 scheme 只会在用户点了之后才失败，所以要先查注册的处理器。注意**打包应用（MSIX/Store）只在 scheme 键下写一个 `URL Protocol` 值**，激活走包清单，没有 `shell\open\command`——所以查处理器命令的那条路对它们一律查不到，得单独判断 scheme 是否已注册。
+- **桌面协议可用性必须显式检查**。ShellExecute 对任何 URI 都能调用，未注册的 scheme 只会在用户点了之后才失败，所以要先查注册的处理器。注意**打包应用（MSIX/Store）只在 scheme 键下写一个 `URL Protocol` 值**，激活走包清单，没有 `shell\open\command`——所以查处理器命令的那条路对它们一律查不到，得单独判断 scheme 是否已注册。**Claude 桌面版和 Codex 桌面版现在都是这种包**，光查处理器命令会把装好的桌面应用报成没装。
 - **Codex 桌面版必须走 deep link，不能走 `codex app [PATH]`**。Windows 上 `codex app` 只是用 PowerShell 找到 MSIX 包的开始菜单 AppID 再 `Start-Process` 它，**不带任何参数**：应用起来了，但停在自己的首页，路径被丢掉。打开工作区的唯一办法是 `codex://threads/new?path=<工作区>`，它在应用没运行时也会把应用拉起来。桌面应用没装时才回退到 `codex app`——那条路会打开应用安装器。
 - Cursor CLI 只在 PATH 上按**无歧义的 `cursor-agent`** 名字探测——裸 `agent` 会和别家撞（Grok 在自己的 bin 目录里就有 `agent.exe`）。
 
