@@ -1748,14 +1748,18 @@ try
           && AgentCliCatalog.SupportsDesktop(AgentCliKind.Copilot)
           && !AgentCliCatalog.SupportsDesktop(AgentCliKind.Grok)
           && claudeDesktopUri == $"claude://code/new?folder={encodedDesktopPath}"
-          && codexDesktopUri is null
+          // `codex app [PATH]` only starts the MSIX app and drops the path, so an installed
+          // Codex Desktop is opened through its deep link; the CLI stays the fallback that
+          // brings up the app installer.
+          && codexDesktopUri == $"codex://threads/new?path={encodedDesktopPath}"
           && copilotDesktopUri
               == "https://github.com/copilot/app/launch?open=ghapp%3A%2F%2F"
           && grokDesktopUri is null
           && claudeDesktopUri.Contains("folder=", StringComparison.Ordinal)
           && codexDesktopArgs.SequenceEqual(["app", desktopPath])
           && antigravityDesktopArgs.SequenceEqual([desktopPath]),
-          "Desktop mode uses Claude/Copilot handoff and executable arguments for Codex/Antigravity");
+          "Desktop mode hands Claude/Codex a folder-aware URI, Copilot its launcher, "
+          + "and Antigravity executable arguments");
 
     var providers = AgentCliCatalog.Discover();
     var allMissingSurfacesHaveAction = providers.All(provider =>
@@ -1859,7 +1863,8 @@ try
         && !antigravityProvider.Surfaces[AgentSurfaceKind.Ide].CanAutoInstall
         && AgentCliInstaller.IsDownloadPage(
             antigravityProvider.Surfaces[AgentSurfaceKind.Desktop].InstallHint)
-        && AgentCliLocator.FindProtocolHandler("bad scheme!") is null,
+        && AgentCliLocator.FindProtocolHandler("bad scheme!") is null
+        && !AgentCliLocator.IsUriSchemeRegistered("bad scheme!"),
         "Every agent surface is installed, externally command-installable, or linked to an official download");
 
     Check(DangerousCommandDetector.IsDangerous("rm -rf /tmp/jrm-smoke")

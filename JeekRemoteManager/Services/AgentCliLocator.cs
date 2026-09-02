@@ -18,11 +18,8 @@ public static class AgentCliLocator
     /// </summary>
     public static string? FindProtocolHandler(string scheme)
     {
-        if (string.IsNullOrWhiteSpace(scheme)
-            || scheme.Any(ch => !char.IsLetterOrDigit(ch) && ch is not '+' and not '-' and not '.'))
-        {
+        if (!IsWellFormedScheme(scheme))
             return null;
-        }
 
         var subKey = $@"{scheme}\shell\open\command";
         try
@@ -45,6 +42,37 @@ public static class AgentCliLocator
             return null;
         }
     }
+
+    /// <summary>
+    /// Whether Windows routes <paramref name="scheme"/> to any handler. Packaged apps
+    /// (MSIX/Store) register the scheme key with only a <c>URL Protocol</c> value — activation
+    /// runs through the package manifest, so there is no <c>shell\open\command</c> and
+    /// <see cref="FindProtocolHandler"/> reports nothing even when the app is installed.
+    /// Codex Desktop ships that way.
+    /// </summary>
+    public static bool IsUriSchemeRegistered(string scheme)
+    {
+        if (!IsWellFormedScheme(scheme))
+            return false;
+
+        try
+        {
+            using var currentUser = Registry.CurrentUser.OpenSubKey($@"Software\Classes\{scheme}");
+            if (currentUser?.GetValue("URL Protocol") is not null)
+                return true;
+
+            using var classesRoot = Registry.ClassesRoot.OpenSubKey(scheme);
+            return classesRoot?.GetValue("URL Protocol") is not null;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsWellFormedScheme(string scheme) =>
+        !string.IsNullOrWhiteSpace(scheme)
+        && scheme.All(ch => char.IsLetterOrDigit(ch) || ch is '+' or '-' or '.');
 
     /// <summary>
     /// Returns the full path to <c>claude.exe</c> (or the native launcher), or <c>null</c> if

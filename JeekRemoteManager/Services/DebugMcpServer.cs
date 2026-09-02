@@ -139,6 +139,7 @@ internal static class DebugMcpServer
         host.AddTool("file_browser_session_lifecycle_check", _ => FileBrowserSessionLifecycleCheckAsync());
         host.AddTool("ai_cli_ctrl_c_check", _ => AiCliCtrlCCheckAsync());
         host.AddTool("agent_cli_locate_check", AgentCliLocateCheckAsync);
+        host.AddTool("agent_desktop_launch_check", AgentDesktopLaunchCheckAsync);
         host.AddTool("agent_discovery_cache_check", _ => AgentDiscoveryCacheCheckAsync());
         host.AddTool("agent_cli_mcp_config_check", AgentCliMcpConfigCheckAsync);
         host.AddTool("login_menu_select_check", LoginMenuSelectCheckAsync);
@@ -4252,6 +4253,54 @@ internal static class DebugMcpServer
         }
         if (args["path"]?.GetValue<string>() is { Length: > 0 } path)
             sb.AppendLine($"resolve: {path} -> {AgentCliLocator.ResolveRealPath(path)}");
+        return Task.FromResult(ToolText(sb.ToString().TrimEnd()));
+    }
+
+    /// <summary>
+    /// Reports what each desktop-capable agent would launch for a workspace, without launching
+    /// anything: the mechanism the catalog picks right now, and the resulting URI or command
+    /// line. Codex is why this exists — <c>codex app [PATH]</c> starts the MSIX app with no
+    /// arguments and drops the path, so the workspace has to ride on the deep link instead.
+    /// </summary>
+    private static Task<JsonObject> AgentDesktopLaunchCheckAsync(JsonObject args)
+    {
+        var workspace = args["workspace"]?.GetValue<string>() is { Length: > 0 } requested
+            ? requested
+            : Path.Combine(AgentCliWorkspace.RootPath, "_application");
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"workspace: {workspace}");
+
+        // Rediscover so a desktop app installed since the last probe is reported as installed.
+        foreach (var descriptor in AgentCliCatalog.Rediscover())
+        {
+            if (!AgentCliCatalog.RunModesFor(descriptor.Kind).Contains(AgentCliRunMode.Desktop))
+                continue;
+
+            var launch = AgentCliCatalog.DesktopLaunch(descriptor.Kind);
+            var surface = descriptor.Surfaces.GetValueOrDefault(AgentSurfaceKind.Desktop);
+            var plan = (launch, surface) switch
+            {
+                // Nothing to plan for an agent whose desktop app is not installed; the panel
+                // shows its install hint instead of launching.
+                (_, null or { IsAvailable: false }) => "not installed",
+                (AgentDesktopLaunch.Protocol, _) =>
+                    AgentCliCatalog.BuildDesktopProtocolUri(descriptor.Kind, workspace)
+                    ?? "FAIL: protocol launch with no URI",
+                (AgentDesktopLaunch.Executable, { ExecutablePath: { Length: > 0 } exe }) =>
+                    $"{exe} {string.Join(
+                        ' ',
+                        AgentCliCatalog.BuildDesktopArguments(descriptor.Kind, workspace))}",
+                (AgentDesktopLaunch.Executable, _) => "FAIL: executable launch with no executable",
+                _ => "FAIL: offers a desktop run mode with no launch mechanism",
+            };
+            sb.AppendLine(
+                $"{descriptor.Label}: launch={launch} available={surface?.IsAvailable == true} -> {plan}");
+        }
+
+        foreach (var scheme in new[] { "claude", "codex" })
+            sb.AppendLine($"scheme {scheme}: registered={AgentCliLocator.IsUriSchemeRegistered(scheme)}");
+
         return Task.FromResult(ToolText(sb.ToString().TrimEnd()));
     }
 

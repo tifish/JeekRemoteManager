@@ -247,10 +247,12 @@ public static class AgentCliCatalog
         {
             [AgentSurfaceKind.Terminal] = Surface(
                 AgentCliKind.Codex, AgentSurfaceKind.Terminal, AgentCliLocator.FindCodex()),
-            // The current official entry point is `codex app [PATH]`. The CLI opens the app
-            // and starts its installer when the app is missing.
+            // Codex Desktop is opened through the codex: deep link it registers, which is
+            // available on its own. The CLI still backs this surface because `codex app`
+            // starts the app installer when the desktop app is missing.
             [AgentSurfaceKind.Desktop] = Surface(
-                AgentCliKind.Codex, AgentSurfaceKind.Desktop, AgentCliLocator.FindCodex()),
+                AgentCliKind.Codex, AgentSurfaceKind.Desktop, AgentCliLocator.FindCodex(),
+                isAvailableWithoutExecutable: AgentCliLocator.IsUriSchemeRegistered("codex")),
         }),
         Terminal(AgentCliKind.Grok, "Grok", AgentCliLocator.FindGrok()),
         new(AgentCliKind.Copilot, "GitHub Copilot", new Dictionary<AgentSurfaceKind, AgentSurface>
@@ -362,13 +364,23 @@ public static class AgentCliCatalog
 
     /// <summary>
     /// How this agent's desktop surface is opened, if it has one. Claude registers a URI,
-    /// Copilot has an official hosted app launcher, and Codex/Antigravity are launched through
-    /// their executables.
+    /// Copilot has an official hosted app launcher, and Antigravity is launched through its
+    /// executable.
+    /// <para>
+    /// Codex is decided at launch time. Its deep link is the only way to open a workspace:
+    /// on Windows <c>codex app [PATH]</c> resolves the Start menu AppID of the MSIX package
+    /// and starts it with no arguments, so the app comes up on its own home screen and the
+    /// path is silently dropped. When the desktop app is missing the scheme is unregistered
+    /// and the CLI is used instead, because <c>codex app</c> then opens the app installer.
+    /// </para>
     /// </summary>
     public static AgentDesktopLaunch DesktopLaunch(AgentCliKind kind) => kind switch
     {
         AgentCliKind.Claude or AgentCliKind.Copilot => AgentDesktopLaunch.Protocol,
-        AgentCliKind.Codex or AgentCliKind.Antigravity => AgentDesktopLaunch.Executable,
+        AgentCliKind.Codex => AgentCliLocator.IsUriSchemeRegistered("codex")
+            ? AgentDesktopLaunch.Protocol
+            : AgentDesktopLaunch.Executable,
+        AgentCliKind.Antigravity => AgentDesktopLaunch.Executable,
         _ => AgentDesktopLaunch.None,
     };
 
@@ -377,9 +389,10 @@ public static class AgentCliCatalog
 
     /// <summary>
     /// Builds the registered-protocol URI that opens the workspace in the desktop app.
-    /// Claude: <c>claude://code/new?folder=...</c>. Copilot's documented deep links cannot carry
-    /// an arbitrary local path, so its official web launcher opens the app home; the generated
-    /// workspace is still prepared first. Codex uses <c>codex app [PATH]</c>, not a protocol.
+    /// Claude: <c>claude://code/new?folder=...</c>. Codex: <c>codex://threads/new?path=...</c>,
+    /// which starts the app when it is not running and opens a new thread on that folder.
+    /// Copilot's documented deep links cannot carry an arbitrary local path, so its official web
+    /// launcher opens the app home; the generated workspace is still prepared first.
     /// Returns null when the kind has no desktop protocol.
     /// </summary>
     public static string? BuildDesktopProtocolUri(AgentCliKind kind, string workspacePath)
@@ -401,6 +414,7 @@ public static class AgentCliCatalog
         return kind switch
         {
             AgentCliKind.Claude => $"claude://code/new?folder={encoded}",
+            AgentCliKind.Codex => $"codex://threads/new?path={encoded}",
             AgentCliKind.Copilot =>
                 "https://github.com/copilot/app/launch?open=ghapp%3A%2F%2F",
             _ => null,
@@ -417,6 +431,8 @@ public static class AgentCliCatalog
 
         return kind switch
         {
+            // Only reached when Codex Desktop is not installed: `codex app` then opens the
+            // app installer. An installed app is opened through its deep link instead.
             AgentCliKind.Codex => ["app", workspacePath],
             AgentCliKind.Antigravity => [workspacePath],
             _ => Array.Empty<string>(),

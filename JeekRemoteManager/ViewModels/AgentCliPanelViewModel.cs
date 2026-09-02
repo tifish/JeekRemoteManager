@@ -962,9 +962,10 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
     /// <summary>
     /// Opens the workspace in the agent's desktop app, whichever way that agent supports:
-    /// Claude registers a folder-aware URI; Copilot uses its official app launcher (its
-    /// documented deep links cannot carry arbitrary local folders); Codex uses
-    /// <c>codex app [PATH]</c>; Antigravity 2.0 starts on the folder like an editor.
+    /// Claude and Codex register folder-aware URIs; Copilot uses its official app launcher (its
+    /// documented deep links cannot carry arbitrary local folders); Antigravity 2.0 starts on
+    /// the folder like an editor. Codex falls back to <c>codex app [PATH]</c>, which opens the
+    /// app installer, while its desktop app is not installed.
     /// </summary>
     private bool TryStartDesktopApp(AgentCliDescriptor provider, AgentSurface? surface)
     {
