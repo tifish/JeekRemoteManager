@@ -73,6 +73,18 @@
 
 `AgentCliInstaller` 跑各家官方的一行安装命令；官方推荐图形安装器的就打开下载页。安装跑在**可见的外部 PowerShell 窗口**里而不是把输出重定向进应用，让用户能直接跟提示、进度和错误互动。
 
+### 暂未集成：T3 Code
+
+T3 Code（Electron，`%LOCALAPPDATA%\Programs\t3code\T3 Code (Alpha).exe`）**没有加进 provider 列表**，因为外部无法把工作区文件夹交给它。验证过的现状（对应 0.0.38 alpha）：
+
+- **没有 CLI**，PATH、npm 全局目录、MSIX 包里都没有入口。
+- 它确实注册了 `t3code://`（带 `shell\open\command`），**但那是 Clerk 的 OAuth 回调**：main 进程只做 `findMatchingCallbackUrl(argv, redirectUrl)`，`second-instance` 的实现就是把主窗口带到前台，**argv 里的路径被完全忽略**。没有第二个 deep link 路由。
+- 唯一能加项目的入口是它自己的 WebSocket RPC `projects.add`（`WS_METHODS`，服务端口记在 `~/.t3/userdata/server-runtime.json`），**受环境授权保护**（`EnvironmentAuthorizationError` + `AuthEnvironmentScope`，走 Clerk token / pairing link）且未公开。为了一个"打开文件夹"去实现别家 alpha 的鉴权和帧格式，版本一动就断，不值。
+
+不过 **MCP 那一半本来就通**：T3 Code 是 agent 宿主，底下跑 Claude / Codex / Cursor / Grok，给 Claude 传的是 `--mcp-config <内联 JSON>` **追加**（`--strict-mcp-config` 只在它自己的健康检查那条路上加）。所以把 `%LOCALAPPDATA%\JeekRemoteManager\AgentWorkspaces\<连接>` 手动 Add project 加进 T3 Code，里面的 provider 就能读到工作区已经写好的 `AGENTS.md` 和 `.mcp.json` / `.codex/config.toml` / `.cursor/mcp.json`。T3 Code 会记住这个项目，只需加一次。
+
+等它出了 CLI 或能带文件夹的 deep link，再按 `Editor(...)` 那条路径加成一个 Ide surface。
+
 ## 危险命令确认
 
 `DangerousCommandDetector` 是**启发式黑名单，不是沙箱**。它标记那些典型形状会大规模删除或不可逆覆盖数据的命令（递归 `rm`、通配符 `rm`、往块设备写裸字节、SQL 批量删除、git 历史/工作树破坏、卷/容器/账户清理），让 UI 先问用户。
