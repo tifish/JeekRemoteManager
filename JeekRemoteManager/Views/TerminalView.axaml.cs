@@ -894,6 +894,17 @@ public partial class TerminalView : UserControl
         FeedBytesDirect(Convert.FromBase64String(base64));
     }
 
+    /// <summary>
+    /// Debug helper: queue output through the same buffer OnShellData uses, then write a
+    /// script completion line, so a probe can assert the line lands after the output it
+    /// summarizes instead of overtaking the pending output frame.
+    /// </summary>
+    internal Task DebugFeedCompletionLineAfterOutputAsync(string output, string completionLine)
+    {
+        FeedBytesDirect(Encoding.UTF8.GetBytes(output));
+        return FeedCompletionLineAndRefreshPromptAsync(completionLine);
+    }
+
     /// <summary>Debug helper: reset the streaming UTF-8 decoder (as on a new connection).</summary>
     public void DebugResetUtf8Decoder() => _utf8Decoder.Reset();
 
@@ -3225,10 +3236,13 @@ public partial class TerminalView : UserControl
             return;
         }
 
-        if (_activePayloadMonitor is not null)
+        if (_activePayloadMonitor is { } payloadMonitor)
         {
-            var payloadDisplayData = _activePayloadMonitor.Append(data);
+            var payloadDisplayData = payloadMonitor.Append(data);
             FeedBytes(payloadDisplayData);
+            // Only now may the script runner learn that the command finished: it writes
+            // its completion line straight to the terminal, ahead of this queue.
+            payloadMonitor.ReleasePendingExit();
             return;
         }
 
@@ -3483,7 +3497,12 @@ public partial class TerminalView : UserControl
             throw new InvalidOperationException("Terminal is not connected.");
 
         var interactivePayload = InteractiveShellPayloadRunner.Build(payload);
-        var monitor = new InteractiveShellPayloadMonitor(interactivePayload);
+        // This monitor's output is rendered, so the exit result must not be released
+        // until OnShellData has queued that packet's bytes -- see DeferExitCompletion.
+        var monitor = new InteractiveShellPayloadMonitor(interactivePayload)
+        {
+            DeferExitCompletion = true,
+        };
         _activePayloadMonitor = monitor;
         _suppressUserInput = true;
 
@@ -3908,7 +3927,15 @@ public partial class TerminalView : UserControl
 
     private async Task FeedCompletionLineAndRefreshPromptAsync(string text)
     {
-        await Dispatcher.UIThread.InvokeAsync(() => FeedLine("\r\n" + text));
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            // FeedLine writes to the terminal directly, while the script's own last lines
+            // are still sitting in the output-frame buffer behind a 16 ms timer. Flush
+            // those first or the completion line renders above the output it summarizes.
+            FlushResizeOutputBuffer();
+            DrainTerminalOutputFrame();
+            FeedLine("\r\n" + text);
+        });
         TryRefreshShellPrompt();
     }
 

@@ -120,6 +120,7 @@ internal static class DebugMcpServer
         host.AddTool("terminal_tab_lifecycle_check", _ => TerminalTabLifecycleCheckAsync());
         host.AddTool("terminal_connection_actions_check", _ => TerminalConnectionActionsCheckAsync());
         host.AddTool("terminal_output_coalescing_check", _ => TerminalOutputCoalescingCheckAsync());
+        host.AddTool("script_completion_order_check", _ => ScriptCompletionOrderCheckAsync());
         host.AddTool(
             "terminal_output_backpressure_check",
             _ => Task.FromResult(TerminalOutputBackpressureCheck()));
@@ -1606,6 +1607,71 @@ internal static class DebugMcpServer
                     + $"renderedBytes={renderedBytes}");
             });
             return ToolText(result.Item2, isError: !result.passed);
+        }
+        finally
+        {
+            if (tab is not null)
+            {
+                await OnUiAsync(() =>
+                {
+                    if (Desktop?.MainWindow is Views.MainWindow main)
+                        main.CloseTerminalSession(tab);
+                    return true;
+                });
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifies that a script's "[script exit N]" line lands after the script's own last
+    /// lines. The exit marker always rides in the packet that carries that output, and the
+    /// completion line is fed straight to the terminal while the output is still queued
+    /// behind the output-frame timer, so it used to render above the output it summarizes.
+    /// Covers both halves of the ordering: the monitor hands the display bytes back before
+    /// it releases the waiter, and the waiter drains the pending frame before writing.
+    /// </summary>
+    private static async Task<JsonObject> ScriptCompletionOrderCheckAsync()
+    {
+        var payload = InteractiveShellPayloadRunner.Build("echo probe\n", "scriptorderprobe");
+        var monitor = new InteractiveShellPayloadMonitor(payload) { DeferExitCompletion = true };
+        monitor.Append(Encoding.UTF8.GetBytes("\n" + payload.BeginMarker + "\n"));
+
+        // One packet carrying the script's last line and the exit marker, as the shell sends it.
+        var lastLine = "script last line";
+        var displayed = Encoding.UTF8.GetString(
+            monitor.Append(Encoding.UTF8.GetBytes(
+                lastLine + "\n" + payload.ExitMarkerPrefix + "0\n")));
+        var exitTask = monitor.WaitForExitAsync(CancellationToken.None);
+        var heldUntilDisplayed = !exitTask.IsCompleted && displayed.Contains(lastLine);
+        monitor.ReleasePendingExit();
+        var releasedAfterwards = await Task.WhenAny(exitTask, Task.Delay(2000)) == exitTask;
+
+        const string completionLine = "[script exit 0]";
+        TabItem? tab = null;
+        try
+        {
+            tab = await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main)
+                    throw new InvalidOperationException("MainWindow is not available.");
+                return main.DebugCreateTerminalTabForLifecycleProbe();
+            });
+
+            var view = await OnUiAsync(() => (TerminalView)tab!.Content!);
+            await view.DebugFeedCompletionLineAfterOutputAsync(lastLine + "\r\n", completionLine);
+
+            var rendered = await OnUiAsync(() => view.DebugVisibleTerminalText ?? "");
+            var outputAt = rendered.IndexOf(lastLine, StringComparison.Ordinal);
+            var completionAt = rendered.IndexOf(completionLine, StringComparison.Ordinal);
+            var renderedInOrder = outputAt >= 0 && completionAt > outputAt;
+
+            var passed = heldUntilDisplayed && releasedAfterwards && renderedInOrder;
+            return ToolText(
+                $"{(passed ? "PASS" : "FAIL")}: the completion line follows the script output.\n"
+                + $"monitorHeldExitUntilDisplayed={heldUntilDisplayed}\n"
+                + $"monitorReleasedOnDemand={releasedAfterwards}\n"
+                + $"renderedInOrder={renderedInOrder} (output@{outputAt}, completion@{completionAt})",
+                isError: !passed);
         }
         finally
         {

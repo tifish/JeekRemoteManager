@@ -153,6 +153,7 @@ public sealed class InteractiveShellPayloadMonitor
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource<InteractiveShellPayloadResult> _exit =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private InteractiveShellPayloadResult? _pendingExit;
     private bool _readyFound;
     private int _readyScanFrom;
     private int _beginScanFrom;
@@ -168,6 +169,17 @@ public sealed class InteractiveShellPayloadMonitor
     {
         _payload = payload;
     }
+
+    /// <summary>
+    /// When set, <see cref="Append"/> only records the exit result and the caller must call
+    /// <see cref="ReleasePendingExit"/> once it has displayed that packet's output. Callers
+    /// that render the stream need this: the exit marker always rides in the same packet as
+    /// the script's last lines, and whoever awaits <see cref="WaitForExitAsync"/> writes a
+    /// completion line of its own. Releasing the waiter inside Append lets that line overtake
+    /// the output it is supposed to follow. Callers that only collect the output can leave
+    /// this off and ignore <see cref="ReleasePendingExit"/>.
+    /// </summary>
+    public bool DeferExitCompletion { get; init; }
 
     public byte[] Append(byte[] data)
     {
@@ -186,13 +198,17 @@ public sealed class InteractiveShellPayloadMonitor
                 ? new InteractiveShellPayloadResult(exitCode, new string(_output, 0, _outputLength))
                 : null;
             if (result is not null)
+            {
                 _exitReported = true;
+                if (DeferExitCompletion)
+                    _pendingExit = result;
+            }
             displayText = ExtractDisplayText();
         }
 
         if (markReady)
             _ready.TrySetResult(true);
-        if (result is not null)
+        if (result is not null && !DeferExitCompletion)
             _exit.TrySetResult(result);
         return displayText.Length == 0
             ? Array.Empty<byte>()
@@ -233,6 +249,23 @@ public sealed class InteractiveShellPayloadMonitor
         if (found)
             _readyFound = true;
         return found;
+    }
+
+    /// <summary>
+    /// Completes <see cref="WaitForExitAsync"/> with the result <see cref="Append"/> withheld
+    /// under <see cref="DeferExitCompletion"/>. No-op when nothing is pending.
+    /// </summary>
+    public void ReleasePendingExit()
+    {
+        InteractiveShellPayloadResult? pending;
+        lock (_gate)
+        {
+            pending = _pendingExit;
+            _pendingExit = null;
+        }
+
+        if (pending is not null)
+            _exit.TrySetResult(pending);
     }
 
     public void Fail(Exception exception)

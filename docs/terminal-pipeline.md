@@ -60,6 +60,10 @@
 
 **`TerminalResizeOutputBuffer`。** readline 重绘提示符的方式是"回车 + 替换文本"，这两段可能分包到达。分别渲染会让光标可见地跳到行首再跳回来。所以 resize 之后开一个短静默期把它们合成一次呈现，同时设一个绝对截止时间，防止持续输出的命令被一直扣住。
 
+**旁路写入必须先排空这条队列。** `FeedLine` 直接写 `model.Feed`，绕过上面整条管线——`[script exit N]`、`[copy public key exit N]` 这类应用自己生成的行都走它。麻烦在于脚本的退出标记**总是**和脚本最后几行输出同包到达：那些字节刚进 `TerminalSessionOutputBuffer` 等 16 ms 帧定时器，而等在 `WaitForExitAsync` 上的调用方已经被唤醒，完成行就插到了它本该总结的那段输出**前面**。所以 `FeedCompletionLineAndRefreshPromptAsync` 在写之前先 `FlushResizeOutputBuffer()` + `DrainTerminalOutputFrame()`。
+
+光排空还不够。`InteractiveShellPayloadMonitor.Append` 原本在**返回显示字节之前**就完成了 exit 的 TaskCompletionSource，等待方可能在 `OnShellData` 还没来得及把这一包交给 `FeedBytes` 时就跑完了。所以要渲染输出的调用方得打开 `DeferExitCompletion`，由 `OnShellData` 在 `FeedBytes` 之后显式调用 `ReleasePendingExit()`；只收集输出、不渲染的调用方（`PublicKeyInstaller`、`ServerMonitorSession`）保持默认关闭即可。回归检查是 Debug MCP 的 `script_completion_order_check`。
+
 **`TerminalBufferResizeRepair`。** 绕开 XTerm.NET `TerminalBuffer.Resize` 的两个光标 bug：视口变矮时它只夹紧相对行，光标会落在旧屏幕文本上；视口变高（最大化）时它同时缩小 `YBase` 却不推进相对行，光标落到还有内容的历史上，随后 shell 重绘提示符就把那段文本覆盖了。修复策略：优先把光标恢复到 resize 前的**绝对行**（`YBase + Y`），该行还在视口内就直接用；在视口下方就滚到底行；在视口上方则退回 resize 前的相对行。
 
 **`TerminalDimColorFilter`（AI 面板侧）。** SvcSystems.UI.Terminal 会解析 SGR dim(2) 但不绘制。这个过滤器把 dim 改写成显式的柔灰前景色。**最容易写错的地方**：`38;2;r;g;b` / `48;2;r;g;b` 真彩色序列里的那个 `2` 是颜色模式而不是 dim，误判会毁掉调色板并让用户输入变暗。所以 38/48/58 必须走单独的 `CopyExtendedColor` 分支。选柔灰而不是 bright-black(90)，是因为 90 在深色主题下几乎全黑。

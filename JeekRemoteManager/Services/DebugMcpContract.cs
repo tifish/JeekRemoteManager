@@ -69,6 +69,9 @@ public static class DebugMcpContract
         Tool("terminal_output_coalescing_check",
             "Feeds a burst of packets through a real terminal tab and verifies they are rendered in one UI batch.",
             new()),
+        Tool("script_completion_order_check",
+            "Check that a script's \"[script exit N]\" line renders after the script's own last output "
+            + "instead of overtaking the pending output frame.", new()),
         Tool("connection_tree_load_check",
             "Reads a generated connection tree in an isolated temp root and verifies the read runs off the UI thread, returns the whole tree, and leaves the dispatcher responsive while a reload is in flight.",
             new()),

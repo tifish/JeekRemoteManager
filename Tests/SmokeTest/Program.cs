@@ -3092,7 +3092,7 @@ try
           && runtimeServerOptimizationScript.Contains("enable_chrony_time_sync")
           && runtimeServerOptimizationScript.Contains("try_enable_timesyncd_time_sync")
           && runtimeServerOptimizationScript.Contains("install_packages chrony")
-          && runtimeServerOptimizationScript.Contains("apt-get install -y systemd-timesyncd")
+          && runtimeServerOptimizationScript.Contains("apt_get install -y systemd-timesyncd")
           && runtimeServerOptimizationScript.Contains("systemctl enable --now chronyd.service")
           && runtimeServerOptimizationScript.Contains("systemctl enable --now chrony.service")
           && runtimeServerOptimizationScript.Contains("systemctl enable --now systemd-timesyncd.service")
@@ -3122,7 +3122,7 @@ try
           && runtimeServerOptimizationScript.Contains("feature_done \"Command colors\"")
           && runtimeServerOptimizationScript.Contains("feature_skipped \"Command colors\""),
           "Bundled server optimization script separates every feature with colored end output");
-    Check(runtimeServerOptimizationScript.Contains("apt-get autoremove -y")
+    Check(runtimeServerOptimizationScript.Contains("apt_get autoremove -y")
           && runtimeServerOptimizationScript.Contains("/etc/apt/apt.conf.d/52unattended-upgrades-jeekremote-autoremove")
           && runtimeServerOptimizationScript.Contains("Unattended-Upgrade::Remove-Unused-Dependencies \"true\"")
           && runtimeServerOptimizationScript.Contains("Unattended-Upgrade::Remove-New-Unused-Dependencies \"true\"")
@@ -3130,6 +3130,17 @@ try
           && runtimeServerOptimizationScript.Contains("skipping immediate apt autoremove")
           && runtimeServerOptimizationScript.Contains("ENABLE_APT_AUTOREMOVE=${ENABLE_APT_AUTOREMOVE:-false}"),
           "Bundled server optimization script supports unattended-upgrades apt autoremove");
+    Check(runtimeServerOptimizationScript.Contains("APT_LOCK_TIMEOUT=${APT_LOCK_TIMEOUT:-600}")
+          && runtimeServerOptimizationScript.Contains("apt-get -o DPkg::Lock::Timeout=\"$APT_LOCK_TIMEOUT\"")
+          && !runtimeServerOptimizationScript.Contains("apt-get update"),
+          "Bundled server optimization script waits for the dpkg lock instead of failing with apt exit 100");
+    Check(runtimeServerOptimizationScript.IndexOf("feature_done \"Automatic security updates\"", StringComparison.Ordinal)
+          > runtimeServerOptimizationScript.IndexOf("feature_done \"Command colors\"", StringComparison.Ordinal),
+          "Bundled server optimization script enables automatic updates last so it cannot lock out its own apt steps");
+    // Only enable_apt_auto_updates may install it; run_apt_autoremove must not pull it in
+    // behind an explicit ENABLE_AUTO_UPDATES=false.
+    Check(runtimeServerOptimizationScript.Split("install_packages unattended-upgrades").Length == 2,
+          "Bundled server optimization installs unattended-upgrades only for the automatic updates feature");
     Check(runtimeServerOptimizationScript.Contains("/etc/profile.d/jeekremote-command-colors.sh")
           && runtimeServerOptimizationScript.Contains("ENABLE_COMMAND_COLORS=${ENABLE_COMMAND_COLORS:-true}")
           && runtimeServerOptimizationScript.Contains("case \"$-\"")
