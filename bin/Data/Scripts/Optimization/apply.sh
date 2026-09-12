@@ -54,6 +54,7 @@ if ! command -v systemctl >/dev/null 2>&1 || [ ! -d /run/systemd/system ]; then
 fi
 
 APT_UPDATED=0
+APT_LOCK_TIMEOUT=${APT_LOCK_TIMEOUT:-600}
 ENABLE_FAIL2BAN=${ENABLE_FAIL2BAN:-true}
 ENABLE_FIREWALL=${ENABLE_FIREWALL:-true}
 ENABLE_AUTO_UPDATES=${ENABLE_AUTO_UPDATES:-true}
@@ -74,10 +75,17 @@ detect_package_manager() {
     fi
 }
 
+# A freshly provisioned machine is usually still running unattended-upgrades, which
+# holds the dpkg lock. Without a timeout apt-get exits 100 at once and `set -e` kills
+# the whole run, so wait the background job out instead of failing the optimization.
+apt_get() {
+    apt-get -o DPkg::Lock::Timeout="$APT_LOCK_TIMEOUT" "$@"
+}
+
 apt_update_once() {
     if [ "$APT_UPDATED" -eq 0 ]; then
         export DEBIAN_FRONTEND=noninteractive
-        apt-get update
+        apt_get update
         APT_UPDATED=1
     fi
 }
@@ -88,7 +96,7 @@ install_packages() {
         apt)
             export DEBIAN_FRONTEND=noninteractive
             apt_update_once
-            apt-get install -y "$@"
+            apt_get install -y "$@"
             ;;
         dnf)
             dnf install -y "$@"
@@ -333,7 +341,7 @@ try_enable_timesyncd_time_sync() {
         # Soft-install so callers can fall back to chrony if the package is unavailable.
         export DEBIAN_FRONTEND=noninteractive
         apt_update_once
-        if ! apt-get install -y systemd-timesyncd; then
+        if ! apt_get install -y systemd-timesyncd; then
             warn "Could not install systemd-timesyncd; will try chrony."
             return 1
         fi
@@ -460,8 +468,11 @@ run_apt_autoremove() {
         return 0
     fi
 
-    install_packages unattended-upgrades
-
+    # This feature owns the one-shot autoremove below; the policy file only tells an
+    # already-present unattended-upgrades to clean orphans on its own future runs. Do
+    # not pull the package in for it -- that would override an explicit
+    # ENABLE_AUTO_UPDATES=false. apt.conf.d is read at run time, so writing the file
+    # before the package exists is harmless and stays correct if it arrives later.
     mkdir -p /etc/apt/apt.conf.d
     cat > /etc/apt/apt.conf.d/52unattended-upgrades-jeekremote-autoremove <<'EOF'
 // Managed by JeekRemoteManager.
@@ -469,14 +480,18 @@ Unattended-Upgrade::Remove-Unused-Dependencies "true";
 Unattended-Upgrade::Remove-New-Unused-Dependencies "true";
 EOF
 
-    info "unattended-upgrades is configured to remove unused dependencies."
+    if command -v unattended-upgrade >/dev/null 2>&1 || is_enabled "$ENABLE_AUTO_UPDATES"; then
+        info "unattended-upgrades is configured to remove unused dependencies."
+    else
+        warn "unattended-upgrades is not installed and ENABLE_AUTO_UPDATES=false; the autoremove policy stays inert until it is installed."
+    fi
 
     if [ -e /var/run/reboot-required ] || [ -e /run/reboot-required ]; then
         warn "A reboot is required; skipping immediate apt autoremove to keep rollback kernels available."
         return 0
     fi
 
-    apt-get autoremove -y
+    apt_get autoremove -y
     info "apt autoremove completed."
 }
 
@@ -594,14 +609,6 @@ else
     feature_skipped "fail2ban"
 fi
 
-if is_enabled "$ENABLE_AUTO_UPDATES"; then
-    enable_auto_updates
-    feature_done "Automatic security updates"
-else
-    info "Automatic updates setup skipped by ENABLE_AUTO_UPDATES=false."
-    feature_skipped "Automatic security updates"
-fi
-
 if is_enabled "$ENABLE_BBR"; then
     enable_bbr
     feature_done "BBR"
@@ -632,6 +639,17 @@ if is_enabled "$ENABLE_COMMAND_COLORS"; then
 else
     info "Command color setup skipped by ENABLE_COMMAND_COLORS=false."
     feature_skipped "Command colors"
+fi
+
+# Enabling apt-daily-upgrade.timer with --now can fire an unattended-upgrade run
+# immediately (the unit is Persistent=true), and that run holds the dpkg lock. Keep
+# this step last so the apt-based steps above never wait on a job this script started.
+if is_enabled "$ENABLE_AUTO_UPDATES"; then
+    enable_auto_updates
+    feature_done "Automatic security updates"
+else
+    info "Automatic updates setup skipped by ENABLE_AUTO_UPDATES=false."
+    feature_skipped "Automatic security updates"
 fi
 
 info "Basic server optimization setup completed."
