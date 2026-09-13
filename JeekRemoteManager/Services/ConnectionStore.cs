@@ -221,24 +221,26 @@ public class ConnectionStore
         return targetPath;
     }
 
+    /// <summary>Moves a connection file to the Recycle Bin, so the delete can be undone.</summary>
     public void DeleteFile(string filePath)
     {
         using var lease = SharedDataFile.Acquire(RootPath);
         if (File.Exists(filePath))
         {
             Touch();
-            File.Delete(filePath);
+            RecycleBin.Send(filePath);
             Touch();
         }
     }
 
+    /// <summary>Moves a folder and everything under it to the Recycle Bin.</summary>
     public void DeleteFolder(string folderPath)
     {
         using var lease = SharedDataFile.Acquire(RootPath);
         if (Directory.Exists(folderPath))
         {
             Touch();
-            Directory.Delete(folderPath, recursive: true);
+            RecycleBin.Send(folderPath);
             Touch();
         }
     }

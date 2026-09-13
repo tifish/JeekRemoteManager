@@ -68,7 +68,7 @@ agent 启动的是 `%LocalAppData%\JeekRemoteManager\Mcp\JeekRemoteManagerMcp.ex
 `ProductMcpContract` 的注释里写死了这两条，实现必须一致：
 
 1. **密码只写不读。** 没有任何工具返回密码、口令或 `jrm1` 加密 blob，只返回 `hasPassword` 这类布尔值。响应**按显式字段白名单逐个组装，从不序列化模型**——以后往模型上加字段不会意外泄漏。
-2. **任何需要用户的事情都发生在 GUI 里。** 用户必须输入的秘密（主密码、二次因子）在 GUI 输入，绝不作为工具参数；破坏性动作在 GUI 确认。工具的做法是激活窗口并返回一个 agent 可以轮询的状态（如 `awaiting_user`），而不是无限期地阻塞一次工具调用。
+2. **任何需要用户的事情都发生在 GUI 里。** 用户必须输入的秘密（主密码、二次因子）在 GUI 输入，绝不作为工具参数；破坏性动作在 GUI 确认。例外是 `connection_delete`/`folder_delete`：删除树节点一律进回收站、可恢复，所以不弹确认，免得 agent 卡在对话框上。工具的做法是激活窗口并返回一个 agent 可以轮询的状态（如 `awaiting_user`），而不是无限期地阻塞一次工具调用。
 
 另外：**碰 UI 状态的工具工作都通过 host 的 `UiInvoker` 跑在 UI 线程上**。
 

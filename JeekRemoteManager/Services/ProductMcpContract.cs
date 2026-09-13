@@ -15,7 +15,8 @@ namespace JeekRemoteManager.Services;
 /// <see cref="ProductMcpServer"/>, which builds responses from an explicit field whitelist).</item>
 /// <item>Anything needing the user (master password, two-factor prompts, destructive
 /// confirmation) happens in the GUI. Tools surface and activate the window; they never take
-/// a secret as an argument.</item>
+/// a secret as an argument. Deleting tree nodes is the exception to confirmation: it goes to
+/// the Recycle Bin, which makes it recoverable without asking.</item>
 /// </list>
 /// </summary>
 public static class ProductMcpContract
@@ -63,8 +64,8 @@ public static class ProductMcpContract
             },
             ["connection", "folder"]),
         Tool("connection_delete",
-            "Delete a saved connection. Always asks the user to confirm in the JeekRemoteManager "
-            + "window first; returns an error if they decline. Open terminal tabs are left alone.",
+            "Delete a saved connection without asking. The file goes to the Windows Recycle Bin, so the "
+            + "user can restore it. Open terminal tabs are left alone.",
             new() { ["connection"] = Prop("string", "Connection tree path to delete.") },
             ["connection"]),
 
@@ -89,8 +90,8 @@ public static class ProductMcpContract
             new() { ["folder"] = Prop("string", "Folder path, e.g. 'vps/asia'.") },
             ["folder"]),
         Tool("folder_delete",
-            "Delete a folder and everything inside it. Always asks the user to confirm in the "
-            + "JeekRemoteManager window first; returns an error if they decline.",
+            "Delete a folder and everything inside it without asking. The folder goes to the Windows "
+            + "Recycle Bin, so the user can restore it.",
             new() { ["folder"] = Prop("string", "Folder path to delete.") },
             ["folder"]),
 

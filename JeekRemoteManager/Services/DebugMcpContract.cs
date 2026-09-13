@@ -76,7 +76,7 @@ public static class DebugMcpContract
             "Overlaps two background tree reloads so the earlier read finishes last, and verifies the stale snapshot is discarded instead of resurrecting nodes the newer read saw removed.",
             new()),
         Tool("connection_write_watcher_check",
-            "Creates, edits and deletes a connection through the product MCP paths and verifies each write reloads the tree once, with the file watcher recognising it as the app's own change.",
+            "Creates, edits and deletes a connection and its folder through the product MCP paths and verifies each write reloads the tree once, with the file watcher recognising it as the app's own change, and that deletes reply without a confirmation and land in the Recycle Bin.",
             new()),
         Tool("sftp_retry_policy_check",
             "Drops the SFTP transport mid-operation and verifies listings and transfers are replayed on a fresh connection while deletes, renames and mkdirs are not.",

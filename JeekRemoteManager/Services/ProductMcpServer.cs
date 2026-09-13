@@ -320,32 +320,18 @@ internal static class ProductMcpServer
     }
 
     /// <summary>
-    /// Deleting a saved connection is the user's data, so it is always confirmed in the
-    /// JeekRemoteManager window — an agent cannot remove one on its own.
+    /// Deletes without a confirmation so an agent is never stuck on a dialog; the store sends
+    /// the file to the Recycle Bin, which is what keeps this recoverable.
     /// </summary>
     private static async Task<JsonObject> ConnectionDeleteAsync(JsonObject args)
     {
         var path = NormalizeTreePath(McpHost.RequiredString(args, "connection"));
-        var (treePath, filePath, name) = await OnUiAsync(() =>
+        var treePath = await OnUiAsync(() =>
         {
-            var (connection, resolved, file) = LoadConnection(path);
-            return (resolved, file, connection.Name);
-        }).ConfigureAwait(false);
-
-        if (!await ConfirmInWindowAsync(
-                Localizer.Get("DialogDeleteTitle"),
-                string.Format(Localizer.Get("DialogDeleteConnectionPrompt"), name)).ConfigureAwait(false))
-        {
-            return ToolText(
-                $"The user declined deleting '{treePath}' in the JeekRemoteManager window.",
-                isError: true);
-        }
-
-        await OnUiAsync(() =>
-        {
-            MainVm.Store.DeleteFile(filePath);
+            var (_, resolved, file) = LoadConnection(path);
+            MainVm.Store.DeleteFile(file);
             MainVm.ReloadTreeFromDisk();
-            return true;
+            return resolved;
         }).ConfigureAwait(false);
 
         return ToolText(new JsonObject
@@ -556,8 +542,8 @@ internal static class ProductMcpServer
     }
 
     /// <summary>
-    /// Deletes a folder and everything under it, so it always goes through the same GUI
-    /// confirmation as deleting a connection.
+    /// Deletes a folder and everything under it without a confirmation, like deleting a
+    /// connection; the whole folder goes to the Recycle Bin.
     /// </summary>
     private static async Task<JsonObject> FolderDeleteAsync(JsonObject args)
     {
@@ -565,26 +551,12 @@ internal static class ProductMcpServer
         if (folder.Length == 0)
             return ToolText("Refusing to delete the tree root.", isError: true);
 
-        var path = await OnUiAsync(() =>
+        await OnUiAsync(() =>
         {
             var full = Path.Combine(MainVm.RootPath, folder.Replace('/', Path.DirectorySeparatorChar));
             if (!Directory.Exists(full))
                 throw new InvalidOperationException($"No folder at '{folder}'.");
-            return full;
-        }).ConfigureAwait(false);
-
-        if (!await ConfirmInWindowAsync(
-                Localizer.Get("DialogDeleteTitle"),
-                string.Format(Localizer.Get("DialogDeleteFolderPrompt"), folder)).ConfigureAwait(false))
-        {
-            return ToolText(
-                $"The user declined deleting '{folder}' in the JeekRemoteManager window.",
-                isError: true);
-        }
-
-        await OnUiAsync(() =>
-        {
-            MainVm.Store.DeleteFolder(path);
+            MainVm.Store.DeleteFolder(full);
             MainVm.ReloadTreeFromDisk();
             return true;
         }).ConfigureAwait(false);

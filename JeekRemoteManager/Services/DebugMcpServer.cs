@@ -702,12 +702,14 @@ internal static class DebugMcpServer
                 """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}""")
             .ConfigureAwait(false);
 
-        async Task Measure(string step, string request)
+        async Task<string> Measure(string step, string request)
         {
             // Let any watcher event from the previous step land before taking a baseline.
             await Task.Delay(1200).ConfigureAwait(false);
             var before = await ReloadCountAsync().ConfigureAwait(false);
-            await session.CallAsync(request).ConfigureAwait(false);
+            // Bounded, so a write that stops on a dialog fails the probe instead of hanging it.
+            var response = await session.CallAsync(request)
+                .WaitAsync(TimeSpan.FromSeconds(15)).ConfigureAwait(false);
             // Longer than the 400 ms watcher debounce plus the 1 s self-write window, so a
             // watcher-driven reload has every chance to show up before we count.
             await Task.Delay(1800).ConfigureAwait(false);
@@ -716,6 +718,25 @@ internal static class DebugMcpServer
             measurements.Add((step, reloads));
             if (reloads != 1)
                 failures.Add($"{step}: expected 1 tree reload, saw {reloads}");
+            return response;
+        }
+
+        var rootPath = await OnUiAsync(() =>
+            (Desktop?.MainWindow?.DataContext as ViewModels.MainWindowViewModel)?.RootPath ?? "").ConfigureAwait(false);
+
+        // Deletes must be silent and recoverable: no error in the reply, the item gone from
+        // disk, and one more item in the Recycle Bin of the tree's drive.
+        async Task MeasureDelete(string step, string request, string diskPath)
+        {
+            var binBefore = RecycleBinItemCount(rootPath);
+            var response = await Measure(step, request).ConfigureAwait(false);
+            if (response.Contains("\"isError\":true", StringComparison.Ordinal))
+                failures.Add($"{step}: tool returned an error: {response}");
+            if (File.Exists(diskPath) || Directory.Exists(diskPath))
+                failures.Add($"{step}: '{diskPath}' is still on disk");
+            var binAfter = RecycleBinItemCount(rootPath);
+            if (binAfter != binBefore + 1)
+                failures.Add($"{step}: expected one new Recycle Bin item, saw {binBefore} -> {binAfter}");
         }
 
         static string Call(int id, string tool, string arguments) =>
@@ -750,11 +771,22 @@ internal static class DebugMcpServer
                 "connection_move",
                 Call(13, "connection_move",
                     $$"""{"connection":"{{connection}}","folder":""}"""));
+            await MeasureDelete(
+                "connection_delete",
+                Call(14, "connection_delete", """{"connection":"probe"}"""),
+                Path.Combine(rootPath, "probe" + ConnectionStore.FileExtension));
+            await MeasureDelete(
+                "folder_delete",
+                Call(15, "folder_delete", $$"""{"folder":"{{folder}}"}"""),
+                Path.Combine(rootPath, folder));
+        }
+        catch (TimeoutException)
+        {
+            failures.Add("a product MCP write did not reply within 15 s (blocked on a dialog?)");
         }
         finally
         {
-            // connection_delete and folder_delete block on a GUI confirmation by design,
-            // so clean up straight through the store instead of hanging the probe.
+            // Normally a no-op; removes leftovers when a step above failed.
             await OnUiAsync(() =>
             {
                 if (Desktop?.MainWindow?.DataContext is ViewModels.MainWindowViewModel vm)
@@ -769,11 +801,31 @@ internal static class DebugMcpServer
 
         var passed = failures.Count == 0;
         var report =
-            $"{(passed ? "PASS" : "FAIL")}: product MCP writes reload the tree once\n"
+            $"{(passed ? "PASS" : "FAIL")}: product MCP writes reload the tree once, deletes go to the Recycle Bin\n"
             + string.Join("\n", measurements.Select(m => $"{m.Step}: reloads={m.Reloads}"))
             + $"\nfailures={failures.Count}"
             + (passed ? "" : "\n" + string.Join("\n", failures));
         return ToolText(report, isError: !passed);
+    }
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct SHQUERYRBINFO
+    {
+        public int cbSize;
+        public long i64Size;
+        public long i64NumItems;
+    }
+
+    [System.Runtime.InteropServices.DllImport("shell32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern int SHQueryRecycleBin(string pszRootPath, ref SHQUERYRBINFO pSHQueryRBInfo);
+
+    /// <summary>Items in the Recycle Bin of the drive holding <paramref name="path"/>, or -1.</summary>
+    private static long RecycleBinItemCount(string path)
+    {
+        var info = new SHQUERYRBINFO { cbSize = System.Runtime.InteropServices.Marshal.SizeOf<SHQUERYRBINFO>() };
+        return SHQueryRecycleBin(Path.GetPathRoot(Path.GetFullPath(path)) ?? path, ref info) == 0
+            ? info.i64NumItems
+            : -1;
     }
 
     /// <summary>
