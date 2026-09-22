@@ -152,6 +152,7 @@ internal static class DebugMcpServer
         host.AddTool("bastion_channel_limit_check", _ => BastionChannelLimitCheckAsync());
         host.AddTool("bastion_reuse_landing_check", _ => Task.FromResult(BastionReuseLandingCheck()));
         host.AddTool("bastion_pool_lease_check", _ => BastionPoolLeaseCheckAsync());
+        host.AddTool("bastion_tray_lifecycle_check", _ => BastionTrayLifecycleCheckAsync());
         host.AddTool("connection_editor_switch_check", _ => ConnectionEditorSwitchCheckAsync());
         host.AddTool("login_menu_select_probe", LoginMenuSelectProbeAsync);
         host.AddTool("auto_update_stage_check", AutoUpdateStageCheckAsync);
@@ -5668,10 +5669,101 @@ internal static class DebugMcpServer
     }
 
     /// <summary>
-    /// Exercises the session pool's bookkeeping offline with stand-in transports:
-    /// what a borrower's ending does to the entry and to its remembered route.
-    /// The costly mistake here is dropping a live authenticated transport, because
-    /// the next connection then has to go through two-factor authentication again.
+    /// Exercises the real window/tray lifetime with offline transports in an isolated
+    /// window, without closing the user's main window or touching its sessions.
+    /// </summary>
+    private static async Task<JsonObject> BastionTrayLifecycleCheckAsync()
+    {
+        var result = await OnUiAsync(async () =>
+        {
+            var app = Application.Current as App
+                      ?? throw new InvalidOperationException("App is not running.");
+            var window = new MainWindow();
+            var pool = window.DebugBastionSessionPool;
+            var first = new Connection
+            {
+                ConnectionId = Guid.NewGuid().ToString(),
+                Name = "tray target A",
+                Host = "tray-probe.invalid",
+                Username = "probe",
+                LoginCommands = "#input\n#reuse-enter\n1\n#duplicate\n#reuse-leave\nexit",
+            };
+            var second = new Connection
+            {
+                ConnectionId = Guid.NewGuid().ToString(),
+                Name = "tray target B",
+                Host = first.Host,
+                Username = first.Username,
+                LoginCommands = first.LoginCommands,
+            };
+            var client = SharedSshClient.CreateDebugProbe();
+            var freshClient = SharedSshClient.CreateDebugProbe();
+            var closed = false;
+            window.Closed += (_, _) => closed = true;
+            // Same subscription order as startup: window handlers, then App's
+            // cancellation handler. Checking e.Cancel in the former is too early.
+            window.Closing += app.OnMainWindowClosing;
+            try
+            {
+                window.Show();
+                var registeredBeforeHide = pool.Register(client, first);
+                window.Close();
+                var hiddenNotClosed = !window.IsVisible && !closed;
+                var retainedWhileHidden = pool.HasReusableSession(second)
+                                          && client.ReferenceCount == 2;
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                var borrow = await pool.TryAcquireAsync(second, timeout.Token);
+                var reusedSameTransport = borrow is { RequiresSwitch: true }
+                                          && ReferenceEquals(borrow.Client, client);
+                borrow?.KeepAndRelease();
+                borrow?.Dispose();
+                var registeredWhileHidden = pool.Register(freshClient, second);
+                window.Show();
+                var reusableAfterRestore = window.IsVisible && pool.HasReusableSession(second);
+                window.Close();
+                window.Show();
+                var reusableAfterSecondHide = !closed && pool.HasReusableSession(first);
+
+                // Remove only the tray cancellation handler: now Close really ends
+                // this isolated window and must release both pool references.
+                window.Closing -= app.OnMainWindowClosing;
+                window.Close();
+                var releasedOnActualClose = closed && pool.SessionCount == 0
+                                            && client.ReferenceCount == 1
+                                            && freshClient.ReferenceCount == 1;
+                var rejectsAfterActualClose = !pool.Register(freshClient, second);
+                var passed = registeredBeforeHide && hiddenNotClosed && retainedWhileHidden
+                             && reusedSameTransport && registeredWhileHidden && reusableAfterRestore
+                             && reusableAfterSecondHide && releasedOnActualClose && rejectsAfterActualClose;
+                return ToolText(
+                    $"{(passed ? "PASS" : "FAIL")}: bastion close-to-tray lifecycle\n"
+                    + $"registeredBeforeHide={registeredBeforeHide}\n"
+                    + $"hiddenNotClosed={hiddenNotClosed}\n"
+                    + $"retainedWhileHidden={retainedWhileHidden}\n"
+                    + $"reusedSameTransport={reusedSameTransport}\n"
+                    + $"registeredWhileHidden={registeredWhileHidden}\n"
+                    + $"reusableAfterRestore={reusableAfterRestore}\n"
+                    + $"reusableAfterSecondHide={reusableAfterSecondHide}\n"
+                    + $"releasedOnActualClose={releasedOnActualClose}\n"
+                    + $"rejectsAfterActualClose={rejectsAfterActualClose}",
+                    isError: !passed);
+            }
+            finally
+            {
+                window.Closing -= app.OnMainWindowClosing;
+                if (!closed)
+                    window.Close();
+                pool.Dispose();
+                client.Release();
+                freshClient.Release();
+            }
+        });
+        return await result;
+    }
+
+    /// <summary>
+    /// Exercises pool bookkeeping offline: failed borrows retain authentication,
+    /// completed borrows relearn the route, and only unusable transports are dropped.
     /// </summary>
     private static async Task<JsonObject> BastionPoolLeaseCheckAsync()
     {

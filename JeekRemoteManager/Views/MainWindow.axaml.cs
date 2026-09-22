@@ -167,9 +167,11 @@ public partial class MainWindow : Window
             // because the callback isn't wired up until the window opens.
             FocusSelectedTreeItem();
         };
-        Closing += (_, _) =>
+        Closing += (_, _) => FlushCurrentSettingsState();
+        // App cancels Closing to hide to the tray. That is not the end of the
+        // window's lifetime: existing terminals and future logins still need this pool.
+        Closed += (_, _) =>
         {
-            FlushCurrentSettingsState();
             _bastionSessionPool.Dispose();
             if (_globalAgentViewModel is not null)
                 _ = _globalAgentViewModel.DisposeAsync();
@@ -190,6 +192,9 @@ public partial class MainWindow : Window
     public string BastionSessionPoolSnapshot => _bastionSessionPool.Snapshot;
 
     public int BastionSessionPoolCount => _bastionSessionPool.SessionCount;
+
+    /// <summary>The real window-owned pool for network-free Debug MCP lifecycle checks.</summary>
+    internal BastionSessionPool DebugBastionSessionPool => _bastionSessionPool;
 
     /// <summary>Rendered terminal panel toolbar order exposed for Debug MCP verification.</summary>
     public IReadOnlyList<string> TerminalPanelToolbarOrder =>

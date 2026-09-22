@@ -217,7 +217,8 @@ public partial class App : Application
     }
 
 
-    private void OnMainWindowClosing(object? sender, Avalonia.Controls.WindowClosingEventArgs e)
+    // Shared with the Debug MCP lifecycle probe so it exercises the actual tray policy.
+    internal void OnMainWindowClosing(object? sender, Avalonia.Controls.WindowClosingEventArgs e)
     {
         if (_exitRequested || sender is not Window window)
             return;

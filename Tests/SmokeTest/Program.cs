@@ -399,6 +399,9 @@ try
     Check(DebugMcpContract.BuildToolList()
               .Any(tool => tool?["name"]?.GetValue<string>() == "bastion_pool_lease_check"),
           "Debug MCP advertises session-pool lease-ending verification");
+    Check(DebugMcpContract.BuildToolList()
+              .Any(tool => tool?["name"]?.GetValue<string>() == "bastion_tray_lifecycle_check"),
+          "Debug MCP advertises bastion reuse across close-to-tray and actual window closure");
     Check(monitorSessionCode.Contains("KeepAndRelease", StringComparison.Ordinal)
           && monitorSessionCode.Contains("!lease.Client.IsConnected", StringComparison.Ordinal),
           "A failed monitor borrow keeps the authenticated transport pooled unless it is dead");
