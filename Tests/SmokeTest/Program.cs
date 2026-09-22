@@ -402,6 +402,9 @@ try
     Check(DebugMcpContract.BuildToolList()
               .Any(tool => tool?["name"]?.GetValue<string>() == "bastion_tray_lifecycle_check"),
           "Debug MCP advertises bastion reuse across close-to-tray and actual window closure");
+    Check(DebugMcpContract.BuildToolList()
+              .Any(tool => tool?["name"]?.GetValue<string>() == "window_close_reason_check"),
+          "Debug MCP advertises window-close versus OS/application-shutdown verification");
     Check(monitorSessionCode.Contains("KeepAndRelease", StringComparison.Ordinal)
           && monitorSessionCode.Contains("!lease.Client.IsConnected", StringComparison.Ordinal),
           "A failed monitor borrow keeps the authenticated transport pooled unless it is dead");

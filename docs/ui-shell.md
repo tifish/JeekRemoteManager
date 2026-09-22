@@ -8,6 +8,8 @@
 
 `ShutdownMode = OnExplicitShutdown`：**关主窗口只是隐藏到托盘**，退出走托盘菜单的 Exit。
 
+隐藏到托盘只拦截 `WindowCloseReason.WindowClosing`。`OSShutdown`（关机/注销）及 `ApplicationShutdown` 必须放行，不能因 `_exitRequested` 尚未设置而取消；窗口已隐藏时规则也相同。不以 `IsProgrammatic` 区分：程序调用 `Window.Close()` 仍是普通关闭，而系统退出必须依据关闭原因判断。`window_close_reason_check` 对隔离窗口走真实关闭管线，覆盖三种原因、可见/隐藏以及程序/非程序调用，不触发实际系统关机或应用退出。
+
 `Closing` 是可取消的关闭请求，不是销毁通知。主窗口自己的处理器先执行，随后 `App.OnMainWindowClosing` 才取消关闭并隐藏窗口，所以即使在前者里检查 `e.Cancel` 也不可靠。堡垒机会话池和全局 agent 的释放必须放在 **`Closed`**；否则点过一次关闭按钮就会永久销毁仍在使用的池，现有终端继续工作但新连接都无法复用，重复要求二次验证。设置仍可在 `Closing` 时保存。`bastion_tray_lifecycle_check` 用隔离窗口和真实托盘处理器验证隐藏、恢复、再次入池，以及真正关闭后的释放。
 
 设置状态在三个时机落盘：正常退出、应用失活、以及**未处理异常导致进程即将死亡时**（尽力而为的最后一次保存，且这里的失败绝不能掩盖原始错误）。

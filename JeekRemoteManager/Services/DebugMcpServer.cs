@@ -153,6 +153,7 @@ internal static class DebugMcpServer
         host.AddTool("bastion_reuse_landing_check", _ => Task.FromResult(BastionReuseLandingCheck()));
         host.AddTool("bastion_pool_lease_check", _ => BastionPoolLeaseCheckAsync());
         host.AddTool("bastion_tray_lifecycle_check", _ => BastionTrayLifecycleCheckAsync());
+        host.AddTool("window_close_reason_check", _ => WindowCloseReasonCheckAsync());
         host.AddTool("connection_editor_switch_check", _ => ConnectionEditorSwitchCheckAsync());
         host.AddTool("login_menu_select_probe", LoginMenuSelectProbeAsync);
         host.AddTool("auto_update_stage_check", AutoUpdateStageCheckAsync);
@@ -5667,6 +5668,72 @@ internal static class DebugMcpServer
             + $"unknownRouteKnown={unknownRoute.IsKnown}",
             isError: !passed);
     }
+
+    private static Task<JsonObject> WindowCloseReasonCheckAsync() => OnUiAsync(() =>
+    {
+        var app = Application.Current as App
+                  ?? throw new InvalidOperationException("App is not running.");
+        // Use Avalonia's actual close pipeline without requesting shutdown from the
+        // desktop lifetime or the OS. CloseCore and the event-args constructor are internal.
+        var closeCore = typeof(Window).GetMethod(
+            "CloseCore",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+            binder: null,
+            types: [typeof(WindowCloseReason), typeof(bool), typeof(bool)],
+            modifiers: null) ?? throw new MissingMethodException(typeof(Window).FullName, "CloseCore");
+        var report = new StringBuilder();
+        var passed = true;
+        foreach (var reason in new[]
+                 {
+                     WindowCloseReason.WindowClosing,
+                     WindowCloseReason.OSShutdown,
+                     WindowCloseReason.ApplicationShutdown,
+                 })
+        foreach (var programmatic in new[] { false, true })
+        foreach (var initiallyHidden in new[] { false, true })
+        {
+            var window = new Window
+            {
+                Title = "Window close reason probe",
+                Width = 240,
+                Height = 100,
+                ShowActivated = false,
+            };
+            var closed = false;
+            var cancelled = false;
+            var reasonObserved = false;
+            window.Closed += (_, _) => closed = true;
+            window.Closing += app.OnMainWindowClosing;
+            window.Closing += (_, e) =>
+            {
+                cancelled = e.Cancel;
+                reasonObserved = e.CloseReason == reason && e.IsProgrammatic == programmatic;
+            };
+            try
+            {
+                window.Show();
+                if (initiallyHidden)
+                    window.Hide();
+                closeCore.Invoke(window, [reason, programmatic, false]);
+                var hideToTray = reason == WindowCloseReason.WindowClosing;
+                var ok = reasonObserved && !window.IsVisible
+                         && cancelled == hideToTray && closed == !hideToTray;
+                passed &= ok;
+                report.AppendLine(
+                    $"{(ok ? "PASS" : "FAIL")}: reason={reason}; programmatic={programmatic}; "
+                    + $"initiallyHidden={initiallyHidden}; cancelled={cancelled}; closed={closed}");
+            }
+            finally
+            {
+                window.Closing -= app.OnMainWindowClosing;
+                if (!closed)
+                    window.Close();
+            }
+        }
+        return ToolText(
+            $"{(passed ? "PASS" : "FAIL")}: window close reasons\n{report}",
+            isError: !passed);
+    });
 
     /// <summary>
     /// Exercises the real window/tray lifetime with offline transports in an isolated

@@ -220,7 +220,11 @@ public partial class App : Application
     // Shared with the Debug MCP lifecycle probe so it exercises the actual tray policy.
     internal void OnMainWindowClosing(object? sender, Avalonia.Controls.WindowClosingEventArgs e)
     {
-        if (_exitRequested || sender is not Window window)
+        // Only an ordinary window close means "hide to tray". OS shutdown/logoff
+        // and application shutdown must proceed, even when the window is hidden.
+        if (_exitRequested
+            || e.CloseReason != WindowCloseReason.WindowClosing
+            || sender is not Window window)
             return;
 
         e.Cancel = true;
