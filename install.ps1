@@ -152,7 +152,13 @@ Get-Process -Name $AppName -ErrorAction SilentlyContinue | ForEach-Object {
 #    exclusion list in sync with bin/AutoUpdate.ps1 $preserveNames (minus the
 #    updater script itself, which is only needed mid-update).
 Write-Host "Installing to $InstallDir"
-robocopy $stageDir $InstallDir /MIR /XD Config Connections Scripts Logs /NFL /NDL /NJH /NJS /NP | Out-Null
+# Bare /XD names match at every depth and would also skip bundled Data/Scripts.
+# Exclude both source and destination paths to preserve only root user folders.
+$excludedDirectories = foreach ($name in @("Config", "Connections", "Scripts", "Logs")) {
+    Join-Path $stageDir $name
+    Join-Path $InstallDir $name
+}
+robocopy $stageDir $InstallDir /MIR /XD $excludedDirectories /NFL /NDL /NJH /NJS /NP | Out-Null
 if ($LASTEXITCODE -ge 8) {
     Write-Host "Failed to copy files (robocopy exit code $LASTEXITCODE)." -ForegroundColor Red
     exit 1

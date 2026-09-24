@@ -55,6 +55,8 @@ push 到 `main` 时：算提交数 → Release 构建 → 校验适配器存在 
 
 `install.ps1` 装到 `%LOCALAPPDATA%\Programs\JeekRemoteManager` 并建开始菜单快捷方式，**不写任何注册表项**。卸载 = 退出应用 + 删目录 + 删快捷方式。
 
+安装时镜像同步发布包，但保留根目录下的 `Config`、`Connections`、`Scripts`、`Logs` 用户数据。`robocopy /XD` 必须使用源和目标根目录下的完整路径，不能使用裸目录名：裸名会递归排除同名目录，导致内置的 `Data/Scripts` 无法安装或更新。`Data/Scripts` 属于发布内容，必须随包同步并清理过时文件。
+
 ## 子模块
 
 `JeekTools.NET` 是 submodule。**先提交并推送它，再提交父仓库里移动指针的那次提交。**
