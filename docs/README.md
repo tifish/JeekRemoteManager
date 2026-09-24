@@ -19,7 +19,7 @@
 | [凭据保护](secrets.md) | jrm1 信封、主密码与 DPAPI 缓存、锁与清零、对外暴露规则 |
 | [存储、设置与导入](storage.md) | 连接树、设置分层与三方合并、便携模式、导入器 |
 | [MCP 架构](mcp.md) | 双面隔离、命名管道传输、实例 id、固定适配器、产品面铁律 |
-| [AI Agent 集成](ai-agents.md) | 工作区、各家 MCP 配置差异、项目链接、agent 定位、危险命令 |
+| [AI Agent 集成](ai-agents.md) | 工作区、各家 MCP 配置差异、项目链接、agent 定位、远程命令执行 |
 | [应用外壳](ui-shell.md) | 单实例与托盘、标签页与会话编号、automation peer 泄漏、面板偏好、本地化 |
 | [构建、发布与自动更新](build-release.md) | 版本号策略、两个构建脚本、适配器随构建发布、CI、自动更新、安装 |
 | [调试设施与测试](debugging.md) | Debug MCP 探针、为测试暴露的接口、SmokeTest、迭代流程 |

@@ -2621,8 +2621,7 @@ internal static class DebugMcpServer
                         $"cliProvider={ai.SelectedProvider.Label} available={ai.SelectedProvider.IsAvailable} "
                         + $"running={ai.IsRunning} embedded={ai.HasEmbeddedSession} "
                         + $"runMode={ai.RunMode} hideSshTerminal={ai.HideSshTerminal} "
-                        + $"installing={ai.IsInstalling} autoRun={ai.AutoRun} "
-                        + $"autoApprove={ai.AutoApproveDangerousCommands}");
+                        + $"installing={ai.IsInstalling}");
                     sb.AppendLine(
                         $"terminalVisible={terminal.IsTerminalAreaVisible} "
                         + $"sshTerminalHidden={terminal.IsSshTerminalHidden} "
@@ -2630,9 +2629,6 @@ internal static class DebugMcpServer
                     sb.AppendLine($"status={ai.StatusText}");
                     sb.AppendLine($"workspace={ai.WorkingDirectory}");
                     sb.AppendLine($"mcpPipe={ProductMcpServer.PipeName}");
-                    sb.AppendLine(
-                        "dangerProbe="
-                        + DangerousCommandDetector.IsDangerous("rm -rf /tmp/jrm-debug-probe"));
                     // Session attach state (TabControl unload/reload wiring).
                     sb.AppendLine($"outputStats={terminal.DebugAiOutputStats ?? "(n/a)"}");
                     sb.AppendLine($"headerHeight={terminal.DebugAiHeaderHeight?.ToString("0.#") ?? "(n/a)"}");
@@ -3115,6 +3111,9 @@ internal static class DebugMcpServer
                 toolList.Contains("\"session_move\"", StringComparison.Ordinal)
                 && toolList.Contains("\"position\"", StringComparison.Ordinal));
             Check("debug tools stay off the product surface", !toolList.Contains("\"get_value\"", StringComparison.Ordinal));
+            Check("command tools have no separate confirmation variants",
+                !toolList.Contains("\"terminal_run_danger\"", StringComparison.Ordinal)
+                && !toolList.Contains("\"terminal_run_batch_danger\"", StringComparison.Ordinal));
 
             var created = ExtractToolText(await session.CallAsync(ToolCall(3, "connection_create", new JsonObject
             {
@@ -3224,11 +3223,11 @@ internal static class DebugMcpServer
                 new JsonObject
                 {
                     ["connections"] = new JsonArray(connection, "nope/missing"),
-                    ["command"] = "echo global-agent-probe",
+                    ["command"] = "printf '%s\n' 'rm -rf /tmp/jrm-command-probe'",
                     ["open_missing"] = false,
                     ["max_parallel"] = 2,
                 })).ConfigureAwait(false));
-            Check("terminal_run_batch reports one result per connection",
+            Check("terminal_run_batch accepts command text without confirmation and reports each connection",
                 JsonNode.Parse(commandBatch)?["results"] is JsonArray { Count: 2 });
             Check("terminal_run_batch keeps going after a failed connection",
                 commandBatch.Contains("\"total\": 2", StringComparison.Ordinal)
@@ -3357,6 +3356,22 @@ internal static class DebugMcpServer
             })).ConfigureAwait(false));
             Check("in-session tools resolve by connection path",
                 !byConnection.Contains("has no open session", StringComparison.Ordinal));
+
+            // Leave the probe tab addressable but close its transport. This exercises the
+            // real command handler without sending anything to a shell or waiting for login.
+            await OnUiAsync(() =>
+            {
+                ((Views.MainWindow)Desktop!.MainWindow!).EnumerateTerminalSessions()
+                    .First(item => item.SessionId == connection).View!.Close();
+                return true;
+            }).ConfigureAwait(false);
+            var commandResult = ExtractToolText(await session.CallAsync(ToolCall(37, "terminal_run", new JsonObject
+            {
+                ["session"] = connection,
+                ["command"] = "printf '%s\\n' 'rm -rf /tmp/jrm-command-probe'",
+            })).ConfigureAwait(false));
+            Check("terminal_run forwards command text directly to the terminal without confirmation",
+                commandResult == "[terminal closed]");
 
             var closed = ExtractToolText(await session.CallAsync(ToolCall(13, "session_close", new JsonObject
             {
@@ -3535,7 +3550,7 @@ internal static class DebugMcpServer
             File.WriteAllText(Path.Combine(project, ".codex", "config.toml"), "model = \"gpt-5\"\n");
 
             var link = new AgentWorkspaceLink(
-                workspace, "vps/bwg", "vps/bwg", "bwg", "SSH", "root@10.0.0.1:22", McpToolsAutoApprove: true);
+                workspace, "vps/bwg", "vps/bwg", "bwg", "SSH", "root@10.0.0.1:22");
             Check("MCP server name is per-connection", link.ProjectMcpServerName == server);
 
             AgentProjectLink.WriteInto(link, project);
@@ -3587,7 +3602,7 @@ internal static class DebugMcpServer
                 && codexToml.Contains("--connection", StringComparison.Ordinal)
                 && PortableArgsPinThisInstance(codexToml)
                 && !codexToml.Contains(Environment.UserName, StringComparison.Ordinal));
-            Check(".codex approval mode follows auto-run", codexToml.Contains("default_tools_approval_mode = \"approve\"", StringComparison.Ordinal));
+            Check(".codex pre-approves remote MCP tools", codexToml.Contains("default_tools_approval_mode = \"approve\"", StringComparison.Ordinal));
             Check(".grok/config.toml gains the server table",
                 grokToml.Contains($"[mcp_servers.{server}]", StringComparison.Ordinal)
                 && grokToml.Contains("command = \"cmd\"", StringComparison.Ordinal)
@@ -3676,16 +3691,16 @@ internal static class DebugMcpServer
             }
 
             var connectionLinkLabel = Localizer.Get("AiLinkProject");
-            var optionHeaders = await OnUiAsync(() =>
+            var (optionHeaders, hasExecutionToggle) = await OnUiAsync(() =>
             {
-                if (_renderProbeView is { } probe)
-                    return probe.DebugAiPanel.OptionsMenuHeaders.ToArray();
-
-                var panel = new Views.AgentCliPanelView();
-                return panel.OptionsMenuHeaders.ToArray();
+                var panel = _renderProbeView?.DebugAiPanel ?? new Views.AgentCliPanelView();
+                return (panel.OptionsMenuHeaders.ToArray(),
+                    panel.FindControl<MenuItem>("AutoRunMenuItem") is not null
+                    || panel.FindControl<MenuItem>("AutoApproveMenuItem") is not null);
             });
             report.AppendLine("options-menu: " + string.Join(" | ", optionHeaders));
             Check("AI options menu exposes connection MCP write", optionHeaders.Contains(connectionLinkLabel));
+            Check("AI options menu has no execution approval toggles", !hasExecutionToggle);
 
             if (usePanel)
             {
@@ -4056,8 +4071,7 @@ internal static class DebugMcpServer
                     "vps/bwg",
                     "bwg",
                     "SSH",
-                    "root@10.0.0.1:22",
-                    McpToolsAutoApprove: true);
+                    "root@10.0.0.1:22");
                 connectionServer = connectionPanel.ResolveLinkContext()!.ProjectMcpServerName;
                 var connectionDialog = McpProjectLinkDialog.CreateConnection(connectionPanel, vm);
                 connectionDialog.Show(main);
@@ -4288,9 +4302,11 @@ internal static class DebugMcpServer
             Check("agent providers are available to the global panel", firstOpen.Count > 0);
             Check("connection-only panel options are hidden", !firstOpen.ShowConnectionOptions);
             Check(
-                "product MCP advertises safe and dangerous batch command tools",
+                "product MCP exposes one command tool for each execution mode",
                 productToolNames.Contains("terminal_run_batch")
-                && productToolNames.Contains("terminal_run_batch_danger"));
+                && productToolNames.Contains("terminal_run")
+                && !productToolNames.Contains("terminal_run_danger")
+                && !productToolNames.Contains("terminal_run_batch_danger"));
 
             var passed = failures.Count == 0;
             return ToolText(
@@ -4598,7 +4614,7 @@ internal static class DebugMcpServer
                         && entry["args"] is JsonArray zedArgs
                         && zedArgs.Select(node => node?.GetValue<string>())
                             .SequenceEqual(expectedArguments)
-                        && AgentCliCatalog.AutoRunSafeToolNames.All(tool =>
+                        && AgentCliCatalog.RemoteToolNames.All(tool =>
                             jsonRoot?["agent"]?["tool_permissions"]?["tools"]?[
                                     AgentMcpConfigCatalog.ZedToolKey(
                                         AgentCliWorkspace.McpServerName,

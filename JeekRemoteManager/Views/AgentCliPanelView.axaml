@@ -98,18 +98,6 @@
                         <TextBlock Classes="icon" FontSize="12" Text="&#xE713;" />
                         <Button.Flyout>
                             <MenuFlyout>
-                                <MenuItem x:Name="AutoRunMenuItem"
-                                          Header="{l:Localize AiAutoRun}"
-                                          ToggleType="CheckBox"
-                                          IsChecked="{Binding AutoRun, Mode=TwoWay}"
-                                          ToolTip.Tip="{l:Localize AiAutoRunHint}" />
-                                <MenuItem x:Name="AutoApproveMenuItem"
-                                          Header="{l:Localize AiAutoApprove}"
-                                          ToggleType="CheckBox"
-                                          IsChecked="{Binding AutoApproveDangerousCommands, Mode=TwoWay}"
-                                          IsEnabled="{Binding AutoRun}"
-                                          ToolTip.Tip="{l:Localize AiAutoApproveHint}" />
-                                <Separator />
                                 <MenuItem Header="{l:Localize AiHideSshTerminal}"
                                           ToggleType="CheckBox"
                                           IsChecked="{Binding HideSshTerminal, Mode=TwoWay}"

@@ -104,10 +104,8 @@ internal static class ProductMcpServer
         host.AddTool("session_move", SessionMoveAsync);
 
         host.AddTool("terminal_status", args => InSessionAsync(args, (tools, _) => tools.GetStatusAsync()));
-        host.AddTool("terminal_run", args => RunCommandAsync(args, forceDanger: false));
-        host.AddTool("terminal_run_danger", args => RunCommandAsync(args, forceDanger: true));
-        host.AddTool("terminal_run_batch", args => RunCommandBatchAsync(args, forceDanger: false));
-        host.AddTool("terminal_run_batch_danger", args => RunCommandBatchAsync(args, forceDanger: true));
+        host.AddTool("terminal_run", RunCommandAsync);
+        host.AddTool("terminal_run_batch", RunCommandBatchAsync);
         host.AddTool("terminal_interrupt", args => InSessionAsync(args,
             (tools, _) => tools.RunTerminalActionAsync(AgentTerminalAction.ForceInterrupt)));
         host.AddTool("terminal_reconnect", args => InSessionAsync(args,
@@ -709,19 +707,6 @@ internal static class ProductMcpServer
 
     #region Scripts
 
-    /// <summary>Brings the window forward and awaits the app's own confirmation dialog.</summary>
-    private static async Task<bool> ConfirmInWindowAsync(string title, string message)
-    {
-        var confirm = await OnUiAsync(() =>
-        {
-            MainWindow.ActivateMainWindow();
-            return MainVm.ConfirmAsync?.Invoke(title, message) ?? Task.FromResult(false);
-        }).ConfigureAwait(false);
-
-        return await confirm.ConfigureAwait(false);
-    }
-
-
     private static async Task<JsonObject> ScriptListAsync()
     {
         var snapshot = await OnUiAsync(() => (
@@ -1275,30 +1260,16 @@ internal static class ProductMcpServer
         return ToolText(await action(tools, args).ConfigureAwait(false));
     }
 
-    private static async Task<JsonObject> RunCommandAsync(JsonObject args, bool forceDanger)
+    private static async Task<JsonObject> RunCommandAsync(JsonObject args)
     {
         var command = McpHost.RequiredString(args, "command");
         int? timeout = args["timeout_seconds"] is { } node ? node.GetValue<int>() : null;
         var tools = await ResolveToolsAsync(args).ConfigureAwait(false);
 
-        // The app's own confirmation for destructive commands, unless the user turned it off
-        // in the AI panel (Auto-approve). The agent's own approval flow still applies.
-        if (forceDanger || DangerousCommandDetector.IsDangerous(command))
-        {
-            var autoApprove = await OnUiAsync(() =>
-                (Desktop?.MainWindow?.DataContext as MainWindowViewModel)?.AiAutoApproveDangerousCommands
-                ?? false).ConfigureAwait(false);
-            if (!autoApprove
-                && !await tools.ConfirmDangerousCommandAsync(command).ConfigureAwait(false))
-            {
-                return ToolText("The user declined this command in the JeekRemoteManager window.", isError: true);
-            }
-        }
-
         return ToolText(await tools.RunCommandAsync(command, timeout).ConfigureAwait(false));
     }
 
-    private static async Task<JsonObject> RunCommandBatchAsync(JsonObject args, bool forceDanger)
+    private static async Task<JsonObject> RunCommandBatchAsync(JsonObject args)
     {
         var command = McpHost.RequiredString(args, "command");
         int? timeout = args["timeout_seconds"] is { } timeoutNode
@@ -1313,31 +1284,6 @@ internal static class ProductMcpServer
             .ToList() ?? [];
         if (connections.Count == 0)
             return ToolText("'connections' must list at least one connection tree path.", isError: true);
-
-        var dangerous = forceDanger || DangerousCommandDetector.IsDangerous(command);
-        if (dangerous)
-        {
-            var autoApprove = await OnUiAsync(() =>
-                (Desktop?.MainWindow?.DataContext as MainWindowViewModel)
-                    ?.AiAutoApproveDangerousCommands ?? false).ConfigureAwait(false);
-            if (!autoApprove)
-            {
-                var targets = string.Join(Environment.NewLine, connections.Select(path => "- " + path));
-                var message = string.Format(
-                    Localizer.Get("DialogAgentBatchCommandPrompt"),
-                    connections.Count,
-                    command,
-                    targets);
-                if (!await ConfirmInWindowAsync(
-                        Localizer.Get("DialogAgentBatchCommandTitle"),
-                        message).ConfigureAwait(false))
-                {
-                    return ToolText(
-                        "The user declined this batch command in the JeekRemoteManager window.",
-                        isError: true);
-                }
-            }
-        }
 
         using var gate = new SemaphoreSlim(maxParallel, maxParallel);
         async Task<JsonObject> RunOneAsync(string connection)
@@ -1369,7 +1315,6 @@ internal static class ProductMcpServer
         return ToolText(new JsonObject
         {
             ["command"] = command,
-            ["dangerous"] = dangerous,
             ["succeeded"] = results.Count(result => result["status"]?.GetValue<string>() == "ok"),
             ["total"] = results.Length,
             ["results"] = new JsonArray(results.Cast<JsonNode>().ToArray()),

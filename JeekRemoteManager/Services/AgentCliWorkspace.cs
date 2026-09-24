@@ -55,8 +55,7 @@ public static class AgentCliWorkspace
     /// writes project MCP configs that desktop and CLI agents load from the working directory
     /// (no command-line MCP/system flags). Those configs launch <c>JeekRemoteManagerMcp.exe</c> pinned to
     /// this connection, so nothing in them expires between app runs.
-    /// <paramref name="mcpToolsAutoApprove"/> controls Codex
-    /// <c>default_tools_approval_mode</c> (approve vs prompt); do not pass this via
+    /// Remote MCP tools are pre-approved in project configs; do not pass this via
     /// <c>codex -c mcp_servers...</c> — partial MCP overrides fail with "invalid transport".
     /// <paramref name="sessionNumber"/> ≥ 2 isolates duplicated (or otherwise parallel) tabs.
     /// </summary>
@@ -65,7 +64,6 @@ public static class AgentCliWorkspace
         string? sourcePath,
         Connection? connection,
         int sessionNumber = 1,
-        bool mcpToolsAutoApprove = true,
         string? workspaceRoot = null)
     {
         var connectionPath = ResolveConnectionRelativePath(connectionsRoot, sourcePath, connection);
@@ -79,7 +77,7 @@ public static class AgentCliWorkspace
 
         Directory.CreateDirectory(absolute);
         WriteAgentDocs(absolute, relative, connection, sourcePath, connectionPath, sessionNumber);
-        WriteProjectMcpConfigs(absolute, connectionPath, mcpToolsAutoApprove);
+        WriteProjectMcpConfigs(absolute, connectionPath);
         return absolute;
     }
 
@@ -89,7 +87,6 @@ public static class AgentCliWorkspace
     /// connection tree and address any saved or open session through the product surface.
     /// </summary>
     public static string EnsureApplication(
-        bool mcpToolsAutoApprove = true,
         string? workspaceRoot = null)
     {
         var root = string.IsNullOrWhiteSpace(workspaceRoot)
@@ -98,7 +95,7 @@ public static class AgentCliWorkspace
         var absolute = Path.GetFullPath(Path.Combine(root, ApplicationWorkspaceFolderName));
 
         Directory.CreateDirectory(absolute);
-        AgentProjectLink.WriteApplicationWorkspace(absolute, mcpToolsAutoApprove);
+        AgentProjectLink.WriteApplicationWorkspace(absolute);
         return absolute;
     }
 
@@ -110,31 +107,28 @@ public static class AgentCliWorkspace
         string connectionsRoot,
         string? sourcePath,
         Connection? connection,
-        int sessionNumber = 1,
-        bool mcpToolsAutoApprove = true)
+        int sessionNumber = 1)
     {
         var connectionPath = ResolveConnectionRelativePath(connectionsRoot, sourcePath, connection);
         var relative = AppendSessionSegment(connectionPath, sessionNumber);
         var absolute = Path.GetFullPath(Path.Combine(
             RootPath,
             relative.Replace('/', Path.DirectorySeparatorChar)));
-        return BuildLink(absolute, relative, connectionPath, connection, mcpToolsAutoApprove);
+        return BuildLink(absolute, relative, connectionPath, connection);
     }
 
     private static AgentWorkspaceLink BuildLink(
         string workspaceDirectory,
         string relativePath,
         string connectionPath,
-        Connection? connection,
-        bool mcpToolsAutoApprove) =>
+        Connection? connection) =>
         new(
             workspaceDirectory,
             relativePath,
             connectionPath,
             ResolveDisplayName(relativePath, connection),
             ResolveConnectionKind(connection),
-            ResolveConnectionTarget(connection),
-            mcpToolsAutoApprove);
+            ResolveConnectionTarget(connection));
 
     private static string ResolveConnectionRelativePath(
         string connectionsRoot,
@@ -234,16 +228,9 @@ public static class AgentCliWorkspace
     /// This directory is generated and owned by JeekRemoteManager, so each config is rewritten
     /// whole. <see cref="AgentProjectLink"/> merges the same entries into folders we do not own.
     /// </summary>
-    /// <param name="mcpToolsAutoApprove">
-    /// When true, Codex uses <c>default_tools_approval_mode = "approve"</c>; otherwise
-    /// <c>"prompt"</c>. Must live in its config file — not in <c>codex -c</c> overrides — because
-    /// partial <c>mcp_servers.*</c> CLI patches without <c>url</c>/<c>command</c> fail with
-    /// "invalid transport".
-    /// </param>
     public static void WriteProjectMcpConfigs(
         string workspaceDir,
-        string connectionPath,
-        bool mcpToolsAutoApprove = true)
+        string connectionPath)
     {
         Directory.CreateDirectory(workspaceDir);
         var utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
@@ -283,8 +270,7 @@ public static class AgentCliWorkspace
                 AgentMcpConfigCatalog.ApplyJsonRootSettings(
                     target,
                     root,
-                    McpServerName,
-                    mcpToolsAutoApprove);
+                    McpServerName);
                 content = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
             }
             else
@@ -296,7 +282,6 @@ public static class AgentCliWorkspace
                       McpServerName,
                       adapter,
                       connection,
-                      mcpToolsAutoApprove,
                       AgentWorkspaceLink.AdapterInstanceId);
             }
 
@@ -313,7 +298,7 @@ public static class AgentCliWorkspace
         // Cursor's CLI has no flag that grants one MCP server's tools, and a project-level
         // server is not auto-approved the way a user-level one is. Its project permission file
         // covers both without the blanket shell access --force would hand out.
-        WriteCursorCliPermissions(workspaceDir, mcpToolsAutoApprove, utf8);
+        WriteCursorCliPermissions(workspaceDir, utf8);
     }
 
     private static void WriteClaudeMcpApproval(string workspaceDir, Encoding utf8)
@@ -354,12 +339,10 @@ public static class AgentCliWorkspace
 
     /// <summary>
     /// Allows exactly this connection's remote tools in the Cursor CLI, through the only
-    /// project-scoped setting it accepts. Auto-approve off removes the token again, so the CLI
-    /// asks before each call instead of inheriting a stale allowance.
+    /// project-scoped setting it accepts.
     /// </summary>
     private static void WriteCursorCliPermissions(
         string workspaceDir,
-        bool mcpToolsAutoApprove,
         Encoding utf8)
     {
         var cursorDir = Path.Combine(workspaceDir, ".cursor");
@@ -380,8 +363,7 @@ public static class AgentCliWorkspace
             if (string.Equals(allow[i]?.GetValue<string>(), token, StringComparison.Ordinal))
                 allow.RemoveAt(i);
         }
-        if (mcpToolsAutoApprove)
-            allow.Add(token);
+        allow.Add(token);
         permissions["allow"] = allow;
 
         File.WriteAllText(
@@ -494,7 +476,6 @@ public static class AgentCliWorkspace
         sb.AppendLine("| `terminal_status` | Read-only: connected? lock free? command/transfer running? |");
         sb.AppendLine("| `connection_info` | Safe metadata (type/target/notes; no secrets) |");
         sb.AppendLine("| `terminal_run` | Run a non-interactive remote command; optional `timeout_seconds` |");
-        sb.AppendLine("| `terminal_run_danger` | Same, but asks the user to confirm destructive work |");
         sb.AppendLine("| `terminal_interrupt` | Force-interrupt active command (can run while `terminal_run` is in flight) |");
         sb.AppendLine("| `terminal_reconnect` | Rebuild SSH/WSL when the channel is unhealthy |");
         sb.AppendLine("| `terminal_scrollback` | Read last N lines of the live terminal buffer |");
@@ -516,9 +497,8 @@ public static class AgentCliWorkspace
         sb.AppendLine("**Never** assume a local bash command runs on the remote server. Never confuse");
         sb.AppendLine("local tools with the remote session.");
         sb.AppendLine();
-        sb.AppendLine("## Safety");
+        sb.AppendLine("## Command execution");
         sb.AppendLine();
-        sb.AppendLine("- Use `terminal_run_danger` for deletes, drops, force-push, disk wipe, prune with data, etc.");
         sb.AppendLine("- Prefer non-interactive flags (`-y`, `--yes`, `--no-pager`, `-o cat`) when available.");
         sb.AppendLine("- Do **not** pipe to `less`/`more` or rely on interactive pagers; the host sets `PAGER=cat`.");
         sb.AppendLine("- If the shell seems stuck after a command (e.g. a pager), call `terminal_interrupt` or `terminal_send_keys` with `q`.");

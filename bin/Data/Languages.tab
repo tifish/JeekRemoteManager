@@ -171,8 +171,6 @@ DialogDeleteTitle	Delete	删除
 DialogDeleteFolderPrompt	Delete folder '{0}' and all its contents?	删除文件夹“{0}”及其所有内容？
 DialogDeleteConnectionPrompt	Delete connection '{0}'?	删除连接“{0}”？
 DialogDeleteMultiplePrompt	Delete {0} selected items?	删除选中的 {0} 项？
-DialogAgentBatchCommandTitle	Confirm batch command	确认批量命令
-DialogAgentBatchCommandPrompt	Run this command on {0} connections?\n\nCommand:\n{1}\n\nTargets:\n{2}	是否在 {0} 个连接上运行此命令？\n\n命令：\n{1}\n\n目标：\n{2}
 DialogRenameTitle	Rename	重命名
 DialogRenamePrompt	New name:	新名称：
 DialogUpdateAvailableTitle	Update available	发现新版本
@@ -338,15 +336,6 @@ AiLoginRequired	{0} login is missing or expired. Log in locally, then send again
 AiTerminalDisconnected	Server connection lost. Reconnecting automatically…	服务器连接已断开，正在自动重连…
 AiTerminalReconnected	Server reconnected. The assistant can continue.	服务器已重新连接，AI 可继续执行。
 AiTerminalReconnectFailed	Automatic server reconnection failed: {0}	服务器自动重连失败：{0}
-AiAutoRun	Auto-run	自动执行
-AiAutoRunHint	The assistant runs its own commands on the server and reads their output; only potentially destructive commands ask for confirmation.	助手自动在服务器上执行命令并读取输出，仅对可能破坏数据的命令要求确认。
-AiAutoApprove	Auto-approve	自动同意
-AiAutoApproveHint	Run potentially destructive commands without asking for confirmation.	对可能破坏数据的命令也不询问确认，直接执行。
-AiDangerWarning	⚠ This command may destroy data. Review it before running.	⚠ 此命令可能破坏数据，请确认后再执行。
-AiDangerSkip	Skip	跳过
-AiDangerWaiting	Waiting for you to confirm the command…	等待确认命令…
-AiDangerRan	✓ Approved and run	✓ 已确认执行
-AiDangerSkipped	✗ Skipped	✗ 已跳过
 AiShowOutput	Show output	显示命令输出
 AiShowOutputHint	Show the executed commands and their output in this chat (they always appear in the terminal too).	在对话中显示执行的命令及其输出（它们始终也会显示在终端里）。
 AiProvider	Provider	提供方
@@ -434,10 +423,6 @@ AiCliIdeHint	The workspace folder is open in the editor. Remote server tools are
 AiCliZedIdeHint	The workspace folder is open in Zed. Trust the folder in Zed (shield icon in the title bar) so its project settings load — until then Zed ignores the JeekRemoteManager MCP server.	工作区目录已在 Zed 中打开。请在 Zed 中信任该目录（标题栏盾牌图标），其项目设置才会生效——在此之前 Zed 会忽略 JeekRemoteManager 的 MCP 服务器。
 AiCliIdeLaunchFailed	Could not start {0}.	无法启动 {0}。
 AiCliRunningIde	Workspace opened in {0}.	工作区已在 {0} 中打开。
-AiCliDangerTitle	Confirm dangerous command	确认危险命令
-AiCliDangerPrompt	The AI wants to run this on the remote server:{0}{0}{1}{0}{0}Allow it?	AI 想在远程服务器上执行：{0}{0}{1}{0}{0}是否允许？
-AiCliDangerAllow	Allow	允许
-AiCliDangerDeny	Deny	拒绝
 AiManageProviders	Manage custom providers…	管理自定义提供方…
 AiCustomProvidersTitle	Custom AI providers	自定义 AI 提供方
 AiCustomNotConfigured	This provider needs an API key and at least one model. Configure it with the gear button.	该提供方缺少 API 密钥或模型列表，请点击齿轮按钮配置。

@@ -234,8 +234,6 @@ public class SettingsService
             UpdateCheckIntervalHours = roamingSettings.UpdateCheckIntervalHours,
             TerminalFontSize = roamingSettings.TerminalFontSize,
             AiProvider = roamingSettings.AiProvider,
-            AiAutoRun = roamingSettings.AiAutoRun,
-            AiAutoApproveDangerousCommands = roamingSettings.AiAutoApproveDangerousCommands,
         };
 
     private static MachineAppSettings ToMachineSettings(AppSettings settings)
@@ -280,8 +278,6 @@ public class SettingsService
             UpdateCheckIntervalHours = settings.UpdateCheckIntervalHours,
             TerminalFontSize = settings.TerminalFontSize,
             AiProvider = settings.AiProvider,
-            AiAutoRun = settings.AiAutoRun,
-            AiAutoApproveDangerousCommands = settings.AiAutoApproveDangerousCommands,
         };
         NormalizeRoamingSettings(roamingSettings);
         return roamingSettings;
@@ -322,8 +318,6 @@ public class SettingsService
         settings.UpdateCheckIntervalHours = normalized.UpdateCheckIntervalHours;
         settings.TerminalFontSize = normalized.TerminalFontSize;
         settings.AiProvider = normalized.AiProvider;
-        settings.AiAutoRun = normalized.AiAutoRun;
-        settings.AiAutoApproveDangerousCommands = normalized.AiAutoApproveDangerousCommands;
     }
 
     private static void NormalizeMachineSettings(MachineAppSettings settings)

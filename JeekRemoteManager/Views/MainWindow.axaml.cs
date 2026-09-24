@@ -330,7 +330,6 @@ public partial class MainWindow : Window
     {
         var project = AgentProjectLink.WriteApplicationInto(
             projectDirectory,
-            (DataContext as MainWindowViewModel)?.AiAutoApproveDangerousCommands ?? false,
             selectedTargetPaths);
         if (DataContext is MainWindowViewModel vm)
             vm.StatusMessage = string.Format(Localizer.Get("AiLinkApplicationProjectDone"), project);
@@ -1755,8 +1754,7 @@ public partial class MainWindow : Window
             return _globalAgentViewModel;
 
         var mainVm = DataContext as MainWindowViewModel;
-        var workingDirectory = AgentCliWorkspace.EnsureApplication(
-            mcpToolsAutoApprove: mainVm?.AiAutoRun ?? true);
+        var workingDirectory = AgentCliWorkspace.EnsureApplication();
         var preferred = mainVm?.AiProvider;
         var preferredKind = AgentCliCatalog.Discover()
             .FirstOrDefault(descriptor =>
@@ -1771,23 +1769,14 @@ public partial class MainWindow : Window
         var vm = new AgentCliPanelViewModel(
             workingDirectory,
             preferred,
-            autoRun: mainVm?.AiAutoRun ?? true,
-            autoApproveDangerousCommands: mainVm?.AiAutoApproveDangerousCommands ?? false,
             hideSshTerminal: false,
-            onSafetyOptionsChanged: (autoRun, autoApprove) =>
-            {
-                if (DataContext is not MainWindowViewModel ownerVm)
-                    return;
-                ownerVm.AiAutoRun = autoRun;
-                ownerVm.AiAutoApproveDangerousCommands = autoApprove;
-            },
             preferredRunMode: preferredRunMode,
             resolvePreferredRunMode: kind =>
                 (DataContext as MainWindowViewModel)?.GetAiRunModeForKind(kind)
                 ?? AgentCliRunMode.Cli,
             showConnectionOptions: false);
 
-        vm.PrepareWorkspace = () => AgentCliWorkspace.EnsureApplication(vm.AutoRun);
+        vm.PrepareWorkspace = () => AgentCliWorkspace.EnsureApplication();
         vm.PropertyChanged += (_, e) =>
         {
             if (DataContext is not MainWindowViewModel ownerVm)

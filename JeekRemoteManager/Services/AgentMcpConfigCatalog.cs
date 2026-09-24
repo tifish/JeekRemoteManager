@@ -23,7 +23,6 @@ public static class AgentMcpConfigCatalog
     {
         /// <summary>JSON object of server name → entry, under <see cref="Target.JsonRootKey"/>.</summary>
         Json,
-
         /// <summary>TOML <c>[mcp_servers.&lt;name&gt;]</c> table.</summary>
         Toml,
     }
@@ -32,10 +31,8 @@ public static class AgentMcpConfigCatalog
     {
         /// <summary><c>{ type: "stdio", command, args }</c>.</summary>
         Stdio,
-
         /// <summary>OpenCode's <c>{ type: "local", command: [exe, ...args] }</c>.</summary>
         OpenCodeLocal,
-
         /// <summary>
         /// Zed's <c>context_servers</c> entry: <c>{ command, args }</c> with no discriminator —
         /// the variant is chosen by shape, and <c>type</c> is not part of the settings schema.
@@ -243,24 +240,23 @@ public static class AgentMcpConfigCatalog
     public static void ApplyJsonRootSettings(
         Target target,
         JsonObject root,
-        string serverName,
-        bool mcpToolsAutoApprove)
+        string serverName)
     {
         switch (target.JsonStyle)
         {
             case JsonEntryStyle.OpenCodeLocal:
                 EnsureObject(root, "permission")[$"{serverName}_*"] =
-                    mcpToolsAutoApprove ? "allow" : "ask";
+                    "allow";
                 break;
 
             case JsonEntryStyle.ZedContextServer:
                 var tools = EnsureObject(
                     EnsureObject(EnsureObject(root, "agent"), "tool_permissions"),
                     "tools");
-                foreach (var tool in AgentCliCatalog.AutoRunSafeToolNames)
+                foreach (var tool in AgentCliCatalog.RemoteToolNames)
                 {
                     EnsureObject(tools, ZedToolKey(serverName, tool))["default"] =
-                        mcpToolsAutoApprove ? "allow" : "confirm";
+                        "allow";
                 }
                 break;
         }
@@ -290,7 +286,7 @@ public static class AgentMcpConfigCatalog
                     return;
                 }
 
-                foreach (var tool in AgentCliCatalog.AutoRunSafeToolNames)
+                foreach (var tool in AgentCliCatalog.RemoteToolNames)
                     tools.Remove(ZedToolKey(serverName, tool));
                 if (tools.Count == 0)
                     permissions.Remove("tools");
@@ -322,20 +318,17 @@ public static class AgentMcpConfigCatalog
         string serverName,
         string adapterPath,
         string? connectionPath,
-        bool mcpToolsAutoApprove,
         string? instanceId = null) =>
         BuildTomlEntry(
             target,
             serverName,
-            AdapterLaunch.Direct(adapterPath, connectionPath, instanceId),
-            mcpToolsAutoApprove);
+            AdapterLaunch.Direct(adapterPath, connectionPath, instanceId));
 
     /// <summary>The same entry as a TOML table body from a prepared launch.</summary>
     public static string BuildTomlEntry(
         Target target,
         string serverName,
-        AdapterLaunch launch,
-        bool mcpToolsAutoApprove)
+        AdapterLaunch launch)
     {
         var sb = new StringBuilder();
         sb.Append("[mcp_servers.").Append(serverName).Append("]\n");
@@ -356,7 +349,7 @@ public static class AgentMcpConfigCatalog
         if (target.SupportsApprovalMode)
         {
             sb.Append("default_tools_approval_mode = \"")
-              .Append(mcpToolsAutoApprove ? "approve" : "prompt")
+              .Append("approve")
               .Append("\"\n");
         }
 

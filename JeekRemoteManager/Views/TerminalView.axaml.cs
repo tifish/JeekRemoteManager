@@ -254,7 +254,7 @@ public partial class TerminalView : UserControl
     /// <summary>The lazily-created AI CLI panel view model, exposed for Debug MCP verification.</summary>
     public AgentCliPanelViewModel? AiViewModel => _aiViewModel;
 
-    /// <summary>Current connection-scoped agent MCP server, exposed for Debug MCP safety probes.</summary>
+    /// <summary>Current connection-scoped agent MCP server, exposed for Debug MCP probes.</summary>
     /// <summary>Product MCP endpoint for the AI CLI on this tab (null until the panel starts it).</summary>
     public string? SourcePath => _sourcePath;
 
@@ -1345,17 +1345,7 @@ public partial class TerminalView : UserControl
         var vm = new AgentCliPanelViewModel(
             workingDir,
             preferred,
-            autoRun: mainVm?.AiAutoRun ?? true,
-            autoApproveDangerousCommands: mainVm?.AiAutoApproveDangerousCommands ?? false,
             hideSshTerminal: mainVm?.AiHideSshTerminal ?? false,
-            onSafetyOptionsChanged: (autoRun, autoApprove) =>
-            {
-                if (DataContext is MainWindowViewModel ownerVm)
-                {
-                    ownerVm.AiAutoRun = autoRun;
-                    ownerVm.AiAutoApproveDangerousCommands = autoApprove;
-                }
-            },
             onHideSshTerminalChanged: hide =>
             {
                 if (DataContext is MainWindowViewModel ownerVm)
@@ -1370,11 +1360,11 @@ public partial class TerminalView : UserControl
                 (DataContext as MainWindowViewModel)?.GetAiRunModeForKind(kind) ?? AgentCliRunMode.Cli);
 
         // Rewrite AGENTS.md + project MCP configs (including Codex default_tools_approval_mode)
-        // from the live AutoRun toggle — never via `codex -c mcp_servers...` (invalid transport).
-        vm.PrepareWorkspace = () => ResolveAgentCliWorkingDirectory(vm.AutoRun);
+        // before each launch so persisted MCP permissions stay current.
+        vm.PrepareWorkspace = () => ResolveAgentCliWorkingDirectory();
 
         // Workspace identity used when the user writes this connection into a project folder.
-        vm.ResolveLinkContext = () => ResolveAgentCliLink(vm.AutoRun);
+        vm.ResolveLinkContext = () => ResolveAgentCliLink();
 
         // Remember last-chosen provider and per-family run mode across tabs and runs.
         // Claude/Codex share AiRunMode; Grok uses AiGrokRunMode (no Desktop).
@@ -1397,10 +1387,9 @@ public partial class TerminalView : UserControl
     /// %LOCALAPPDATA%\JeekRemoteManager\AgentWorkspaces\&lt;tree-relative-path&gt; for this
     /// tab (session 2+ uses a sibling folder matching the tab title, e.g. <c>bwg (2)</c>).
     /// Rewrites AGENTS.md / CLAUDE.md and the project MCP configs so agents need no
-    /// command-line context. <paramref name="mcpToolsAutoApprove"/> maps to Codex
-    /// <c>default_tools_approval_mode</c>.
+    /// command-line context.
     /// </summary>
-    private string ResolveAgentCliWorkingDirectory(bool? mcpToolsAutoApprove = null)
+    private string ResolveAgentCliWorkingDirectory()
     {
         var mainVm = DataContext as MainWindowViewModel;
         var connectionsRoot = mainVm?.RootPath
@@ -1410,8 +1399,7 @@ public partial class TerminalView : UserControl
             connectionsRoot,
             _sourcePath,
             _connection,
-            SessionNumber,
-            mcpToolsAutoApprove: mcpToolsAutoApprove ?? mainVm?.AiAutoRun ?? true);
+            SessionNumber);
     }
 
     /// <summary>
@@ -1419,7 +1407,7 @@ public partial class TerminalView : UserControl
     /// a stdio launch of the JeekRemoteManagerMcp adapter pinned to this connection, so nothing in them
     /// depends on a listener that is up right now.
     /// </summary>
-    private AgentWorkspaceLink ResolveAgentCliLink(bool? mcpToolsAutoApprove = null)
+    private AgentWorkspaceLink ResolveAgentCliLink()
     {
         var mainVm = DataContext as MainWindowViewModel;
         var connectionsRoot = mainVm?.RootPath
@@ -1429,8 +1417,7 @@ public partial class TerminalView : UserControl
             connectionsRoot,
             _sourcePath,
             _connection,
-            SessionNumber,
-            mcpToolsAutoApprove: mcpToolsAutoApprove ?? mainVm?.AiAutoRun ?? true);
+            SessionNumber);
     }
 
     private IAgentRemoteTools? _agentRemoteTools;
@@ -1486,81 +1473,6 @@ public partial class TerminalView : UserControl
 
         public Task<string> GetMonitorSnapshotAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(owner.BuildAgentMonitorSnapshot());
-
-        public async Task<bool> ConfirmDangerousCommandAsync(
-            string command,
-            CancellationToken cancellationToken = default)
-        {
-            return await Dispatcher.UIThread.InvokeAsync(async () =>
-            {
-                if (owner._disposed)
-                    return false;
-
-                var ownerWindow = TopLevel.GetTopLevel(owner) as Window;
-                var dialog = new Window
-                {
-                    Title = LocalizerGet("AiCliDangerTitle"),
-                    Width = 520,
-                    Height = 280,
-                    WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                    CanResize = false,
-                };
-
-                var tcs = new TaskCompletionSource<bool>();
-                var prompt = new TextBlock
-                {
-                    Text = string.Format(LocalizerGet("AiCliDangerPrompt"), Environment.NewLine, command),
-                    TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-                    Margin = new Avalonia.Thickness(20),
-                };
-                var allow = new Button
-                {
-                    Content = LocalizerGet("AiCliDangerAllow"),
-                    Margin = new Avalonia.Thickness(8),
-                    IsDefault = true,
-                    Classes = { "accent" },
-                };
-                var deny = new Button
-                {
-                    Content = LocalizerGet("AiCliDangerDeny"),
-                    Margin = new Avalonia.Thickness(8),
-                    IsCancel = true,
-                };
-                allow.Click += (_, _) => { tcs.TrySetResult(true); dialog.Close(); };
-                deny.Click += (_, _) => { tcs.TrySetResult(false); dialog.Close(); };
-                dialog.Closing += (_, _) => tcs.TrySetResult(false);
-
-                dialog.Content = new DockPanel
-                {
-                    LastChildFill = true,
-                    Children =
-                    {
-                        new StackPanel
-                        {
-                            Orientation = Avalonia.Layout.Orientation.Horizontal,
-                            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
-                            Margin = new Avalonia.Thickness(12, 8, 12, 12),
-                            [DockPanel.DockProperty] = Dock.Bottom,
-                            Children = { allow, deny },
-                        },
-                        new ScrollViewer { Content = prompt },
-                    },
-                };
-
-                if (ownerWindow is not null)
-                    await dialog.ShowDialog(ownerWindow);
-                else
-                    dialog.Show();
-
-                return await tcs.Task;
-            });
-        }
-
-        private static string LocalizerGet(string key)
-        {
-            try { return Jeek.Avalonia.Localization.Localizer.Get(key); }
-            catch { return key; }
-        }
     }
 
     /// <summary>

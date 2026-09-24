@@ -15,8 +15,9 @@ namespace JeekRemoteManager.Services;
 /// <see cref="ProductMcpServer"/>, which builds responses from an explicit field whitelist).</item>
 /// <item>Anything needing the user (master password, two-factor prompts, destructive
 /// confirmation) happens in the GUI. Tools surface and activate the window; they never take
-/// a secret as an argument. Deleting tree nodes is the exception to confirmation: it goes to
-/// the Recycle Bin, which makes it recoverable without asking.</item>
+/// a secret as an argument. Remote shell commands run directly without content checks or
+/// confirmation. Deleted tree nodes go to the Recycle Bin, so deletion is recoverable
+/// without asking.</item>
 /// </list>
 /// </summary>
 public static class ProductMcpContract
@@ -254,25 +255,10 @@ public static class ProductMcpContract
                 ["timeout_seconds"] = Prop("integer", "Auto-interrupt after this many seconds."),
             }),
             ["command"]),
-        Tool("terminal_run_danger",
-            "Same as terminal_run but for destructive work (deletes, drops, force-push, disk wipes): the "
-            + "user is asked to confirm in the window before it runs.",
-            SessionArgs(new()
-            {
-                ["command"] = Prop("string", "Command line to run."),
-                ["timeout_seconds"] = Prop("integer", "Auto-interrupt after this many seconds."),
-            }),
-            ["command"]),
         Tool("terminal_run_batch",
             "Run the same non-interactive command across several SSH/WSL connections. Sessions are "
             + "opened as needed, concurrency is bounded, one failure does not stop the rest, and the "
-            + "result includes output or an error for every connection. Dangerous commands are "
-            + "confirmed once in the JeekRemoteManager window with the complete target list.",
-            BatchCommandArgs(),
-            ["connections", "command"]),
-        Tool("terminal_run_batch_danger",
-            "Same as terminal_run_batch, but always treats the command as destructive and asks for "
-            + "one confirmation covering the command and every target connection.",
+            + "result includes output or an error for every connection.",
             BatchCommandArgs(),
             ["connections", "command"]),
         Tool("terminal_interrupt",

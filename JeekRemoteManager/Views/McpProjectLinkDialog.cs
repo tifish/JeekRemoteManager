@@ -265,7 +265,6 @@ public sealed class McpProjectLinkDialog : Window
             {
                 var project = AgentProjectLink.WriteApplicationInto(
                     directory,
-                    vm.AiAutoApproveDangerousCommands,
                     selected);
                 vm.StatusMessage = string.Format(
                     Localizer.Get("AiLinkApplicationProjectDone"),

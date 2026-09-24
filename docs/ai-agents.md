@@ -1,6 +1,6 @@
 # AI Agent 集成
 
-涉及 `Services/AgentRemoteTools.cs`（含 `AgentCliCatalog`）、`AgentCliLocator.cs`、`AgentCliInstaller.cs`、`AgentCliWorkspace.cs`、`AgentProjectLink.cs`、`AgentMcpConfigCatalog.cs`、`DangerousCommandDetector.cs`、`ViewModels/AgentCliPanelViewModel.cs`、`Views/AgentCliPanelView.axaml.cs`。
+涉及 `Services/AgentRemoteTools.cs`（含 `AgentCliCatalog`）、`AgentCliLocator.cs`、`AgentCliInstaller.cs`、`AgentCliWorkspace.cs`、`AgentProjectLink.cs`、`AgentMcpConfigCatalog.cs`、`ViewModels/AgentCliPanelViewModel.cs`、`Views/AgentCliPanelView.axaml.cs`。
 
 ## 两种 agent
 
@@ -40,7 +40,7 @@
 - **Zed** 的 `context_servers` 条目是 `{ command, args }`，没有类型判别字段——变体按形状选择，`type` 根本不在它的 schema 里。
 - **Claude** 把项目级 `.mcp.json` 的服务器视为未受信任，直到用户批准。工作区是 JRM 自己生成的且适配器已钉在当前连接上，所以在项目局部设置里**只批准我们这一个服务器**。不这么做的话，新连接会静默地在没有任何 `jrm-remote` 工具的情况下启动 Claude，即使 `--allowedTools` 里写了这些工具名。
 - **Cursor CLI** 没有"授予某一个 MCP 服务器的工具"的命令行开关，项目级服务器也不像用户级那样自动批准。所以用它的项目权限文件同时覆盖这两件事，比 `--force` 那种一揽子 shell 权限窄得多。
-- **Antigravity** 的 `.agents/mcp_config.json` 没有文档化的按服务器自动批准；它的一揽子自动批准会连本地 shell 和文件写入一起覆盖，比其它 agent 在这里被授予的远程工具宽太多。**所以自动运行模式对 Antigravity 不加任何参数**，由用户在 agent 里自己确认。
+- **Antigravity** 的 `.agents/mcp_config.json` 没有文档化的按服务器自动批准；它的一揽子自动批准会连本地 shell 和文件写入一起覆盖，比其它 agent 在这里被授予的远程工具宽太多。**所以对 Antigravity 不加授权参数**，由用户在 agent 里自己确认。
 - **Pi** 上游刻意没有内置 MCP 客户端。JRM 附带一个小的第一方扩展，读取工作区的 `.mcp.json` 并只暴露那一个服务器的工具。扩展放在 `bin/Data` 下，使它成为运行时的一部分。
 
 ## 链接到用户自己的项目
@@ -85,11 +85,11 @@ T3 Code（Electron，`%LOCALAPPDATA%\Programs\t3code\T3 Code (Alpha).exe`）**�
 
 等它出了 CLI 或能带文件夹的 deep link，再按 `Editor(...)` 那条路径加成一个 Ide surface。
 
-## 危险命令确认
+## 远程命令执行
 
-`DangerousCommandDetector` 是**启发式黑名单，不是沙箱**。它标记那些典型形状会大规模删除或不可逆覆盖数据的命令（递归 `rm`、通配符 `rm`、往块设备写裸字节、SQL 批量删除、git 历史/工作树破坏、卷/容器/账户清理），让 UI 先问用户。
+远程命令统一使用 `terminal_run` 和 `terminal_run_batch`。JRM 不检查命令内容、不分类风险，也不弹出命令确认对话框；批量执行保持并发上限和逐连接结果。没有单独的危险命令工具、自动同意设置或生成提示词。
 
-模型另外被指示对危险操作使用 `terminal.run-danger` 工具，**两个信号任一触发都会要求确认**。
+AI 面板不提供“自动执行”开关。生成的 MCP 配置和 CLI 启动参数固定为自动许可 JRM 远程工具；Pi 扩展直接转发调用，不再增加确认。客户端不支持按 MCP 服务器授权时（如 Antigravity），仍由客户端自身决定是否询问。
 
 ## 面板生命周期
 

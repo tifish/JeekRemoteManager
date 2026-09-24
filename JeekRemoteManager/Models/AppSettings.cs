@@ -127,12 +127,6 @@ public class AppSettings
     /// </summary>
     public AgentCliRunMode AiGrokRunMode { get; set; } = AgentCliRunMode.Cli;
 
-    /// <summary>AI panel: whether remote command tools run without the agent CLI asking first.</summary>
-    public bool AiAutoRun { get; set; } = true;
-
-    /// <summary>AI panel: whether potentially destructive remote commands bypass confirmation.</summary>
-    public bool AiAutoApproveDangerousCommands { get; set; }
-
     /// <summary>AI panel: hide the SSH terminal while the AI side panel is open.</summary>
     public bool AiHideSshTerminal { get; set; }
 
@@ -256,12 +250,6 @@ public class RoamingAppSettings
 
     /// <summary>AI panel: last-used provider label ("Claude", "Codex", "Grok"). Null = first available.</summary>
     public string? AiProvider { get; set; }
-
-    /// <summary>AI panel: whether remote command tools run without the agent CLI asking first.</summary>
-    public bool AiAutoRun { get; set; } = true;
-
-    /// <summary>AI panel: whether potentially destructive remote commands bypass confirmation.</summary>
-    public bool AiAutoApproveDangerousCommands { get; set; }
 
 }
 

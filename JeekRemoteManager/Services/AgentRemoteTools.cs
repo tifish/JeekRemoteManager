@@ -49,11 +49,6 @@ public interface IAgentRemoteTools
 
     Task<string> RunTerminalActionAsync(AgentTerminalAction action, CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Asks the user to approve a dangerous remote command. Returns false when cancelled.
-    /// </summary>
-    Task<bool> ConfirmDangerousCommandAsync(string command, CancellationToken cancellationToken = default);
-
     /// <summary>Connection + shell lock/running snapshot (does not acquire the command lock).</summary>
     Task<string> GetStatusAsync(CancellationToken cancellationToken = default);
 
@@ -164,14 +159,11 @@ public sealed record AgentCliDescriptor(
 public static class AgentCliCatalog
 {
     /// <summary>
-    /// Remote tools that auto-run mode may allow without extra prompts.
-    /// Destructive shell work still goes through terminal_run / terminal_run_danger
-    /// (and host-side danger confirmation where applicable).
+    /// Remote tools pre-approved when launching an agent.
     /// </summary>
-    public static readonly string[] AutoRunSafeToolNames =
+    public static readonly string[] RemoteToolNames =
     [
         "terminal_run",
-        "terminal_run_danger",
         "terminal_interrupt",
         "terminal_reconnect",
         "terminal_status",
@@ -352,17 +344,16 @@ public static class AgentCliCatalog
     /// written into the workspace by <see cref="AgentCliWorkspace.Ensure"/> before launch.
     /// </summary>
     public static IReadOnlyList<string> BuildInteractiveArguments(
-        AgentCliKind kind,
-        bool autoRun = true) =>
+        AgentCliKind kind) =>
         kind switch
         {
-            AgentCliKind.Claude => BuildClaudeArguments(autoRun),
-            AgentCliKind.Codex => BuildCodexArguments(autoRun),
-            AgentCliKind.Grok => BuildGrokArguments(autoRun),
-            AgentCliKind.Copilot => BuildCopilotArguments(autoRun),
-            AgentCliKind.Cursor => BuildCursorArguments(autoRun),
-            AgentCliKind.Pi => BuildPiArguments(autoRun),
-            AgentCliKind.Antigravity => BuildAntigravityArguments(autoRun),
+            AgentCliKind.Claude => BuildClaudeArguments(),
+            AgentCliKind.Codex => BuildCodexArguments(),
+            AgentCliKind.Grok => BuildGrokArguments(),
+            AgentCliKind.Copilot => BuildCopilotArguments(),
+            AgentCliKind.Cursor => BuildCursorArguments(),
+            AgentCliKind.Pi => BuildPiArguments(),
+            AgentCliKind.Antigravity => BuildAntigravityArguments(),
             _ => Array.Empty<string>(),
         };
 
@@ -443,44 +434,34 @@ public static class AgentCliCatalog
         };
     }
 
-    private static IReadOnlyList<string> BuildClaudeArguments(bool autoRun)
+    private static IReadOnlyList<string> BuildClaudeArguments()
     {
         // MCP URL + instructions: workspace .mcp.json and AGENTS.md/CLAUDE.md (cwd = workspace).
-        if (!autoRun)
-            return Array.Empty<string>();
-
         return
         [
             "--allowedTools",
-            string.Join(',', AutoRunSafeToolNames.Select(n => $"mcp__jrm-remote__{n}")),
+            string.Join(',', RemoteToolNames.Select(n => $"mcp__jrm-remote__{n}")),
         ];
     }
 
-    private static IReadOnlyList<string> BuildCodexArguments(bool autoRun)
+    private static IReadOnlyList<string> BuildCodexArguments()
     {
         // --no-alt-screen: host scrollback/scrollbar (Codex default TUI uses alternate screen).
         // MCP URL + tool approval: workspace .codex/config.toml only.
         // Do not pass `-c mcp_servers.jrm-remote...` here — Codex treats partial MCP server
         // overrides as a new entry without url/command and fails with "invalid transport".
-        _ = autoRun; // Applied when rewriting .codex/config.toml (PrepareWorkspace / Ensure).
         return ["--no-alt-screen"];
     }
 
-    private static IReadOnlyList<string> BuildCopilotArguments(bool autoRun)
+    private static IReadOnlyList<string> BuildCopilotArguments()
     {
-        if (!autoRun)
-            return Array.Empty<string>();
-
         // Copilot CLI accepts an MCP server name here and grants all tools from that one server.
         // This is narrower than --yolo, which would also auto-approve local shell/file work.
         return ["--allow-tool=jrm-remote"];
     }
 
-    private static IReadOnlyList<string> BuildCursorArguments(bool autoRun)
+    private static IReadOnlyList<string> BuildCursorArguments()
     {
-        if (!autoRun)
-            return Array.Empty<string>();
-
         // Cursor auto-approves MCP servers coming from the user's own global config, but a
         // project-level .cursor/mcp.json — which is what this workspace holds — still has to be
         // approved. The workspace declares exactly one server (ours), so this approves nothing
@@ -490,7 +471,7 @@ public static class AgentCliCatalog
         return ["--approve-mcps"];
     }
 
-    private static IReadOnlyList<string> BuildPiArguments(bool autoRun)
+    private static IReadOnlyList<string> BuildPiArguments()
     {
         // Upstream Pi deliberately has no built-in MCP client. JeekRemoteManager ships a small
         // first-party extension that reads this workspace's .mcp.json and exposes only that
@@ -501,28 +482,22 @@ public static class AgentCliCatalog
             "AgentSupport",
             "Pi",
             "jrm-mcp.ts");
-        return autoRun
-            ? ["--extension", extension, "--jrm-auto-run"]
-            : ["--extension", extension];
+        return ["--extension", extension];
     }
 
-    private static IReadOnlyList<string> BuildAntigravityArguments(bool autoRun)
+    private static IReadOnlyList<string> BuildAntigravityArguments()
     {
         // No per-server auto-approve is documented for Antigravity's .agents/mcp_config.json,
         // and its blanket auto-approve would cover local shell and file writes too — far wider
-        // than the remote tools the other agents are granted here. So auto-run adds no flags and
+        // than the remote tools the other agents are granted here. So no approval flags are added and
         // the user confirms tool calls in the agent itself.
-        _ = autoRun;
         return Array.Empty<string>();
     }
 
-    private static IReadOnlyList<string> BuildGrokArguments(bool autoRun)
+    private static IReadOnlyList<string> BuildGrokArguments()
     {
-        if (!autoRun)
-            return Array.Empty<string>();
-
         var args = new List<string>();
-        foreach (var name in AutoRunSafeToolNames)
+        foreach (var name in RemoteToolNames)
         {
             args.Add("--allow");
             args.Add($"MCPTool(jrm-remote__{name})");

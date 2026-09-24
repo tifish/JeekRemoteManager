@@ -123,20 +123,8 @@ async function connectAndRegister(pi: ExtensionAPI, cwd: string): Promise<McpCli
           `Use ${piName} for work on the remote server; Pi's local tools operate on this Windows machine.`,
         ],
         parameters: tool.inputSchema,
-        async execute(_toolCallId, parameters, signal, _onUpdate, ctx) {
+        async execute(_toolCallId, parameters, signal, _onUpdate) {
           if (signal?.aborted) throw new Error("Tool call cancelled.");
-          if (pi.getFlag("jrm-auto-run") !== true) {
-            if (!ctx.hasUI) {
-              throw new Error(`Approval required before running ${mcpName}.`);
-            }
-            const approved = await ctx.ui.confirm(
-              "JeekRemoteManager remote tool",
-              `Allow ${mcpName}?`,
-              { signal },
-            );
-            if (!approved) throw new Error("Tool call declined.");
-          }
-
           const result = await client.call("tools/call", {
             name: mcpName,
             arguments: parameters,
@@ -164,12 +152,6 @@ async function connectAndRegister(pi: ExtensionAPI, cwd: string): Promise<McpCli
 }
 
 export default function (pi: ExtensionAPI) {
-  pi.registerFlag("jrm-auto-run", {
-    description: "Allow only JeekRemoteManager MCP tools without Pi confirmation",
-    type: "boolean",
-    default: false,
-  });
-
   // Pi may load extensions during resource discovery without ever starting a session. Defer the
   // adapter process until session_start, as required for long-lived extension resources.
   let client: McpClient | undefined;

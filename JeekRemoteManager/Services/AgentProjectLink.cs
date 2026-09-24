@@ -24,8 +24,7 @@ public sealed record AgentWorkspaceLink(
     string ConnectionPath,
     string DisplayName,
     string ConnectionKind,
-    string Target,
-    bool McpToolsAutoApprove)
+    string Target)
 {
     /// <summary>Tree path with forward slashes — used in markers, headings, and slugs.</summary>
     public string NormalizedRelativePath => RelativePath.Replace('\\', '/').Trim('/');
@@ -106,7 +105,6 @@ public static class AgentProjectLink
             link.ProjectMcpServerName,
             BuildReferenceBlock(link, selected),
             link.NormalizedConnectionPath,
-            link.McpToolsAutoApprove,
             portable: true,
             selected);
         return project;
@@ -131,7 +129,6 @@ public static class AgentProjectLink
     /// </summary>
     public static string WriteApplicationInto(
         string projectDirectory,
-        bool mcpToolsAutoApprove,
         IReadOnlyCollection<string>? selectedTargetPaths = null)
     {
         var project = NormalizeDirectory(projectDirectory);
@@ -149,7 +146,6 @@ public static class AgentProjectLink
             ApplicationMcpServerName,
             BuildApplicationReferenceBlock(portable: true, selected),
             connectionPath: null,
-            mcpToolsAutoApprove,
             portable: true,
             selected);
         return project;
@@ -161,8 +157,7 @@ public static class AgentProjectLink
     /// reject generated workspace paths and cannot accidentally link a workspace to itself.
     /// </summary>
     internal static void WriteApplicationWorkspace(
-        string workspaceDirectory,
-        bool mcpToolsAutoApprove)
+        string workspaceDirectory)
     {
         var project = NormalizeDirectory(workspaceDirectory);
         if (!Directory.Exists(project))
@@ -173,7 +168,6 @@ public static class AgentProjectLink
             ApplicationMcpServerName,
             BuildApplicationReferenceBlock(portable: false),
             connectionPath: null,
-            mcpToolsAutoApprove,
             portable: false,
             AgentMcpConfigCatalog.All);
     }
@@ -219,7 +213,6 @@ public static class AgentProjectLink
         string serverName,
         string body,
         string? connectionPath,
-        bool mcpToolsAutoApprove,
         bool portable,
         IReadOnlyList<AgentMcpConfigCatalog.Target> selected)
     {
@@ -242,7 +235,6 @@ public static class AgentProjectLink
             marker,
             serverName,
             connectionPath,
-            mcpToolsAutoApprove,
             portable,
             selected);
         RemoveUnselectedTargets(projectDirectory, marker, serverName, selected);
@@ -352,11 +344,9 @@ public static class AgentProjectLink
           .Append("`session_open` first; `session_list` shows what is live.\n");
         sb.Append("- Your built-in shell and file tools run on the **local machine** and on **this ")
           .Append("project folder**, never on the remote server. Never assume a local command reaches it.\n");
-        sb.Append("- Use `terminal_run_danger` for destructive work (deletes, drops, force-push, ")
-          .Append("disk wipes) so the user is asked to confirm in the JeekRemoteManager window.\n");
         sb.Append("- Passwords and two-factor codes are typed by the user in that window and are ")
           .Append("never accepted as tool arguments; no tool returns a stored password.\n");
-        sb.Append("- Full operating rules, tool table, and safety notes for this connection:\n  `")
+        sb.Append("- Full operating rules and tool table for this connection:\n  `")
           .Append(PortableWorkspaceAgentsPath(relative)).Append("`\n");
         sb.Append("- The configs below launch `")
           .Append(AgentMcpConfigCatalog.ProjectLauncherFileName)
@@ -381,9 +371,8 @@ public static class AgentProjectLink
         sb.AppendLine();
         sb.AppendLine("- Start with `connection_list` to inspect saved SSH, WSL, and RDP connections.");
         sb.AppendLine("- Use `session_list` and `session_open` to find or open terminal tabs, then pass the returned session or connection to `terminal_status`, `terminal_run`, file-transfer, and monitor tools.");
-        sb.AppendLine("- Use `terminal_run_batch` with explicit connection paths when the same command must run across several SSH/WSL connections; use `terminal_run_batch_danger` for destructive batch work.");
+        sb.AppendLine("- Use `terminal_run_batch` with explicit connection paths when the same command must run across several SSH/WSL connections.");
         sb.AppendLine("- This application-wide server is not pinned to one connection. It can manage the connection tree and control any open or saved connection, subject to the tool's confirmation rules.");
-        sb.AppendLine("- Use `terminal_run_danger` for destructive work so the user is asked to confirm in the JeekRemoteManager window.");
         sb.AppendLine("- Passwords and two-factor codes are entered in that window and are never returned by MCP tools.");
         sb.AppendLine(portable
             ? "- The configs below launch `"
@@ -414,7 +403,6 @@ public static class AgentProjectLink
         string marker,
         string serverName,
         string? connectionPath,
-        bool mcpToolsAutoApprove,
         bool portable,
         IReadOnlyList<AgentMcpConfigCatalog.Target> selected)
     {
@@ -434,8 +422,7 @@ public static class AgentProjectLink
                     path,
                     target,
                     serverName,
-                    AgentMcpConfigCatalog.BuildJsonEntry(target, launch),
-                    mcpToolsAutoApprove);
+                    AgentMcpConfigCatalog.BuildJsonEntry(target, launch));
             }
             else
             {
@@ -445,8 +432,7 @@ public static class AgentProjectLink
                     AgentMcpConfigCatalog.BuildTomlEntry(
                         target,
                         serverName,
-                        launch,
-                        mcpToolsAutoApprove));
+                        launch));
             }
         }
     }
@@ -532,8 +518,7 @@ public static class AgentProjectLink
         string path,
         AgentMcpConfigCatalog.Target target,
         string serverName,
-        JsonObject entry,
-        bool mcpToolsAutoApprove)
+        JsonObject entry)
     {
         var root = ParseJsonObject(path) ?? new JsonObject();
         if (root[target.JsonRootKey!] is not JsonObject servers)
@@ -546,8 +531,7 @@ public static class AgentProjectLink
         AgentMcpConfigCatalog.ApplyJsonRootSettings(
             target,
             root,
-            serverName,
-            mcpToolsAutoApprove);
+            serverName);
         WriteJson(path, root);
     }
 

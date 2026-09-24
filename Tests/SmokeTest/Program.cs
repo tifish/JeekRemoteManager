@@ -87,7 +87,7 @@ try
         Path.Combine(globalMcpProject, ".codex", "config.toml"),
         "model = \"gpt-5\"\n");
 
-    AgentProjectLink.WriteApplicationInto(globalMcpProject, mcpToolsAutoApprove: true);
+    AgentProjectLink.WriteApplicationInto(globalMcpProject);
     var globalAgents = File.ReadAllText(Path.Combine(globalMcpProject, "AGENTS.md"));
     var globalJson = JsonNode.Parse(
         File.ReadAllText(Path.Combine(globalMcpProject, ".mcp.json"))) as JsonObject;
@@ -132,7 +132,6 @@ try
 
     var generatedGlobalRoot = Path.Combine(root, "agent-workspaces");
     var generatedGlobalWorkspace = AgentCliWorkspace.EnsureApplication(
-        mcpToolsAutoApprove: false,
         workspaceRoot: generatedGlobalRoot);
     var generatedGlobalAgents = File.ReadAllText(
         Path.Combine(generatedGlobalWorkspace, "AGENTS.md"));
@@ -153,7 +152,7 @@ try
               $"[mcp_servers.{AgentProjectLink.ApplicationMcpServerName}]",
               StringComparison.Ordinal)
           && generatedGlobalCodex.Contains(
-              "default_tools_approval_mode = \"prompt\"",
+              "default_tools_approval_mode = \"approve\"",
               StringComparison.Ordinal)
           && !generatedGlobalCodex.Contains("--connection", StringComparison.Ordinal),
           "Generated global AI workspace uses an unpinned application MCP configuration");
@@ -172,7 +171,7 @@ try
               .SequenceEqual(["--instance", "0123456789ab"]),
           "Release omits --instance while Debug configurations include their instance id");
 
-    AgentProjectLink.WriteApplicationInto(globalMcpProject, mcpToolsAutoApprove: false);
+    AgentProjectLink.WriteApplicationInto(globalMcpProject);
     globalAgents = File.ReadAllText(Path.Combine(globalMcpProject, "AGENTS.md"));
     globalCodex = File.ReadAllText(Path.Combine(globalMcpProject, ".codex", "config.toml"));
     Check(globalAgents.Split(
@@ -182,7 +181,7 @@ try
               $"[mcp_servers.{AgentProjectLink.ApplicationMcpServerName}]",
               StringSplitOptions.None).Length == 2
           && globalCodex.Contains(
-              "default_tools_approval_mode = \"prompt\"",
+              "default_tools_approval_mode = \"approve\"",
               StringComparison.Ordinal),
           "Refreshing the application-wide MCP link replaces its marked blocks");
 
@@ -208,7 +207,7 @@ try
     var worktreeRejected = false;
     try
     {
-        AgentProjectLink.WriteApplicationInto(worktreeProject, mcpToolsAutoApprove: true);
+        AgentProjectLink.WriteApplicationInto(worktreeProject);
     }
     catch (InvalidOperationException ex)
     {
@@ -218,9 +217,9 @@ try
           && !File.Exists(Path.Combine(worktreeProject, AgentMcpConfigCatalog.ProjectLauncherFileName)),
           "A JeekRemoteManager worktree rejects product MCP writes and keeps only Debug MCP");
 
-    AgentProjectLink.WriteApplicationInto(globalMcpProject, mcpToolsAutoApprove: true);
+    AgentProjectLink.WriteApplicationInto(globalMcpProject);
     var subset = new[] { ".mcp.json", ".grok/config.toml" };
-    AgentProjectLink.WriteApplicationInto(globalMcpProject, mcpToolsAutoApprove: true, subset);
+    AgentProjectLink.WriteApplicationInto(globalMcpProject, subset);
     var writtenSubset = AgentProjectLink.ListWrittenApplicationTargetPaths(globalMcpProject);
     Check(writtenSubset.SequenceEqual(subset)
           && File.Exists(Path.Combine(globalMcpProject, ".mcp.json"))
@@ -236,7 +235,7 @@ try
           && !File.ReadAllText(Path.Combine(globalMcpProject, "AGENTS.md"))
               .Contains(".cursor/mcp.json", StringComparison.Ordinal),
           "Selective MCP write keeps chosen agents and deletes unused files and folders");
-    AgentProjectLink.WriteApplicationInto(globalMcpProject, mcpToolsAutoApprove: true, []);
+    AgentProjectLink.WriteApplicationInto(globalMcpProject, []);
     Check(AgentProjectLink.ListWrittenApplicationTargetPaths(globalMcpProject).Count == 0
           && File.Exists(Path.Combine(globalMcpProject, ".mcp.json"))
           && JsonNode.Parse(File.ReadAllText(Path.Combine(globalMcpProject, ".mcp.json")))
@@ -1659,15 +1658,15 @@ try
           && disabledClaudeServers.Select(n => n?.GetValue<string>()).SequenceEqual(["blocked"]),
           "Claude local settings approve only jrm-remote while preserving existing project settings");
 
-    AgentCliWorkspace.WriteProjectMcpConfigs(workspace, "vps/bwg", mcpToolsAutoApprove: false);
-    var codexTomlPrompt = File.ReadAllText(Path.Combine(workspace, ".codex", "config.toml"));
-    var openCodePrompt = JsonNode.Parse(
+    AgentCliWorkspace.WriteProjectMcpConfigs(workspace, "vps/bwg");
+    var codexTomlApproved = File.ReadAllText(Path.Combine(workspace, ".codex", "config.toml"));
+    var openCodeApproved = JsonNode.Parse(
         File.ReadAllText(Path.Combine(workspace, "opencode.json"))) as JsonObject;
-    Check(codexTomlPrompt.Contains("default_tools_approval_mode = \"prompt\"", StringComparison.Ordinal)
-          && codexTomlPrompt.Contains(smokeAdapter, StringComparison.Ordinal)
-          && openCodePrompt?["permission"]?["jrm-remote_*"]?.GetValue<string>() == "ask",
-          "Codex and OpenCode store per-server prompt mode without broad CLI overrides");
-    AgentCliWorkspace.WriteProjectMcpConfigs(workspace, "vps/bwg", mcpToolsAutoApprove: true);
+    Check(codexTomlApproved.Contains("default_tools_approval_mode = \"approve\"", StringComparison.Ordinal)
+          && codexTomlApproved.Contains(smokeAdapter, StringComparison.Ordinal)
+          && openCodeApproved?["permission"]?["jrm-remote_*"]?.GetValue<string>() == "allow",
+          "Codex and OpenCode store per-server automatic approval without broad CLI overrides");
+    AgentCliWorkspace.WriteProjectMcpConfigs(workspace, "vps/bwg");
 
     var connectionForWorkspace = new Connection
     {
@@ -1698,37 +1697,25 @@ try
           && agentsMdSession2.Contains("**Pinned connection:** `vps/bwg`", StringComparison.Ordinal),
           "Duplicated tabs get a sibling AI workspace matching the tab header name");
 
-    var claudeAutoArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Claude, autoRun: true);
-    var claudePromptArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Claude, autoRun: false);
-    var codexAutoArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Codex, autoRun: true);
-    var codexPromptArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Codex, autoRun: false);
-    var grokAutoArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Grok, autoRun: true);
+    var claudeAutoArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Claude);
+    var codexAutoArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Codex);
+    var grokAutoArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Grok);
     var copilotAutoArgs = AgentCliCatalog.BuildInteractiveArguments(
-        AgentCliKind.Copilot, autoRun: true);
-    var copilotPromptArgs = AgentCliCatalog.BuildInteractiveArguments(
-        AgentCliKind.Copilot, autoRun: false);
-    var piAutoArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Pi, autoRun: true);
-    var piPromptArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Pi, autoRun: false);
+        AgentCliKind.Copilot);
+    var piAutoArgs = AgentCliCatalog.BuildInteractiveArguments(AgentCliKind.Pi);
     Check(claudeAutoArgs.Contains("--allowedTools")
           && !claudeAutoArgs.Contains("--mcp-config")
           && !claudeAutoArgs.Contains("--append-system-prompt")
           && !claudeAutoArgs.Contains("--strict-mcp-config")
-          && !claudePromptArgs.Contains("--allowedTools")
           && claudeAutoArgs.Any(a => a.Contains("mcp__jrm-remote__terminal_status", StringComparison.Ordinal)
                                      && a.Contains("mcp__jrm-remote__terminal_run", StringComparison.Ordinal))
           && codexAutoArgs.Contains("--no-alt-screen")
           && !codexAutoArgs.Any(a => a.Contains("mcp_servers.", StringComparison.Ordinal))
-          && !codexPromptArgs.Any(a => a.Contains("mcp_servers.", StringComparison.Ordinal))
-          && codexAutoArgs.SequenceEqual(codexPromptArgs)
           && grokAutoArgs.Contains("MCPTool(jrm-remote__terminal_run)")
           && grokAutoArgs.Contains("MCPTool(jrm-remote__terminal_status)")
-          && grokAutoArgs.Contains("MCPTool(jrm-remote__terminal_run_danger)")
+          && !grokAutoArgs.Contains("MCPTool(jrm-remote__terminal_run_danger)")
           && copilotAutoArgs.SequenceEqual(["--allow-tool=jrm-remote"])
-          && copilotPromptArgs.Count == 0
           && piAutoArgs.Contains("--extension")
-          && piAutoArgs.Contains("--jrm-auto-run")
-          && piPromptArgs.Contains("--extension")
-          && !piPromptArgs.Contains("--jrm-auto-run")
           && piAutoArgs.Any(arg => arg.EndsWith(
               "Data\\AgentSupport\\Pi\\jrm-mcp.ts",
               StringComparison.OrdinalIgnoreCase)),
@@ -1873,13 +1860,8 @@ try
         && !AgentCliLocator.IsUriSchemeRegistered("bad scheme!"),
         "Every agent surface is installed, externally command-installable, or linked to an official download");
 
-    Check(DangerousCommandDetector.IsDangerous("rm -rf /tmp/jrm-smoke")
-          && !DangerousCommandDetector.IsDangerous("echo safe"),
-          "Dangerous-command detection still gates destructive remote commands");
-
     // The product surface builds its tool list from scratch each call: reusing a JsonNode
-    // across two tools ("already has a parent") once broke Codex MCP startup, and
-    // terminal_run / terminal_run_danger deliberately share the same argument shape.
+    // across two tools ("already has a parent") once broke MCP startup.
     var productToolsOk = false;
     var productToolNames = "";
     try
@@ -1899,8 +1881,8 @@ try
         productToolsOk = first.Count > 0
                          && first.Count == second.Count
                          && first.Any(t => t?["name"]?.GetValue<string>() == "terminal_run")
-                         && first.Any(t => t?["name"]?.GetValue<string>() == "terminal_run_danger")
-                         && first.Any(t => t?["name"]?.GetValue<string>() == "terminal_run_batch_danger")
+                         && !first.Any(t => t?["name"]?.GetValue<string>() == "terminal_run_danger")
+                         && !first.Any(t => t?["name"]?.GetValue<string>() == "terminal_run_batch_danger")
                          && first.Any(t => t?["name"]?.GetValue<string>() == "session_open")
                          && sessionMove?["inputSchema"]?["properties"]?["position"]?["type"]
                              ?.GetValue<string>() == "integer"
@@ -2517,8 +2499,6 @@ try
     {
         Language = "zh",
         Theme = "Dark",
-        AiAutoRun = false,
-        AiAutoApproveDangerousCommands = true,
         AiRunMode = AgentCliRunMode.Desktop,
         AiGrokRunMode = AgentCliRunMode.WindowsTerminal,
         RecentConnectionPaths = { Path.Combine(root, "Servers", "web01.json") },
@@ -2566,13 +2546,9 @@ try
         Theme = settingsWithRecent.Theme,
         CheckUpdateOnStartup = settingsWithRecent.CheckUpdateOnStartup,
         UpdateCheckIntervalHours = settingsWithRecent.UpdateCheckIntervalHours,
-        AiAutoRun = settingsWithRecent.AiAutoRun,
-        AiAutoApproveDangerousCommands = settingsWithRecent.AiAutoApproveDangerousCommands,
     });
     Check(roamingSettingsJson.Contains(nameof(RoamingAppSettings.Language))
           && roamingSettingsJson.Contains(nameof(RoamingAppSettings.Theme))
-          && roamingSettingsJson.Contains(nameof(RoamingAppSettings.AiAutoRun))
-          && roamingSettingsJson.Contains(nameof(RoamingAppSettings.AiAutoApproveDangerousCommands))
           && roamingSettingsJson.Contains(nameof(RoamingAppSettings.AiProvider))
           && !roamingSettingsJson.Contains("AiRunMode")
           && !roamingSettingsJson.Contains("AiGrokRunMode")
@@ -2626,17 +2602,13 @@ try
           && !migratedEndpointJson.Contains("retired-secret", StringComparison.Ordinal),
           "Loading old settings removes retired Claude endpoints and their encrypted keys");
     tempSettings.Settings.Language = "zh";
-    tempSettings.Settings.AiAutoRun = false;
-    tempSettings.Settings.AiAutoApproveDangerousCommands = true;
     Check(!File.Exists(tempRoamingSettingsPath), "Settings changes stay in memory before flush");
     Check(tempSettings.SaveIfChanged()
           && File.Exists(tempRoamingSettingsPath)
           && !File.Exists(tempMachineSettingsPath),
           "Changed roaming settings flush writes roaming settings.json only");
     var savedSettingsJson = File.ReadAllText(tempRoamingSettingsPath);
-    Check(savedSettingsJson.Contains("\"Language\": \"zh\"")
-          && savedSettingsJson.Contains("\"AiAutoRun\": false")
-          && savedSettingsJson.Contains("\"AiAutoApproveDangerousCommands\": true"),
+    Check(savedSettingsJson.Contains("\"Language\": \"zh\""),
           "Changed roaming settings are serialized after flush");
     // Machine-bound AI options (run modes, hide-SSH, panel-open) write the machine file.
     tempSettings.Settings.AiRunMode = AgentCliRunMode.Desktop;
@@ -2660,9 +2632,7 @@ try
           && !File.ReadAllText(tempRoamingSettingsPath).Contains("AiRunMode"),
           "Machine-bound AI/layout settings land in the machine file, not the roaming file");
     var reloadedAiSettings = new SettingsService(tempMachineSettingsPath, tempRoamingSettingsPath);
-    Check(!reloadedAiSettings.Settings.AiAutoRun
-          && reloadedAiSettings.Settings.AiAutoApproveDangerousCommands
-          && reloadedAiSettings.Settings.AiRunMode == AgentCliRunMode.Desktop
+    Check(reloadedAiSettings.Settings.AiRunMode == AgentCliRunMode.Desktop
           && reloadedAiSettings.Settings.AiGrokRunMode == AgentCliRunMode.WindowsTerminal
           && reloadedAiSettings.Settings.AiHideSshTerminal
           && reloadedAiSettings.Settings.AiPanelOpen
@@ -2670,7 +2640,7 @@ try
           && reloadedAiSettings.Settings.MainWindowMaximized
           && reloadedAiSettings.Settings.MainWindowX == 120
           && reloadedAiSettings.Settings.MainWindowY == 45,
-          "AI safety options, run modes, and window/panel layout state round-trip");
+          "AI launch options, run modes, and window/panel layout state round-trip");
     File.SetLastWriteTimeUtc(tempRoamingSettingsPath, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
     var unchangedWriteTime = File.GetLastWriteTimeUtc(tempRoamingSettingsPath);
     Check(tempSettings.SaveIfChanged(), "Second unchanged settings flush succeeds");
@@ -3790,8 +3760,6 @@ sealed class SmokeAgentRemoteTools : IAgentRemoteTools
         Task.FromResult("ok");
     public Task<string> RunTerminalActionAsync(AgentTerminalAction action, CancellationToken cancellationToken = default) =>
         Task.FromResult("ok");
-    public Task<bool> ConfirmDangerousCommandAsync(string command, CancellationToken cancellationToken = default) =>
-        Task.FromResult(true);
     public Task<string> GetStatusAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult("connected=true\ncommand_lock_available=true");
     public Task<string> GetConnectionInfoAsync(CancellationToken cancellationToken = default) =>

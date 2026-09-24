@@ -525,33 +525,6 @@ public partial class MainWindowViewModel : ViewModelBase
             AiGrokRunMode = mode;
     }
 
-    /// <summary>Whether the selected agent CLI may invoke JRM remote command tools without
-    /// its own per-call permission prompt.</summary>
-    public bool AiAutoRun
-    {
-        get => _settings.Settings.AiAutoRun;
-        set
-        {
-            if (_settings.Settings.AiAutoRun == value)
-                return;
-            _settings.Settings.AiAutoRun = value;
-            _settings.SaveIfChanged();
-        }
-    }
-
-    /// <summary>Whether JRM skips its additional confirmation for destructive remote commands.</summary>
-    public bool AiAutoApproveDangerousCommands
-    {
-        get => _settings.Settings.AiAutoApproveDangerousCommands;
-        set
-        {
-            if (_settings.Settings.AiAutoApproveDangerousCommands == value)
-                return;
-            _settings.Settings.AiAutoApproveDangerousCommands = value;
-            _settings.SaveIfChanged();
-        }
-    }
-
     /// <summary>Whether the AI panel hides the SSH terminal while open (shared across tabs).</summary>
     public bool AiHideSshTerminal
     {

@@ -28,7 +28,6 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 {
     private readonly string _workingDirectory;
     private readonly Action<bool>? _onHideSshTerminalChanged;
-    private readonly Action<bool, bool>? _onSafetyOptionsChanged;
     private readonly Func<AgentCliKind, AgentCliRunMode>? _resolvePreferredRunMode;
     private readonly SemaphoreSlim _startGate = new(1, 1);
     private ConPtySession? _session;
@@ -71,10 +70,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     public AgentCliPanelViewModel(
         string workingDirectory,
         string? preferredProviderLabel = null,
-        bool autoRun = true,
-        bool autoApproveDangerousCommands = false,
         bool hideSshTerminal = false,
-        Action<bool, bool>? onSafetyOptionsChanged = null,
         Action<bool>? onHideSshTerminalChanged = null,
         AgentCliRunMode preferredRunMode = AgentCliRunMode.Cli,
         Func<AgentCliKind, AgentCliRunMode>? resolvePreferredRunMode = null,
@@ -82,10 +78,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     {
         _workingDirectory = workingDirectory;
         _onHideSshTerminalChanged = onHideSshTerminalChanged;
-        _onSafetyOptionsChanged = onSafetyOptionsChanged;
         _resolvePreferredRunMode = resolvePreferredRunMode;
-        _autoRun = autoRun;
-        _autoApproveDangerousCommands = autoApproveDangerousCommands;
         _hideSshTerminal = hideSshTerminal;
         ShowConnectionOptions = showConnectionOptions;
         Directory.CreateDirectory(_workingDirectory);
@@ -134,12 +127,6 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
     [ObservableProperty]
     private bool _hideSshTerminal;
-
-    [ObservableProperty]
-    private bool _autoRun = true;
-
-    [ObservableProperty]
-    private bool _autoApproveDangerousCommands;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowInstallPrompt))]
@@ -280,16 +267,6 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     }
 
     partial void OnHideSshTerminalChanged(bool value) => _onHideSshTerminalChanged?.Invoke(value);
-
-    partial void OnAutoRunChanged(bool value)
-    {
-        _onSafetyOptionsChanged?.Invoke(value, AutoApproveDangerousCommands);
-        if (IsRunning)
-            _ = RestartAsync();
-    }
-
-    partial void OnAutoApproveDangerousCommandsChanged(bool value) =>
-        _onSafetyOptionsChanged?.Invoke(AutoRun, value);
 
     private void NotifyLayoutFlags()
     {
@@ -641,7 +618,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
                 }
 
                 // Runtime flags only (auto-approve tools / scrollback). Server context is in AGENTS.md.
-                var args = AgentCliCatalog.BuildInteractiveArguments(provider.Kind, AutoRun);
+                var args = AgentCliCatalog.BuildInteractiveArguments(provider.Kind);
 
                 if (runMode == AgentCliRunMode.WindowsTerminal)
                 {
