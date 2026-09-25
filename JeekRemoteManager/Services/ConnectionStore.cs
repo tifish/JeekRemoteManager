@@ -3,6 +3,8 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using JeekRemoteManager.Models;
@@ -51,13 +53,103 @@ public class ConnectionStore
     public BastionLoginProfileStore BastionProfiles { get; }
 
     /// <summary>
-    /// <see cref="Environment.TickCount64"/> of the last write this store made to
-    /// disk. A file-system watcher can compare against this to tell the app's own
-    /// writes apart from external changes.
+    /// Fingerprint (<see cref="ComputeSignature"/>) of the on-disk state the app's tree
+    /// reflects: set by every <see cref="ReadTree"/> and carried forward across the
+    /// store's own writes. The file watcher compares the live fingerprint with this one
+    /// instead of ignoring every event for a while after an own write — that window also
+    /// swallowed any external change (a sync client, another instance) landing inside it,
+    /// and the tree then stayed stale until something else changed. Null means unknown:
+    /// the next watcher event always reloads.
     /// </summary>
-    public long LastWriteTick { get; private set; }
+    public string? KnownSignature { get; private set; }
 
-    private void Touch() => LastWriteTick = Environment.TickCount64;
+    private readonly object _ownWriteGate = new();
+    private int _ownWriteDepth;
+    private bool _ownWriteInSync;
+
+    /// <summary>
+    /// Runs one of the store's own writes and carries <see cref="KnownSignature"/> across
+    /// it. The fingerprint is only carried when the disk still matched it before the write;
+    /// otherwise something external changed first, and adopting the post-write fingerprint
+    /// would hide that change from the watcher. Nested writes (a batch) check once.
+    /// </summary>
+    private T OwnWrite<T>(Func<T> write)
+    {
+        lock (_ownWriteGate)
+        {
+            if (_ownWriteDepth++ == 0)
+            {
+                var known = KnownSignature;
+                _ownWriteInSync = known is not null && known == ComputeSignature();
+            }
+
+            var completed = false;
+            try
+            {
+                var result = write();
+                completed = true;
+                return result;
+            }
+            finally
+            {
+                // A write that threw may have left the disk half-changed; let the next
+                // watcher event reload rather than trust a fingerprint of that state.
+                if (--_ownWriteDepth == 0)
+                    KnownSignature = completed && _ownWriteInSync ? ComputeSignature() : null;
+                else if (!completed)
+                    _ownWriteInSync = false;
+            }
+        }
+    }
+
+    private void OwnWrite(Action write) => OwnWrite(() =>
+    {
+        write();
+        return true;
+    });
+
+    /// <summary>
+    /// Runs several writes as one, so a sweep over every connection (re-encryption after a
+    /// master-password change) fingerprints the tree twice instead of twice per file.
+    /// </summary>
+    public void RunBatch(Action writes) => OwnWrite(writes);
+
+    /// <summary>
+    /// Hash of every file and folder under the root: relative path, size and last-write
+    /// time for files, just the path for folders (their times change with any child).
+    /// Cheap next to <see cref="ReadTree"/> — metadata only, nothing is opened.
+    /// </summary>
+    public string ComputeSignature()
+    {
+        var root = RootPath;
+        if (!Directory.Exists(root))
+            return "";
+
+        var entries = new List<string>();
+        var options = new EnumerationOptions
+        {
+            RecurseSubdirectories = true,
+            IgnoreInaccessible = true,
+            AttributesToSkip = 0,
+        };
+        foreach (var info in new DirectoryInfo(root).EnumerateFileSystemInfos("*", options))
+        {
+            var relative = Path.GetRelativePath(root, info.FullName);
+            entries.Add(info is FileInfo file
+                ? $"{relative}|{file.Length}|{file.LastWriteTimeUtc.Ticks}"
+                : $"{relative}|dir");
+        }
+
+        entries.Sort(StringComparer.Ordinal);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        foreach (var entry in entries)
+        {
+            hash.AppendData(Encoding.UTF8.GetBytes(entry));
+            hash.AppendData("\n"u8);
+        }
+
+        return Convert.ToHexString(hash.GetHashAndReset());
+    }
 
     /// <summary>Switches the store to a different root folder, creating it if needed.</summary>
     public void SetRoot(string newRoot)
@@ -66,7 +158,7 @@ public class ConnectionStore
         RootPath = newRoot;
         Directory.CreateDirectory(RootPath);
         BastionProfiles.SetRoot(RootPath);
-        Touch();
+        KnownSignature = null;
     }
 
     // --- Reading the tree ---
@@ -97,14 +189,15 @@ public class ConnectionStore
     /// Rewrites a connection back to its existing file without renaming or moving it.
     /// Used by re-encryption sweeps that only change the EncryptedPassword field.
     /// </summary>
-    public void SaveInPlace(Connection connection, string filePath)
+    public void SaveInPlace(Connection connection, string filePath) =>
+        OwnWrite(() => WriteInPlace(connection, filePath));
+
+    private void WriteInPlace(Connection connection, string filePath)
     {
         using var lease = SharedDataFile.Acquire(RootPath);
         EnsureConnectionId(connection);
         var json = JsonSerializer.Serialize(connection, JsonOptions);
-        Touch();
         SharedDataFile.WriteAllTextAtomic(filePath, json);
-        Touch();
     }
 
     /// <summary>
@@ -144,7 +237,17 @@ public class ConnectionStore
     /// visible once the folder lives on a network or file-synced drive.
     /// Unreadable files are skipped, exactly as loading them one at a time did.
     /// </summary>
-    public ConnectionFolderSnapshot ReadTree() => ReadFolder(RootPath);
+    public ConnectionFolderSnapshot ReadTree()
+    {
+        // Fingerprint on both sides of the read: if something changed while it ran, the
+        // snapshot may predate that change, so leave the fingerprint unknown and let the
+        // watcher event for it reload again.
+        var before = ComputeSignature();
+        var snapshot = ReadFolder(RootPath);
+        var after = ComputeSignature();
+        KnownSignature = before == after ? after : null;
+        return snapshot;
+    }
 
     private ConnectionFolderSnapshot ReadFolder(string folderPath)
     {
@@ -177,8 +280,10 @@ public class ConnectionStore
 
         // Keep the in-memory name in sync with the file name, which is authoritative.
         connection.Name = Path.GetFileNameWithoutExtension(filePath);
+        // Not an own-write for the fingerprint: this runs inside ReadTree, which
+        // fingerprints the tree after reading it anyway.
         if (EnsureConnectionId(connection))
-            SaveInPlace(connection, filePath);
+            WriteInPlace(connection, filePath);
         BastionProfiles.Resolve(connection);
         return connection;
     }
@@ -191,10 +296,12 @@ public class ConnectionStore
     /// is given and differs from the new path, the old file is removed (rename).
     /// Returns the path the connection was written to.
     /// </summary>
-    public string Save(Connection connection, string folderPath, string? previousFilePath = null)
+    public string Save(Connection connection, string folderPath, string? previousFilePath = null) =>
+        OwnWrite(() => SaveCore(connection, folderPath, previousFilePath));
+
+    private string SaveCore(Connection connection, string folderPath, string? previousFilePath)
     {
         using var lease = SharedDataFile.Acquire(RootPath);
-        Touch();
         Directory.CreateDirectory(folderPath);
         EnsureConnectionId(connection);
 
@@ -217,7 +324,6 @@ public class ConnectionStore
             File.Delete(previousFilePath);
         }
 
-        Touch();
         return targetPath;
     }
 
@@ -226,11 +332,7 @@ public class ConnectionStore
     {
         using var lease = SharedDataFile.Acquire(RootPath);
         if (File.Exists(filePath))
-        {
-            Touch();
-            RecycleBin.Send(filePath);
-            Touch();
-        }
+            OwnWrite(() => RecycleBin.Send(filePath));
     }
 
     /// <summary>Moves a folder and everything under it to the Recycle Bin.</summary>
@@ -238,23 +340,20 @@ public class ConnectionStore
     {
         using var lease = SharedDataFile.Acquire(RootPath);
         if (Directory.Exists(folderPath))
-        {
-            Touch();
-            RecycleBin.Send(folderPath);
-            Touch();
-        }
+            OwnWrite(() => RecycleBin.Send(folderPath));
     }
 
     /// <summary>Creates a new sub-folder with a unique name; returns its path.</summary>
     public string CreateFolder(string parentPath, string desiredName)
     {
         using var lease = SharedDataFile.Acquire(RootPath);
-        Touch();
-        Directory.CreateDirectory(parentPath);
-        var path = UniqueFolderPath(parentPath, SanitizeName(desiredName));
-        Directory.CreateDirectory(path);
-        Touch();
-        return path;
+        return OwnWrite(() =>
+        {
+            Directory.CreateDirectory(parentPath);
+            var path = UniqueFolderPath(parentPath, SanitizeName(desiredName));
+            Directory.CreateDirectory(path);
+            return path;
+        });
     }
 
     /// <summary>Renames a folder; returns the new path.</summary>
@@ -269,9 +368,7 @@ public class ConnectionStore
         if (Directory.Exists(target))
             target = UniqueFolderPath(parent, SanitizeName(newName));
 
-        Touch();
-        Directory.Move(folderPath, target);
-        Touch();
+        OwnWrite(() => Directory.Move(folderPath, target));
         return target;
     }
 
@@ -288,13 +385,14 @@ public class ConnectionStore
         bool createNewConnectionId)
     {
         using var lease = SharedDataFile.Acquire(RootPath);
-        Touch();
-        Directory.CreateDirectory(targetFolder);
-        var baseName = Path.GetFileNameWithoutExtension(filePath);
-        var target = UniqueFilePath(targetFolder, baseName);
-        CopyConnectionFile(filePath, target, includeSshScriptBindings, createNewConnectionId);
-        Touch();
-        return target;
+        return OwnWrite(() =>
+        {
+            Directory.CreateDirectory(targetFolder);
+            var baseName = Path.GetFileNameWithoutExtension(filePath);
+            var target = UniqueFilePath(targetFolder, baseName);
+            CopyConnectionFile(filePath, target, includeSshScriptBindings, createNewConnectionId);
+            return target;
+        });
     }
 
     /// <summary>
@@ -309,13 +407,14 @@ public class ConnectionStore
         if (PathsEqual(sourceFolder, targetFolder))
             return filePath;
 
-        Touch();
-        Directory.CreateDirectory(targetFolder);
-        var baseName = Path.GetFileNameWithoutExtension(filePath);
-        var target = UniqueFilePath(targetFolder, baseName);
-        File.Move(filePath, target);
-        Touch();
-        return target;
+        return OwnWrite(() =>
+        {
+            Directory.CreateDirectory(targetFolder);
+            var baseName = Path.GetFileNameWithoutExtension(filePath);
+            var target = UniqueFilePath(targetFolder, baseName);
+            File.Move(filePath, target);
+            return target;
+        });
     }
 
     /// <summary>Recursively copies a folder into a parent folder, with a unique name. Returns the new path.</summary>
@@ -329,13 +428,14 @@ public class ConnectionStore
         bool createNewConnectionIds)
     {
         using var lease = SharedDataFile.Acquire(RootPath);
-        Touch();
-        Directory.CreateDirectory(targetParent);
-        var name = Path.GetFileName(folderPath.TrimEnd(Path.DirectorySeparatorChar));
-        var target = UniqueFolderPath(targetParent, name);
-        CopyDirectory(folderPath, target, includeSshScriptBindings, createNewConnectionIds);
-        Touch();
-        return target;
+        return OwnWrite(() =>
+        {
+            Directory.CreateDirectory(targetParent);
+            var name = Path.GetFileName(folderPath.TrimEnd(Path.DirectorySeparatorChar));
+            var target = UniqueFolderPath(targetParent, name);
+            CopyDirectory(folderPath, target, includeSshScriptBindings, createNewConnectionIds);
+            return target;
+        });
     }
 
     /// <summary>
@@ -349,13 +449,14 @@ public class ConnectionStore
         if (PathsEqual(currentParent, targetParent))
             return folderPath;
 
-        Touch();
-        Directory.CreateDirectory(targetParent);
-        var name = Path.GetFileName(folderPath.TrimEnd(Path.DirectorySeparatorChar));
-        var target = UniqueFolderPath(targetParent, name);
-        Directory.Move(folderPath, target);
-        Touch();
-        return target;
+        return OwnWrite(() =>
+        {
+            Directory.CreateDirectory(targetParent);
+            var name = Path.GetFileName(folderPath.TrimEnd(Path.DirectorySeparatorChar));
+            var target = UniqueFolderPath(targetParent, name);
+            Directory.Move(folderPath, target);
+            return target;
+        });
     }
 
     /// <summary>

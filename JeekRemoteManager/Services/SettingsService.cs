@@ -180,8 +180,6 @@ public class SettingsService
 
     public AppSettings Settings { get; private set; }
 
-    public long LastWriteTick { get; private set; }
-
     public StorageLocation CurrentStorageLocation =>
         Storage.ResolveEffectiveLocation(Settings.StorageLocation);
 
@@ -396,7 +394,25 @@ public class SettingsService
     private static bool IsValidWindowDimension(double? value) =>
         value is { } number && double.IsFinite(number) && number > 0;
 
-    private void Touch() => LastWriteTick = Environment.TickCount64;
+
+    /// <summary>
+    /// True when the roaming settings file on disk holds exactly what this instance last
+    /// saved or loaded — i.e. a watcher event for it was the app's own write. Compared by
+    /// content rather than by time, so another instance's change is never mistaken for ours.
+    /// </summary>
+    public bool RoamingFileMatchesLastSave()
+    {
+        try
+        {
+            return JsonSettingsFile.TryLoad<RoamingAppSettings>(CurrentRoamingSettingsPath(), out var onDisk)
+                   && string.Equals(
+                       JsonSettingsFile.Serialize(onDisk), _lastSavedRoamingJson, StringComparison.Ordinal);
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     private string CurrentRoamingSettingsPath() =>
         _roamingSettingsPathOverride
@@ -476,7 +492,6 @@ public class SettingsService
         {
             Settings = MergeSettings(mergedMachine, mergedRoaming);
             NormalizeSettings(Settings);
-            Touch();
         }
         return saved;
     }

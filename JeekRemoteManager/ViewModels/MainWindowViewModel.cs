@@ -58,7 +58,6 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool _watchingPortableConfig;
     private static readonly TimeSpan ConnectionWatchReloadDelay = TimeSpan.FromMilliseconds(400);
     private static readonly TimeSpan PortableConfigReloadDelay = TimeSpan.FromSeconds(10);
-    private const long SelfWriteSuppressMs = 1000;
 
     // Synthetic node showing the last-used connections at the top of the tree.
     private const int RecentMax = 10;
@@ -631,7 +630,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>
     /// The one store the window owns. Anything writing connection files has to go
-    /// through it rather than construct its own: <see cref="ConnectionStore.LastWriteTick"/>
+    /// through it rather than construct its own: <see cref="ConnectionStore.KnownSignature"/>
     /// is per-instance, and it is what tells the file watcher a change was ours. A
     /// throwaway store writes without ever updating it, so the watcher treats the app's
     /// own edit as an external one and reloads the whole tree a second time.
@@ -904,22 +903,16 @@ public partial class MainWindowViewModel : ViewModelBase
         _watchingPortableConfig = false;
     }
 
-    // Events arrive on a background thread; hop to the UI thread and debounce.
+    // Events arrive on a background thread; hop to the UI thread and debounce. Whether a
+    // change was the app's own is decided when the debounce fires, by comparing the disk
+    // with what the tree reflects — not by dropping events for a while after each own
+    // write, which also dropped external changes that happened to land in that window.
     private void OnWatchedChange(object? sender, FileSystemEventArgs e)
     {
-        if (IsOwnWriteRecent())
-            return;
-
         var changedPath = e.FullPath;
         var oldPath = e is RenamedEventArgs renamed ? renamed.OldFullPath : null;
 
         Dispatcher.UIThread.Post(() => ScheduleWatchReload(changedPath, oldPath));
-    }
-
-    private bool IsOwnWriteRecent()
-    {
-        var lastWrite = Math.Max(_store.LastWriteTick, _settings.LastWriteTick);
-        return lastWrite > 0 && Environment.TickCount64 - lastWrite < SelfWriteSuppressMs;
     }
 
     private void ScheduleWatchReload(string changedPath, string? oldPath = null)
@@ -973,7 +966,7 @@ public partial class MainWindowViewModel : ViewModelBase
             // Don't clobber an in-progress edit; flush it first so the reload
             // reflects the user's latest changes too.
             FlushPendingAutoSave();
-            _ = ReloadTreeAsync();
+            _ = ReloadTreeIfChangedAsync();
             return;
         }
 
@@ -981,7 +974,7 @@ public partial class MainWindowViewModel : ViewModelBase
         if (!changes.HasAnyChange)
             return;
 
-        if (changes.SettingsChanged)
+        if (changes.SettingsChanged && !_settings.RoamingFileMatchesLastSave())
         {
             var previousInterval = _settings.Settings.UpdateCheckIntervalHours;
             _settings.ReloadRoamingSettings();
@@ -997,11 +990,19 @@ public partial class MainWindowViewModel : ViewModelBase
         if (changes.ConnectionsChanged)
         {
             FlushPendingAutoSave();
-            ClearClipboard();
-            _ = ReloadTreeAsync(_settings.Settings.LastSelectedConnectionPath);
-            OnPropertyChanged(nameof(RootPath));
-            OnPropertyChanged(nameof(TargetDescription));
+            _ = ReloadPortableConnectionsIfChangedAsync();
         }
+    }
+
+    private async Task ReloadPortableConnectionsIfChangedAsync()
+    {
+        if (!await TreeDiffersFromDiskAsync())
+            return;
+
+        ClearClipboard();
+        _ = ReloadTreeAsync(_settings.Settings.LastSelectedConnectionPath);
+        OnPropertyChanged(nameof(RootPath));
+        OnPropertyChanged(nameof(TargetDescription));
     }
 
     public static PortableConfigChangeSet ClassifyPortableConfigChanges(IEnumerable<string> changedPaths)
@@ -1051,6 +1052,46 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>Counts full tree rebuilds, so the Debug MCP can catch a write that
     /// reloads twice because the file watcher did not recognise it as ours.</summary>
     internal long TreeReloadCountForDebug { get; private set; }
+
+    /// <summary>Watcher debounces that found the disk already matching the tree (the
+    /// app's own writes), exposed for the Debug MCP.</summary>
+    internal long WatcherReloadsSkippedForDebug { get; private set; }
+
+    /// <summary>
+    /// True when the connections folder no longer matches what the tree was built from.
+    /// The fingerprint is metadata-only and runs off the UI thread; an unknown fingerprint
+    /// (a read raced a change, a write failed) always counts as a difference.
+    /// </summary>
+    private async Task<bool> TreeDiffersFromDiskAsync()
+    {
+        if (_store.KnownSignature is null)
+            return true;
+
+        string current;
+        try
+        {
+            current = await Task.Run(_store.ComputeSignature).ConfigureAwait(true);
+        }
+        catch
+        {
+            return true;
+        }
+
+        if (current != _store.KnownSignature)
+            return true;
+
+        WatcherReloadsSkippedForDebug++;
+        return false;
+    }
+
+    /// <summary>Debug MCP only: whether the tree currently shows a node for this path.</summary>
+    internal bool DebugTreeContains(string fullPath) => FindNode(Nodes, fullPath) is not null;
+
+    private async Task ReloadTreeIfChangedAsync()
+    {
+        if (await TreeDiffersFromDiskAsync())
+            await ReloadTreeAsync();
+    }
 
     /// <summary>
     /// Ticket handed out when a reload starts. Background reads are started
@@ -3727,18 +3768,21 @@ public partial class MainWindowViewModel : ViewModelBase
             if (unreadable > 0)
                 throw new InvalidOperationException(L("MasterChangeUnreadablePasswords", unreadable));
 
-            foreach (var item in pending)
+            _store.RunBatch(() =>
             {
-                if (item.ClearPassword is not null)
-                    item.Connection.EncryptedPassword =
-                        MasterKeyService.EncryptWithPassword(newPassword, item.ClearPassword);
-                if (item.ClearPassphrase is not null)
-                    item.Connection.EncryptedPrivateKeyPassphrase =
-                        MasterKeyService.EncryptWithPassword(newPassword, item.ClearPassphrase);
-                foreach (var (param, clear) in item.ScriptSecrets)
-                    param.Value = MasterKeyService.EncryptWithPassword(newPassword, clear);
-                _store.SaveInPlace(item.Connection, item.File);
-            }
+                foreach (var item in pending)
+                {
+                    if (item.ClearPassword is not null)
+                        item.Connection.EncryptedPassword =
+                            MasterKeyService.EncryptWithPassword(newPassword, item.ClearPassword);
+                    if (item.ClearPassphrase is not null)
+                        item.Connection.EncryptedPrivateKeyPassphrase =
+                            MasterKeyService.EncryptWithPassword(newPassword, item.ClearPassphrase);
+                    foreach (var (param, clear) in item.ScriptSecrets)
+                        param.Value = MasterKeyService.EncryptWithPassword(newPassword, clear);
+                    _store.SaveInPlace(item.Connection, item.File);
+                }
+            });
 
             current.SetPassword(newPassword);
             StatusMessage = L("StatusMasterChanged");

@@ -135,6 +135,7 @@ internal static class DebugMcpServer
         host.AddTool("sftp_host_key_check", SftpHostKeyCheckAsync);
         host.AddTool("sftp_retry_policy_check", _ => SftpRetryPolicyCheckAsync());
         host.AddTool("connection_write_watcher_check", _ => ConnectionWriteWatcherCheckAsync());
+        host.AddTool("connection_external_change_check", _ => ConnectionExternalChangeCheckAsync());
         host.AddTool("connection_tree_reload_order_check", _ => ConnectionTreeReloadOrderCheckAsync());
         host.AddTool("connection_tree_load_check", _ => ConnectionTreeLoadCheckAsync());
         host.AddTool("monitor_suspend_check", _ => MonitorSuspendCheckAsync());
@@ -682,9 +683,90 @@ internal static class DebugMcpServer
     }
 
     /// <summary>
+    /// The watcher used to ignore every event for a second after one of the app's own
+    /// writes, so an external change landing in that window (a sync client, another
+    /// instance) never reached the tree. Makes an own write, drops a file in from outside
+    /// the store a moment later, and verifies the tree shows it — then that an own write
+    /// on its own is still recognised and does not trigger a second reload.
+    /// </summary>
+    private static async Task<JsonObject> ConnectionExternalChangeCheckAsync()
+    {
+        const string folder = "_watcher_external_selftest";
+        var failures = new List<string>();
+        var vm = await OnUiAsync(() => Desktop?.MainWindow?.DataContext as ViewModels.MainWindowViewModel)
+            .ConfigureAwait(false);
+        if (vm is null)
+            return ToolText("FAIL: main window view model not available.", isError: true);
+
+        var folderPath = await OnUiAsync(() => vm.Store.CreateFolder(vm.RootPath, folder)).ConfigureAwait(false);
+        var externalPath = Path.Combine(folderPath, "external" + ConnectionStore.FileExtension);
+        long skippedBefore = 0, skippedAfter = 0, reloadsBefore = 0, reloadsAfter = 0;
+        var externalShown = false;
+        try
+        {
+            await OnUiAsync(() =>
+            {
+                vm.ReloadTreeFromDisk();
+                return true;
+            }).ConfigureAwait(false);
+            await Task.Delay(1500).ConfigureAwait(false);
+
+            // Own write, reflected in the tree right away as the UI does it...
+            await OnUiAsync(() =>
+            {
+                vm.Store.Save(new Connection { Name = "own", Host = "own.invalid" }, folderPath);
+                vm.ReloadTreeFromDisk();
+                return true;
+            }).ConfigureAwait(false);
+            // ...then an external writer 200 ms later, well inside the old 1 s window.
+            await Task.Delay(200).ConfigureAwait(false);
+            await File.WriteAllTextAsync(
+                externalPath,
+                """{"Name":"external","Host":"external.invalid","Type":"Ssh"}""").ConfigureAwait(false);
+            await Task.Delay(2000).ConfigureAwait(false);
+            externalShown = await OnUiAsync(() => vm.DebugTreeContains(externalPath)).ConfigureAwait(false);
+            if (!externalShown)
+                failures.Add("an external file written 200 ms after an own write never appeared in the tree");
+
+            // An own write alone: the watcher must recognise it and skip the reload.
+            (skippedBefore, reloadsBefore) = await OnUiAsync(
+                () => (vm.WatcherReloadsSkippedForDebug, vm.TreeReloadCountForDebug)).ConfigureAwait(false);
+            await OnUiAsync(() =>
+            {
+                vm.Store.Save(new Connection { Name = "own2", Host = "own2.invalid" }, folderPath);
+                vm.ReloadTreeFromDisk();
+                return true;
+            }).ConfigureAwait(false);
+            await Task.Delay(2000).ConfigureAwait(false);
+            (skippedAfter, reloadsAfter) = await OnUiAsync(
+                () => (vm.WatcherReloadsSkippedForDebug, vm.TreeReloadCountForDebug)).ConfigureAwait(false);
+            if (reloadsAfter - reloadsBefore != 1)
+                failures.Add($"an own write reloaded the tree {reloadsAfter - reloadsBefore} times (expected 1)");
+            if (skippedAfter <= skippedBefore)
+                failures.Add("the watcher never recognised the own write as already reflected");
+        }
+        finally
+        {
+            await OnUiAsync(() =>
+            {
+                vm.Store.DeleteFolder(folderPath);
+                vm.ReloadTreeFromDisk();
+                return true;
+            }).ConfigureAwait(false);
+        }
+
+        var passed = failures.Count == 0;
+        var report = $"{(passed ? "PASS" : "FAIL")}: external changes next to own writes reach the tree\n"
+            + $"externalShown={externalShown}\nownWriteReloads={reloadsAfter - reloadsBefore}\n"
+            + $"watcherSkips={skippedAfter - skippedBefore}\nfailures={failures.Count}"
+            + (passed ? "" : "\n" + string.Join("\n", failures));
+        return ToolText(report, isError: !passed);
+    }
+
+    /// <summary>
     /// Each product-MCP write should rebuild the tree exactly once, from the explicit
     /// reload the handler performs. The file watcher recognises the app's own writes by
-    /// comparing against ConnectionStore.LastWriteTick — which is per-instance, so a
+    /// comparing against ConnectionStore.KnownSignature — which is per-instance, so a
     /// handler that built its own store left the watcher firing a second, redundant
     /// full-tree rebuild a moment later.
     /// </summary>
