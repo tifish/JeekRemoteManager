@@ -113,6 +113,7 @@ internal static class DebugMcpServer
         host.AddTool("visual_tree", VisualTreeAsync);
         host.AddTool("screenshot", _ => ScreenshotAsync());
         host.AddTool("about_dialog_probe", _ => AboutDialogProbeAsync());
+        host.AddTool("button_content_alignment_check", _ => ButtonContentAlignmentCheckAsync());
         host.AddTool("ai_runtime_snapshot", _ => AiRuntimeSnapshotAsync());
         host.AddTool("password_ime_check", _ => PasswordImeCheckAsync());
         host.AddTool("terminal_tab_title_check", _ => TerminalTabTitleCheckAsync());
@@ -2439,6 +2440,86 @@ internal static class DebugMcpServer
             finally
             {
                 dialog.Close();
+            }
+        });
+
+        return ToolText(report, isError: !passed);
+    }
+
+    private static async Task<JsonObject> ButtonContentAlignmentCheckAsync()
+    {
+        var (passed, report) = await OnUiAsync(() =>
+        {
+            if (Desktop?.MainWindow is not Views.MainWindow main)
+                return (false, "FAIL: MainWindow is not available.");
+
+            var textButton = new Button
+            {
+                Name = "AlignmentTextButton",
+                Width = 180,
+                Content = "Centered text",
+            };
+            var compoundButton = new Button
+            {
+                Name = "AlignmentCompoundButton",
+                Width = 180,
+                Content = new StackPanel
+                {
+                    Orientation = Avalonia.Layout.Orientation.Horizontal,
+                    Spacing = 6,
+                    Children =
+                    {
+                        new TextBlock { Text = "#" },
+                        new TextBlock { Text = "Centered compound content" },
+                    },
+                },
+            };
+            var overrideButton = new Button
+            {
+                Name = "AlignmentOverrideButton",
+                Width = 180,
+                Content = "Intentional override",
+                HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+                VerticalContentAlignment = Avalonia.Layout.VerticalAlignment.Top,
+            };
+            var probe = new Window
+            {
+                Title = "button_content_alignment_check",
+                Width = 260,
+                Height = 180,
+                ShowInTaskbar = false,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Content = new StackPanel
+                {
+                    Margin = new Thickness(12),
+                    Spacing = 8,
+                    Children = { textButton, compoundButton, overrideButton },
+                },
+            };
+
+            try
+            {
+                probe.Show(main);
+
+                var defaultsCentered =
+                    textButton.HorizontalContentAlignment == Avalonia.Layout.HorizontalAlignment.Center
+                    && textButton.VerticalContentAlignment == Avalonia.Layout.VerticalAlignment.Center
+                    && compoundButton.HorizontalContentAlignment == Avalonia.Layout.HorizontalAlignment.Center
+                    && compoundButton.VerticalContentAlignment == Avalonia.Layout.VerticalAlignment.Center;
+                var overridePreserved =
+                    overrideButton.HorizontalContentAlignment == Avalonia.Layout.HorizontalAlignment.Right
+                    && overrideButton.VerticalContentAlignment == Avalonia.Layout.VerticalAlignment.Top;
+                var ok = defaultsCentered && overridePreserved;
+
+                return (ok,
+                    $"{(ok ? "PASS" : "FAIL")}: shared Button content alignment\n"
+                    + $"text={textButton.HorizontalContentAlignment}/{textButton.VerticalContentAlignment}\n"
+                    + $"compound={compoundButton.HorizontalContentAlignment}/{compoundButton.VerticalContentAlignment}\n"
+                    + $"override={overrideButton.HorizontalContentAlignment}/{overrideButton.VerticalContentAlignment}");
+            }
+            finally
+            {
+                probe.Close();
             }
         });
 

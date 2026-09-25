@@ -82,6 +82,8 @@ AI 运行模式的持久化被**拆成两个槽**：有桌面 surface 的 agent 
 
 本地化用 `Jeek.Avalonia.Localization` 的 `TabLocalizer`，词条在 `Data\Languages.tab`。语言和主题在构建主窗口之前从设置里应用。主题字符串映射：`"Light"` / `"Dark"`，其余（含空值和无法识别的值）落到 `ThemeVariant.Default`（跟随系统）。
 
+所有普通 `Button` 的内容在水平和垂直方向都默认居中，这条规则放在 `Themes/AppControls.axaml` 的共享样式里，因此 XAML 控件和代码动态创建的对话框按钮保持一致。确实需要其它对齐方式的特殊按钮用更具体的样式或本地属性显式覆写。
+
 ## 焦点
 
 每个终端标签记住"上次聚焦的控件"（弱引用，仅会话内，不持久化），控件不存在或不可见时回退到 SSH 终端。把焦点移进内部终端控件要**投递到 UI 线程**，让它跑在视图重新附加之后——直接聚焦 UserControl 本身不会把焦点转给终端。

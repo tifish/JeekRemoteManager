@@ -262,6 +262,17 @@ try
         repoRoot, "JeekRemoteManager", "Views", "MainWindow.axaml"));
     var mainWindowCode = File.ReadAllText(Path.Combine(
         repoRoot, "JeekRemoteManager", "Views", "MainWindow.axaml.cs"));
+    var appControlsXaml = File.ReadAllText(Path.Combine(
+        repoRoot, "JeekRemoteManager", "Themes", "AppControls.axaml"));
+    var sharedButtonStyleStart = appControlsXaml.IndexOf(
+        "<Style Selector=\"Button\">",
+        StringComparison.Ordinal);
+    var sharedButtonStyleEnd = sharedButtonStyleStart < 0
+        ? -1
+        : appControlsXaml.IndexOf("</Style>", sharedButtonStyleStart, StringComparison.Ordinal);
+    var sharedButtonStyle = sharedButtonStyleStart >= 0 && sharedButtonStyleEnd > sharedButtonStyleStart
+        ? appControlsXaml[sharedButtonStyleStart..sharedButtonStyleEnd]
+        : "";
     var agentPanelXaml = File.ReadAllText(Path.Combine(
         repoRoot, "JeekRemoteManager", "Views", "AgentCliPanelView.axaml"));
     var agentPanelCode = File.ReadAllText(Path.Combine(
@@ -510,6 +521,15 @@ try
               "MinWidth=\"0\" MinHeight=\"0\" Padding=\"0\"",
               StringComparison.Ordinal),
           "The login-command help glyph is centered inside its button");
+    Check(sharedButtonStyle.Contains(
+              "<Setter Property=\"HorizontalContentAlignment\" Value=\"Center\" />",
+              StringComparison.Ordinal)
+          && sharedButtonStyle.Contains(
+              "<Setter Property=\"VerticalContentAlignment\" Value=\"Center\" />",
+              StringComparison.Ordinal)
+          && DebugMcpContract.BuildToolList()
+              .Any(tool => tool?["name"]?.GetValue<string>() == "button_content_alignment_check"),
+          "Shared button style centers content and Debug MCP verifies the rendered policy");
     Check(!mainWindowXaml.Contains("BastionProfileUsageText", StringComparison.Ordinal)
           && typeof(BastionLoginProfileStore).GetMethod("GetUsageCount") is null,
           "Bastion templates expose no connection-count statistic");
