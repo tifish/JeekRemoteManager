@@ -80,6 +80,15 @@
 
 **`TerminalDimColorFilter`（AI 面板侧）。** SvcSystems.UI.Terminal 会解析 SGR dim(2) 但不绘制。这个过滤器把 dim 改写成显式的柔灰前景色。**最容易写错的地方**：`38;2;r;g;b` / `48;2;r;g;b` 真彩色序列里的那个 `2` 是颜色模式而不是 dim，误判会毁掉调色板并让用户输入变暗。所以 38/48/58 必须走单独的 `CopyExtendedColor` 分支。选柔灰而不是 bright-black(90)，是因为 90 在深色主题下几乎全黑。
 
+## 终端外观：字体、配色、回滚行数
+
+涉及 `Services/TerminalAppearance.cs`。三项都是漫游设置，在设置对话框的"终端"卡片里改。
+
+- **配色是应用级资源。** SvcSystems.UI.Terminal 渲染时按 `SvcSystems.UI.TerminalColorN`、`TerminalCaretBrush`、`TerminalSelectionBrush` 这些键查资源，所以配色写进 `Application.Resources` 就能同时作用于所有终端（主 shell 和 AI 面板）。`App.axaml` 不再定义这套调色板，默认配色和其它配色一样由代码在启动时写入，只有一份来源。
+- **切换配色必须清控件的渲染缓存。** 控件把每段文字连同解析好的画刷一起缓存，只有字体变化才清缓存；不清的话背景会变、已缓存的文字还是旧颜色。控件没有公开接口，`RefreshRendering` 通过反射调用 `ClearFormattedTextCache` 并重绘内部 surface。库升级若改了这两个成员名，`CanClearRenderCache` 会变成 false，Debug MCP 的 `terminal_appearance_check` 会报出来。
+- **只提供深色配色。** 控件没有独立的默认前景/背景：背景用调色板 0 号，默认文字用 15 号。浅色配色只能把 ANSI "黑色"设成浅色，会让所有用黑色输出的程序看不见字。
+- **回滚行数只对新标签页生效。** XTerm.NET 在创建缓冲区时按 `TerminalOptions.Scrollback` 定长，之后改不了；所以 `TerminalView` 通过构造参数接收它。字体和配色立即作用于已打开的终端。
+
 ## AI 面板的 ConPTY 渲染
 
 AI 面板另有两条独立的约束：

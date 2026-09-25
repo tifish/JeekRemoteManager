@@ -124,6 +124,7 @@ internal static class DebugMcpServer
         host.AddTool("terminal_output_coalescing_check", _ => TerminalOutputCoalescingCheckAsync());
         host.AddTool("script_completion_order_check", _ => ScriptCompletionOrderCheckAsync());
         host.AddTool("terminal_encoding_check", _ => TerminalEncodingCheckAsync());
+        host.AddTool("terminal_appearance_check", _ => TerminalAppearanceCheckAsync());
         host.AddTool(
             "terminal_output_backpressure_check",
             _ => Task.FromResult(TerminalOutputBackpressureCheck()));
@@ -1939,6 +1940,144 @@ internal static class DebugMcpServer
     }
 
     /// <summary>
+    /// Terminal font, color scheme and scrollback come from settings. Applies a scheme and a
+    /// font, opens a tab, and checks it got the font and the configured scrollback; then
+    /// renders the terminal with a row of full blocks and verifies both the background and
+    /// the (cached) text color follow a scheme switch — the control caches each text run with
+    /// its brush, so a switch that skipped the cache clear would leave the old text color.
+    /// The original appearance is restored.
+    /// </summary>
+    private static async Task<JsonObject> TerminalAppearanceCheckAsync()
+    {
+        var failures = new List<string>();
+        var original = await OnUiAsync(() => (Desktop?.MainWindow as Views.MainWindow)?.DebugTerminalAppearance);
+        if (original is null)
+            return ToolText("FAIL: MainWindow is not available.", isError: true);
+
+        var first = new TerminalAppearanceSettings("Consolas", "Dracula", 2345);
+        var second = first with { ColorScheme = "Campbell" };
+        TabItem? tab = null;
+        string fontName = "", firstSample = "", secondSample = "";
+        var scrollback = 0;
+        try
+        {
+            await OnUiAsync(() =>
+            {
+                ((Views.MainWindow)Desktop!.MainWindow!).DebugApplyTerminalAppearance(first);
+                return true;
+            });
+            tab = await OnUiAsync(() => ((Views.MainWindow)Desktop!.MainWindow!).DebugCreateTerminalTabForLifecycleProbe());
+            var view = await OnUiAsync(() => (TerminalView)tab!.Content!);
+            await OnUiAsync(() =>
+            {
+                view.DebugFeedRawOutput(Encoding.UTF8.GetBytes(
+                    "\u001b[2J\u001b[H" + new string('█', 30) + "\r\n"));
+                return true;
+            });
+            await Task.Delay(400);
+            (fontName, scrollback) = await OnUiAsync(() => (view.DebugTerminalFontFamily, view.DebugScrollbackLines));
+            if (!fontName.StartsWith("Consolas", StringComparison.Ordinal))
+                failures.Add($"new tab did not get the configured font (got {fontName})");
+            if (scrollback != 2345)
+                failures.Add($"new tab did not get the configured scrollback (got {scrollback})");
+
+            firstSample = await OnUiAsync(() => SampleTerminalColors(view.DebugTerminalControl));
+            ExpectColors("Dracula", firstSample, failures);
+
+            await OnUiAsync(() =>
+            {
+                ((Views.MainWindow)Desktop!.MainWindow!).DebugApplyTerminalAppearance(second);
+                return true;
+            });
+            await Task.Delay(300);
+            secondSample = await OnUiAsync(() => SampleTerminalColors(view.DebugTerminalControl));
+            ExpectColors("Campbell", secondSample, failures);
+
+            if (!TerminalAppearance.CanClearRenderCache)
+                failures.Add("the terminal control no longer exposes its render cache hooks");
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"{ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is Views.MainWindow main)
+                {
+                    main.DebugApplyTerminalAppearance(original);
+                    if (tab is not null)
+                        main.CloseTerminalSession(tab);
+                }
+                return true;
+            });
+        }
+
+        var passed = failures.Count == 0;
+        var report = $"{(passed ? "PASS" : "FAIL")}: terminal font, color scheme and scrollback follow settings\n"
+            + $"font={fontName}\nscrollback={scrollback}\nDracula: {firstSample}\nCampbell: {secondSample}\n"
+            + $"failures={failures.Count}"
+            + (passed ? "" : "\n" + string.Join("\n", failures));
+        return ToolText(report, isError: !passed);
+    }
+
+    /// <summary>
+    /// Renders a terminal and returns "bg=#RRGGBB fg=#RRGGBB": the most common color of the
+    /// whole control (the background) and the most common other color in its top rows
+    /// (the row of full blocks, drawn in the default foreground).
+    /// </summary>
+    private static string SampleTerminalColors(Avalonia.Controls.Control control)
+    {
+        var scaling = TopLevel.GetTopLevel(control)?.RenderScaling ?? 1.0;
+        var size = new PixelSize(
+            Math.Max(1, (int)(control.Bounds.Width * scaling)),
+            Math.Max(1, (int)(control.Bounds.Height * scaling)));
+        using var bitmap = new RenderTargetBitmap(size, new Vector(96 * scaling, 96 * scaling));
+        bitmap.Render(control);
+        var stride = size.Width * 4;
+        var pixels = new byte[stride * size.Height];
+        var handle = System.Runtime.InteropServices.GCHandle.Alloc(pixels, System.Runtime.InteropServices.GCHandleType.Pinned);
+        try
+        {
+            bitmap.CopyPixels(new PixelRect(size), handle.AddrOfPinnedObject(), pixels.Length, stride);
+        }
+        finally
+        {
+            handle.Free();
+        }
+
+        string ColorAt(int index) => $"#{pixels[index + 2]:X2}{pixels[index + 1]:X2}{pixels[index]:X2}";
+        var all = new Dictionary<string, int>();
+        for (var i = 0; i < pixels.Length; i += 4)
+            all[ColorAt(i)] = all.GetValueOrDefault(ColorAt(i)) + 1;
+        var background = all.MaxBy(pair => pair.Value).Key;
+
+        var top = new Dictionary<string, int>();
+        var rows = Math.Min(size.Height, (int)(40 * scaling));
+        for (var y = 0; y < rows; y++)
+        {
+            for (var x = 0; x < size.Width / 2; x++)
+            {
+                var color = ColorAt(y * stride + x * 4);
+                if (color != background)
+                    top[color] = top.GetValueOrDefault(color) + 1;
+            }
+        }
+
+        var foreground = top.Count == 0 ? "(none)" : top.MaxBy(pair => pair.Value).Key;
+        return $"bg={background} fg={foreground}";
+    }
+
+    private static void ExpectColors(string schemeName, string sample, List<string> failures)
+    {
+        var scheme = TerminalAppearance.FindScheme(schemeName);
+        var expected = $"bg={scheme.Palette[0].ToUpperInvariant()} fg={scheme.Palette[15].ToUpperInvariant()}";
+        if (sample != expected)
+            failures.Add($"{schemeName}: rendered {sample}, expected {expected}");
+    }
+
+    /// <summary>
     /// A connection can name a legacy terminal encoding (GBK and friends). Verifies each
     /// text boundary honours it: output split mid-character renders intact through the real
     /// terminal pipeline, typed UTF-8 input reaches the shell as GBK, captured script output
@@ -2879,6 +3018,7 @@ internal static class DebugMcpServer
                 var cards = new[]
                 {
                     "SettingsAppearanceCard",
+                    "SettingsTerminalCard",
                     "SettingsFilesCard",
                     "SettingsSecurityCard",
                     "SettingsUpdatesCard",
@@ -2907,7 +3047,12 @@ internal static class DebugMcpServer
                                && dialog.Height >= 640
                                && dialog.MinWidth <= dialog.Width
                                && dialog.MinHeight <= dialog.Height;
-                var ok = dialog.IsVisible && structureOk && cardsOk && actionsOk && sizingOk;
+                // The terminal card always opens on a concrete choice for each field.
+                var terminalBoxes = new[] { "SettingsTerminalFontBox", "SettingsTerminalSchemeBox", "SettingsTerminalScrollbackBox" }
+                    .Select(name => descendants.OfType<ComboBox>().FirstOrDefault(control => control.Name == name))
+                    .ToArray();
+                var terminalOk = terminalBoxes.All(box => box?.SelectedItem is not null);
+                var ok = dialog.IsVisible && structureOk && cardsOk && actionsOk && sizingOk && terminalOk;
 
                 return (ok,
                     $"{(ok ? "PASS" : "FAIL")}: Settings dialog layout\n"
@@ -2915,7 +3060,8 @@ internal static class DebugMcpServer
                     + $"rows={(root is null ? 0 : root.RowDefinitions.Count)}, structure={structureOk}\n"
                     + $"scrollbars={scroller?.HorizontalScrollBarVisibility}/{scroller?.VerticalScrollBarVisibility}\n"
                     + $"cards={string.Join(",", cards.Select(card => card?.Name ?? "missing"))}\n"
-                    + $"actions={string.Join(",", actionPanel?.Children.Select(control => control.Name ?? "unnamed") ?? [])}");
+                    + $"actions={string.Join(",", actionPanel?.Children.Select(control => control.Name ?? "unnamed") ?? [])}\n"
+                    + $"terminal={string.Join(",", terminalBoxes.Select(box => box?.SelectedItem?.ToString() ?? "missing"))}");
             }
             finally
             {

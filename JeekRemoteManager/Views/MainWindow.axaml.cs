@@ -457,6 +457,8 @@ public partial class MainWindow : Window
             EnsureSshTerminalAsync(connection, sourcePath, TerminalOpenMode.ReuseTab, select: false);
         vm.ApplyTerminalFontSize = ApplyTerminalFontToOpenTabs;
         ApplyTerminalFontToOpenTabs(vm.TerminalFontSize);
+        vm.ApplyTerminalAppearance = ApplyTerminalAppearanceToOpenTabs;
+        ApplyTerminalAppearanceToOpenTabs(vm.TerminalAppearance);
         vm.ConfirmHostKeyReplacement = HostKeyDialog.PromptReplace;
         SshConnectionFactory.PromptUser = KeyboardInteractiveDialog.Prompt;
         vm.RequestFocusTree = FocusSelectedTreeItem;
@@ -886,6 +888,12 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Creates a process-free terminal tab for the Debug MCP lifecycle probe.</summary>
+    /// <summary>Debug MCP: the appearance new tabs get, and a way to apply another one.</summary>
+    internal TerminalAppearanceSettings DebugTerminalAppearance => _terminalAppearance;
+
+    internal void DebugApplyTerminalAppearance(TerminalAppearanceSettings appearance) =>
+        ApplyTerminalAppearanceToOpenTabs(appearance);
+
     internal TabItem DebugCreateTerminalTabForLifecycleProbe()
     {
         var (_, tab) = CreateTerminalTab(
@@ -1033,7 +1041,8 @@ public partial class MainWindow : Window
     {
         var sessionNumber = NextTerminalSessionNumber(connection, sourcePath);
         var adjacentTitles = FindAdjacentConnectionTitles(sourcePath);
-        var view = new TerminalView
+        var appearance = _terminalAppearance;
+        var view = new TerminalView(appearance.ScrollbackLines)
         {
             SessionNumber = sessionNumber,
             BastionSessionPool = _bastionSessionPool,
@@ -1063,6 +1072,7 @@ public partial class MainWindow : Window
             RightTabs.SelectedItem = tab;
 
         view.SetFontSize((DataContext as MainWindowViewModel)?.TerminalFontSize ?? 14);
+        view.SetFontFamily(TerminalAppearance.ResolveFontFamily(appearance.FontFamily));
         return (view, tab);
     }
 
@@ -1315,6 +1325,34 @@ public partial class MainWindow : Window
         }
 
         flyout.ShowAt(anchor ?? tab);
+    }
+
+    /// <summary>Appearance new tabs are created with; replaced whenever it is applied.</summary>
+    private TerminalAppearanceSettings _terminalAppearance = new(
+        null, TerminalAppearance.DefaultSchemeName, TerminalAppearance.DefaultScrollbackLines);
+
+    /// <summary>
+    /// Applies a terminal appearance: the color scheme goes into the application resources
+    /// every terminal renders from, the font to each open terminal. Scrollback is kept for
+    /// tabs opened from now on — an existing buffer cannot be resized.
+    /// </summary>
+    private void ApplyTerminalAppearanceToOpenTabs(TerminalAppearanceSettings appearance)
+    {
+        _terminalAppearance = appearance;
+        if (Application.Current is { } app)
+            TerminalAppearance.ApplyColorScheme(app.Resources, TerminalAppearance.FindScheme(appearance.ColorScheme));
+
+        var family = TerminalAppearance.ResolveFontFamily(appearance.FontFamily);
+        GlobalAgentPanel.SetFontFamily(family);
+        GlobalAgentPanel.RefreshTerminalColors();
+        foreach (var item in RightTabs.Items)
+        {
+            if (item is TabItem { Content: TerminalView view })
+            {
+                view.SetFontFamily(family);
+                view.RefreshTerminalColors();
+            }
+        }
     }
 
     private void ApplyTerminalFontToOpenTabs(int size)
@@ -3524,7 +3562,8 @@ public partial class MainWindow : Window
         string? currentTheme,
         bool currentCheckOnStartup,
         int currentIntervalHours,
-        string? currentEditorPath)
+        string? currentEditorPath,
+        TerminalAppearanceSettings currentTerminal)
     {
         var tcs = new TaskCompletionSource<SettingsDialogResult?>();
 
@@ -3737,6 +3776,79 @@ public partial class MainWindow : Window
             Localizer.Get("SettingsAppearanceSection"),
             appearanceFields);
 
+        // Terminal font: "default" first, then every installed family (the saved one is kept
+        // even if it is no longer installed, so opening the dialog never changes it).
+        var fontChoices = new List<FontChoice> { new(Localizer.Get("TerminalFontDefault"), null) };
+        fontChoices.AddRange(FontManager.Current.SystemFonts
+            .Select(family => family.Name)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .Select(name => new FontChoice(name, name)));
+        if (currentTerminal.FontFamily is { } savedFont
+            && !fontChoices.Any(choice => string.Equals(choice.Family, savedFont, StringComparison.OrdinalIgnoreCase)))
+        {
+            fontChoices.Insert(1, new FontChoice(savedFont, savedFont));
+        }
+        var terminalFontBox = new ComboBox
+        {
+            Name = "SettingsTerminalFontBox",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            MaxDropDownHeight = 360,
+            ItemsSource = fontChoices,
+            SelectedIndex = Math.Max(0, fontChoices.FindIndex(choice =>
+                string.Equals(choice.Family, currentTerminal.FontFamily, StringComparison.OrdinalIgnoreCase))),
+        };
+        var schemeNames = TerminalAppearance.Schemes.Select(scheme => scheme.Name).ToArray();
+        var terminalSchemeBox = new ComboBox
+        {
+            Name = "SettingsTerminalSchemeBox",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            ItemsSource = schemeNames,
+            SelectedItem = TerminalAppearance.NormalizeSchemeName(currentTerminal.ColorScheme),
+        };
+        var scrollbackChoices = TerminalAppearance.ScrollbackChoices
+            .Append(currentTerminal.ScrollbackLines)
+            .Distinct()
+            .Order()
+            .ToArray();
+        var terminalScrollbackBox = new ComboBox
+        {
+            Name = "SettingsTerminalScrollbackBox",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            ItemsSource = scrollbackChoices,
+            SelectedItem = currentTerminal.ScrollbackLines,
+        };
+        var terminalFields = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,*"),
+            RowDefinitions = new RowDefinitions("Auto,Auto"),
+            ColumnSpacing = 14,
+            RowSpacing = 14,
+        };
+        var terminalFontField = BuildSettingsField(Localizer.Get("TerminalFontLabel"), terminalFontBox);
+        var terminalSchemeField = BuildSettingsField(Localizer.Get("TerminalColorSchemeLabel"), terminalSchemeBox);
+        var terminalScrollbackField = BuildSettingsField(Localizer.Get("TerminalScrollbackLabel"), terminalScrollbackBox);
+        var terminalScrollbackHint = new TextBlock
+        {
+            Text = Localizer.Get("TerminalScrollbackHint"),
+            Classes = { "hint" },
+            TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Margin = new Avalonia.Thickness(0, 0, 0, 6),
+        };
+        Grid.SetColumn(terminalSchemeField, 1);
+        Grid.SetRow(terminalScrollbackField, 1);
+        Grid.SetRow(terminalScrollbackHint, 1);
+        Grid.SetColumn(terminalScrollbackHint, 1);
+        terminalFields.Children.Add(terminalFontField);
+        terminalFields.Children.Add(terminalSchemeField);
+        terminalFields.Children.Add(terminalScrollbackField);
+        terminalFields.Children.Add(terminalScrollbackHint);
+        var terminalCard = BuildSettingsCard(
+            "SettingsTerminalCard",
+            Localizer.Get("SettingsTerminalSection"),
+            terminalFields);
+
         var storageOptions = new StackPanel
         {
             Spacing = 8,
@@ -3824,7 +3936,7 @@ public partial class MainWindow : Window
             {
                 Margin = new Avalonia.Thickness(24, 4, 24, 20),
                 Spacing = 12,
-                Children = { appearanceCard, filesCard, securityCard, updatesCard },
+                Children = { appearanceCard, terminalCard, filesCard, securityCard, updatesCard },
             },
         };
 
@@ -3909,7 +4021,11 @@ public partial class MainWindow : Window
                 theme,
                 checkOnStartup,
                 intervalHours,
-                editorBox.Text?.Trim()));
+                editorBox.Text?.Trim(),
+                new TerminalAppearanceSettings(
+                    (terminalFontBox.SelectedItem as FontChoice)?.Family,
+                    terminalSchemeBox.SelectedItem as string ?? TerminalAppearance.DefaultSchemeName,
+                    terminalScrollbackBox.SelectedItem is int lines ? lines : currentTerminal.ScrollbackLines)));
             dialog.Close();
         };
         cancel.Click += (_, _) => { tcs.TrySetResult(null); dialog.Close(); };
@@ -3927,6 +4043,12 @@ public partial class MainWindow : Window
 
     /// <summary>A selectable UI theme; <see cref="Code"/> is null for "follow system".</summary>
     private sealed record ThemeChoice(string Label, string? Code)
+    {
+        public override string ToString() => Label;
+    }
+
+    /// <summary>A terminal font; <see cref="Family"/> is null for the default mono font.</summary>
+    private sealed record FontChoice(string Label, string? Family)
     {
         public override string ToString() => Label;
     }

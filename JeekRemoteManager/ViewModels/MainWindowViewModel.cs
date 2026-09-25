@@ -337,7 +337,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public Func<string, string, Task<bool>>? ConfirmAsync { get; set; }
     public Func<string, string, string, Task<string?>>? PromptAsync { get; set; }
     public Func<Task<string?>>? PickKeyFileAsync { get; set; }
-    public Func<StorageLocation, string?, string?, string?, bool, int, string?, Task<SettingsDialogResult?>>? PickSettingsAsync { get; set; }
+    public Func<StorageLocation, string?, string?, string?, bool, int, string?, TerminalAppearanceSettings, Task<SettingsDialogResult?>>? PickSettingsAsync { get; set; }
     /// <summary>Opens a folder picker. Args: suggested start path, optional dialog title.</summary>
     public Func<string, string?, Task<string?>>? PickFolderAsync { get; set; }
 
@@ -370,6 +370,15 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>Current terminal font size (points); the view sizes terminals with it.</summary>
     public int TerminalFontSize => _settings.Settings.TerminalFontSize;
+
+    /// <summary>Terminal font, color scheme and scrollback as currently saved.</summary>
+    public TerminalAppearanceSettings TerminalAppearance => new(
+        _settings.Settings.TerminalFontFamily,
+        _settings.Settings.TerminalColorScheme,
+        _settings.Settings.TerminalScrollbackLines);
+
+    /// <summary>Set by the view: pushes a terminal appearance to every open terminal.</summary>
+    public Action<TerminalAppearanceSettings>? ApplyTerminalAppearance { get; set; }
 
     /// <summary>Persisted width of the in-terminal AI assistant panel (device-independent
     /// pixels), shared across terminal tabs and remembered across runs.</summary>
@@ -980,6 +989,7 @@ public partial class MainWindowViewModel : ViewModelBase
             _settings.ReloadRoamingSettings();
             ApplyLanguage(_settings.Settings.Language);
             ApplyTheme(_settings.Settings.Theme);
+            ApplyTerminalAppearance?.Invoke(TerminalAppearance);
             if (previousInterval != _settings.Settings.UpdateCheckIntervalHours)
                 _updateIntervalChanged.Cancel();
         }
@@ -3584,9 +3594,24 @@ public partial class MainWindowViewModel : ViewModelBase
             _settings.Settings.Theme,
             _settings.Settings.CheckUpdateOnStartup,
             _settings.Settings.UpdateCheckIntervalHours,
-            _settings.Settings.FileBrowserEditorPath);
+            _settings.Settings.FileBrowserEditorPath,
+            TerminalAppearance);
         if (result is null)
             return;
+
+        // Font and colors apply to every open terminal at once; scrollback to new tabs.
+        var terminal = new TerminalAppearanceSettings(
+            string.IsNullOrWhiteSpace(result.Terminal.FontFamily) ? null : result.Terminal.FontFamily.Trim(),
+            Services.TerminalAppearance.NormalizeSchemeName(result.Terminal.ColorScheme),
+            Services.TerminalAppearance.NormalizeScrollback(result.Terminal.ScrollbackLines));
+        if (terminal != TerminalAppearance)
+        {
+            _settings.Settings.TerminalFontFamily = terminal.FontFamily;
+            _settings.Settings.TerminalColorScheme = terminal.ColorScheme;
+            _settings.Settings.TerminalScrollbackLines = terminal.ScrollbackLines;
+            _settings.SaveIfChanged();
+            ApplyTerminalAppearance?.Invoke(TerminalAppearance);
+        }
 
         // Apply the remote-editing editor; takes effect on the next F4 open.
         var editorPath = string.IsNullOrWhiteSpace(result.FileBrowserEditorPath)

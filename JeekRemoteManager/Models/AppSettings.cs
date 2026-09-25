@@ -96,6 +96,15 @@ public class AppSettings
     /// <summary>Terminal font size in points, adjustable from the toolbar.</summary>
     public int TerminalFontSize { get; set; } = 14;
 
+    /// <summary>Terminal font family. Null = the default mono font.</summary>
+    public string? TerminalFontFamily { get; set; }
+
+    /// <summary>Terminal color scheme name (see <see cref="Services.TerminalAppearance.Schemes"/>).</summary>
+    public string TerminalColorScheme { get; set; } = Services.TerminalAppearance.DefaultSchemeName;
+
+    /// <summary>Lines of history each new terminal keeps.</summary>
+    public int TerminalScrollbackLines { get; set; } = Services.TerminalAppearance.DefaultScrollbackLines;
+
     /// <summary>Width of the in-terminal AI assistant panel, in device-independent pixels.</summary>
     public double AiPanelWidth { get; set; } = 380;
 
@@ -248,6 +257,15 @@ public class RoamingAppSettings
     /// <summary>Terminal font size in points, adjustable from the toolbar.</summary>
     public int TerminalFontSize { get; set; } = 14;
 
+    /// <summary>Terminal font family. Null = the default mono font.</summary>
+    public string? TerminalFontFamily { get; set; }
+
+    /// <summary>Terminal color scheme name.</summary>
+    public string TerminalColorScheme { get; set; } = Services.TerminalAppearance.DefaultSchemeName;
+
+    /// <summary>Lines of history each new terminal keeps.</summary>
+    public int TerminalScrollbackLines { get; set; } = Services.TerminalAppearance.DefaultScrollbackLines;
+
     /// <summary>AI panel: last-used provider label ("Claude", "Codex", "Grok"). Null = first available.</summary>
     public string? AiProvider { get; set; }
 
@@ -262,4 +280,5 @@ public record SettingsDialogResult(
     string? Theme,
     bool CheckUpdateOnStartup,
     int UpdateCheckIntervalHours,
-    string? FileBrowserEditorPath);
+    string? FileBrowserEditorPath,
+    Services.TerminalAppearanceSettings Terminal);

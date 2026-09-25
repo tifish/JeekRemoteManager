@@ -11,6 +11,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Jeek.Avalonia.Localization;
 using JeekRemoteManager.Services;
@@ -363,6 +364,15 @@ public partial class AgentCliPanelView : UserControl
         CliTerm.FontSize = size;
         Dispatcher.UIThread.Post(SyncViewportToConPty, DispatcherPriority.Render);
     }
+
+    public void SetFontFamily(FontFamily family)
+    {
+        CliTerm.FontFamily = family;
+        Dispatcher.UIThread.Post(SyncViewportToConPty, DispatcherPriority.Render);
+    }
+
+    /// <summary>Repaints the CLI terminal after the color scheme resources changed.</summary>
+    public void RefreshTerminalColors() => TerminalAppearance.RefreshRendering(CliTerm);
 
     public double TerminalFontSize => CliTerm.FontSize;
 

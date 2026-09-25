@@ -185,6 +185,12 @@ DialogMoveConfigMessage	Move existing Config data to the new location?\n\nFrom: 
 DialogSettingsTitle	Settings	设置
 SettingsSubtitle	Customize appearance, files, security, and updates.	自定义外观、文件、安全与更新选项。
 SettingsAppearanceSection	Appearance	外观
+SettingsTerminalSection	Terminal	终端
+TerminalFontLabel	Font	字体
+TerminalFontDefault	Default (Cascadia Mono)	默认（Cascadia Mono）
+TerminalColorSchemeLabel	Color scheme	配色方案
+TerminalScrollbackLabel	Scrollback lines	回滚行数
+TerminalScrollbackHint	Scrollback applies to newly opened tabs; font and colors apply immediately.	回滚行数对新打开的标签页生效；字体和配色立即生效。
 SettingsFilesSection	Files and storage	文件与存储
 SettingsSecuritySection	Security	安全
 SettingsUpdatesSection	Updates	更新

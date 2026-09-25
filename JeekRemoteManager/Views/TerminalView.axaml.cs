@@ -14,6 +14,7 @@ using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.LogicalTree;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -105,13 +106,7 @@ public partial class TerminalView : UserControl
     private const int ResizeOutputQuietPeriodMs = 150;
     private const int ResizeOutputHardLimitMs = 800;
 
-    private readonly TerminalControlModel _model = new(new TerminalOptions
-    {
-        Cols = 120,
-        Rows = 30,
-        // Disable resize reflow so full-screen TUIs (top, vim, mc) stay stable.
-        ReflowOnResize = false,
-    });
+    private readonly TerminalControlModel _model;
 
     private Connection? _connection;
     private readonly object _clientReferenceGate = new();
@@ -312,7 +307,22 @@ public partial class TerminalView : UserControl
         && (_connection?.IsWsl == true || _client?.IsConnected == true);
 
     public TerminalView()
+        : this(TerminalAppearance.DefaultScrollbackLines)
     {
+    }
+
+    /// <param name="scrollbackLines">History this tab keeps. The terminal buffer is sized once,
+    /// when it is created, so the setting reaches new tabs only.</param>
+    public TerminalView(int scrollbackLines)
+    {
+        _model = new TerminalControlModel(new TerminalOptions
+        {
+            Cols = 120,
+            Rows = 30,
+            // Disable resize reflow so full-screen TUIs (top, vim, mc) stay stable.
+            ReflowOnResize = false,
+            Scrollback = TerminalAppearance.NormalizeScrollback(scrollbackLines),
+        });
         InitializeComponent();
         _outputFrameFlushTimer = new Timer(
             _ => Dispatcher.UIThread.Post(DrainTerminalOutputFrame));
@@ -2066,6 +2076,30 @@ public partial class TerminalView : UserControl
     }
 
     /// <summary>Sets the terminal font size in points (main shell and AI CLI panel).</summary>
+    /// <summary>Sets the terminal font family (main shell and AI CLI panel).</summary>
+    public void SetFontFamily(FontFamily family)
+    {
+        Term.FontFamily = family;
+        AiPanel.SetFontFamily(family);
+        Dispatcher.UIThread.Post(SyncWindowSize, DispatcherPriority.Background);
+    }
+
+    /// <summary>Repaints both terminals after the color scheme resources changed.</summary>
+    public void RefreshTerminalColors()
+    {
+        TerminalAppearance.RefreshRendering(Term);
+        AiPanel.RefreshTerminalColors();
+    }
+
+    /// <summary>Scrollback this tab was created with, for Debug MCP.</summary>
+    internal int DebugScrollbackLines => _model.Terminal.Options.Scrollback;
+
+    /// <summary>The main terminal control, for Debug MCP rendering checks.</summary>
+    internal TerminalControl DebugTerminalControl => Term;
+
+    /// <summary>Font family of the main terminal, for Debug MCP.</summary>
+    internal string DebugTerminalFontFamily => Term.FontFamily.Name;
+
     public void SetFontSize(double size)
     {
         Term.FontSize = size;

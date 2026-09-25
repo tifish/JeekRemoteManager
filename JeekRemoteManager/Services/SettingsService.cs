@@ -231,6 +231,9 @@ public class SettingsService
             CheckUpdateOnStartup = roamingSettings.CheckUpdateOnStartup,
             UpdateCheckIntervalHours = roamingSettings.UpdateCheckIntervalHours,
             TerminalFontSize = roamingSettings.TerminalFontSize,
+            TerminalFontFamily = roamingSettings.TerminalFontFamily,
+            TerminalColorScheme = roamingSettings.TerminalColorScheme,
+            TerminalScrollbackLines = roamingSettings.TerminalScrollbackLines,
             AiProvider = roamingSettings.AiProvider,
         };
 
@@ -275,6 +278,9 @@ public class SettingsService
             CheckUpdateOnStartup = settings.CheckUpdateOnStartup,
             UpdateCheckIntervalHours = settings.UpdateCheckIntervalHours,
             TerminalFontSize = settings.TerminalFontSize,
+            TerminalFontFamily = settings.TerminalFontFamily,
+            TerminalColorScheme = settings.TerminalColorScheme,
+            TerminalScrollbackLines = settings.TerminalScrollbackLines,
             AiProvider = settings.AiProvider,
         };
         NormalizeRoamingSettings(roamingSettings);
@@ -315,6 +321,9 @@ public class SettingsService
         settings.CheckUpdateOnStartup = normalized.CheckUpdateOnStartup;
         settings.UpdateCheckIntervalHours = normalized.UpdateCheckIntervalHours;
         settings.TerminalFontSize = normalized.TerminalFontSize;
+        settings.TerminalFontFamily = normalized.TerminalFontFamily;
+        settings.TerminalColorScheme = normalized.TerminalColorScheme;
+        settings.TerminalScrollbackLines = normalized.TerminalScrollbackLines;
         settings.AiProvider = normalized.AiProvider;
     }
 
@@ -386,6 +395,11 @@ public class SettingsService
         if (settings.UpdateCheckIntervalHours < 0)
             settings.UpdateCheckIntervalHours = 0;
         settings.TerminalFontSize = Math.Clamp(settings.TerminalFontSize, 8, 36);
+        settings.TerminalFontFamily = string.IsNullOrWhiteSpace(settings.TerminalFontFamily)
+            ? null
+            : settings.TerminalFontFamily.Trim();
+        settings.TerminalColorScheme = TerminalAppearance.NormalizeSchemeName(settings.TerminalColorScheme);
+        settings.TerminalScrollbackLines = TerminalAppearance.NormalizeScrollback(settings.TerminalScrollbackLines);
         if (string.IsNullOrWhiteSpace(settings.AiProvider))
             settings.AiProvider = null;
 
