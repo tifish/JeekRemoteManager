@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using JeekRemoteManager.Models;
+using JeekTools;
 
 namespace JeekRemoteManager.Services;
 
@@ -450,7 +451,12 @@ public static class AgentCliCatalog
         // MCP URL + tool approval: workspace .codex/config.toml only.
         // Do not pass `-c mcp_servers.jrm-remote...` here — Codex treats partial MCP server
         // overrides as a new entry without url/command and fails with "invalid transport".
-        return ["--no-alt-screen"];
+        // Elevated (including UAC-off machines, where every process is): Codex refuses to start
+        // its shared app-server daemon with admin rights and exits. Turn off the auto-start
+        // feature rather than passing --no-daemon, which older Codex builds reject as unknown.
+        return Admin.IsElevated()
+            ? ["--no-alt-screen", "-c", "features.daemon_auto_start=false"]
+            : ["--no-alt-screen"];
     }
 
     private static IReadOnlyList<string> BuildCopilotArguments()

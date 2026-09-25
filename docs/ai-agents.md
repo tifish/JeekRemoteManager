@@ -69,6 +69,7 @@ AI 面板的选项菜单既能在资源管理器中打开工作区，也能复�
 - **但 argv[0] 分派型的 shim 不能解析**（例如 mise 的 `codex.exe` → `mise.exe`）：目标二进制按被调用的文件名选择行为，直接启动解析后的路径会丢掉工具身份。
 - **桌面协议可用性必须显式检查**。ShellExecute 对任何 URI 都能调用，未注册的 scheme 只会在用户点了之后才失败，所以要先查注册的处理器。注意**打包应用（MSIX/Store）只在 scheme 键下写一个 `URL Protocol` 值**，激活走包清单，没有 `shell\open\command`——所以查处理器命令的那条路对它们一律查不到，得单独判断 scheme 是否已注册。**Claude 桌面版和 Codex 桌面版现在都是这种包**，光查处理器命令会把装好的桌面应用报成没装。
 - **Codex 桌面版必须走 deep link，不能走 `codex app [PATH]`**。Windows 上 `codex app` 只是用 PowerShell 找到 MSIX 包的开始菜单 AppID 再 `Start-Process` 它，**不带任何参数**：应用起来了，但停在自己的首页，路径被丢掉。打开工作区的唯一办法是 `codex://threads/new?path=<工作区>`，它在应用没运行时也会把应用拉起来。桌面应用没装时才回退到 `codex app`——那条路会打开应用安装器。
+- **提权运行时 Codex CLI 要关掉共享 daemon**。新版 Codex 默认自动拉起共享的 app-server daemon，但拒绝从管理员进程启动它（"start the Windows daemon from a non-elevated terminal"），直接退出。JRM 提权运行时（包括关闭 UAC 的机器——那里所有进程都是提权的，根本没有非提权终端可用）就给 Codex 加 `-c features.daemon_auto_start=false`。不用报错里建议的 `--no-daemon`：旧版 Codex 不认识这个参数会拒绝启动，而未知的 feature 键只会被忽略。非提权时不加，保留 daemon 的会话共享。
 - Cursor CLI 只在 PATH 上按**无歧义的 `cursor-agent`** 名字探测——裸 `agent` 会和别家撞（Grok 在自己的 bin 目录里就有 `agent.exe`）。
 
 探测结果**短暂缓存**：一次探测要走遍 PATH 上所有支持的工具外加注册表，是几百次同步查找，而且原先每次打开面板都在 UI 线程上跑两遍。缓存时间的选择原则是：长到让打开一个 AI 面板期间的多次调用共享一次探测，但**远短于用户跑去下载页或外部控制台安装一趟的时间**——那样装好的 agent 必须在用户回来时就出现，不需要重启应用。探测在锁外进行（几百次文件系统和注册表查找，持锁会把其他调用方全堵在后面）；两个调用方同时探测就都探测，谁的快照胜出都一样新。

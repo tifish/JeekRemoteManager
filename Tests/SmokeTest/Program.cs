@@ -1720,6 +1720,8 @@ try
               "Data\\AgentSupport\\Pi\\jrm-mcp.ts",
               StringComparison.OrdinalIgnoreCase)),
           "AI CLI args are runtime-only; MCP URL/context and Codex approval live in workspace");
+    Check(codexAutoArgs.Contains("features.daemon_auto_start=false") == JeekTools.Admin.IsElevated(),
+          "Codex skips its app-server daemon only when this process is elevated");
 
     var desktopPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
