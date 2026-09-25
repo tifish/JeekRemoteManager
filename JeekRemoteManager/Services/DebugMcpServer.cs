@@ -150,6 +150,7 @@ internal static class DebugMcpServer
         host.AddTool("bastion_login_template_check", _ => BastionLoginTemplateCheckAsync());
         host.AddTool("bastion_template_preset_check", _ => BastionTemplatePresetCheckAsync());
         host.AddTool("conpty_teardown_race_check", _ => ConPtyTeardownRaceCheckAsync());
+        host.AddTool("conpty_environment_check", _ => ConPtyEnvironmentCheckAsync());
         host.AddTool("bastion_channel_limit_check", _ => BastionChannelLimitCheckAsync());
         host.AddTool("bastion_reuse_landing_check", _ => Task.FromResult(BastionReuseLandingCheck()));
         host.AddTool("bastion_pool_lease_check", _ => BastionPoolLeaseCheckAsync());
@@ -5432,6 +5433,45 @@ internal static class DebugMcpServer
     {
         public bool IsDisposed { get; private set; }
         public void Dispose() => IsDisposed = true;
+    }
+
+    /// <summary>
+    /// Verify the environment received by an interactive child without exposing secrets.
+    /// </summary>
+    private static async Task<JsonObject> ConPtyEnvironmentCheckAsync()
+    {
+        var parentTerm = Environment.GetEnvironmentVariable("TERM");
+        using var session = ConPtySession.Start(
+            Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe",
+            ["/d", "/q", "/k",
+                "echo __JRM_TERM__%TERM%& if defined PATH echo __JRM_PATH_OK__& "
+                + "if defined SystemRoot echo __JRM_SYSTEMROOT_OK__& echo __JRM_ENV_DONE__"],
+            120, 25);
+        // Keep the child alive until the read loop has received its output. Only
+        // report presence for inherited variables; never dump the environment.
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        string output;
+        do
+        {
+            await Task.Delay(50);
+            output = session.GetRecentOutputPlainText(8192);
+        } while (!output.Contains("__JRM_ENV_DONE__", StringComparison.Ordinal)
+                 && DateTime.UtcNow < deadline);
+
+        var termCorrect = output.Contains("__JRM_TERM__xterm-256color", StringComparison.Ordinal);
+        var inherited = output.Contains("__JRM_PATH_OK__", StringComparison.Ordinal)
+            && output.Contains("__JRM_SYSTEMROOT_OK__", StringComparison.Ordinal);
+        var parentUnchanged = Environment.GetEnvironmentVariable("TERM") == parentTerm;
+        var passed = termCorrect && inherited && parentUnchanged;
+        var report = new JsonObject
+        {
+            ["passed"] = passed,
+            ["childTermCorrect"] = termCorrect,
+            ["inheritedVariablesPresent"] = inherited,
+            ["parentTermUnchanged"] = parentUnchanged,
+            ["parentTermWasDumb"] = string.Equals(parentTerm, "dumb", StringComparison.OrdinalIgnoreCase),
+        };
+        return ToolText(report.ToJsonString(), isError: !passed);
     }
 
     /// <summary>

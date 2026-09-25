@@ -342,8 +342,19 @@ public sealed partial class ConPtySession : IDisposable
         var attributeListSize = IntPtr.Zero;
         InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref attributeListSize);
         var attributeList = Marshal.AllocHGlobal(attributeListSize);
+        var environment = IntPtr.Zero;
         try
         {
+            // We own this interactive terminal. A launcher (including an agent's
+            // redirected shell) can advertise TERM=dumb, which makes Codex prompt
+            // instead of starting its TUI. Override only the child's environment.
+            var variables = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
+                variables[(string)entry.Key] = (string)entry.Value!;
+            variables["TERM"] = "xterm-256color";
+            environment = Marshal.StringToHGlobalUni(
+                string.Join('\0', variables.Select(entry => $"{entry.Key}={entry.Value}")) + "\0\0");
+
             if (!InitializeProcThreadAttributeList(attributeList, 1, 0, ref attributeListSize))
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "InitializeProcThreadAttributeList failed.");
 
@@ -362,7 +373,7 @@ public sealed partial class ConPtySession : IDisposable
 
                 if (!CreateProcessW(
                         null, commandLine, IntPtr.Zero, IntPtr.Zero, bInheritHandles: false,
-                        ExtendedStartupInfoPresent, IntPtr.Zero, workingDirectory,
+                        ExtendedStartupInfoPresent | CreateUnicodeEnvironment, environment, workingDirectory,
                         ref startupInfo, out var processInfo))
                 {
                     throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateProcess failed.");
@@ -378,6 +389,7 @@ public sealed partial class ConPtySession : IDisposable
         }
         finally
         {
+            Marshal.FreeHGlobal(environment);
             Marshal.FreeHGlobal(attributeList);
         }
     }
@@ -425,6 +437,7 @@ public sealed partial class ConPtySession : IDisposable
     // ---- P/Invoke ----
 
     private const uint ExtendedStartupInfoPresent = 0x00080000;
+    private const uint CreateUnicodeEnvironment = 0x00000400;
 
     private static readonly IntPtr ProcThreadAttributePseudoConsole = (IntPtr)0x20016;
     private const uint JobObjectLimitKillOnJobClose = 0x2000;

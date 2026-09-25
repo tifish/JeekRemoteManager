@@ -26,6 +26,8 @@
 
 另外 `ConPtySession` 保留了 64 KiB 的最近输出环形缓冲（`RecentOutputBuffer`），用于在 CLI 还没来得及显示就退出时，把最后几行错误捞出来给状态栏。用环形缓冲而不是"列表 + 从头删"，是因为后者要在整个会话生命周期里每来一块数据就整体搬一次窗口。
 
+**子进程的终端类型由 ConPTY 宿主声明。** 启动器可能带着 `TERM=dumb`（例如 agent 的重定向 shell），不能把它原样继承给内嵌交互终端，否则 Codex 会停在 `Continue anyway?`。创建进程时复制继承环境，仅将子进程的 `TERM` 设置为 `xterm-256color`，通过 Unicode 环境块传入，保留 PATH 等其它变量；不能临时修改父进程环境，避免并发启动串扰。Debug MCP 的 `conpty_environment_check` 验证真实子进程收到的值，并检查父进程环境未变。
+
 ## SSH 终端的接收路径
 
 `TerminalView.OnShellData` 的分支顺序是有讲究的，从上到下依次是：
