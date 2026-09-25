@@ -118,7 +118,8 @@ public static class ProductMcpContract
             },
             ["source", "path"]),
         Tool("known_hosts_list",
-            "Trusted SSH host-key fingerprints, keyed by host:port.",
+            "Trusted SSH host-key fingerprints, keyed by host:port, with the key type each host "
+            + "presented (empty for entries saved before key types were recorded).",
             new()),
         Tool("known_hosts_forget",
             "Drop a stored host fingerprint — the equivalent of ssh-keygen -R, for when a server "

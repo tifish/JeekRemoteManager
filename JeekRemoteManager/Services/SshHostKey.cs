@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Renci.SshNet;
 using Renci.SshNet.Common;
 
@@ -9,6 +10,14 @@ namespace JeekRemoteManager.Services;
 /// First-seen keys are trusted and saved automatically. A remembered key that
 /// changes is accepted only when <paramref name="onMismatch"/> confirms replacing it.
 /// </summary>
+/// <remarks>
+/// A server usually holds several host keys (ed25519, ecdsa, rsa) and presents whichever
+/// family the client ranks first. If that ranking changes — an SSH.NET upgrade, a server
+/// that dropped an algorithm — the server shows a different, perfectly legitimate key and
+/// the fingerprint no longer matches. So, like OpenSSH, the family remembered for a host is
+/// moved to the front of the offer. The mismatch check itself stays family-agnostic: a
+/// different family is never trusted silently, since a spoofer chooses what to present.
+/// </remarks>
 public static class SshHostKey
 {
     /// <param name="onMismatch">(keyType, savedFingerprint, presentedFingerprint) =&gt; replace? — prompt before replacing a remembered host key; null = reject.</param>
@@ -22,6 +31,7 @@ public static class SshHostKey
         Action<string>? onRejected = null,
         Action<string>? onTrusted = null)
     {
+        PreferRememberedKeyType(client.ConnectionInfo, host, port);
         client.HostKeyReceived += (_, e) =>
         {
             e.CanTrust = Evaluate(
@@ -35,6 +45,26 @@ public static class SshHostKey
         };
     }
 
+    /// <summary>
+    /// Moves every host-key algorithm of the family remembered for this host to the front of
+    /// the client's offer, keeping their relative order. No-op for unknown hosts.
+    /// </summary>
+    internal static void PreferRememberedKeyType(ConnectionInfo info, string host, int port)
+    {
+        if (!KnownHostsStore.TryGetKeyType(host, port, out var family))
+            return;
+
+        var algorithms = info.HostKeyAlgorithms;
+        var preferred = algorithms
+            .Where(pair => KnownHostsStore.KeyFamily(pair.Key) == family)
+            .ToList();
+        for (var i = preferred.Count - 1; i >= 0; i--)
+        {
+            algorithms.Remove(preferred[i].Key);
+            algorithms.Insert(0, preferred[i].Key, preferred[i].Value);
+        }
+    }
+
     internal static bool Evaluate(
         string host,
         int port,
@@ -44,7 +74,7 @@ public static class SshHostKey
         Action<string>? onRejected = null,
         Action<string>? onTrusted = null)
     {
-        switch (KnownHostsStore.Check(host, port, fingerprint))
+        switch (KnownHostsStore.Check(host, port, keyType, fingerprint))
         {
             case KnownHostsStore.Status.Match:
                 return true;
@@ -55,7 +85,7 @@ public static class SshHostKey
                     : "(unavailable)";
                 if (onMismatch?.Invoke(keyType, saved, fingerprint) == true)
                 {
-                    KnownHostsStore.Trust(host, port, fingerprint);
+                    KnownHostsStore.Trust(host, port, fingerprint, keyType);
                     onTrusted?.Invoke(fingerprint);
                     return true;
                 }
@@ -65,7 +95,7 @@ public static class SshHostKey
                 return false;
 
             default:
-                KnownHostsStore.Trust(host, port, fingerprint);
+                KnownHostsStore.Trust(host, port, fingerprint, keyType);
                 onTrusted?.Invoke(fingerprint);
                 return true;
         }

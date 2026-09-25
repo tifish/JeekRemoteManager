@@ -671,11 +671,12 @@ internal static class ProductMcpServer
     private static async Task<JsonObject> KnownHostsListAsync()
     {
         var hosts = await Task.Run(() => KnownHostsStore.All()
-            .OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(entry => entry.Host, StringComparer.OrdinalIgnoreCase)
             .Select(JsonNode (entry) => new JsonObject
             {
-                ["host"] = entry.Key,
-                ["fingerprint"] = entry.Value,
+                ["host"] = entry.Host,
+                ["fingerprint"] = entry.Fingerprint,
+                ["keyType"] = entry.KeyType,
             })
             .ToArray()).ConfigureAwait(false);
 

@@ -1237,9 +1237,10 @@ internal static class DebugMcpServer
         const string first = "first-fingerprint";
         const string replacement = "replacement-fingerprint";
         var failures = new List<string>();
+        var corruptDir = Path.Combine(Path.GetTempPath(), "jrm-known-hosts-" + Guid.NewGuid().ToString("N"));
         try
         {
-            if (KnownHostsStore.Check(host, port, first) != KnownHostsStore.Status.Unknown)
+            if (KnownHostsStore.Check(host, port, "ssh-ed25519", first) != KnownHostsStore.Status.Unknown)
                 failures.Add("new host was not unknown");
 
             var unexpectedPrompt = false;
@@ -1255,16 +1256,20 @@ internal static class DebugMcpServer
                 });
             if (!firstAccepted || unexpectedPrompt)
                 failures.Add("first-seen key was not accepted silently");
-            if (KnownHostsStore.Check(host, port, first) != KnownHostsStore.Status.Match)
+            if (KnownHostsStore.Check(host, port, "ssh-ed25519", first) != KnownHostsStore.Status.Match)
                 failures.Add("first-seen key was not saved");
-            if (KnownHostsStore.Check(host, port, replacement) != KnownHostsStore.Status.Mismatch)
+            if (!KnownHostsStore.TryGetKeyType(host, port, out var firstFamily) || firstFamily != "ssh-ed25519")
+                failures.Add($"first-seen key family was not recorded (got '{firstFamily}')");
+            if (KnownHostsStore.Check(host, port, "ssh-ed25519", replacement) != KnownHostsStore.Status.Mismatch)
                 failures.Add("changed key was not detected as a mismatch");
+            if (KnownHostsStore.Check(host, port, "ecdsa-sha2-nistp256", replacement) != KnownHostsStore.Status.Mismatch)
+                failures.Add("a key of another family was not treated as a mismatch");
 
             var prompted = false;
             var accepted = SshHostKey.Evaluate(
                 host,
                 port,
-                "ssh-ed25519",
+                "rsa-sha2-512",
                 replacement,
                 onMismatch: (_, saved, presented) =>
                 {
@@ -1273,19 +1278,63 @@ internal static class DebugMcpServer
                 });
             if (!prompted || !accepted)
                 failures.Add("replacement decision was not accepted");
-            if (KnownHostsStore.Check(host, port, replacement) != KnownHostsStore.Status.Match)
+            if (KnownHostsStore.Check(host, port, "rsa-sha2-256", replacement) != KnownHostsStore.Status.Match)
                 failures.Add("replacement key was not stored");
+            if (!KnownHostsStore.TryGetKeyType(host, port, out var rsaFamily) || rsaFamily != "ssh-rsa")
+                failures.Add($"rsa-sha2-512 was not recorded as the ssh-rsa family (got '{rsaFamily}')");
+
+            // Remembered family goes first in the offer, whatever SSH.NET's default order is.
+            var info = new Renci.SshNet.ConnectionInfo(host, port, "probe",
+                new Renci.SshNet.PasswordAuthenticationMethod("probe", "probe"));
+            SshHostKey.PreferRememberedKeyType(info, host, port);
+            var offered = info.HostKeyAlgorithms.Keys.ToList();
+            var firstOffered = offered.FirstOrDefault() ?? "";
+            if (KnownHostsStore.KeyFamily(firstOffered) != "ssh-rsa")
+                failures.Add($"remembered family was not offered first (got {string.Join(",", offered.Take(4))})");
+            if (offered.Count != new Renci.SshNet.ConnectionInfo(host, port, "probe",
+                    new Renci.SshNet.PasswordAuthenticationMethod("probe", "probe")).HostKeyAlgorithms.Count)
+                failures.Add("reordering changed the set of offered algorithms");
+
+            // An entry from before families were recorded learns its family on the next match.
+            KnownHostsStore.Trust(host, port, first);
+            var legacyHasFamily = KnownHostsStore.TryGetKeyType(host, port, out _);
+            if (legacyHasFamily)
+                failures.Add("a family-less trust still reported a family");
+            KnownHostsStore.Check(host, port, "ecdsa-sha2-nistp256", first);
+            if (!KnownHostsStore.TryGetKeyType(host, port, out var learned) || learned != "ecdsa-sha2-nistp256")
+                failures.Add($"legacy entry did not learn its family on match (got '{learned}')");
+
+            if (KnownHostsStore.All().Any(entry => entry.Host.Contains('#')))
+                failures.Add("All() exposed an internal family entry as a host");
+
+            // A corrupt file is kept aside instead of being silently overwritten.
+            Directory.CreateDirectory(corruptDir);
+            var corruptPath = Path.Combine(corruptDir, "known_hosts.json");
+            File.WriteAllText(corruptPath, "{ \"kept.example:22\": \"abc\", broken");
+            KnownHostsStore.FilePathOverride = corruptPath;
+            var corruptStatus = KnownHostsStore.Check("kept.example", 22, "ssh-ed25519", "abc");
+            KnownHostsStore.Trust("new.example", 22, "def", "ssh-ed25519");
+            var backups = Directory.GetFiles(corruptDir, "known_hosts.json.corrupt-*");
+            if (corruptStatus != KnownHostsStore.Status.Unknown)
+                failures.Add($"corrupt file was not treated as empty (got {corruptStatus})");
+            if (backups.Length != 1 || !File.ReadAllText(backups[0]).Contains("kept.example", StringComparison.Ordinal))
+                failures.Add($"corrupt file was not backed up (backups={backups.Length})");
+            if (KnownHostsStore.Check("new.example", 22, "ssh-ed25519", "def") != KnownHostsStore.Status.Match)
+                failures.Add("store did not recover after backing up a corrupt file");
 
             var passed = failures.Count == 0;
             var report = $"{(passed ? "PASS" : "FAIL")}: host-key trust flow\n"
                 + $"unknownAutoAccepted={firstAccepted && !unexpectedPrompt}\nmatch=true\nmismatch=true\n"
-                + $"replacement={prompted && accepted}\nfailures={failures.Count}"
+                + $"replacement={prompted && accepted}\nfirstOffered={firstOffered}\n"
+                + $"corruptBackups={backups.Length}\nfailures={failures.Count}"
                 + (passed ? "" : "\n" + string.Join("\n", failures));
             return ToolText(report, isError: !passed);
         }
         finally
         {
+            KnownHostsStore.FilePathOverride = null;
             KnownHostsStore.Forget(host, port);
+            try { Directory.Delete(corruptDir, recursive: true); } catch { /* ignore */ }
         }
     }
 
@@ -1306,9 +1355,10 @@ internal static class DebugMcpServer
         var hadOriginal = KnownHostsStore.TryGet(host, port, out var original);
         string rejectedMessage = "(none)";
         string trusted = "(none)";
+        string rememberedFamily = "(none)";
         try
         {
-            KnownHostsStore.Trust(host, port, "planted-wrong-fingerprint");
+            KnownHostsStore.Trust(host, port, "planted-wrong-fingerprint", "ssh-ed25519");
             using (var session = new SftpSession(() => SshConnectionFactory.Build(connection)))
             {
                 try
@@ -1341,6 +1391,35 @@ internal static class DebugMcpServer
                 trusted = saved;
             else
                 failures.Add("first-use SFTP dial did not record the host key");
+
+            // Simulate a client whose default ranking now puts another family first (an
+            // SSH.NET upgrade does exactly this). The remembered family must still win the
+            // negotiation, so the host is recognised instead of raising a false alarm.
+            KnownHostsStore.TryGetKeyType(host, port, out rememberedFamily);
+            using (var session = new SftpSession(() =>
+                   {
+                       var info = SshConnectionFactory.Build(connection);
+                       foreach (var pair in info.HostKeyAlgorithms
+                                    .Where(pair => KnownHostsStore.KeyFamily(pair.Key) != rememberedFamily)
+                                    .Reverse()
+                                    .ToList())
+                       {
+                           info.HostKeyAlgorithms.Remove(pair.Key);
+                           info.HostKeyAlgorithms.Insert(0, pair.Key, pair.Value);
+                       }
+
+                       return info;
+                   }))
+            {
+                try
+                {
+                    await session.RunAsync(ops => ops.WorkingDirectory, FileSystemRetry.Idempotent);
+                }
+                catch (Exception ex)
+                {
+                    failures.Add($"dial with a re-ranked algorithm offer failed: {ex.Message}");
+                }
+            }
         }
         finally
         {
@@ -1353,6 +1432,7 @@ internal static class DebugMcpServer
         var passed = failures.Count == 0;
         var report = $"{(passed ? "PASS" : "FAIL")}: SFTP dial verifies the host key\n"
             + $"target={username}@{host}:{port}\nmismatchRejected={rejectedMessage}\ntrustedOnFirstUse={trusted}\n"
+            + $"rememberedFamily={rememberedFamily}\n"
             + $"failures={failures.Count}"
             + (passed ? "" : "\n" + string.Join("\n", failures));
         return ToolText(report, isError: !passed);
