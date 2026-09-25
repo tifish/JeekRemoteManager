@@ -205,6 +205,24 @@ public partial class AgentCliPanelView : UserControl
     /// <summary>Text captured by the last Ctrl+C copy on the CLI terminal, for Debug MCP.</summary>
     public string? DebugLastCliCopiedText { get; private set; }
 
+    /// <summary>Workspace path captured by the last options-menu copy, for Debug MCP.</summary>
+    public string? DebugLastCopiedWorkspacePath { get; private set; }
+
+    /// <summary>
+    /// Exercises the workspace-copy action without replacing the user's real clipboard.
+    /// Debug MCP uses this to verify the exact absolute path handed to Avalonia.
+    /// </summary>
+    internal string DebugCopyWorkspaceFolder()
+    {
+        string? copied = null;
+        CopyWorkspaceFolderAsync(text =>
+        {
+            copied = text;
+            return Task.CompletedTask;
+        }).GetAwaiter().GetResult();
+        return copied ?? "(none)";
+    }
+
     /// <summary>Hex of the last user-input bytes raised by the CLI terminal, for Debug MCP.</summary>
     public string DebugLastCliUserInputHex { get; private set; } = "(none)";
 
@@ -285,6 +303,40 @@ public partial class AgentCliPanelView : UserControl
         catch (Exception ex)
         {
             _vm.StatusText = string.Format(Localizer.Get("StatusOpenFolderFailed"), ex.Message);
+        }
+    }
+
+    /// <summary>Copies this tab's generated workspace path to the system clipboard.</summary>
+    private async void OnCopyWorkspaceFolderClick(object? sender, RoutedEventArgs e) =>
+        await CopyWorkspaceFolderAsync();
+
+    private async Task CopyWorkspaceFolderAsync(Func<string, Task>? clipboardWriter = null)
+    {
+        if (_vm is null)
+            return;
+
+        try
+        {
+            var workspace = Path.GetFullPath(_vm.WorkingDirectory);
+            if (clipboardWriter is not null)
+            {
+                await clipboardWriter(workspace);
+            }
+            else if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard)
+            {
+                await clipboard.SetTextAsync(workspace);
+            }
+            else
+            {
+                throw new InvalidOperationException(Localizer.Get("StatusClipboardUnavailable"));
+            }
+
+            DebugLastCopiedWorkspacePath = workspace;
+            _vm.StatusText = string.Format(Localizer.Get("AiWorkspaceFolderCopied"), workspace);
+        }
+        catch (Exception ex)
+        {
+            _vm.StatusText = string.Format(Localizer.Get("AiCopyWorkspaceFolderFailed"), ex.Message);
         }
     }
 

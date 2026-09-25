@@ -107,6 +107,9 @@
                                 <MenuItem Header="{l:Localize AiOpenWorkspaceFolder}"
                                           Click="OnOpenWorkspaceFolderClick"
                                           ToolTip.Tip="{l:Localize AiOpenWorkspaceFolderHint}" />
+                                <MenuItem Header="{l:Localize AiCopyWorkspaceFolder}"
+                                          Click="OnCopyWorkspaceFolderClick"
+                                          ToolTip.Tip="{l:Localize AiCopyWorkspaceFolderHint}" />
                                 <MenuItem Header="{l:Localize AiLinkProject}"
                                           Click="OnWriteToProjectClick"
                                           IsVisible="{Binding ShowConnectionOptions}"

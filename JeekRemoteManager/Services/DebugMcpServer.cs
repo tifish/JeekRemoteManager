@@ -3690,15 +3690,29 @@ internal static class DebugMcpServer
                 }
             }
 
+            var openWorkspaceLabel = Localizer.Get("AiOpenWorkspaceFolder");
+            var copyWorkspaceLabel = Localizer.Get("AiCopyWorkspaceFolder");
             var connectionLinkLabel = Localizer.Get("AiLinkProject");
-            var (optionHeaders, hasExecutionToggle) = await OnUiAsync(() =>
+            var (optionHeaders, hasExecutionToggle, copiedWorkspace, copyStatus) = await OnUiAsync(() =>
             {
-                var panel = _renderProbeView?.DebugAiPanel ?? new Views.AgentCliPanelView();
+                var panel = new Views.AgentCliPanelView();
+                var vm = new AgentCliPanelViewModel(workspace);
+                panel.DataContext = vm;
+                var copied = panel.DebugCopyWorkspaceFolder();
                 return (panel.OptionsMenuHeaders.ToArray(),
                     panel.FindControl<MenuItem>("AutoRunMenuItem") is not null
-                    || panel.FindControl<MenuItem>("AutoApproveMenuItem") is not null);
+                    || panel.FindControl<MenuItem>("AutoApproveMenuItem") is not null,
+                    copied,
+                    vm.StatusText);
             });
             report.AppendLine("options-menu: " + string.Join(" | ", optionHeaders));
+            report.AppendLine("workspace-copy: " + copiedWorkspace);
+            Check("AI options menu exposes workspace open", optionHeaders.Contains(openWorkspaceLabel));
+            Check("AI options menu exposes workspace copy", optionHeaders.Contains(copyWorkspaceLabel));
+            Check(
+                "AI workspace copy writes the exact absolute path",
+                copiedWorkspace == Path.GetFullPath(workspace)
+                && copyStatus.Contains(copiedWorkspace, StringComparison.Ordinal));
             Check("AI options menu exposes connection MCP write", optionHeaders.Contains(connectionLinkLabel));
             Check("AI options menu has no execution approval toggles", !hasExecutionToggle);
 

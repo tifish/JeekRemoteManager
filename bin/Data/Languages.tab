@@ -138,6 +138,7 @@ StatusPasted	Pasted.	已粘贴。
 StatusPastedMultiple	Pasted {0} items.	已粘贴 {0} 项。
 StatusPasteFailed	Paste failed: {0}	粘贴失败：{0}
 StatusClipboardGone	Clipboard item no longer exists.	剪贴板项目已不存在。
+StatusClipboardUnavailable	The system clipboard is unavailable.	系统剪贴板不可用。
 StatusAutoSaved	Auto-saved '{0}'.	已自动保存“{0}”。
 StatusAutoSaveFailed	Auto-save failed: {0}	自动保存失败：{0}
 StatusCheckingUpdates	Checking for updates…	正在检查更新…
@@ -347,6 +348,10 @@ AiHideSshTerminal	Hide SSH terminal	隐藏 SSH 终端
 AiHideSshTerminalHint	Hide the SSH terminal and let the assistant fill the whole tab. Commands still run on the server.	隐藏 SSH 终端面板，AI 助手占满整个页面。命令仍会在服务器上执行。
 AiOpenWorkspaceFolder	Open the workspace folder	打开工作区目录
 AiOpenWorkspaceFolderHint	Opens this tab's generated agent workspace (AGENTS.md and the project MCP configs) in Explorer, so you can open it in any editor.	在资源管理器中打开本标签页生成的 AI 工作区目录（AGENTS.md 与各项目 MCP 配置），可用任意编辑器打开它。
+AiCopyWorkspaceFolder	Copy the workspace path	复制工作区目录
+AiCopyWorkspaceFolderHint	Copies the full path of this tab's generated agent workspace to the clipboard.	将本标签页生成的 AI 工作区完整路径复制到剪贴板。
+AiWorkspaceFolderCopied	Workspace path copied: {0}	已复制工作区目录：{0}
+AiCopyWorkspaceFolderFailed	Could not copy the workspace path: {0}	无法复制工作区目录：{0}
 AiLinkProject	Write this connection's MCP…	写入本连接MCP…
 AiLinkProjectHint	Choose a project folder and which MCP agents should receive this connection. Unchecked agents are removed.	选择项目目录以及要写入本连接 MCP 的 Agent；未勾选的会从该目录移除。
 AiLinkProjectTitle	Choose the project folder whose agents should use this connection	选择要让其中 AI 使用此连接的项目目录

@@ -191,7 +191,7 @@ public static class DebugMcpContract
             "Connects to the app's own MCP named pipe as a client and runs initialize + tools/list plus a second concurrent session, verifying the pipe transport, its ACL, and the line framing.",
             new()),
         Tool("agent_project_link_check",
-            "Links a throwaway project folder to a synthetic agent workspace and verifies the AGENTS.md/CLAUDE.md reference block plus every merged MCP config in the catalog uses the portable cmd launcher (no username path), then a selective rewrite (unused files/folders removed), refresh (no duplicates) and unlink (project content restored). Also checks the AI options menu exposes the connection MCP write action.",
+            "Links a throwaway project folder to a synthetic agent workspace and verifies the AGENTS.md/CLAUDE.md reference block plus every merged MCP config in the catalog uses the portable cmd launcher (no username path), then a selective rewrite (unused files/folders removed), refresh (no duplicates) and unlink (project content restored). Also checks the AI options menu exposes workspace open/copy and the connection MCP write action, and that copy writes the exact absolute workspace path.",
             new()
             {
                 ["panel"] = Prop("boolean", "Also drive the live AI panel view model from the open ai_render_probe tab (default false)."),
