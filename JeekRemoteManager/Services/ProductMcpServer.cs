@@ -114,8 +114,10 @@ internal static class ProductMcpServer
             (tools, a) => tools.GetScrollbackAsync(Math.Clamp(a["lines"]?.GetValue<int>() ?? 200, 1, 5000))));
         host.AddTool("terminal_send_keys", args => InSessionAsync(args,
             (tools, a) => tools.SendKeysAsync(McpHost.RequiredString(a, "text"))));
-        host.AddTool("file_upload", args => TransferAsync(args, isUpload: true));
-        host.AddTool("file_download", args => TransferAsync(args, isUpload: false));
+        host.AddTool("file_upload", (args, cancellationToken) =>
+            TransferAsync(args, isUpload: true, cancellationToken));
+        host.AddTool("file_download", (args, cancellationToken) =>
+            TransferAsync(args, isUpload: false, cancellationToken));
         host.AddTool("monitor_snapshot", args => InSessionAsync(args, (tools, _) => tools.GetMonitorSnapshotAsync()));
         return host;
     }
@@ -887,7 +889,9 @@ internal static class ProductMcpServer
     /// connection's saved binding, with anything passed in <c>params</c> layered on top for
     /// this run only — including secrets, which are accepted but never read back.
     /// </summary>
-    private static async Task<JsonObject> ScriptRunAsync(JsonObject args)
+    private static async Task<JsonObject> ScriptRunAsync(
+        JsonObject args,
+        CancellationToken cancellationToken)
     {
         var suiteName = McpHost.RequiredString(args, "suite");
         var scriptName = McpHost.RequiredString(args, "script");
@@ -904,11 +908,12 @@ internal static class ProductMcpServer
         if (await OnUiAsync(() => view.IsScriptRunning).ConfigureAwait(false))
             return ToolText("This session is already running a script; wait for it to finish.", isError: true);
 
-        var result = await view.RunScriptAsync(suite, scriptFile, binding).ConfigureAwait(false);
+        var result = await view.RunScriptAsync(suite, scriptFile, binding, cancellationToken)
+            .ConfigureAwait(false);
 
         // The run streams into the session's terminal; hand back the tail so the agent can
         // read what happened without a second round trip.
-        var tail = await view.AgentRemoteTools.GetScrollbackAsync(200).ConfigureAwait(false);
+        var tail = await view.AgentRemoteTools.GetScrollbackAsync(200, cancellationToken).ConfigureAwait(false);
         return ToolText(new JsonObject
         {
             ["suite"] = suite.Name,
@@ -924,7 +929,9 @@ internal static class ProductMcpServer
     /// Sessions are opened as needed, each connection keeps its own saved parameter binding,
     /// and one failure does not stop the rest.
     /// </summary>
-    private static async Task<JsonObject> ScriptRunBatchAsync(JsonObject args)
+    private static async Task<JsonObject> ScriptRunBatchAsync(
+        JsonObject args,
+        CancellationToken cancellationToken)
     {
         var suiteName = McpHost.RequiredString(args, "suite");
         var scriptName = McpHost.RequiredString(args, "script");
@@ -950,11 +957,16 @@ internal static class ProductMcpServer
                 var view = await ResolveOrOpenSessionAsync(path, openMissing).ConfigureAwait(false);
                 var binding = await OnUiAsync(() => BuildScriptBinding(suite, view.Connection, overrides))
                     .ConfigureAwait(false);
-                var result = await view.RunScriptAsync(suite, scriptFile, binding).ConfigureAwait(false);
+                var result = await view.RunScriptAsync(suite, scriptFile, binding, cancellationToken)
+                    .ConfigureAwait(false);
 
                 entry["status"] = result.ExitCode == 0 ? "ok" : "failed";
                 entry["exitCode"] = result.ExitCode;
                 entry["seconds"] = Math.Round((result.FinishedAt - result.StartedAt).TotalSeconds, 1);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -969,7 +981,10 @@ internal static class ProductMcpServer
         if (sequential)
         {
             foreach (var path in connections)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
                 results.Add(await RunOneAsync(path).ConfigureAwait(false));
+            }
         }
         else
         {
@@ -1261,16 +1276,20 @@ internal static class ProductMcpServer
         return ToolText(await action(tools, args).ConfigureAwait(false));
     }
 
-    private static async Task<JsonObject> RunCommandAsync(JsonObject args)
+    private static async Task<JsonObject> RunCommandAsync(
+        JsonObject args,
+        CancellationToken cancellationToken)
     {
         var command = McpHost.RequiredString(args, "command");
         int? timeout = args["timeout_seconds"] is { } node ? node.GetValue<int>() : null;
         var tools = await ResolveToolsAsync(args).ConfigureAwait(false);
 
-        return ToolText(await tools.RunCommandAsync(command, timeout).ConfigureAwait(false));
+        return ToolText(await tools.RunCommandAsync(command, timeout, cancellationToken).ConfigureAwait(false));
     }
 
-    private static async Task<JsonObject> RunCommandBatchAsync(JsonObject args)
+    private static async Task<JsonObject> RunCommandBatchAsync(
+        JsonObject args,
+        CancellationToken cancellationToken)
     {
         var command = McpHost.RequiredString(args, "command");
         int? timeout = args["timeout_seconds"] is { } timeoutNode
@@ -1290,14 +1309,18 @@ internal static class ProductMcpServer
         async Task<JsonObject> RunOneAsync(string connection)
         {
             var result = new JsonObject { ["connection"] = connection };
-            await gate.WaitAsync().ConfigureAwait(false);
+            await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
                 var view = await ResolveOrOpenSessionAsync(connection, openMissing).ConfigureAwait(false);
                 result["output"] = await view.AgentRemoteTools
-                    .RunCommandAsync(command, timeout)
+                    .RunCommandAsync(command, timeout, cancellationToken)
                     .ConfigureAwait(false);
                 result["status"] = "ok";
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -1322,7 +1345,10 @@ internal static class ProductMcpServer
         }.ToJsonString(PrettyOptions));
     }
 
-    private static async Task<JsonObject> TransferAsync(JsonObject args, bool isUpload)
+    private static async Task<JsonObject> TransferAsync(
+        JsonObject args,
+        bool isUpload,
+        CancellationToken cancellationToken)
     {
         var sources = (args["sources"] as JsonArray)?
             .Select(node => node?.GetValue<string>() ?? "")
@@ -1334,7 +1360,7 @@ internal static class ProductMcpServer
         var destination = args["destination"]?.GetValue<string>();
         var tools = await ResolveToolsAsync(args).ConfigureAwait(false);
         var transfer = new AgentFileTransfer(isUpload, sources, string.IsNullOrWhiteSpace(destination) ? null : destination);
-        return ToolText(await tools.TransferFilesAsync(transfer).ConfigureAwait(false));
+        return ToolText(await tools.TransferFilesAsync(transfer, cancellationToken).ConfigureAwait(false));
     }
 
     #endregion

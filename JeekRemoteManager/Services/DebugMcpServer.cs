@@ -169,6 +169,7 @@ internal static class DebugMcpServer
         host.AddTool("agent_application_link_check", AgentApplicationLinkCheckAsync);
         host.AddTool("global_agent_check", _ => GlobalAgentCheckAsync());
         host.AddTool("mcp_transport_check", _ => McpTransportCheckAsync());
+        host.AddTool("mcp_concurrency_check", _ => McpConcurrencyCheckAsync());
         host.AddTool("mcp_adapter_offline_check", _ => McpAdapterOfflineCheckAsync());
         host.AddTool("product_mcp_check", _ => ProductMcpCheckAsync());
         return host;
@@ -3653,6 +3654,168 @@ internal static class DebugMcpServer
             return ToolText($"FAIL: MCP pipe transport threw {ex.GetType().Name}: {ex.Message}\n{report}",
                 isError: true);
         }
+    }
+
+    /// <summary>
+    /// Exercises request multiplexing and cancellation through the real stdio adapter, then
+    /// checks the pipe host's expanded session capacity and idle-session reaper.
+    /// </summary>
+    private static async Task<JsonObject> McpConcurrencyCheckAsync()
+    {
+        var adapterPath = Path.Combine(AppContext.BaseDirectory, "JeekRemoteManagerMcp.exe");
+        if (!File.Exists(adapterPath))
+            return ToolText($"FAIL: adapter not found at {adapterPath}", isError: true);
+
+        var pipeName = "jrm-concurrency-check-" + Guid.NewGuid().ToString("N");
+        var failures = new List<string>();
+        var host = new McpHost(new McpHostOptions
+        {
+            ServerName = "jrm-concurrency-check",
+            ServerTitle = "JRM concurrency check",
+            Graph = new ObjectGraph(new ObjectGraphOptions
+            {
+                ResolveRoot = _ => throw new InvalidOperationException("No roots."),
+                RootNamesHelp = "(none)",
+            }),
+            PipeName = pipeName,
+            DefaultPort = 0,
+            MaxPipeSessions = 32,
+            PipeSessionIdleTimeout = TimeSpan.FromMinutes(1),
+        });
+        host.AddTool("wait", async (_, cancellationToken) =>
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
+            return ToolText("unexpected completion");
+        });
+
+        var sessions = new List<NamedPipeClientStream>();
+        Process? adapter = null;
+        try
+        {
+            host.Start();
+            var psi = new ProcessStartInfo(adapterPath)
+            {
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                StandardOutputEncoding = new UTF8Encoding(false),
+                StandardInputEncoding = new UTF8Encoding(false),
+            };
+            foreach (var arg in new[] { "--surface", "debug", "--pipe", pipeName, "--no-launch" })
+                psi.ArgumentList.Add(arg);
+            adapter = Process.Start(psi)!;
+
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            await adapter.StandardInput.WriteLineAsync(
+                """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}""")
+                .ConfigureAwait(false);
+            await adapter.StandardInput.FlushAsync().ConfigureAwait(false);
+            _ = await adapter.StandardOutput.ReadLineAsync(timeout.Token).ConfigureAwait(false);
+
+            await adapter.StandardInput.WriteLineAsync(
+                """{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"wait","arguments":{}}}""")
+                .ConfigureAwait(false);
+            await adapter.StandardInput.WriteLineAsync(
+                """{"jsonrpc":"2.0","id":11,"method":"ping"}""").ConfigureAwait(false);
+            await adapter.StandardInput.FlushAsync().ConfigureAwait(false);
+
+            var first = await adapter.StandardOutput.ReadLineAsync(timeout.Token).ConfigureAwait(false);
+            if (first is null || JsonNode.Parse(first)?["id"]?.GetValue<int>() != 11)
+                failures.Add($"ping did not overtake the blocked tool call (got {first ?? "(eof)"})");
+
+            await adapter.StandardInput.WriteLineAsync(
+                """{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":10,"reason":"probe"}}""")
+                .ConfigureAwait(false);
+            await adapter.StandardInput.FlushAsync().ConfigureAwait(false);
+            var cancelled = await adapter.StandardOutput.ReadLineAsync(timeout.Token).ConfigureAwait(false);
+            var cancelledNode = cancelled is null ? null : JsonNode.Parse(cancelled);
+            if (cancelledNode?["id"]?.GetValue<int>() != 10
+                || cancelledNode["error"]?["code"]?.GetValue<int>() != -32800)
+            {
+                failures.Add($"cancelled request did not return -32800 (got {cancelled ?? "(eof)"})");
+            }
+
+            // Keep twelve sessions connected at once; the old default stopped at eight.
+            for (var i = 0; i < 12; i++)
+            {
+                var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+                await pipe.ConnectAsync(3000, timeout.Token).ConfigureAwait(false);
+                sessions.Add(pipe);
+            }
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"{ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            if (adapter is not null)
+            {
+                try { adapter.StandardInput.Close(); } catch { /* already closed */ }
+                try { if (!adapter.HasExited) adapter.Kill(); } catch { /* best effort */ }
+                adapter.Dispose();
+            }
+            foreach (var session in sessions)
+                await session.DisposeAsync().ConfigureAwait(false);
+            host.Stop();
+        }
+
+        // A separate short-lived host proves a connected client with no active work releases
+        // its pipe instance instead of occupying one forever.
+        var idlePipeName = pipeName + "-idle";
+        var idleHost = new McpHost(new McpHostOptions
+        {
+            ServerName = "jrm-idle-check",
+            ServerTitle = "JRM idle check",
+            Graph = new ObjectGraph(new ObjectGraphOptions
+            {
+                ResolveRoot = _ => throw new InvalidOperationException("No roots."),
+                RootNamesHelp = "(none)",
+            }),
+            PipeName = idlePipeName,
+            DefaultPort = 0,
+            PipeSessionIdleTimeout = TimeSpan.FromMilliseconds(300),
+        });
+        try
+        {
+            idleHost.Start();
+            await using var idle = new NamedPipeClientStream(
+                ".", idlePipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+            await idle.ConnectAsync(3000).ConfigureAwait(false);
+            using var reader = new StreamReader(idle, new UTF8Encoding(false), false, leaveOpen: true);
+            using var idleTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            try
+            {
+                var line = await reader.ReadLineAsync(idleTimeout.Token).ConfigureAwait(false);
+                if (line is not null)
+                    failures.Add($"idle session produced unexpected data: {line}");
+            }
+            catch (IOException)
+            {
+                // Disconnection is the expected idle-reaper result.
+            }
+            catch (OperationCanceledException)
+            {
+                failures.Add("idle session was not reclaimed within 3 seconds");
+            }
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"idle check {ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            idleHost.Stop();
+        }
+
+        var passed = failures.Count == 0;
+        return ToolText(
+            $"{(passed ? "PASS" : "FAIL")}: concurrent MCP requests, cancellation, capacity, and idle reaping\n"
+            + $"concurrentSessions={sessions.Count}/12\nfailures={failures.Count}"
+            + (passed ? "" : "\n" + string.Join("\n", failures)),
+            isError: !passed);
     }
 
     /// <summary>

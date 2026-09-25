@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO.Pipes;
 using System.Runtime.Versioning;
@@ -27,13 +28,30 @@ var options = AdapterOptions.Parse(args);
 
 using var stdin = new StreamReader(Console.OpenStandardInput(), AdapterText.Utf8);
 await using var stdout = new StreamWriter(Console.OpenStandardOutput(), AdapterText.Utf8) { AutoFlush = true };
+using var stdoutGate = new SemaphoreSlim(1, 1);
 
-using var connection = new PipeConnection(options);
+async Task WriteStdoutAsync(string line)
+{
+    await stdoutGate.WaitAsync().ConfigureAwait(false);
+    try
+    {
+        await stdout.WriteLineAsync(line).ConfigureAwait(false);
+    }
+    finally
+    {
+        stdoutGate.Release();
+    }
+}
+
+using var connection = new PipeConnection(options, WriteStdoutAsync);
 
 // The tool list the client last received, serialized, or null before it asked. Used to tell
 // the client when the app it reaches now offers a different list than the one it cached —
 // after the app starts, restarts, or is rebuilt with new tools.
 string? clientToolsJson = null;
+var clientToolsGate = new object();
+var inFlight = new ConcurrentDictionary<int, Task>();
+var nextTaskId = 0;
 
 while (await stdin.ReadLineAsync().ConfigureAwait(false) is { } line)
 {
@@ -47,14 +65,25 @@ while (await stdin.ReadLineAsync().ConfigureAwait(false) is { } line)
     }
     catch (Exception ex)
     {
-        await stdout.WriteLineAsync(
+        await WriteStdoutAsync(
             AdapterText.RpcError(null, -32700, $"Parse error: {ex.Message}").ToJsonString()).ConfigureAwait(false);
         continue;
     }
 
     if (message is not null)
-        await HandleAsync(message).ConfigureAwait(false);
+    {
+        var taskId = Interlocked.Increment(ref nextTaskId);
+        var task = HandleAsync(message);
+        inFlight[taskId] = task;
+        _ = task.ContinueWith(
+            _ => inFlight.TryRemove(taskId, out var removed),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
 }
+
+await Task.WhenAll(inFlight.Values).ConfigureAwait(false);
 
 async Task HandleAsync(JsonNode message)
 {
@@ -79,8 +108,12 @@ async Task HandleAsync(JsonNode message)
     {
         var offline = OfflineResponse(method, id, ex.Message);
         if (method == "tools/list")
-            clientToolsJson = ToolsJson(offline);
-        await stdout.WriteLineAsync(offline.ToJsonString()).ConfigureAwait(false);
+        {
+            lock (clientToolsGate)
+                clientToolsJson = ToolsJson(offline);
+        }
+        if (AdapterText.ExpectsResponse(message))
+            await WriteStdoutAsync(offline.ToJsonString()).ConfigureAwait(false);
         return;
     }
 
@@ -89,15 +122,25 @@ async Task HandleAsync(JsonNode message)
         if (method == "initialize")
             response = AdvertiseListChanged(response);
         else if (method == "tools/list")
-            clientToolsJson = ToolsJson(JsonNode.Parse(response));
-        await stdout.WriteLineAsync(response).ConfigureAwait(false);
+        {
+            lock (clientToolsGate)
+                clientToolsJson = ToolsJson(JsonNode.Parse(response));
+        }
+        await WriteStdoutAsync(response).ConfigureAwait(false);
     }
 
     // A fresh pipe means a different app process than the one the client's tool list came
     // from (it just started, or restarted). Compare, and ask the client to re-list if the
     // tools differ — without this the client keeps the list from session start forever.
-    if (connection.TakeFreshConnection() && clientToolsJson is not null && method != "tools/list")
+    if (connection.TakeFreshConnection() && method != "tools/list")
+    {
+        lock (clientToolsGate)
+        {
+            if (clientToolsJson is null)
+                return;
+        }
         await NotifyIfToolsChangedAsync().ConfigureAwait(false);
+    }
 }
 
 async Task NotifyIfToolsChangedAsync()
@@ -106,7 +149,12 @@ async Task NotifyIfToolsChangedAsync()
     try
     {
         var reply = await connection.SendAsync(
-            new JsonObject { ["jsonrpc"] = "2.0", ["id"] = "jrm-adapter-tools-refresh", ["method"] = "tools/list" },
+            new JsonObject
+            {
+                ["jsonrpc"] = "2.0",
+                ["id"] = "jrm-adapter-tools-refresh-" + Guid.NewGuid().ToString("N"),
+                ["method"] = "tools/list",
+            },
             expectsResponse: true,
             mayLaunch: false).ConfigureAwait(false);
         current = reply is null ? null : ToolsJson(JsonNode.Parse(reply));
@@ -116,11 +164,14 @@ async Task NotifyIfToolsChangedAsync()
         return;
     }
 
-    if (current is null || current == clientToolsJson)
-        return;
+    lock (clientToolsGate)
+    {
+        if (current is null || current == clientToolsJson)
+            return;
 
-    clientToolsJson = current;
-    await stdout.WriteLineAsync(
+        clientToolsJson = current;
+    }
+    await WriteStdoutAsync(
         new JsonObject { ["jsonrpc"] = "2.0", ["method"] = "notifications/tools/list_changed" }.ToJsonString())
         .ConfigureAwait(false);
 }
@@ -343,19 +394,24 @@ internal sealed record AdapterOptions(
 }
 
 /// <summary>Lazily connected, self-healing named pipe client.</summary>
-internal sealed class PipeConnection(AdapterOptions options) : IDisposable
+internal sealed class PipeConnection(
+    AdapterOptions options,
+    Func<string, Task> forwardNotification) : IDisposable
 {
+    private readonly object _stateGate = new();
+    private readonly SemaphoreSlim _connectGate = new(1, 1);
+    private readonly SemaphoreSlim _writeGate = new(1, 1);
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pending = new(StringComparer.Ordinal);
     private NamedPipeClientStream? _pipe;
     private StreamReader? _reader;
     private StreamWriter? _writer;
-    private bool _freshConnection;
+    private int _freshConnection;
+    private bool _disposed;
 
     /// <summary>True once after each newly opened pipe, i.e. after reaching a (re)started app.</summary>
     public bool TakeFreshConnection()
     {
-        var fresh = _freshConnection;
-        _freshConnection = false;
-        return fresh;
+        return Interlocked.Exchange(ref _freshConnection, 0) != 0;
     }
 
     /// <summary>
@@ -368,52 +424,84 @@ internal sealed class PipeConnection(AdapterOptions options) : IDisposable
         var payload = message.ToJsonString();
         for (var attempt = 0; ; attempt++)
         {
+            TaskCompletionSource<string>? reply = null;
+            string? requestKey = null;
             try
             {
-                var (reader, writer) = await ConnectAsync(mayLaunch).ConfigureAwait(false);
-                await writer.WriteLineAsync(payload).ConfigureAwait(false);
-                if (!expectsResponse)
-                    return null;
-
-                // Skip server-initiated notifications so they cannot be mistaken for the
-                // reply to this request (the pipe is duplex; the app may push later).
-                while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line)
+                var (pipe, writer) = await ConnectAsync(mayLaunch).ConfigureAwait(false);
+                if (expectsResponse)
                 {
-                    if (line.Length == 0)
-                        continue;
-                    if (JsonNode.Parse(line) is JsonObject reply && reply["id"] is null)
-                        continue;
-                    return line;
+                    requestKey = RequestKey(message)
+                                 ?? throw new InvalidOperationException("A request expecting a response must have an id.");
+                    reply = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    if (!_pending.TryAdd(requestKey, reply))
+                        throw new InvalidOperationException($"A request with id {requestKey} is already in flight.");
                 }
 
-                throw new IOException("The app closed the pipe before replying.");
+                await _writeGate.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    if (!ReferenceEquals(pipe, _pipe) || !pipe.IsConnected)
+                        throw new IOException("The app pipe changed before the request could be written.");
+                    await writer.WriteLineAsync(payload).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _writeGate.Release();
+                }
+
+                return reply is null ? null : await reply.Task.ConfigureAwait(false);
             }
-            catch (Exception) when (attempt == 0)
+            catch (Exception ex) when (attempt == 0)
             {
-                Reset();
+                Reset(ex);
+            }
+            finally
+            {
+                if (requestKey is not null && reply is not null)
+                    _pending.TryRemove(new KeyValuePair<string, TaskCompletionSource<string>>(requestKey, reply));
             }
         }
     }
 
-    private async Task<(StreamReader Reader, StreamWriter Writer)> ConnectAsync(bool mayLaunch)
+    private async Task<(NamedPipeClientStream Pipe, StreamWriter Writer)> ConnectAsync(bool mayLaunch)
     {
-        if (_reader is { } reader && _writer is { } writer && _pipe?.IsConnected == true)
-            return (reader, writer);
+        lock (_stateGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_writer is { } existingWriter && _pipe is { IsConnected: true } existingPipe)
+                return (existingPipe, existingWriter);
+        }
 
-        Reset();
-
+        await _connectGate.WaitAsync().ConfigureAwait(false);
         try
         {
-            await OpenAsync(500).ConfigureAwait(false);
-        }
-        catch (Exception) when (mayLaunch)
-        {
-            LaunchApp();
-            // The GUI has to start, unlock settings, and register the pipe.
-            await OpenAsync(30000).ConfigureAwait(false);
-        }
+            lock (_stateGate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (_writer is { } existingWriter && _pipe is { IsConnected: true } existingPipe)
+                    return (existingPipe, existingWriter);
+            }
 
-        return (_reader!, _writer!);
+            Reset(new IOException("Replacing an unusable app pipe."));
+            try
+            {
+                await OpenAsync(500).ConfigureAwait(false);
+            }
+            catch (Exception) when (mayLaunch)
+            {
+                LaunchApp();
+                // The GUI has to start, unlock settings, and register the pipe.
+                await OpenAsync(30000).ConfigureAwait(false);
+            }
+
+            lock (_stateGate)
+                return (_pipe!, _writer!);
+        }
+        finally
+        {
+            _connectGate.Release();
+        }
     }
 
     private async Task OpenAsync(int timeoutMilliseconds)
@@ -434,10 +522,17 @@ internal sealed class PipeConnection(AdapterOptions options) : IDisposable
                 continue;
             }
 
-            _pipe = pipe;
-            _reader = new StreamReader(pipe, AdapterText.Utf8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
-            _writer = new StreamWriter(pipe, AdapterText.Utf8, leaveOpen: true) { AutoFlush = true };
-            _freshConnection = true;
+            var reader = new StreamReader(pipe, AdapterText.Utf8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+            var writer = new StreamWriter(pipe, AdapterText.Utf8, leaveOpen: true) { AutoFlush = true };
+            lock (_stateGate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                _pipe = pipe;
+                _reader = reader;
+                _writer = writer;
+                Interlocked.Exchange(ref _freshConnection, 1);
+            }
+            _ = Task.Run(() => ReadLoopAsync(pipe, reader));
             return;
         }
 
@@ -457,15 +552,77 @@ internal sealed class PipeConnection(AdapterOptions options) : IDisposable
         });
     }
 
-    private void Reset()
+    private async Task ReadLoopAsync(NamedPipeClientStream pipe, StreamReader reader)
     {
-        try { _reader?.Dispose(); } catch { /* torn down */ }
-        try { _writer?.Dispose(); } catch { /* torn down */ }
-        try { _pipe?.Dispose(); } catch { /* torn down */ }
-        _reader = null;
-        _writer = null;
-        _pipe = null;
+        Exception ended = new IOException("The app closed the pipe before replying.");
+        try
+        {
+            while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line)
+            {
+                if (line.Length == 0)
+                    continue;
+
+                JsonNode? message = JsonNode.Parse(line);
+                var key = message is null ? null : RequestKey(message);
+                if (key is not null && _pending.TryRemove(key, out var reply))
+                    reply.TrySetResult(line);
+                else if (message is JsonObject notification && notification["id"] is null)
+                    await forwardNotification(line).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            ended = ex;
+        }
+        finally
+        {
+            Reset(ended, pipe);
+        }
     }
 
-    public void Dispose() => Reset();
+    private static string? RequestKey(JsonNode message) => message switch
+    {
+        JsonObject single => single["id"]?.ToJsonString(),
+        JsonArray batch => batch.OfType<JsonObject>()
+            .Select(entry => entry["id"])
+            .FirstOrDefault(id => id is not null)?
+            .ToJsonString(),
+        _ => null,
+    };
+
+    private void Reset(Exception reason, NamedPipeClientStream? expectedPipe = null)
+    {
+        NamedPipeClientStream? pipe;
+        StreamReader? reader;
+        StreamWriter? writer;
+        lock (_stateGate)
+        {
+            if (expectedPipe is not null && !ReferenceEquals(expectedPipe, _pipe))
+                return;
+            pipe = _pipe;
+            reader = _reader;
+            writer = _writer;
+            _pipe = null;
+            _reader = null;
+            _writer = null;
+        }
+
+        try { reader?.Dispose(); } catch { /* torn down */ }
+        try { writer?.Dispose(); } catch { /* torn down */ }
+        try { pipe?.Dispose(); } catch { /* torn down */ }
+        foreach (var pending in _pending.ToArray())
+        {
+            if (_pending.TryRemove(pending.Key, out var reply))
+                reply.TrySetException(reason);
+        }
+    }
+
+    public void Dispose()
+    {
+        lock (_stateGate)
+            _disposed = true;
+        Reset(new ObjectDisposedException(nameof(PipeConnection)));
+        _connectGate.Dispose();
+        _writeGate.Dispose();
+    }
 }

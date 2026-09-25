@@ -28,7 +28,9 @@
 
 分帧是**每行一条 JSON-RPC 消息**——和 stdio 适配器另一端说的是同一种分帧，所以适配器转发字节时不需要重新分帧。
 
-每个接受的客户端占一个管道实例，也就是它的 MCP 会话。**这带来一条运维约束**：残留的适配器进程会各自占住一个管道实例，攒多了应用会开始记录 "All pipe instances are busy"，后续调用超时。所以停掉应用后要一并清掉残留的 `JeekRemoteManagerMcp.exe`。
+每个接受的客户端占一个管道实例，也就是它的 MCP 会话。上限是 32（不是旧版的 8），而且没有活动请求的会话空闲 10 分钟后由服务端断开，残留适配器不会永久占住实例。开发构建前仍要清掉残留的 `JeekRemoteManagerMcp.exe`：它们还会锁住固定适配器并在宽限期内占用管道。
+
+**同一会话内的请求并发执行。** 读循环只负责解析和派发，不等待某个工具完成后才继续读下一行；响应写入另行串行化，并按 JSON-RPC `id` 由适配器复用的读循环路由，所以响应可以乱序返回。`notifications/cancelled` 在读循环里直接找到对应请求的 `CancellationTokenSource`，取消令牌沿 `McpHost` 工具处理链传到脚本、`terminal_run`、批量命令和文件传输。被取消的请求返回 JSON-RPC `-32800`。长请求不能挡住取消通知、`ping` 或 `terminal_interrupt`。回归检查是 Debug MCP 的 `mcp_concurrency_check`。
 
 ## 实例 id 与并行 worktree
 
@@ -59,7 +61,7 @@ agent 启动的是 `%LocalAppData%\JeekRemoteManager\Mcp\JeekRemoteManagerMcp.ex
 - 应用不可达时**保持会话可用**而不是让握手失败：客户端保持连接，只有真正的工具调用才报告为什么什么都没发生。离线 `tools/list` 直接从链接进适配器的对应 Contract 返回静态工具表；不能返回空表，否则客户端根本没有工具可调用，而只有 `tools/call` 才会按需启动应用。
 - `initialize` 声明 `tools.listChanged`。适配器连到一个新应用进程后会把在线工具表与客户端上次看到的表比较，变化时发送 `notifications/tools/list_changed`，让一次长期存在的 agent 会话能发现应用升级后的工具。回归检查是 Debug MCP 的 `mcp_adapter_offline_check`。
 - **断管道时重试一次**，这样应用重启不会结束 agent 的会话。
-- 转发时**跳过服务端主动发来的通知**，避免把它们误当成本次请求的回复（管道是双工的）。
+- 适配器用一条专门的读循环按 JSON-RPC `id` 路由响应，并把服务端主动通知原样转给 stdio 客户端；不能让每个调用自己读一行，否则并发响应会串台，通知也可能被误当作回复。
 - `--connection` 参数把适配器**钉在**某个连接上，链接到项目里的配置就不必每次调用都写连接路径。显式参数总是优先。
 - **显式路由过的或固定的适配器绝不回退到 Release**：如果一个 Debug worktree 离线了，转而连上用户已安装的实例是危险的。
 - 只有产品面会按需启动应用；Debug worktree 由已经开着应用的开发者驱动。

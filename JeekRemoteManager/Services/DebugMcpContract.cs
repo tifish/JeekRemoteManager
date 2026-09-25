@@ -211,6 +211,9 @@ public static class DebugMcpContract
         Tool("mcp_transport_check",
             "Connects to the app's own MCP named pipe as a client and runs initialize + tools/list plus a second concurrent session, verifying the pipe transport, its ACL, and the line framing.",
             new()),
+        Tool("mcp_concurrency_check",
+            "Runs the real stdio adapter against a temporary MCP pipe host. Verifies a ping overtakes a blocked tool call, notifications/cancelled cancels that request, more than eight sessions can connect, and an idle session is reclaimed.",
+            new()),
         Tool("agent_project_link_check",
             "Links a throwaway project folder to a synthetic agent workspace and verifies the AGENTS.md/CLAUDE.md reference block plus every merged MCP config in the catalog uses the portable cmd launcher (no username path), then a selective rewrite (unused files/folders removed), refresh (no duplicates) and unlink (project content restored). Also checks the AI options menu exposes workspace open/copy and the connection MCP write action, and that copy writes the exact absolute workspace path.",
             new()
