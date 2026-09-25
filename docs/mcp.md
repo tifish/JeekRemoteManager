@@ -56,7 +56,8 @@ agent 启动的是 `%LocalAppData%\JeekRemoteManager\Mcp\JeekRemoteManagerMcp.ex
 `Tools/JeekRemoteManagerMcp/Program.cs` 是个无状态的 stdio↔管道转发器。几条关键规则：
 
 - **只有真正的工具调用才值得启动 GUI。** MCP 客户端在会话开始时就打开 stdio 服务器，每次会话都弹个窗口是很无礼的。
-- 应用不可达时**保持会话可用**而不是让握手失败：客户端保持连接，只有真正的工具调用才报告为什么什么都没发生。
+- 应用不可达时**保持会话可用**而不是让握手失败：客户端保持连接，只有真正的工具调用才报告为什么什么都没发生。离线 `tools/list` 直接从链接进适配器的对应 Contract 返回静态工具表；不能返回空表，否则客户端根本没有工具可调用，而只有 `tools/call` 才会按需启动应用。
+- `initialize` 声明 `tools.listChanged`。适配器连到一个新应用进程后会把在线工具表与客户端上次看到的表比较，变化时发送 `notifications/tools/list_changed`，让一次长期存在的 agent 会话能发现应用升级后的工具。回归检查是 Debug MCP 的 `mcp_adapter_offline_check`。
 - **断管道时重试一次**，这样应用重启不会结束 agent 的会话。
 - 转发时**跳过服务端主动发来的通知**，避免把它们误当成本次请求的回复（管道是双工的）。
 - `--connection` 参数把适配器**钉在**某个连接上，链接到项目里的配置就不必每次调用都写连接路径。显式参数总是优先。

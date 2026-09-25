@@ -169,6 +169,7 @@ internal static class DebugMcpServer
         host.AddTool("agent_application_link_check", AgentApplicationLinkCheckAsync);
         host.AddTool("global_agent_check", _ => GlobalAgentCheckAsync());
         host.AddTool("mcp_transport_check", _ => McpTransportCheckAsync());
+        host.AddTool("mcp_adapter_offline_check", _ => McpAdapterOfflineCheckAsync());
         host.AddTool("product_mcp_check", _ => ProductMcpCheckAsync());
         return host;
     }
@@ -3491,6 +3492,119 @@ internal static class DebugMcpServer
                     }));
                 }
         }
+    }
+
+    /// <summary>
+    /// The adapter used to answer tools/list with an empty array while the app was closed.
+    /// Only a tools/call starts the app, so an agent that began its session first saw no tools,
+    /// never called one, and the product surface never came up. Runs the real adapter beside
+    /// this build: offline it must advertise listChanged and list the full product contract;
+    /// once a (fake) app with a different tool list appears, the next call must be followed by
+    /// notifications/tools/list_changed.
+    /// </summary>
+    private static async Task<JsonObject> McpAdapterOfflineCheckAsync()
+    {
+        var adapterPath = Path.Combine(AppContext.BaseDirectory, "JeekRemoteManagerMcp.exe");
+        if (!File.Exists(adapterPath))
+            return ToolText($"FAIL: adapter not found at {adapterPath}", isError: true);
+
+        var pipeName = "jrm-adapter-offline-check-" + Guid.NewGuid().ToString("N");
+        var failures = new List<string>();
+        var expectedTools = ProductMcpContract.BuildToolList().Count;
+        var offlineTools = -1;
+        var advertised = false;
+        var notified = false;
+
+        var psi = new ProcessStartInfo(adapterPath)
+        {
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            StandardOutputEncoding = new UTF8Encoding(false),
+            StandardInputEncoding = new UTF8Encoding(false),
+        };
+        foreach (var arg in new[] { "--surface", "product", "--pipe", pipeName, "--no-launch" })
+            psi.ArgumentList.Add(arg);
+
+        using var adapter = Process.Start(psi)!;
+        using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        async Task<JsonNode?> CallAsync(string line)
+        {
+            await adapter.StandardInput.WriteLineAsync(line).ConfigureAwait(false);
+            await adapter.StandardInput.FlushAsync().ConfigureAwait(false);
+            var reply = await adapter.StandardOutput.ReadLineAsync(cancel.Token).ConfigureAwait(false);
+            return reply is null ? null : JsonNode.Parse(reply);
+        }
+
+        try
+        {
+            var init = await CallAsync(
+                """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}""")
+                .ConfigureAwait(false);
+            advertised = init?["result"]?["capabilities"]?["tools"]?["listChanged"]?.GetValue<bool>() == true;
+            if (!advertised)
+                failures.Add("offline initialize did not advertise tools.listChanged");
+
+            var list = await CallAsync("""{"jsonrpc":"2.0","id":2,"method":"tools/list"}""").ConfigureAwait(false);
+            offlineTools = list?["result"]?["tools"] is JsonArray tools ? tools.Count : -1;
+            if (offlineTools != expectedTools)
+                failures.Add($"offline tools/list returned {offlineTools} tools (expected {expectedTools})");
+
+            // Now "start the app": a pipe server that serves a different tool list.
+            var server = Task.Run(async () =>
+            {
+                await using var pipe = new NamedPipeServerStream(
+                    pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+                await pipe.WaitForConnectionAsync(cancel.Token).ConfigureAwait(false);
+                using var reader = new StreamReader(pipe, new UTF8Encoding(false), false, leaveOpen: true);
+                await using var writer = new StreamWriter(pipe, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+                while (await reader.ReadLineAsync(cancel.Token).ConfigureAwait(false) is { } line)
+                {
+                    var request = JsonNode.Parse(line)!;
+                    JsonNode result = request["method"]?.GetValue<string>() == "tools/list"
+                        ? new JsonObject { ["tools"] = new JsonArray(new JsonObject { ["name"] = "only_in_new_app" }) }
+                        : new JsonObject { ["content"] = new JsonArray() };
+                    await writer.WriteLineAsync(new JsonObject
+                    {
+                        ["jsonrpc"] = "2.0",
+                        ["id"] = request["id"]?.DeepClone(),
+                        ["result"] = result,
+                    }.ToJsonString()).ConfigureAwait(false);
+                }
+            }, cancel.Token);
+
+            var call = await CallAsync(
+                """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"connection_list","arguments":{}}}""")
+                .ConfigureAwait(false);
+            if (call?["id"]?.GetValue<int>() != 3)
+                failures.Add($"tools/call reply was not forwarded: {call?.ToJsonString()}");
+
+            var next = await adapter.StandardOutput.ReadLineAsync(cancel.Token).ConfigureAwait(false);
+            notified = next is not null
+                       && JsonNode.Parse(next)?["method"]?.GetValue<string>() == "notifications/tools/list_changed";
+            if (!notified)
+                failures.Add($"no tools/list_changed after reaching an app with other tools (got {next ?? "(eof)"})");
+
+            adapter.StandardInput.Close();
+            await Task.WhenAny(server, Task.Delay(5000)).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"{ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            try { if (!adapter.HasExited) adapter.Kill(); } catch { /* ignore */ }
+        }
+
+        var passed = failures.Count == 0;
+        var report = $"{(passed ? "PASS" : "FAIL")}: the adapter lists tools while the app is closed\n"
+            + $"listChangedAdvertised={advertised}\nofflineTools={offlineTools}/{expectedTools}\n"
+            + $"listChangedNotified={notified}\nfailures={failures.Count}"
+            + (passed ? "" : "\n" + string.Join("\n", failures));
+        return ToolText(report, isError: !passed);
     }
 
     /// <summary>

@@ -22,6 +22,9 @@
     <!-- Single source of truth for pipe names, shared with the app. -->
     <Compile Include="..\..\JeekRemoteManager\Services\McpPipeNames.cs" Link="McpPipeNames.cs" />
     <Compile Include="..\..\JeekRemoteManager\Services\McpAdapterRegistry.cs" Link="McpAdapterRegistry.cs" />
+    <!-- Tool schemas, so the adapter can list the tools while the app is not running. -->
+    <Compile Include="..\..\JeekRemoteManager\Services\ProductMcpContract.cs" Link="ProductMcpContract.cs" />
+    <Compile Include="..\..\JeekRemoteManager\Services\DebugMcpContract.cs" Link="DebugMcpContract.cs" />
   </ItemGroup>
 
 </Project>

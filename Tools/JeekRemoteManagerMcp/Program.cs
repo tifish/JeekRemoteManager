@@ -30,6 +30,11 @@ await using var stdout = new StreamWriter(Console.OpenStandardOutput(), AdapterT
 
 using var connection = new PipeConnection(options);
 
+// The tool list the client last received, serialized, or null before it asked. Used to tell
+// the client when the app it reaches now offers a different list than the one it cached —
+// after the app starts, restarts, or is rebuilt with new tools.
+string? clientToolsJson = null;
+
 while (await stdin.ReadLineAsync().ConfigureAwait(false) is { } line)
 {
     if (string.IsNullOrWhiteSpace(line))
@@ -72,12 +77,67 @@ async Task HandleAsync(JsonNode message)
     }
     catch (Exception ex)
     {
-        await stdout.WriteLineAsync(OfflineResponse(method, id, ex.Message).ToJsonString()).ConfigureAwait(false);
+        var offline = OfflineResponse(method, id, ex.Message);
+        if (method == "tools/list")
+            clientToolsJson = ToolsJson(offline);
+        await stdout.WriteLineAsync(offline.ToJsonString()).ConfigureAwait(false);
         return;
     }
 
     if (response is not null)
+    {
+        if (method == "initialize")
+            response = AdvertiseListChanged(response);
+        else if (method == "tools/list")
+            clientToolsJson = ToolsJson(JsonNode.Parse(response));
         await stdout.WriteLineAsync(response).ConfigureAwait(false);
+    }
+
+    // A fresh pipe means a different app process than the one the client's tool list came
+    // from (it just started, or restarted). Compare, and ask the client to re-list if the
+    // tools differ — without this the client keeps the list from session start forever.
+    if (connection.TakeFreshConnection() && clientToolsJson is not null && method != "tools/list")
+        await NotifyIfToolsChangedAsync().ConfigureAwait(false);
+}
+
+async Task NotifyIfToolsChangedAsync()
+{
+    string? current;
+    try
+    {
+        var reply = await connection.SendAsync(
+            new JsonObject { ["jsonrpc"] = "2.0", ["id"] = "jrm-adapter-tools-refresh", ["method"] = "tools/list" },
+            expectsResponse: true,
+            mayLaunch: false).ConfigureAwait(false);
+        current = reply is null ? null : ToolsJson(JsonNode.Parse(reply));
+    }
+    catch
+    {
+        return;
+    }
+
+    if (current is null || current == clientToolsJson)
+        return;
+
+    clientToolsJson = current;
+    await stdout.WriteLineAsync(
+        new JsonObject { ["jsonrpc"] = "2.0", ["method"] = "notifications/tools/list_changed" }.ToJsonString())
+        .ConfigureAwait(false);
+}
+
+static string? ToolsJson(JsonNode? reply) => reply?["result"]?["tools"]?.ToJsonString();
+
+// The adapter can tell the client when the tool list changes, so say so in the handshake.
+static string AdvertiseListChanged(string response)
+{
+    if (JsonNode.Parse(response) is not JsonObject reply || reply["result"] is not JsonObject result)
+        return response;
+    if (result["capabilities"] is not JsonObject capabilities)
+        result["capabilities"] = capabilities = new JsonObject();
+    if (capabilities["tools"] is not JsonObject tools)
+        capabilities["tools"] = tools = new JsonObject();
+    tools["listChanged"] = true;
+    return reply.ToJsonString();
 }
 
 // Fills in the connection this adapter was pinned to, so a linked project does not have to
@@ -100,13 +160,16 @@ void ApplyDefaultArguments(JsonObject call)
 }
 
 // The app is unreachable. Keep the session usable instead of failing the handshake: the
-// client stays connected, and only real tool calls report why nothing happened.
+// client stays connected, and only real tool calls report why nothing happened. The tool list
+// comes from the same contract the app serves (both files are linked into this project): an
+// empty list would leave the agent with nothing to call, and since only a tools/call starts
+// the app, the product surface could then never come up at all.
 JsonNode OfflineResponse(string? method, JsonNode? id, string reason) => method switch
 {
     "initialize" => AdapterText.RpcResult(id, new JsonObject
     {
         ["protocolVersion"] = "2025-06-18",
-        ["capabilities"] = new JsonObject { ["tools"] = new JsonObject() },
+        ["capabilities"] = new JsonObject { ["tools"] = new JsonObject { ["listChanged"] = true } },
         ["serverInfo"] = new JsonObject
         {
             ["name"] = options.ServerName,
@@ -115,7 +178,12 @@ JsonNode OfflineResponse(string? method, JsonNode? id, string reason) => method 
         },
     }),
     "ping" => AdapterText.RpcResult(id, new JsonObject()),
-    "tools/list" => AdapterText.RpcResult(id, new JsonObject { ["tools"] = new JsonArray() }),
+    "tools/list" => AdapterText.RpcResult(id, new JsonObject
+    {
+        ["tools"] = options.IsDebugSurface
+            ? DebugMcpContract.BuildToolList()
+            : ProductMcpContract.BuildToolList(),
+    }),
     "tools/call" => AdapterText.RpcResult(id, new JsonObject
     {
         ["content"] = new JsonArray(new JsonObject
@@ -280,6 +348,15 @@ internal sealed class PipeConnection(AdapterOptions options) : IDisposable
     private NamedPipeClientStream? _pipe;
     private StreamReader? _reader;
     private StreamWriter? _writer;
+    private bool _freshConnection;
+
+    /// <summary>True once after each newly opened pipe, i.e. after reaching a (re)started app.</summary>
+    public bool TakeFreshConnection()
+    {
+        var fresh = _freshConnection;
+        _freshConnection = false;
+        return fresh;
+    }
 
     /// <summary>
     /// Forwards one message and returns the matching response line, or null when the
@@ -360,6 +437,7 @@ internal sealed class PipeConnection(AdapterOptions options) : IDisposable
             _pipe = pipe;
             _reader = new StreamReader(pipe, AdapterText.Utf8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
             _writer = new StreamWriter(pipe, AdapterText.Utf8, leaveOpen: true) { AutoFlush = true };
+            _freshConnection = true;
             return;
         }
 
