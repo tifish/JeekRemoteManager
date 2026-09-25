@@ -132,6 +132,7 @@ internal static class DebugMcpServer
             _ => Task.FromResult(ZmodemDetectorLatencyCheck()));
         host.AddTool("ssh_auth_prompt_check", _ => Task.FromResult(SshAuthPromptCheck()));
         host.AddTool("host_key_trust_check", _ => Task.FromResult(HostKeyTrustCheck()));
+        host.AddTool("sftp_host_key_check", SftpHostKeyCheckAsync);
         host.AddTool("sftp_retry_policy_check", _ => SftpRetryPolicyCheckAsync());
         host.AddTool("connection_write_watcher_check", _ => ConnectionWriteWatcherCheckAsync());
         host.AddTool("connection_tree_reload_order_check", _ => ConnectionTreeReloadOrderCheckAsync());
@@ -1286,6 +1287,88 @@ internal static class DebugMcpServer
         {
             KnownHostsStore.Forget(host, port);
         }
+    }
+
+    /// <summary>
+    /// The file browser dials its own SFTP transport. It used to skip the known-hosts
+    /// check entirely, so a spoofed host received the credentials. Drives a real
+    /// <see cref="SftpSession"/> against a reachable test server (the local WSL sshd rig by
+    /// default): a planted wrong fingerprint must be rejected, a forgotten host must be
+    /// trusted on first use. The host's original entry is restored afterwards.
+    /// </summary>
+    private static async Task<JsonObject> SftpHostKeyCheckAsync(JsonObject args)
+    {
+        var host = ArgString(args, "host") ?? "127.0.0.1";
+        var port = ArgInt(args, "port") ?? 2222;
+        var username = ArgString(args, "username") ?? "jrmtest";
+        var connection = new Connection { Type = ConnectionType.Ssh, Host = host, Port = port, Username = username };
+        var failures = new List<string>();
+        var hadOriginal = KnownHostsStore.TryGet(host, port, out var original);
+        string rejectedMessage = "(none)";
+        string trusted = "(none)";
+        try
+        {
+            KnownHostsStore.Trust(host, port, "planted-wrong-fingerprint");
+            using (var session = new SftpSession(() => SshConnectionFactory.Build(connection)))
+            {
+                try
+                {
+                    await session.RunAsync(ops => ops.WorkingDirectory, FileSystemRetry.Idempotent);
+                    failures.Add("SFTP connected despite a mismatched host key");
+                }
+                catch (Exception ex)
+                {
+                    rejectedMessage = ex.Message;
+                    if (!ex.Message.Contains("host key changed", StringComparison.Ordinal))
+                        failures.Add($"mismatch failed for another reason: {ex.Message}");
+                }
+            }
+
+            KnownHostsStore.Forget(host, port);
+            using (var session = new SftpSession(() => SshConnectionFactory.Build(connection)))
+            {
+                try
+                {
+                    await session.RunAsync(ops => ops.WorkingDirectory, FileSystemRetry.Idempotent);
+                }
+                catch (Exception ex)
+                {
+                    failures.Add($"first-use SFTP dial failed: {ex.Message}");
+                }
+            }
+
+            if (KnownHostsStore.TryGet(host, port, out var saved))
+                trusted = saved;
+            else
+                failures.Add("first-use SFTP dial did not record the host key");
+        }
+        finally
+        {
+            if (hadOriginal)
+                KnownHostsStore.Trust(host, port, original);
+            else
+                KnownHostsStore.Forget(host, port);
+        }
+
+        var passed = failures.Count == 0;
+        var report = $"{(passed ? "PASS" : "FAIL")}: SFTP dial verifies the host key\n"
+            + $"target={username}@{host}:{port}\nmismatchRejected={rejectedMessage}\ntrustedOnFirstUse={trusted}\n"
+            + $"failures={failures.Count}"
+            + (passed ? "" : "\n" + string.Join("\n", failures));
+        return ToolText(report, isError: !passed);
+    }
+
+    private static string? ArgString(JsonObject args, string name) =>
+        args[name] is JsonValue value && value.TryGetValue<string>(out var text) && text.Length > 0 ? text : null;
+
+    /// <summary>MCP clients sometimes stringify scalars, so accept "2222" as well as 2222.</summary>
+    private static int? ArgInt(JsonObject args, string name)
+    {
+        if (args[name] is not JsonValue value)
+            return null;
+        if (value.TryGetValue<int>(out var number))
+            return number;
+        return value.TryGetValue<string>(out var text) && int.TryParse(text, out number) ? number : null;
     }
 
     /// <summary>

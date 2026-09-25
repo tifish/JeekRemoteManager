@@ -16,6 +16,8 @@ SSH.NET 没有公开 API 在已有的 `SshClient` 传输上打开 SFTP 子系统
 
 代价是：文件浏览器看到的是**直连目标**，不跟随用户在终端里做的跳转。所以路径栏上显式显示 `user@host`，让这一点保持明显。
 
+这条独立连接同样走 known-hosts 校验（`SshHostKey.Attach`）。密钥不匹配时直接拒绝并报出原因，而不是弹替换确认。
+
 ## 串行化与重连
 
 所有操作串行化通过一个队列，原因有两个：`SftpClient` 在一条通道上并发使用不安全；串行化同时避免慢传输和目录列举互相插队（传输另有自己的会话）。
@@ -46,4 +48,4 @@ SSH.NET 没有公开 API 在已有的 `SshClient` 传输上打开 SFTP 子系统
 
 ## 相关调试入口
 
-`sftp_retry_policy_check`、`file_browser_session_lifecycle_check`。
+`sftp_retry_policy_check`、`sftp_host_key_check`、`file_browser_session_lifecycle_check`。

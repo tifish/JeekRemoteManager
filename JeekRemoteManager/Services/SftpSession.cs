@@ -151,17 +151,26 @@ public sealed class SftpSession : IFileSystemSession
             return live;
 
         DisposeClient();
-        var client = new SftpClient(_buildConnectionInfo());
+        var info = _buildConnectionInfo();
+        var client = new SftpClient(info);
         client.OperationTimeout = TimeSpan.FromSeconds(30);
         client.KeepAliveInterval = TimeSpan.FromSeconds(30);
+        // This dial is a separate transport from the terminal's, so it must pass the same
+        // known-hosts check: without a handler SSH.NET trusts any host and would hand the
+        // credentials to whoever answers. A changed key is rejected outright — the
+        // replacement prompt belongs to the terminal connection, not a background dial.
+        string? rejection = null;
+        SshHostKey.Attach(client, info.Host, info.Port, onRejected: message => rejection = message);
         try
         {
             client.Connect();
             HomePath ??= client.WorkingDirectory;
         }
-        catch
+        catch (Exception ex)
         {
             try { client.Dispose(); } catch { /* ignore */ }
+            if (rejection is not null)
+                throw new InvalidOperationException(rejection, ex);
             throw;
         }
 

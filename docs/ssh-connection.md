@@ -38,6 +38,7 @@ SSH.NET 没有内置的 host key 校验，默认信任所有主机。`KnownHosts
 - 存在**机器本地**设置文件旁边——主机信任是每台机器自己的决定。
 - 首次见到的密钥自动信任并保存；已记住的密钥发生变化时，必须由 `onMismatch` 回调（GUI 对话框）确认才替换。
 - `Forget(host, port)` 等价于 `ssh-keygen -R`：下次连接按新主机处理，而不是继续报不匹配。
+- **每一条自己拨号的传输都要挂 `SshHostKey.Attach`**，不只是终端。文件浏览器的 `SftpSession` 另开一条连接，漏挂就等于对那条连接关掉了校验，凭据会交给任何冒名应答的主机。后台拨号遇到不匹配直接拒绝，不弹替换对话框——替换是终端连接的事。回归检查是 Debug MCP 的 `sftp_host_key_check`（默认打本机 WSL sshd 测试环境）。
 - 文件损坏按空文件处理，用户会被重新询问。
 
 ## 传输复用：SharedSshClient
