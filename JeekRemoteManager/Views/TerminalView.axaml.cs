@@ -499,6 +499,17 @@ public partial class TerminalView : UserControl
         _isDuplicatedSession = isDuplicatedSession;
         _forceNewTcpConnection = forceNewTcpConnection;
         FocusTerminal();
+        if (connection.AutoLogSession)
+        {
+            try
+            {
+                StartSessionLog();
+            }
+            catch (Exception ex)
+            {
+                FeedLine($"\u001b[33m[session log could not start: {ex.Message}]\u001b[0m");
+            }
+        }
         BeginConnectionAttempt();
     }
 
@@ -3281,6 +3292,45 @@ public partial class TerminalView : UserControl
 
     private void WriteToShell(string text) => WriteToShell(_terminalEncoding.GetBytes(text));
 
+    // --- Session log ---
+
+    private TerminalSessionLog? _sessionLog;
+
+    /// <summary>True while this tab records its output to a log file.</summary>
+    public bool IsSessionLogging => _sessionLog is not null;
+
+    /// <summary>Path of the active log file, or null.</summary>
+    public string? SessionLogPath => _sessionLog?.Path;
+
+    /// <summary>
+    /// Starts recording this tab's output (plain text, escape sequences removed). A log
+    /// survives reconnects within the tab and ends when it is stopped or the tab closes.
+    /// Returns the log file path.
+    /// </summary>
+    public string StartSessionLog(string? folder = null)
+    {
+        if (_sessionLog is { } running)
+            return running.Path;
+
+        var log = TerminalSessionLog.Create(_connection?.Name ?? "session", folder);
+        _sessionLog = log;
+        FeedLine($"\u001b[90m[{Jeek.Avalonia.Localization.Localizer.Get("SessionLogStarted")}: {log.Path}]\u001b[0m");
+        return log.Path;
+    }
+
+    public void StopSessionLog()
+    {
+        var log = Interlocked.Exchange(ref _sessionLog, null);
+        if (log is null)
+            return;
+        log.Dispose();
+        if (!_disposed)
+            FeedLine($"\u001b[90m[{Jeek.Avalonia.Localization.Localizer.Get("SessionLogStopped")}: {log.Path}]\u001b[0m");
+    }
+
+    /// <summary>Debug MCP: flushes the active log so its content can be read back.</summary>
+    internal void DebugFlushSessionLog() => _sessionLog?.Flush();
+
     // --- Find in terminal ---
 
     /// <summary>
@@ -3717,6 +3767,7 @@ public partial class TerminalView : UserControl
         {
             Interlocked.Increment(ref _feedBatchCount);
             _model.Feed(text);
+            _sessionLog?.Write(text);
         }
 
         // Say so rather than leaving a silent hole in the scrollback. Bytes are dropped
@@ -4189,6 +4240,7 @@ public partial class TerminalView : UserControl
     public void Close()
     {
         _disposed = true;
+        StopSessionLog();
         Interlocked.Increment(ref _connectionGeneration);
         Interlocked.Exchange(ref _loginManualInputTcs, null)?.TrySetCanceled();
         _connectInProgress = false;

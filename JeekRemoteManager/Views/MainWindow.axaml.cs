@@ -1246,6 +1246,41 @@ public partial class MainWindow : Window
                 DispatcherPriority.Background);
         };
 
+        // Header flips between start/stop each time the menu opens.
+        var sessionLog = new MenuItem
+        {
+            Name = "TerminalTabSessionLogItem",
+            Icon = CreateMenuIcon("\uE8A5", "log"),
+        };
+        sessionLog.Click += (_, _) =>
+        {
+            if (tab.Content is not TerminalView view)
+                return;
+            try
+            {
+                if (view.IsSessionLogging)
+                    view.StopSessionLog();
+                else
+                    view.StartSessionLog();
+            }
+            catch (Exception ex)
+            {
+                if (DataContext is MainWindowViewModel vm)
+                    vm.StatusMessage = ex.Message;
+            }
+        };
+
+        var openLogFolder = new MenuItem
+        {
+            Header = Localizer.Get("SessionLogOpenFolder"),
+            Icon = CreateMenuIcon("\uE838", "folder"),
+        };
+        openLogFolder.Click += (_, _) =>
+        {
+            Directory.CreateDirectory(TerminalSessionLog.Folder);
+            Process.Start(new ProcessStartInfo(TerminalSessionLog.Folder) { UseShellExecute = true });
+        };
+
         var close = new MenuItem
         {
             Header = Localizer.Get("Close"),
@@ -1278,6 +1313,11 @@ public partial class MainWindow : Window
         // Public keys are an SSH concept; a local WSL shell has no server to copy to.
         if (!connection.IsWsl)
             menu.Items.Add(copyKey);
+        menu.Items.Add(new Separator());
+        menu.Items.Add(sessionLog);
+        menu.Items.Add(openLogFolder);
+        menu.Opening += (_, _) => sessionLog.Header = Localizer.Get(
+            tab.Content is TerminalView { IsSessionLogging: true } ? "SessionLogStop" : "SessionLogStart");
         menu.Items.Add(new Separator());
         menu.Items.Add(close);
         menu.Items.Add(closeOthers);

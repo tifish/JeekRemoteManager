@@ -95,6 +95,17 @@ Ctrl+Shift+F 打开查找栏（普通的 Ctrl+F 属于远端：readline 的前�
 
 有一个细节：控件在缓冲区一有变化（新输出）就丢弃命中列表，此后 `SelectNext` 返回 -1。查找栏把这种情况当作"重新搜索"，并从用户原来的位置继续，而不是跳回第一个命中——否则在持续输出的会话里按 Enter 永远停在第一个。回归检查是 Debug MCP 的 `terminal_find_check`。
 
+## 会话日志
+
+涉及 `Services/TerminalSessionLog.cs`。标签页右键菜单可随时开始/停止记录；连接上勾选"记录会话日志"（`Connection.AutoLogSession`）则每次打开都自动记录。文件在 `%LocalAppData%\JeekRemoteManager\SessionLogs`，按"连接名-开始时间"命名。
+
+- **记录的是解码后的文本，不是原始字节。** 挂在 `DrainTerminalOutputFrame` 解码之后，所以已经按会话编码转成了 Unicode，GBK 服务器的日志也是正常的 UTF-8 文本。
+- **去掉转义序列。** `AnsiTextStripper` 是有状态的，跨包切开的 CSI/OSC 也能去干净；`\r\n` 变 `\n`，单独的 `\r`（进度条重绘）丢掉，免得一个进度条刷出几百行。应用自己插进终端的提示行（`FeedLine`）不进日志。
+- **UI 线程只追加到缓冲流**，每秒一次的定时器在后台刷盘，停止或关标签页时收尾并写结束标记。
+- **放在机器本地，不跟随便携数据。** 日志可能包含服务器打印的任何东西。没有自动清理，由用户自己管理。
+
+回归检查是 Debug MCP 的 `terminal_session_log_check`。
+
 ## AI 面板的 ConPTY 渲染
 
 AI 面板另有两条独立的约束：

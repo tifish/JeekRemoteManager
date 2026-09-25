@@ -373,6 +373,8 @@ internal static class ProductMcpServer
             connection.AutoOpenMonitorPanel = monitorPanel.GetValue<bool>();
         if (args["auto_open_file_browser_panel"] is { } fileBrowserPanel)
             connection.AutoOpenFileBrowserPanel = fileBrowserPanel.GetValue<bool>();
+        if (args["auto_log_session"] is { } logSession)
+            connection.AutoLogSession = logSession.GetValue<bool>();
     }
 
     /// <summary>
@@ -465,6 +467,7 @@ internal static class ProductMcpServer
         described["usesSharedBastionTemplate"] = connection.UsesBastionProfile;
         described["autoOpenMonitorPanel"] = connection.AutoOpenMonitorPanel;
         described["autoOpenFileBrowserPanel"] = connection.AutoOpenFileBrowserPanel;
+        described["autoLogSession"] = connection.AutoLogSession;
         described["wslDistro"] = connection.WslDistro;
         described["wslStartDirectory"] = connection.WslStartDirectory;
         described["notes"] = connection.Notes;

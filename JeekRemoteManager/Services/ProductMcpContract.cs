@@ -320,6 +320,8 @@ public static class ProductMcpContract
         leading["notes"] = Prop("string", "Free-form note.");
         leading["auto_open_monitor_panel"] = Prop("boolean", "Open the server monitor after login.");
         leading["auto_open_file_browser_panel"] = Prop("boolean", "Open the file browser after login.");
+        leading["auto_log_session"] = Prop("boolean",
+            "Record every session to a plain-text log under %LocalAppData%\\JeekRemoteManager\\SessionLogs.");
         return leading;
     }
 

@@ -109,6 +109,9 @@ public class Connection
     /// <summary>Open the file browser after an SSH shell logs in.</summary>
     public bool AutoOpenFileBrowserPanel { get; set; }
 
+    /// <summary>Record every session of this connection to a plain-text log file.</summary>
+    public bool AutoLogSession { get; set; }
+
     /// <summary>Per-connection parameter bindings for reusable SSH scripts.</summary>
     public List<ConnectionScriptBinding> ScriptBindings { get; set; } = new();
 

@@ -124,6 +124,7 @@ internal static class DebugMcpServer
         host.AddTool("terminal_output_coalescing_check", _ => TerminalOutputCoalescingCheckAsync());
         host.AddTool("script_completion_order_check", _ => ScriptCompletionOrderCheckAsync());
         host.AddTool("terminal_encoding_check", _ => TerminalEncodingCheckAsync());
+        host.AddTool("terminal_session_log_check", _ => TerminalSessionLogCheckAsync());
         host.AddTool("terminal_find_check", _ => TerminalFindCheckAsync());
         host.AddTool("terminal_appearance_check", _ => TerminalAppearanceCheckAsync());
         host.AddTool(
@@ -2172,6 +2173,97 @@ internal static class DebugMcpServer
         var passed = failures.Count == 0;
         var report = $"{(passed ? "PASS" : "FAIL")}: find in terminal\n"
             + string.Join("\n", steps)
+            + $"\nfailures={failures.Count}"
+            + (passed ? "" : "\n" + string.Join("\n", failures));
+        return ToolText(report, isError: !passed);
+    }
+
+    /// <summary>
+    /// Session logging: records a probe tab's output through the real drain path, with
+    /// colors, a window-title OSC, an escape sequence split across two packets, CRLF line
+    /// ends, a progress-bar carriage return and Chinese text, then checks the file holds
+    /// exactly the readable text and is closed with an end marker when logging stops.
+    /// </summary>
+    private static async Task<JsonObject> TerminalSessionLogCheckAsync()
+    {
+        var failures = new List<string>();
+        var folder = Path.Combine(Path.GetTempPath(), "jrm-session-log-" + Guid.NewGuid().ToString("N"));
+        TabItem? tab = null;
+        var body = "";
+        try
+        {
+            tab = await OnUiAsync(() => ((Views.MainWindow)Desktop!.MainWindow!).DebugCreateTerminalTabForLifecycleProbe());
+            var view = await OnUiAsync(() => (TerminalView)tab!.Content!);
+            var path = await OnUiAsync(() => view.StartSessionLog(folder));
+            if (!await OnUiAsync(() => view.IsSessionLogging))
+                failures.Add("logging did not start");
+
+            string[] packets =
+            [
+                "\u001b]0;remote title\u0007\u001b[1;32mgreen\u001b[0m plain\r\n",
+                "split \u001b[3",
+                "1mred\u001b[0m end\r\n",
+                "progress 10%\rprogress 100%\r\n",
+                "中文输出\r\n",
+            ];
+            foreach (var packet in packets)
+            {
+                await OnUiAsync(() =>
+                {
+                    view.DebugFeedRawOutput(Encoding.UTF8.GetBytes(packet));
+                    return true;
+                });
+                await Task.Delay(60);
+            }
+
+            await Task.Delay(200);
+            await OnUiAsync(() =>
+            {
+                view.StopSessionLog();
+                return true;
+            });
+
+            var text = File.ReadAllText(path);
+            var lines = text.Split('\n');
+            body = string.Join("\n", lines.Where(line => !line.StartsWith('#')));
+            string[] expected = ["green plain", "split red end", "progress 10%progress 100%", "中文输出"];
+            foreach (var line in expected)
+            {
+                if (!lines.Contains(line))
+                    failures.Add($"missing line '{line}'");
+            }
+
+            if (text.Contains('\u001b') || text.Contains('\r'))
+                failures.Add("escape sequences or carriage returns leaked into the log");
+            if (text.Contains("remote title", StringComparison.Ordinal))
+                failures.Add("the OSC title leaked into the log");
+            if (!lines[0].StartsWith("# ", StringComparison.Ordinal) || !text.Contains("# session log ended", StringComparison.Ordinal))
+                failures.Add("start/end markers missing");
+            if (await OnUiAsync(() => view.IsSessionLogging))
+                failures.Add("logging did not stop");
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"{ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            if (tab is not null)
+            {
+                await OnUiAsync(() =>
+                {
+                    if (Desktop?.MainWindow is Views.MainWindow main)
+                        main.CloseTerminalSession(tab);
+                    return true;
+                });
+            }
+
+            try { Directory.Delete(folder, recursive: true); } catch { /* ignore */ }
+        }
+
+        var passed = failures.Count == 0;
+        var report = $"{(passed ? "PASS" : "FAIL")}: session log records readable text\n"
+            + body.Trim()
             + $"\nfailures={failures.Count}"
             + (passed ? "" : "\n" + string.Join("\n", failures));
         return ToolText(report, isError: !passed);

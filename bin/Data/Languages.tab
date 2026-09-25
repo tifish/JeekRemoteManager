@@ -282,6 +282,12 @@ FontIncrease	Increase terminal font	增大终端字体
 FontDecrease	Decrease terminal font	减小终端字体
 ScrollToLatest	Scroll to latest	滚动到最新
 ScrollToLatestHint	Jump to the bottom and keep following new output	跳到底部并继续显示最新内容
+SessionLogStart	Record session log	记录会话日志
+SessionLogStop	Stop recording session log	停止记录会话日志
+SessionLogOpenFolder	Open session logs folder	打开会话日志文件夹
+SessionLogStarted	Recording session log	开始记录会话日志
+SessionLogStopped	Session log saved	会话日志已保存
+AutoLogSession	Record session log	记录会话日志
 FindPlaceholder	Find in terminal (Ctrl+Shift+F)	在终端中查找（Ctrl+Shift+F）
 FindPrevious	Previous match (Shift+Enter)	上一个（Shift+Enter）
 FindNext	Next match (Enter)	下一个（Enter）

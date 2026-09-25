@@ -142,6 +142,9 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     [ObservableProperty]
     private bool _autoOpenFileBrowserPanel;
 
+    [ObservableProperty]
+    private bool _autoLogSession;
+
     public ObservableCollection<ConnectionScriptBindingViewModel> ScriptBindings { get; } = new();
 
     // WSL
@@ -284,6 +287,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             BastionTemplateSegment4 = profile?.GetSegment(4) ?? "",
             AutoOpenMonitorPanel = c.AutoOpenMonitorPanel,
             AutoOpenFileBrowserPanel = c.AutoOpenFileBrowserPanel,
+            AutoLogSession = c.AutoLogSession,
             WslDistro = c.WslDistro,
             WslStartDirectory = c.WslStartDirectory,
             RdpFullScreen = c.RdpFullScreen,
@@ -406,6 +410,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         ApplyBastionCommands(c);
         c.AutoOpenMonitorPanel = AutoOpenMonitorPanel;
         c.AutoOpenFileBrowserPanel = AutoOpenFileBrowserPanel;
+        c.AutoLogSession = AutoLogSession;
         c.WslDistro = WslDistro.Trim();
         c.WslStartDirectory = WslStartDirectory.Trim();
         c.ScriptBindings = ScriptBindings

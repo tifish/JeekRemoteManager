@@ -781,6 +781,8 @@
                                                               IsChecked="{Binding AutoOpenMonitorPanel, Mode=TwoWay}" />
                                                     <CheckBox Content="{l:Localize FileBrowser}"
                                                               IsChecked="{Binding AutoOpenFileBrowserPanel, Mode=TwoWay}" />
+                                                    <CheckBox Content="{l:Localize AutoLogSession}"
+                                                              IsChecked="{Binding AutoLogSession, Mode=TwoWay}" />
                                                 </StackPanel>
                                             </Grid>
 
