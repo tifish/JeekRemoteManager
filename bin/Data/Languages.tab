@@ -282,6 +282,10 @@ FontIncrease	Increase terminal font	增大终端字体
 FontDecrease	Decrease terminal font	减小终端字体
 ScrollToLatest	Scroll to latest	滚动到最新
 ScrollToLatestHint	Jump to the bottom and keep following new output	跳到底部并继续显示最新内容
+FindPlaceholder	Find in terminal (Ctrl+Shift+F)	在终端中查找（Ctrl+Shift+F）
+FindPrevious	Previous match (Shift+Enter)	上一个（Shift+Enter）
+FindNext	Next match (Enter)	下一个（Enter）
+FindNoResults	No results	无结果
 AiLoadEarlierMessages	Load earlier messages	加载更早的消息
 HostKeyHint	If you don't recognize this server, rejecting is safer.	如果你不认识这台服务器，拒绝更安全。
 HostKeyReject	Reject	拒绝

@@ -397,6 +397,10 @@ public partial class TerminalView : UserControl
             Jeek.Avalonia.Localization.Localizer.Get("Close"));
         ClearScriptParametersButton.Content =
             Jeek.Avalonia.Localization.Localizer.Get("ClearParameters");
+        FindBox.PlaceholderText = Jeek.Avalonia.Localization.Localizer.Get("FindPlaceholder");
+        ToolTip.SetTip(FindPreviousButton, Jeek.Avalonia.Localization.Localizer.Get("FindPrevious"));
+        ToolTip.SetTip(FindNextButton, Jeek.Avalonia.Localization.Localizer.Get("FindNext"));
+        ToolTip.SetTip(FindCloseButton, Jeek.Avalonia.Localization.Localizer.Get("Close"));
     }
 
     private static void ReleaseLocalValueBindings(Control root)
@@ -3277,6 +3281,121 @@ public partial class TerminalView : UserControl
 
     private void WriteToShell(string text) => WriteToShell(_terminalEncoding.GetBytes(text));
 
+    // --- Find in terminal ---
+
+    /// <summary>
+    /// Opens the find bar (Ctrl+Shift+F), seeded with the current single-line selection.
+    /// Search runs over the whole buffer, scrollback included, and is case-insensitive.
+    /// </summary>
+    public void OpenFindBar()
+    {
+        var seed = Term.HasSelection ? GetTerminalSelectionText(Term.SelectedText).Trim() : "";
+        FindBar.IsVisible = true;
+        if (seed.Length > 0 && !seed.Contains('\n'))
+            FindBox.Text = seed;
+        FindBox.Focus();
+        FindBox.SelectAll();
+        RunFind();
+    }
+
+    private void CloseFindBar()
+    {
+        FindBar.IsVisible = false;
+        _model.ClearSelection();
+        FocusTerminal();
+    }
+
+    private void RunFind()
+    {
+        var text = FindBox.Text ?? "";
+        if (text.Length == 0)
+        {
+            _model.ClearSelection();
+            FindCountText.Text = "";
+            return;
+        }
+
+        Term.Search(text);
+        UpdateFindCount();
+    }
+
+    /// <summary>
+    /// Moves to the next or previous hit. The control drops its hit list whenever the
+    /// buffer changes (new output), so an empty list means "search again", not "no hits".
+    /// </summary>
+    private void StepFind(bool forward)
+    {
+        if (string.IsNullOrEmpty(FindBox.Text))
+            return;
+
+        var previous = _model.CurrentSearchResultIndex;
+        var index = forward ? Term.SelectNextSearchResult() : Term.SelectPreviousSearchResult();
+        if (index < 0 && Term.Search(FindBox.Text) is var total and > 0 && previous >= 0)
+        {
+            // Search restarts at the first hit; continue from where the user was instead.
+            var target = ((forward ? previous + 1 : previous - 1) % total + total) % total;
+            for (var i = 0; i < target; i++)
+                Term.SelectNextSearchResult();
+        }
+        UpdateFindCount();
+    }
+
+    private void UpdateFindCount()
+    {
+        var total = _model.SearchResultCount;
+        FindCountText.Text = total == 0
+            ? Jeek.Avalonia.Localization.Localizer.Get("FindNoResults")
+            : $"{Math.Max(0, _model.CurrentSearchResultIndex) + 1}/{total}";
+    }
+
+    private void OnFindTextChanged(object? sender, TextChangedEventArgs e) => RunFind();
+
+    private void OnFindBoxKeyDown(object? sender, KeyEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case Key.Enter:
+            case Key.F3:
+                StepFind(forward: !e.KeyModifiers.HasFlag(KeyModifiers.Shift));
+                e.Handled = true;
+                break;
+            case Key.Escape:
+                CloseFindBar();
+                e.Handled = true;
+                break;
+        }
+    }
+
+    private void OnFindNextClick(object? sender, RoutedEventArgs e) => StepFind(forward: true);
+
+    private void OnFindPreviousClick(object? sender, RoutedEventArgs e) => StepFind(forward: false);
+
+    private void OnFindCloseClick(object? sender, RoutedEventArgs e) => CloseFindBar();
+
+    private static bool IsFindGesture(KeyEventArgs e) =>
+        e.Key == Key.F && e.KeyModifiers == (KeyModifiers.Control | KeyModifiers.Shift);
+
+    /// <summary>Debug MCP: runs a search through the find bar and reports "current/total".</summary>
+    internal string DebugFind(string text)
+    {
+        OpenFindBar();
+        FindBox.Text = text;
+        RunFind();
+        return FindCountText.Text ?? "";
+    }
+
+    /// <summary>Debug MCP: steps the find bar and reports "current/total" plus the selection.</summary>
+    internal string DebugFindStep(bool forward)
+    {
+        StepFind(forward);
+        return $"{FindCountText.Text} selected={Term.SelectedText}";
+    }
+
+    /// <summary>Debug MCP: whether the find bar is showing.</summary>
+    internal bool DebugFindBarOpen => FindBar.IsVisible;
+
+    internal void DebugCloseFindBar() => CloseFindBar();
+
     private async void OnTerminalContextRequested(object? sender, TerminalContextRequestedEventArgs e)
     {
         if (e.HasSelection)
@@ -3291,6 +3410,13 @@ public partial class TerminalView : UserControl
 
     private async void OnTerminalPreviewKeyDown(object? sender, KeyEventArgs e)
     {
+        if (!e.Handled && IsFindGesture(e))
+        {
+            e.Handled = true;
+            OpenFindBar();
+            return;
+        }
+
         if (!e.Handled
             && TerminalFunctionKeySequence.TryEncode(
                 e.Key,

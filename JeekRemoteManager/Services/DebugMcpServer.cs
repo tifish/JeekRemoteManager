@@ -124,6 +124,7 @@ internal static class DebugMcpServer
         host.AddTool("terminal_output_coalescing_check", _ => TerminalOutputCoalescingCheckAsync());
         host.AddTool("script_completion_order_check", _ => ScriptCompletionOrderCheckAsync());
         host.AddTool("terminal_encoding_check", _ => TerminalEncodingCheckAsync());
+        host.AddTool("terminal_find_check", _ => TerminalFindCheckAsync());
         host.AddTool("terminal_appearance_check", _ => TerminalAppearanceCheckAsync());
         host.AddTool(
             "terminal_output_backpressure_check",
@@ -2075,6 +2076,105 @@ internal static class DebugMcpServer
         var expected = $"bg={scheme.Palette[0].ToUpperInvariant()} fg={scheme.Palette[15].ToUpperInvariant()}";
         if (sample != expected)
             failures.Add($"{schemeName}: rendered {sample}, expected {expected}");
+    }
+
+    /// <summary>
+    /// Find in terminal: fills a probe tab with 300 lines holding three hits (one far up in
+    /// the scrollback, one in mixed case), searches through the real find bar, steps forward
+    /// and backward, then prints more output — which drops the control's hit list — and
+    /// verifies stepping still works by searching again.
+    /// </summary>
+    private static async Task<JsonObject> TerminalFindCheckAsync()
+    {
+        var failures = new List<string>();
+        var steps = new List<string>();
+        TabItem? tab = null;
+        try
+        {
+            tab = await OnUiAsync(() => ((Views.MainWindow)Desktop!.MainWindow!).DebugCreateTerminalTabForLifecycleProbe());
+            var view = await OnUiAsync(() => (TerminalView)tab!.Content!);
+            var text = new StringBuilder();
+            for (var i = 0; i < 300; i++)
+            {
+                var hit = i switch { 5 => " needle", 150 => " NEEDLE", 290 => " needle", _ => "" };
+                text.Append($"line {i}{hit}\r\n");
+            }
+
+            await OnUiAsync(() =>
+            {
+                view.DebugFeedRawOutput(Encoding.UTF8.GetBytes(text.ToString()));
+                return true;
+            });
+            await Task.Delay(300);
+
+            var first = await OnUiAsync(() => view.DebugFind("needle"));
+            steps.Add($"search={first}");
+            if (!first.EndsWith("/3", StringComparison.Ordinal))
+                failures.Add($"expected 3 hits, got {first}");
+
+            for (var i = 0; i < 3; i++)
+                steps.Add("next=" + await OnUiAsync(() => view.DebugFindStep(forward: true)));
+            steps.Add("prev=" + await OnUiAsync(() => view.DebugFindStep(forward: false)));
+            if (steps.Skip(1).Any(step => !step.Contains("selected=needle", StringComparison.OrdinalIgnoreCase)))
+                failures.Add("a step did not select the hit");
+            if (steps.Select(step => step.Split(' ')[0]).Distinct().Count() < 3)
+                failures.Add("stepping did not move between hits");
+
+            await OnUiAsync(() =>
+            {
+                view.DebugFeedRawOutput(Encoding.UTF8.GetBytes("more output\r\n"));
+                return true;
+            });
+            await Task.Delay(200);
+            var afterOutput = await OnUiAsync(() => view.DebugFindStep(forward: true));
+            steps.Add("afterOutput=" + afterOutput);
+            // The last step left hit 3 selected; new output dropped the hit list, and the
+            // next step must continue from there (wrapping to 1), not restart at the top.
+            if (!afterOutput.StartsWith("1/3", StringComparison.Ordinal))
+                failures.Add($"stepping after new output did not continue from the last hit: {afterOutput}");
+            var again = await OnUiAsync(() => view.DebugFindStep(forward: true));
+            steps.Add("again=" + again);
+            if (!again.StartsWith("2/3", StringComparison.Ordinal))
+                failures.Add($"stepping did not advance after re-searching: {again}");
+
+            var missing = await OnUiAsync(() => view.DebugFind("definitely-not-there"));
+            steps.Add($"missing={missing}");
+            if (missing.Contains('/'))
+                failures.Add($"a search with no hits reported {missing}");
+
+            if (!await OnUiAsync(() => view.DebugFindBarOpen))
+                failures.Add("find bar was not open");
+            await OnUiAsync(() =>
+            {
+                view.DebugCloseFindBar();
+                return true;
+            });
+            if (await OnUiAsync(() => view.DebugFindBarOpen))
+                failures.Add("find bar did not close");
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"{ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            if (tab is not null)
+            {
+                await OnUiAsync(() =>
+                {
+                    if (Desktop?.MainWindow is Views.MainWindow main)
+                        main.CloseTerminalSession(tab);
+                    return true;
+                });
+            }
+        }
+
+        var passed = failures.Count == 0;
+        var report = $"{(passed ? "PASS" : "FAIL")}: find in terminal\n"
+            + string.Join("\n", steps)
+            + $"\nfailures={failures.Count}"
+            + (passed ? "" : "\n" + string.Join("\n", failures));
+        return ToolText(report, isError: !passed);
     }
 
     /// <summary>

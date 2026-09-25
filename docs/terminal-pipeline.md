@@ -89,6 +89,12 @@
 - **只提供深色配色。** 控件没有独立的默认前景/背景：背景用调色板 0 号，默认文字用 15 号。浅色配色只能把 ANSI "黑色"设成浅色，会让所有用黑色输出的程序看不见字。
 - **回滚行数只对新标签页生效。** XTerm.NET 在创建缓冲区时按 `TerminalOptions.Scrollback` 定长，之后改不了；所以 `TerminalView` 通过构造参数接收它。字体和配色立即作用于已打开的终端。
 
+## 终端内查找
+
+Ctrl+Shift+F 打开查找栏（普通的 Ctrl+F 属于远端：readline 的前进一字符、vim 翻页）。搜索用控件自带的 `Search`/`SelectNext`/`SelectPrevious`，覆盖整个缓冲区（含回滚），不区分大小写，命中会被选中并滚动到可见区域。Enter / Shift+Enter（或 F3）前后跳，Esc 关闭。
+
+有一个细节：控件在缓冲区一有变化（新输出）就丢弃命中列表，此后 `SelectNext` 返回 -1。查找栏把这种情况当作"重新搜索"，并从用户原来的位置继续，而不是跳回第一个命中——否则在持续输出的会话里按 Enter 永远停在第一个。回归检查是 Debug MCP 的 `terminal_find_check`。
+
 ## AI 面板的 ConPTY 渲染
 
 AI 面板另有两条独立的约束：

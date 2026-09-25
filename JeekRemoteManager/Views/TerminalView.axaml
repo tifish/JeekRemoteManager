@@ -57,6 +57,44 @@
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center" />
             </Button>
+            <!-- Find in terminal (Ctrl+Shift+F). Plain Ctrl+F belongs to the remote shell. -->
+            <Border x:Name="FindBar"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Top"
+                    Margin="0,8,28,0"
+                    Padding="6"
+                    CornerRadius="6"
+                    BorderThickness="1"
+                    Background="{DynamicResource ChromeSurfaceBrush}"
+                    BorderBrush="{DynamicResource BorderBrushSoft}"
+                    IsVisible="False">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBox x:Name="FindBox"
+                             Width="220"
+                             KeyDown="OnFindBoxKeyDown"
+                             TextChanged="OnFindTextChanged" />
+                    <TextBlock x:Name="FindCountText"
+                               MinWidth="56"
+                               VerticalAlignment="Center"
+                               TextAlignment="Center"
+                               Foreground="{DynamicResource TextMutedBrush}" />
+                    <Button x:Name="FindPreviousButton" Click="OnFindPreviousClick"
+                            Width="30" Height="30" MinWidth="0" Padding="0">
+                        <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="12" Text="&#xE70E;"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Button>
+                    <Button x:Name="FindNextButton" Click="OnFindNextClick"
+                            Width="30" Height="30" MinWidth="0" Padding="0">
+                        <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="12" Text="&#xE70D;"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Button>
+                    <Button x:Name="FindCloseButton" Click="OnFindCloseClick"
+                            Width="30" Height="30" MinWidth="0" Padding="0">
+                        <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="11" Text="&#xE711;"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Button>
+                </StackPanel>
+            </Border>
         </Grid>
 
         <GridSplitter x:Name="FileSplitter"
