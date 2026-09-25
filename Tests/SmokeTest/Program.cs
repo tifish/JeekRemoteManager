@@ -380,6 +380,9 @@ try
               .Any(tool => tool?["name"]?.GetValue<string>() == "terminal_tab_title_check"),
           "Debug MCP advertises terminal-tab title verification");
     Check(DebugMcpContract.BuildToolList()
+              .Any(tool => tool?["name"]?.GetValue<string>() == "settings_dialog_layout_check"),
+          "Debug MCP advertises settings-dialog layout verification");
+    Check(DebugMcpContract.BuildToolList()
               .Any(tool => tool?["name"]?.GetValue<string>() == "terminal_font_sync_check"),
           "Debug MCP advertises shared terminal font verification");
     Check(DebugMcpContract.BuildToolList()

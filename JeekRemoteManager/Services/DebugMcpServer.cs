@@ -113,6 +113,7 @@ internal static class DebugMcpServer
         host.AddTool("visual_tree", VisualTreeAsync);
         host.AddTool("screenshot", _ => ScreenshotAsync());
         host.AddTool("about_dialog_probe", _ => AboutDialogProbeAsync());
+        host.AddTool("settings_dialog_layout_check", _ => SettingsDialogLayoutCheckAsync());
         host.AddTool("button_content_alignment_check", _ => ButtonContentAlignmentCheckAsync());
         host.AddTool("ai_runtime_snapshot", _ => AiRuntimeSnapshotAsync());
         host.AddTool("password_ime_check", _ => PasswordImeCheckAsync());
@@ -2436,6 +2437,87 @@ internal static class DebugMcpServer
                     + $"theme.closeBackground: {closeBg}\n"
                     + $"theme.versionHintClass: {versionUsesHint}\n"
                     + $"theme.closeAccentClass: {closeIsAccent}");
+            }
+            finally
+            {
+                dialog.Close();
+            }
+        });
+
+        return ToolText(report, isError: !passed);
+    }
+
+    private static async Task<JsonObject> SettingsDialogLayoutCheckAsync()
+    {
+        var opened = await OnUiAsync(() =>
+        {
+            if (Desktop?.MainWindow is not Views.MainWindow main
+                || main.DataContext is not MainWindowViewModel vm)
+                return false;
+
+            main.ActivateMainWindow();
+            vm.OpenSettingsCommand.Execute(null);
+            return true;
+        });
+        if (!opened)
+            return ToolText("FAIL: MainWindow is not available.", isError: true);
+
+        await Task.Delay(150);
+
+        var (passed, report) = await OnUiAsync(() =>
+        {
+            var dialog = Desktop?.Windows.FirstOrDefault(window => window.Name == "SettingsDialog");
+            if (dialog is null)
+                return (false, "FAIL: Settings dialog did not open.");
+
+            try
+            {
+                var descendants = dialog.GetVisualDescendants().OfType<Control>().ToArray();
+                var root = dialog.Content as Grid;
+                var header = descendants.FirstOrDefault(control => control.Name == "SettingsDialogHeader");
+                var scroller = descendants.OfType<ScrollViewer>()
+                    .FirstOrDefault(control => control.Name == "SettingsDialogScrollViewer");
+                var footer = descendants.FirstOrDefault(control => control.Name == "SettingsDialogFooter");
+                var cards = new[]
+                {
+                    "SettingsAppearanceCard",
+                    "SettingsFilesCard",
+                    "SettingsSecurityCard",
+                    "SettingsUpdatesCard",
+                }
+                    .Select(name => descendants.OfType<Border>().FirstOrDefault(control => control.Name == name))
+                    .ToArray();
+                var actions = new[] { "SettingsCancelButton", "SettingsOkButton" }
+                    .Select(name => descendants.OfType<Button>().FirstOrDefault(control => control.Name == name))
+                    .ToArray();
+                var actionPanel = footer is Border { Child: StackPanel panel } ? panel : null;
+
+                var structureOk = root?.Name == "SettingsDialogLayout"
+                                  && root.RowDefinitions.Count == 3
+                                  && root.RowDefinitions[1].Height.IsStar
+                                  && header is not null && Grid.GetRow(header) == 0
+                                  && scroller is not null && Grid.GetRow(scroller) == 1
+                                  && footer is not null && Grid.GetRow(footer) == 2;
+                var cardsOk = cards.All(card => card?.Classes.Contains("form-card") == true);
+                var actionsOk = actions.All(button => button is not null)
+                                && actions[1]?.Classes.Contains("accent") == true
+                                && actionPanel?.Children.Count == 2
+                                && actionPanel.Children[0].Name == "SettingsOkButton"
+                                && actionPanel.Children[1].Name == "SettingsCancelButton";
+                var sizingOk = dialog.CanResize
+                               && dialog.Width >= 640
+                               && dialog.Height >= 640
+                               && dialog.MinWidth <= dialog.Width
+                               && dialog.MinHeight <= dialog.Height;
+                var ok = dialog.IsVisible && structureOk && cardsOk && actionsOk && sizingOk;
+
+                return (ok,
+                    $"{(ok ? "PASS" : "FAIL")}: Settings dialog layout\n"
+                    + $"visible={dialog.IsVisible}, size={dialog.Width}x{dialog.Height}, min={dialog.MinWidth}x{dialog.MinHeight}, resizable={dialog.CanResize}\n"
+                    + $"rows={(root is null ? 0 : root.RowDefinitions.Count)}, structure={structureOk}\n"
+                    + $"scrollbars={scroller?.HorizontalScrollBarVisibility}/{scroller?.VerticalScrollBarVisibility}\n"
+                    + $"cards={string.Join(",", cards.Select(card => card?.Name ?? "missing"))}\n"
+                    + $"actions={string.Join(",", actionPanel?.Children.Select(control => control.Name ?? "unnamed") ?? [])}");
             }
             finally
             {

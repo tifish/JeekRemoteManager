@@ -181,6 +181,13 @@ DialogUpdateReadyMessage	A newer build is ready to install (current {0}, latest 
 DialogMoveConfigTitle	Move Config data	移动 Config 数据
 DialogMoveConfigMessage	Move existing Config data to the new location?\n\nFrom: {0}\nTo: {1}\n\nChoose No to only change the setting and leave files in their current location.	是否将现有 Config 数据移动到新位置？\n\n源：{0}\n目标：{1}\n\n选择“否”将只修改设置，文件仍保留在当前位置。
 DialogSettingsTitle	Settings	设置
+SettingsSubtitle	Customize appearance, files, security, and updates.	自定义外观、文件、安全与更新选项。
+SettingsAppearanceSection	Appearance	外观
+SettingsFilesSection	Files and storage	文件与存储
+SettingsSecuritySection	Security	安全
+SettingsUpdatesSection	Updates	更新
+SettingsStorageLabel	Config location	Config 保存位置
+SettingsPasswordHint	Protect saved credentials with your master password.	使用主密码保护已保存的凭据。
 DialogStorageQuestion	Where should Config be stored?	Config 应保存在哪里？
 StorageUserOption	User directory (roaming)	用户目录（漫游）
 StorageProgramOption	Program directory (portable)	程序目录（便携）

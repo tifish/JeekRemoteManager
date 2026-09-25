@@ -8,6 +8,7 @@ using Avalonia;
 using Avalonia.Automation.Peers;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
@@ -3550,12 +3551,17 @@ public partial class MainWindow : Window
         var customPath = currentCustomPath;
         var customPathText = new TextBlock
         {
+            Name = "SettingsCustomPathText",
             FontSize = 11,
-            Opacity = 0.7,
             TextWrapping = TextWrapping.Wrap,
             VerticalAlignment = VerticalAlignment.Center,
+            Classes = { "hint" },
         };
-        var browseButton = new Button { Content = Localizer.Get("Browse") };
+        var browseButton = new Button
+        {
+            Content = Localizer.Get("Browse"),
+            MinWidth = 88,
+        };
 
         void RefreshCustomPathText()
         {
@@ -3571,21 +3577,26 @@ public partial class MainWindow : Window
         {
             GroupName = "storage",
             IsChecked = current == StorageLocation.CustomDirectory,
-            Content = new StackPanel
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Content = new Grid
             {
-                Spacing = 4,
-                Children =
-                {
-                    new TextBlock { Text = Localizer.Get("StorageCustomOption") },
-                    new StackPanel
-                    {
-                        Orientation = Orientation.Horizontal,
-                        Spacing = 8,
-                        Children = { browseButton, customPathText },
-                    },
-                },
+                RowDefinitions = new RowDefinitions("Auto,Auto"),
+                RowSpacing = 7,
             },
         };
+        var customContent = (Grid)customRadio.Content;
+        var customTitle = new TextBlock { Text = Localizer.Get("StorageCustomOption") };
+        var customPathRow = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("Auto,*"),
+            ColumnSpacing = 10,
+        };
+        Grid.SetRow(customPathRow, 1);
+        Grid.SetColumn(customPathText, 1);
+        customPathRow.Children.Add(browseButton);
+        customPathRow.Children.Add(customPathText);
+        customContent.Children.Add(customTitle);
+        customContent.Children.Add(customPathRow);
 
         browseButton.Click += async (_, _) =>
         {
@@ -3606,6 +3617,7 @@ public partial class MainWindow : Window
         };
         var languageBox = new ComboBox
         {
+            Name = "SettingsLanguageBox",
             HorizontalAlignment = HorizontalAlignment.Stretch,
             ItemsSource = languages,
         };
@@ -3621,6 +3633,7 @@ public partial class MainWindow : Window
         };
         var themeBox = new ComboBox
         {
+            Name = "SettingsThemeBox",
             HorizontalAlignment = HorizontalAlignment.Stretch,
             ItemsSource = themes,
         };
@@ -3629,12 +3642,14 @@ public partial class MainWindow : Window
 
         var changePassword = new Button
         {
+            Name = "SettingsChangePasswordButton",
             Content = Localizer.Get("ChangeMasterPassword"),
-            HorizontalAlignment = HorizontalAlignment.Left,
+            MinWidth = 150,
         };
 
         var checkOnStartupBox = new CheckBox
         {
+            Name = "SettingsCheckOnStartupBox",
             Content = Localizer.Get("CheckUpdateOnStartup"),
             IsChecked = currentCheckOnStartup,
         };
@@ -3649,6 +3664,7 @@ public partial class MainWindow : Window
         };
         var intervalBox = new ComboBox
         {
+            Name = "SettingsIntervalBox",
             HorizontalAlignment = HorizontalAlignment.Stretch,
             ItemsSource = intervals,
         };
@@ -3660,10 +3676,15 @@ public partial class MainWindow : Window
         // Editor for the file browser's remote editing (F4); blank = shell association.
         var editorBox = new TextBox
         {
+            Name = "SettingsEditorBox",
             Text = currentEditorPath ?? "",
             PlaceholderText = Localizer.Get("SettingsEditorWatermark"),
         };
-        var editorBrowse = new Button { Content = Localizer.Get("Browse") };
+        var editorBrowse = new Button
+        {
+            Content = Localizer.Get("Browse"),
+            MinWidth = 88,
+        };
         editorBrowse.Click += async (_, _) =>
         {
             var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
@@ -3686,51 +3707,165 @@ public partial class MainWindow : Window
 
         var ok = new Button
         {
+            Name = "SettingsOkButton",
             Content = Localizer.Get("DialogOk"),
-            MinWidth = 80,
+            MinWidth = 96,
             IsDefault = true,
             Classes = { "accent" },
         };
-        var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 80, IsCancel = true };
-
-        var dialog = new Window
+        var cancel = new Button
         {
-            Title = Localizer.Get("DialogSettingsTitle"),
-            Width = 460,
-            SizeToContent = SizeToContent.Height,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            CanResize = false,
-            Content = new StackPanel
+            Name = "SettingsCancelButton",
+            Content = Localizer.Get("DialogCancel"),
+            MinWidth = 96,
+            IsCancel = true,
+        };
+
+        var appearanceFields = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,*"),
+            ColumnSpacing = 14,
+        };
+        var languageField = BuildSettingsField(Localizer.Get("Language"), languageBox);
+        var themeField = BuildSettingsField(Localizer.Get("Theme"), themeBox);
+        Grid.SetColumn(themeField, 1);
+        appearanceFields.Children.Add(languageField);
+        appearanceFields.Children.Add(themeField);
+
+        var appearanceCard = BuildSettingsCard(
+            "SettingsAppearanceCard",
+            Localizer.Get("SettingsAppearanceSection"),
+            appearanceFields);
+
+        var storageOptions = new StackPanel
+        {
+            Spacing = 8,
+            Children = { userRadio, programRadio, customRadio },
+        };
+        var filesCardContent = new StackPanel
+        {
+            Spacing = 16,
+            Children =
             {
-                Margin = new Avalonia.Thickness(20),
-                Spacing = 12,
+                BuildSettingsField(Localizer.Get("SettingsEditorLabel"), editorRow),
+                BuildSettingsField(Localizer.Get("SettingsStorageLabel"), storageOptions),
+            },
+        };
+        var filesCard = BuildSettingsCard(
+            "SettingsFilesCard",
+            Localizer.Get("SettingsFilesSection"),
+            filesCardContent);
+
+        var securityRow = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+            ColumnSpacing = 18,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = Localizer.Get("SettingsPasswordHint"),
+                    Classes = { "hint" },
+                    VerticalAlignment = VerticalAlignment.Center,
+                },
+            },
+        };
+        Grid.SetColumn(changePassword, 1);
+        securityRow.Children.Add(changePassword);
+        var securityCard = BuildSettingsCard(
+            "SettingsSecurityCard",
+            Localizer.Get("SettingsSecuritySection"),
+            securityRow);
+
+        var updatesGrid = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,220"),
+            ColumnSpacing = 18,
+        };
+        checkOnStartupBox.VerticalAlignment = VerticalAlignment.Center;
+        var intervalField = BuildSettingsField(Localizer.Get("UpdateCheckInterval"), intervalBox);
+        Grid.SetColumn(intervalField, 1);
+        updatesGrid.Children.Add(checkOnStartupBox);
+        updatesGrid.Children.Add(intervalField);
+        var updatesCard = BuildSettingsCard(
+            "SettingsUpdatesCard",
+            Localizer.Get("SettingsUpdatesSection"),
+            updatesGrid);
+
+        var header = new Border
+        {
+            Name = "SettingsDialogHeader",
+            Padding = new Avalonia.Thickness(24, 20, 24, 16),
+            Child = new StackPanel
+            {
+                Spacing = 4,
                 Children =
                 {
-                    new TextBlock { Text = Localizer.Get("Language"), FontWeight = FontWeight.SemiBold },
-                    languageBox,
-                    new TextBlock { Text = Localizer.Get("Theme"), FontWeight = FontWeight.SemiBold },
-                    themeBox,
-                    new TextBlock { Text = Localizer.Get("SettingsEditorLabel"), FontWeight = FontWeight.SemiBold },
-                    editorRow,
-                    new TextBlock { Text = Localizer.Get("DialogStorageQuestion"), FontWeight = FontWeight.SemiBold },
-                    userRadio,
-                    programRadio,
-                    customRadio,
-                    new TextBlock { Text = Localizer.Get("Password"), FontWeight = FontWeight.SemiBold },
-                    changePassword,
-                    new TextBlock { Text = Localizer.Get("AutoUpdate"), FontWeight = FontWeight.SemiBold },
-                    checkOnStartupBox,
-                    new TextBlock { Text = Localizer.Get("UpdateCheckInterval") },
-                    intervalBox,
-                    new StackPanel
+                    new TextBlock
                     {
-                        Orientation = Orientation.Horizontal,
-                        HorizontalAlignment = HorizontalAlignment.Right,
-                        Spacing = 8,
-                        Children = { ok, cancel },
+                        Text = Localizer.Get("DialogSettingsTitle"),
+                        Classes = { "page-title" },
+                    },
+                    new TextBlock
+                    {
+                        Text = Localizer.Get("SettingsSubtitle"),
+                        Classes = { "hint" },
                     },
                 },
             },
+        };
+
+        var scroller = new ScrollViewer
+        {
+            Name = "SettingsDialogScrollViewer",
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Content = new StackPanel
+            {
+                Margin = new Avalonia.Thickness(24, 4, 24, 20),
+                Spacing = 12,
+                Children = { appearanceCard, filesCard, securityCard, updatesCard },
+            },
+        };
+
+        var footer = new Border
+        {
+            Name = "SettingsDialogFooter",
+            BorderThickness = new Avalonia.Thickness(0, 1, 0, 0),
+            Padding = new Avalonia.Thickness(24, 14),
+            Child = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Spacing = 10,
+                Children = { ok, cancel },
+            },
+        };
+        footer[!Border.BackgroundProperty] = new DynamicResourceExtension("ChromeSurfaceBrush");
+        footer[!Border.BorderBrushProperty] = new DynamicResourceExtension("BorderBrushSoft");
+
+        var dialogLayout = new Grid
+        {
+            Name = "SettingsDialogLayout",
+            RowDefinitions = new RowDefinitions("Auto,*,Auto"),
+            Children = { header },
+        };
+        Grid.SetRow(scroller, 1);
+        Grid.SetRow(footer, 2);
+        dialogLayout.Children.Add(scroller);
+        dialogLayout.Children.Add(footer);
+
+        var dialog = new Window
+        {
+            Name = "SettingsDialog",
+            Title = Localizer.Get("DialogSettingsTitle"),
+            Width = 680,
+            Height = 720,
+            MinWidth = 560,
+            MinHeight = 560,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            CanResize = true,
+            Content = dialogLayout,
         };
 
         changePassword.Click += async (_, _) =>
@@ -3802,6 +3937,32 @@ public partial class MainWindow : Window
         public override string ToString() => Label;
     }
 
+    private static StackPanel BuildSettingsField(string label, Control control) => new()
+    {
+        Spacing = 6,
+        Children =
+        {
+            new TextBlock { Text = label, Classes = { "label" } },
+            control,
+        },
+    };
+
+    private static Border BuildSettingsCard(string name, string title, Control content) => new()
+    {
+        Name = name,
+        Classes = { "form-card" },
+        Padding = new Avalonia.Thickness(16),
+        Child = new StackPanel
+        {
+            Spacing = 13,
+            Children =
+            {
+                new TextBlock { Text = title, Classes = { "section-title" } },
+                content,
+            },
+        },
+    };
+
     private static Control BuildOption(string title, string path) => new StackPanel
     {
         Spacing = 2,
@@ -3811,9 +3972,8 @@ public partial class MainWindow : Window
             new TextBlock
             {
                 Text = path,
-                FontSize = 11,
-                Opacity = 0.7,
                 TextWrapping = TextWrapping.Wrap,
+                Classes = { "hint" },
             },
         },
     };
