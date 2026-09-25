@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using JeekRemoteManager.Models;
 using JeekTools;
 
@@ -246,7 +247,28 @@ public class ConnectionStore
         var snapshot = ReadFolder(RootPath);
         var after = ComputeSignature();
         KnownSignature = before == after ? after : null;
+        PruneTextCache(snapshot);
         return snapshot;
+    }
+
+    /// <summary>Drops cached text for files the latest read no longer saw.</summary>
+    private void PruneTextCache(ConnectionFolderSnapshot snapshot)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Collect(ConnectionFolderSnapshot folder)
+        {
+            foreach (var connection in folder.Connections)
+                seen.Add(connection.Path);
+            foreach (var child in folder.Folders)
+                Collect(child);
+        }
+
+        Collect(snapshot);
+        lock (_textCache)
+        {
+            foreach (var path in _textCache.Keys.Where(path => !seen.Contains(path)).ToList())
+                _textCache.Remove(path);
+        }
     }
 
     private ConnectionFolderSnapshot ReadFolder(string folderPath)
@@ -256,11 +278,21 @@ public class ConnectionStore
             folders.Add(ReadFolder(directory));
 
         var connections = new List<ConnectionFileSnapshot>();
-        foreach (var file in GetConnectionFiles(folderPath))
+        if (!Directory.Exists(folderPath))
+            return new ConnectionFolderSnapshot(folderPath, folders, connections);
+
+        // Enumerating FileInfo returns size and write time with the directory listing
+        // itself, so deciding which files are unchanged costs no extra round-trip per file.
+        var files = new DirectoryInfo(folderPath)
+            .EnumerateFiles("*" + FileExtension)
+            .OrderBy(file => Path.GetFileNameWithoutExtension(file.Name), StringComparer.OrdinalIgnoreCase);
+        foreach (var file in files)
         {
             try
             {
-                connections.Add(new ConnectionFileSnapshot(file, Load(file)));
+                connections.Add(new ConnectionFileSnapshot(
+                    file.FullName,
+                    LoadFromText(file.FullName, ReadConnectionText(file))));
             }
             catch
             {
@@ -271,10 +303,49 @@ public class ConnectionStore
         return new ConnectionFolderSnapshot(folderPath, folders, connections);
     }
 
-    /// <summary>Loads a connection from a file.</summary>
-    public Connection Load(string filePath)
+    /// <summary>
+    /// Text of each connection file as last read, keyed by path and stamped with the size
+    /// and write time it had. Every tree action (rename, move, paste, save) rebuilds the
+    /// whole tree synchronously so the new node can be selected at once; reading every file
+    /// again for that made each click cost a full pass over the folder, which is very visible
+    /// on a network or file-synced drive. Unchanged files now come from here, and only the
+    /// changed ones are read. The text is cached, not the parsed object: every read still
+    /// hands out fresh <see cref="Connection"/> instances, since editors mutate them.
+    /// </summary>
+    private readonly Dictionary<string, (long Length, long WriteTicks, string Text)> _textCache =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Connection files actually read from disk (cache misses), for the Debug MCP.</summary>
+    internal long ConnectionFileReadsForDebug => Interlocked.Read(ref _connectionFileReads);
+
+    private long _connectionFileReads;
+
+    private string ReadConnectionText(FileInfo file)
     {
-        var json = File.ReadAllText(filePath);
+        var length = file.Length;
+        var ticks = file.LastWriteTimeUtc.Ticks;
+        lock (_textCache)
+        {
+            if (_textCache.TryGetValue(file.FullName, out var cached)
+                && cached.Length == length
+                && cached.WriteTicks == ticks)
+            {
+                return cached.Text;
+            }
+        }
+
+        var text = File.ReadAllText(file.FullName);
+        Interlocked.Increment(ref _connectionFileReads);
+        lock (_textCache)
+            _textCache[file.FullName] = (length, ticks, text);
+        return text;
+    }
+
+    /// <summary>Loads a connection from a file.</summary>
+    public Connection Load(string filePath) => LoadFromText(filePath, File.ReadAllText(filePath));
+
+    private Connection LoadFromText(string filePath, string json)
+    {
         var connection = JsonSerializer.Deserialize<Connection>(json, JsonOptions)
                          ?? new Connection();
 

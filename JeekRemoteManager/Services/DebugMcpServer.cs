@@ -136,6 +136,7 @@ internal static class DebugMcpServer
         host.AddTool("sftp_retry_policy_check", _ => SftpRetryPolicyCheckAsync());
         host.AddTool("connection_write_watcher_check", _ => ConnectionWriteWatcherCheckAsync());
         host.AddTool("connection_external_change_check", _ => ConnectionExternalChangeCheckAsync());
+        host.AddTool("connection_tree_read_cache_check", _ => ConnectionTreeReadCacheCheckAsync());
         host.AddTool("connection_tree_reload_order_check", _ => ConnectionTreeReloadOrderCheckAsync());
         host.AddTool("connection_tree_load_check", _ => ConnectionTreeLoadCheckAsync());
         host.AddTool("monitor_suspend_check", _ => MonitorSuspendCheckAsync());
@@ -759,6 +760,70 @@ internal static class DebugMcpServer
         var report = $"{(passed ? "PASS" : "FAIL")}: external changes next to own writes reach the tree\n"
             + $"externalShown={externalShown}\nownWriteReloads={reloadsAfter - reloadsBefore}\n"
             + $"watcherSkips={skippedAfter - skippedBefore}\nfailures={failures.Count}"
+            + (passed ? "" : "\n" + string.Join("\n", failures));
+        return ToolText(report, isError: !passed);
+    }
+
+    /// <summary>
+    /// Every tree action rebuilds the tree synchronously on the UI thread, and used to read
+    /// every connection file to do it. Verifies a repeat read takes unchanged files from the
+    /// cache, that a file changed on disk is read again (and its new content shows), and
+    /// that fresh Connection objects are handed out each time.
+    /// </summary>
+    private static async Task<JsonObject> ConnectionTreeReadCacheCheckAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "jrm-read-cache-" + Guid.NewGuid().ToString("N"));
+        var failures = new List<string>();
+        long firstReads = 0, repeatReads = 0, changedReads = 0;
+        try
+        {
+            await Task.Run(() =>
+            {
+                var store = new ConnectionStore(root);
+                var folder = store.CreateFolder(root, "group");
+                for (var i = 0; i < 5; i++)
+                    store.Save(new Connection { Name = $"c{i}", Host = $"h{i}.invalid" }, folder);
+
+                static IEnumerable<ConnectionFileSnapshot> All(ConnectionFolderSnapshot folder) =>
+                    folder.Connections.Concat(folder.Folders.SelectMany(All));
+
+                var baseline = store.ConnectionFileReadsForDebug;
+                var first = store.ReadTree();
+                firstReads = store.ConnectionFileReadsForDebug - baseline;
+
+                baseline = store.ConnectionFileReadsForDebug;
+                var repeat = store.ReadTree();
+                repeatReads = store.ConnectionFileReadsForDebug - baseline;
+
+                var target = All(repeat).First(c => c.Connection.Name == "c2");
+                if (ReferenceEquals(target.Connection, All(first).First(c => c.Connection.Name == "c2").Connection))
+                    failures.Add("a repeat read handed out the same Connection instance");
+
+                var text = File.ReadAllText(target.Path).Replace("h2.invalid", "changed-host.invalid");
+                File.WriteAllText(target.Path, text);
+                baseline = store.ConnectionFileReadsForDebug;
+                var changed = store.ReadTree();
+                changedReads = store.ConnectionFileReadsForDebug - baseline;
+                if (All(changed).First(c => c.Connection.Name == "c2").Connection.Host != "changed-host.invalid")
+                    failures.Add("the changed file's new content did not show up");
+            }).ConfigureAwait(false);
+
+            if (firstReads != 5)
+                failures.Add($"first read loaded {firstReads} files (expected 5)");
+            if (repeatReads != 0)
+                failures.Add($"repeat read loaded {repeatReads} files (expected 0)");
+            if (changedReads != 1)
+                failures.Add($"read after one change loaded {changedReads} files (expected 1)");
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* ignore */ }
+        }
+
+        var passed = failures.Count == 0;
+        var report = $"{(passed ? "PASS" : "FAIL")}: tree reads reuse unchanged connection files\n"
+            + $"firstReads={firstReads}\nrepeatReads={repeatReads}\nchangedReads={changedReads}\n"
+            + $"failures={failures.Count}"
             + (passed ? "" : "\n" + string.Join("\n", failures));
         return ToolText(report, isError: !passed);
     }
