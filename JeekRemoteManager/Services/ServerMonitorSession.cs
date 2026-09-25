@@ -154,7 +154,15 @@ public sealed class ServerMonitorSession : IDisposable
         _onFailed = onFailed;
         _bastionSessionPool = bastionSessionPool;
         _connection = connection;
+        _encoding = connection is { IsWsl: false }
+            ? TerminalEncoding.Resolve(connection.TerminalEncoding)
+            : TerminalEncoding.Utf8;
+        _loginCapture.SetEncoding(_encoding);
     }
+
+    /// <summary>The connection's terminal encoding: bastion menus in the hidden shell are
+    /// matched by name, so they must decode exactly as the visible terminal does.</summary>
+    private readonly Encoding _encoding;
 
     /// <summary>Debug-MCP-visible runtime state used to verify that monitoring is
     /// using one persistent duplicated shell rather than repeated exec channels.</summary>
@@ -651,7 +659,7 @@ public sealed class ServerMonitorSession : IDisposable
         timeout.CancelAfter(TimeSpan.FromSeconds(SampleTimeoutSeconds));
 
         var payload = InteractiveShellPayloadRunner.Build(heavy ? HeavyCommand : LightCommand);
-        var monitor = new InteractiveShellPayloadMonitor(payload);
+        var monitor = new InteractiveShellPayloadMonitor(payload, _encoding);
         if (Interlocked.CompareExchange(ref _activePayloadMonitor, monitor, null) is not null)
             throw new InvalidOperationException("A server monitor sample is already running.");
 

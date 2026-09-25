@@ -63,6 +63,12 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     private string _terminalType = Connection.DefaultTerminalType;
 
     [ObservableProperty]
+    private string _terminalEncoding = Services.TerminalEncoding.DefaultName;
+
+    /// <summary>Encodings offered for an SSH session's terminal.</summary>
+    public static string[] AvailableTerminalEncodings => Services.TerminalEncoding.Names;
+
+    [ObservableProperty]
     private string _privateKeyPath = "";
 
     [ObservableProperty]
@@ -266,6 +272,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             Port = c.Port,
             Username = c.Username,
             TerminalType = string.IsNullOrWhiteSpace(c.TerminalType) ? Connection.DefaultTerminalType : c.TerminalType,
+            TerminalEncoding = Services.TerminalEncoding.Normalize(c.TerminalEncoding),
             PrivateKeyPath = c.PrivateKeyPath,
             LoginCommands = c.LoginCommands,
             HasBastionProfile = profile is not null,
@@ -382,6 +389,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         c.Port = Port > 0 ? Port : Connection.DefaultPort(Type);
         c.Username = Username.Trim();
         c.TerminalType = string.IsNullOrWhiteSpace(TerminalType) ? Connection.DefaultTerminalType : TerminalType.Trim();
+        c.TerminalEncoding = Services.TerminalEncoding.Normalize(TerminalEncoding);
         // If we could not decrypt the stored password and the user has not typed a
         // replacement, keep the original ciphertext intact instead of clobbering it
         // with an encryption of the (empty) box.

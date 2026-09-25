@@ -140,7 +140,8 @@ public sealed class InteractiveShellPayloadMonitor
 {
     private readonly InteractiveShellPayload _payload;
     private readonly object _gate = new();
-    private readonly Decoder _decoder = Encoding.UTF8.GetDecoder();
+    private readonly Encoding _encoding;
+    private readonly Decoder _decoder;
 
     // The complete command output is kept, because that is what the result hands back.
     // It lives in a char buffer rather than a StringBuilder so each marker scan can run
@@ -165,9 +166,14 @@ public sealed class InteractiveShellPayloadMonitor
     private bool _displayCompleted;
     private string _pendingDisplayNewlines = "";
 
-    public InteractiveShellPayloadMonitor(InteractiveShellPayload payload)
+    /// <param name="encoding">The session's terminal encoding. Output is decoded with it, and
+    /// the display bytes handed back are re-encoded with it, because the caller feeds them to
+    /// a terminal decoder for that same encoding. Null = UTF-8.</param>
+    public InteractiveShellPayloadMonitor(InteractiveShellPayload payload, Encoding? encoding = null)
     {
         _payload = payload;
+        _encoding = encoding ?? TerminalEncoding.Utf8;
+        _decoder = _encoding.GetDecoder();
     }
 
     /// <summary>
@@ -212,7 +218,7 @@ public sealed class InteractiveShellPayloadMonitor
             _exit.TrySetResult(result);
         return displayText.Length == 0
             ? Array.Empty<byte>()
-            : Encoding.UTF8.GetBytes(displayText);
+            : _encoding.GetBytes(displayText);
     }
 
     private void AppendDecoded(byte[] data)

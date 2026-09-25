@@ -165,9 +165,13 @@ public partial class TerminalView : UserControl
     private DispatcherTimer? _windowSizeSyncTimer;
     private (uint Cols, uint Rows)? _lastSentWindowSize;
     private readonly TerminalResizeOutputBuffer _resizeOutputBuffer = new();
-    // SSH packets often split multi-byte UTF-8 (Chinese) mid-character; decode statefully
-    // before TerminalControlModel.Feed, which would otherwise insert U+FFFD tofu boxes.
-    private readonly Utf8StreamDecoder _utf8Decoder = new();
+    // SSH packets often split multi-byte characters (Chinese) mid-character; decode statefully
+    // before TerminalControlModel.Feed, which would otherwise insert U+FFFD tofu boxes. The
+    // encoding is the connection's (UTF-8 unless it names a legacy code page such as GBK);
+    // all three fields are replaced together by ApplyTerminalEncoding on each connect.
+    private Encoding _terminalEncoding = TerminalEncoding.Utf8;
+    private TerminalStreamDecoder _outputDecoder = new();
+    private TerminalInputEncoder _inputEncoder = new(TerminalEncoding.Utf8);
     private readonly TerminalSessionOutputBuffer _sessionOutputBuffer = new();
     private readonly Timer _outputFrameFlushTimer;
     private long _receivedPacketCount;
@@ -901,12 +905,38 @@ public partial class TerminalView : UserControl
     /// </summary>
     internal Task DebugFeedCompletionLineAfterOutputAsync(string output, string completionLine)
     {
-        FeedBytesDirect(Encoding.UTF8.GetBytes(output));
+        FeedBytesDirect(_terminalEncoding.GetBytes(output));
         return FeedCompletionLineAndRefreshPromptAsync(completionLine);
     }
 
-    /// <summary>Debug helper: reset the streaming UTF-8 decoder (as on a new connection).</summary>
-    public void DebugResetUtf8Decoder() => _utf8Decoder.Reset();
+    /// <summary>Debug helper: reset the streaming output decoder (as on a new connection).</summary>
+    public void DebugResetUtf8Decoder() => _outputDecoder.Reset();
+
+    /// <summary>Encoding the current session decodes and encodes with, for Debug MCP.</summary>
+    internal string DebugTerminalEncodingName => _terminalEncoding.WebName;
+
+    /// <summary>Debug MCP: bytes the shell would receive for this typed UTF-8 input.</summary>
+    internal byte[] DebugEncodeInput(string text) =>
+        new TerminalInputEncoder(_terminalEncoding).Encode(Encoding.UTF8.GetBytes(text));
+
+    /// <summary>Debug MCP: feeds raw session bytes through the real output pipeline.</summary>
+    internal void DebugFeedRawOutput(byte[] data) => FeedBytesDirect(data);
+
+    /// <summary>Debug MCP: switches the session encoding as a connect would.</summary>
+    internal void DebugApplyTerminalEncoding(string name) => ApplyTerminalEncoding(TerminalEncoding.Resolve(name));
+
+    /// <summary>
+    /// Switches every text boundary of the session to one encoding: the display decoder,
+    /// the input transcoder, and the login-menu capture. Called as a connection starts, so
+    /// nothing decoded under the previous encoding is carried over.
+    /// </summary>
+    private void ApplyTerminalEncoding(Encoding encoding)
+    {
+        _terminalEncoding = encoding;
+        _outputDecoder = new TerminalStreamDecoder(encoding);
+        _inputEncoder = new TerminalInputEncoder(encoding);
+        _loginOutputCapture.SetEncoding(encoding);
+    }
 
     public void DebugResetTerminalOutputStats()
     {
@@ -1681,8 +1711,9 @@ public partial class TerminalView : UserControl
 
         try
         {
-            WriteToShell(Encoding.UTF8.GetBytes(payload));
-            return $"[keys sent bytes={Encoding.UTF8.GetByteCount(payload)}]";
+            var bytes = _terminalEncoding.GetBytes(payload);
+            WriteToShell(bytes);
+            return $"[keys sent bytes={bytes.Length}]";
         }
         catch (Exception ex)
         {
@@ -2027,7 +2058,10 @@ public partial class TerminalView : UserControl
         Volatile.Write(ref _bastionSessionState, "none");
         _outputFrameFlushTimer.Change(Timeout.Infinite, Timeout.Infinite);
         _sessionOutputBuffer.Clear();
-        _utf8Decoder.Reset();
+        // WSL runs under ConPTY, which always speaks UTF-8.
+        ApplyTerminalEncoding(_connection is { IsWsl: false } connection
+            ? TerminalEncoding.Resolve(connection.TerminalEncoding)
+            : TerminalEncoding.Utf8);
         _ = ConnectAsync(generation);
     }
 
@@ -2303,7 +2337,7 @@ public partial class TerminalView : UserControl
         _shellClosed = false;
         _outputFrameFlushTimer.Change(Timeout.Infinite, Timeout.Infinite);
         _sessionOutputBuffer.Clear();
-        _utf8Decoder.Reset();
+        ApplyTerminalEncoding(TerminalEncoding.Utf8);
         _connectInProgress = true;
 
         var cols = (uint)Math.Max(20, _model.Terminal.Cols);
@@ -3094,7 +3128,7 @@ public partial class TerminalView : UserControl
 
     /// <summary>Writes a local notice into the terminal view; nothing is sent to the remote.</summary>
     private void ReportLoginMenuFailure(string message) =>
-        FeedBytesDirect(Encoding.UTF8.GetBytes($"\r\n[JeekRemoteManager] {message}\r\n"));
+        FeedBytesDirect(_terminalEncoding.GetBytes($"\r\n[JeekRemoteManager] {message}\r\n"));
 
     private bool TryTakePooledClientReference(
         BastionSessionPool.BastionSessionLease lease,
@@ -3196,7 +3230,10 @@ public partial class TerminalView : UserControl
             return;
         try
         {
-            WriteToShell(data.ToArray());
+            byte[] encoded;
+            lock (_shellWriteGate)
+                encoded = _inputEncoder.Encode(data.Span);
+            WriteToShell(encoded);
         }
         catch
         {
@@ -3204,7 +3241,7 @@ public partial class TerminalView : UserControl
         }
     }
 
-    private void WriteToShell(string text) => WriteToShell(Encoding.UTF8.GetBytes(text));
+    private void WriteToShell(string text) => WriteToShell(_terminalEncoding.GetBytes(text));
 
     private async void OnTerminalContextRequested(object? sender, TerminalContextRequestedEventArgs e)
     {
@@ -3411,7 +3448,7 @@ public partial class TerminalView : UserControl
         var interactivePayload = InteractiveShellPayloadRunner.Build(payload);
         // This monitor's output is rendered, so the exit result must not be released
         // until OnShellData has queued that packet's bytes -- see DeferExitCompletion.
-        var monitor = new InteractiveShellPayloadMonitor(interactivePayload)
+        var monitor = new InteractiveShellPayloadMonitor(interactivePayload, _terminalEncoding)
         {
             DeferExitCompletion = true,
         };
@@ -3515,7 +3552,7 @@ public partial class TerminalView : UserControl
 
         // Decode and feed once per UI frame so split UTF-8 remains ordered while a
         // burst of SSH packets produces one terminal refresh instead of one per read.
-        var text = _utf8Decoder.Decode(payload);
+        var text = _outputDecoder.Decode(payload);
         if (text.Length > 0)
         {
             Interlocked.Increment(ref _feedBatchCount);
@@ -3526,7 +3563,7 @@ public partial class TerminalView : UserControl
         // only when the remote outran the UI badly enough to threaten the process.
         if (_sessionOutputBuffer.TakeDroppedByteCount() is > 0 and var dropped)
         {
-            _utf8Decoder.Reset();
+            _outputDecoder.Reset();
             FeedLine(
                 $"\r\n[33m[output truncated: dropped {dropped / 1024} KiB the terminal "
                 + "could not keep up with][0m");

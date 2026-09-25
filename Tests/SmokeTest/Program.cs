@@ -1340,22 +1340,22 @@ try
     Check(brokenText.Contains('\uFFFD'),
           "TerminalControlModel.Feed(byte[]) produces U+FFFD when UTF-8 is split mid-character");
 
-    var streamDecoder = new Utf8StreamDecoder();
+    var streamDecoder = new TerminalStreamDecoder();
     var streamed = streamDecoder.Decode(chineseUtf8.AsSpan(0, 2))
                    + streamDecoder.Decode(chineseUtf8.AsSpan(2));
     Check(streamed == "中文测试" && !streamed.Contains('\uFFFD'),
-          "Utf8StreamDecoder reassembles Chinese split across packets");
+          "TerminalStreamDecoder reassembles Chinese split across packets");
 
     var fixedModel = new TerminalControlModel(new TerminalOptions { Cols = 40, Rows = 5, Scrollback = 10 });
     // One byte at a time through the decoder (worst-case packet split).
-    var perByteDecoder = new Utf8StreamDecoder();
+    var perByteDecoder = new TerminalStreamDecoder();
     var rebuilt = new StringBuilder();
     foreach (var b in chineseUtf8)
         rebuilt.Append(perByteDecoder.Decode([b]));
     fixedModel.Feed(rebuilt.ToString());
     var fixedText = fixedModel.Terminal.Buffer.GetLine(0)?.TranslateToString(true) ?? "";
     Check(fixedText.Contains("中文测试", StringComparison.Ordinal) && !fixedText.Contains('\uFFFD'),
-          "Terminal receives intact Chinese when fed via Utf8StreamDecoder + Feed(string)");
+          "Terminal receives intact Chinese when fed via TerminalStreamDecoder + Feed(string)");
 
     // --- Utf8ChunkAssembler (the AI panel feeds bytes straight to the parser) ---
     var assemblerBytes = Encoding.UTF8.GetBytes("中文 ascii 🎉 テスト");

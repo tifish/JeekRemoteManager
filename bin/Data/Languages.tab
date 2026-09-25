@@ -50,6 +50,8 @@ Password	Password	密码
 Show	Show	显示
 SshOptions	SSH options	SSH 选项
 TerminalType	Terminal type	终端类型
+TerminalEncoding	Encoding	编码
+TerminalEncodingTip	Character encoding of the remote shell. Choose GBK or GB18030 for servers whose locale is not UTF-8.	远程 shell 的字符编码。服务器的 locale 不是 UTF-8 时选择 GBK 或 GB18030。
 PrivateKey	Private key	私钥
 PrivateKeyWatermark	optional path to key file	可选，私钥文件路径
 LoginCommands	Login commands	登录后执行

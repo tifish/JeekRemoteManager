@@ -45,6 +45,12 @@ public class Connection
     /// </summary>
     public string TerminalType { get; set; } = DefaultTerminalType;
 
+    /// <summary>
+    /// Character encoding the remote shell speaks: "UTF-8" (default) or a legacy code page
+    /// such as "GBK". See <see cref="Services.TerminalEncoding"/>. SSH only.
+    /// </summary>
+    public string TerminalEncoding { get; set; } = Services.TerminalEncoding.DefaultName;
+
     /// <summary>Optional path to a private key file (ssh -i).</summary>
     public string PrivateKeyPath { get; set; } = "";
 

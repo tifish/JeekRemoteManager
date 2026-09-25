@@ -308,6 +308,8 @@ public static class ProductMcpContract
         leading["username"] = Prop("string", "Login user (SSH/RDP).");
         leading["private_key_path"] = Prop("string", "Private key file for SSH.");
         leading["terminal_type"] = Prop("string", "TERM sent on login; default xterm-256color.");
+        leading["terminal_encoding"] = Prop("string",
+            "Character encoding of the remote shell (SSH): UTF-8 (default), GB18030, GBK, Big5, Shift-JIS or EUC-KR.");
         leading["login_commands"] = Prop("string",
             "Commands typed after login, one per line; supports #input, #select, #pagekey, #key, "
             + "#template 1 through #template 4, and structured bastion sections "

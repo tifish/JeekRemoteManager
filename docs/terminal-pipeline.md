@@ -1,6 +1,6 @@
 # 终端通道与输出管线
 
-涉及 `Services/ITerminalChannel.cs`、`ConPtySession.cs`、`Utf8StreamDecoder.cs`、`Utf8ChunkAssembler.cs`、`TerminalSessionOutputBuffer.cs`、`TerminalResizeOutputBuffer.cs`、`TerminalBufferResizeRepair.cs`、`TerminalDimColorFilter.cs`、`Views/TerminalView.axaml.cs`、`Views/AgentCliPanelView.axaml.cs`。
+涉及 `Services/ITerminalChannel.cs`、`ConPtySession.cs`、`TerminalStreamDecoder.cs`、`TerminalEncoding.cs`、`Utf8ChunkAssembler.cs`、`TerminalSessionOutputBuffer.cs`、`TerminalResizeOutputBuffer.cs`、`TerminalBufferResizeRepair.cs`、`TerminalDimColorFilter.cs`、`Views/TerminalView.axaml.cs`、`Views/AgentCliPanelView.axaml.cs`。
 
 ## 目的
 
@@ -45,12 +45,22 @@
  └─ 否则 → TerminalSessionOutputBuffer.Append(data, generation)，武装帧定时器
       ↓
    DrainTerminalOutputFrame（UI 线程，每帧一次）
-      → Utf8StreamDecoder.Decode → model.Feed
+      → TerminalStreamDecoder.Decode → model.Feed
 ```
 
 ### 为什么要分这么多层
 
-**`Utf8StreamDecoder`（SSH 侧，输出字符串）。** SSH/ConPTY 的包会把一个多字节字符切开，对单个包直接 `Encoding.UTF8.GetString` 会把不完整序列替换成 U+FFFD——中文变豆腐块。这个解码器保留未完成的尾巴。注意实现细节：**即使当前没有完整字符也必须调用 `GetChars`**，因为 `GetCharCount` 不保留不完整尾部，`GetChars` 才保留。
+**`TerminalStreamDecoder`（SSH 侧，输出字符串）。** SSH/ConPTY 的包会把一个多字节字符切开，对单个包直接 `Encoding.UTF8.GetString` 会把不完整序列替换成 U+FFFD——中文变豆腐块。这个解码器保留未完成的尾巴。注意实现细节：**即使当前没有完整字符也必须调用 `GetChars`**，因为 `GetCharCount` 不保留不完整尾部，`GetChars` 才保留。
+
+**终端编码（`TerminalEncoding`）。** SSH 连接可以指定远端 shell 的编码（UTF-8 默认，另有 GB18030 / GBK / Big5 / Shift-JIS / EUC-KR），老服务器和不少国内服务器的 locale 仍是 GBK。转换只发生在**文本边界**，通道本身保持 8 位透明——ZMODEM 要原始字节，所以不能在 `ITerminalChannel` 上套一层转码。边界有这几处，漏一处就会出现"屏幕对、agent 读到乱码"之类的不一致：
+
+- 显示解码器（`TerminalStreamDecoder` 按连接的编码构造）；
+- 用户输入：终端控件给出的是 UTF-8，经 `TerminalInputEncoder` 有状态地转成目标编码；应用替用户敲的文本（`WriteToShell(string)`、agent 的 send-keys）直接按目标编码编码；
+- `InteractiveShellPayloadMonitor`：按目标编码解码捕获的输出，**交回显示的字节也按同一编码重新编码**，因为它们接着要进显示解码器；
+- 登录菜单捕获 `LoginMenuOutputCapture`（`#select` 按名字匹配菜单，中文菜单名必须解对），终端和监控的隐藏 shell 各有一个；
+- 应用自己插进字节管线的提示行。
+
+`ApplyTerminalEncoding` 在每次建立连接时把这些一起换掉。WSL 和本地 ConPTY 永远是 UTF-8。回归检查是 Debug MCP 的 `terminal_encoding_check`。
 
 **`Utf8ChunkAssembler`（AI 面板侧，输出字节）。** 同一个问题，但 AI 面板要把字节直接喂给解析器。若走"解码成字符串再编码回字节"，稳定输出流每帧都要付一次完整转码。这个类只扣住不完整的尾部序列（最多 3 字节）。它有一条容易踩的规则：**非法前导字节要放行，不能扣住**。C0/C1（overlong）和 F5–FF 永远不可能开始一个合法序列，扣住它们会让解析器永远看不到这些字节，而且如果它们正好在最后一个包结尾，就被彻底吞掉了。怎么渲染非法字节是解析器的事，不是缓冲区的事。
 

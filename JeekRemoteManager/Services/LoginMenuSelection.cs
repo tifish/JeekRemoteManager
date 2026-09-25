@@ -145,7 +145,14 @@ public sealed class LoginMenuOutputCapture
     private const int MaxChars = 64 * 1024;
 
     private readonly object _gate = new();
-    private readonly Utf8StreamDecoder _decoder = new();
+    private TerminalStreamDecoder _decoder = new();
+
+    /// <summary>Switches the decoder to the session's terminal encoding (drops any held tail).</summary>
+    public void SetEncoding(Encoding encoding)
+    {
+        lock (_gate)
+            _decoder = new TerminalStreamDecoder(encoding);
+    }
     private readonly StringBuilder _text = new();
 
     public void Append(ReadOnlySpan<byte> data)

@@ -123,6 +123,7 @@ internal static class DebugMcpServer
         host.AddTool("terminal_connection_actions_check", _ => TerminalConnectionActionsCheckAsync());
         host.AddTool("terminal_output_coalescing_check", _ => TerminalOutputCoalescingCheckAsync());
         host.AddTool("script_completion_order_check", _ => ScriptCompletionOrderCheckAsync());
+        host.AddTool("terminal_encoding_check", _ => TerminalEncodingCheckAsync());
         host.AddTool(
             "terminal_output_backpressure_check",
             _ => Task.FromResult(TerminalOutputBackpressureCheck()));
@@ -1935,6 +1936,91 @@ internal static class DebugMcpServer
                 });
             }
         }
+    }
+
+    /// <summary>
+    /// A connection can name a legacy terminal encoding (GBK and friends). Verifies each
+    /// text boundary honours it: output split mid-character renders intact through the real
+    /// terminal pipeline, typed UTF-8 input reaches the shell as GBK, captured script output
+    /// decodes and re-encodes consistently, and login-menu capture reads the same text.
+    /// </summary>
+    private static async Task<JsonObject> TerminalEncodingCheckAsync()
+    {
+        var failures = new List<string>();
+        var gbk = TerminalEncoding.Resolve("GBK");
+        const string sample = "中文终端GBK";
+        var sampleBytes = gbk.GetBytes(sample);
+
+        if (TerminalEncoding.Normalize("cp936") != "GBK" || TerminalEncoding.Normalize("") != "UTF-8")
+            failures.Add("encoding names did not normalize");
+        if (!TerminalEncoding.IsUtf8(TerminalEncoding.Resolve("bogus")))
+            failures.Add("an unknown encoding name did not fall back to UTF-8");
+
+        // Captured script output: decoded as GBK, display bytes handed back in GBK too.
+        var payload = InteractiveShellPayloadRunner.Build("echo probe\n", "encodingprobe");
+        var monitor = new InteractiveShellPayloadMonitor(payload, gbk);
+        monitor.Append(gbk.GetBytes("\n" + payload.BeginMarker + "\n"));
+        var display = monitor.Append(gbk.GetBytes(sample + "\n" + payload.ExitMarkerPrefix + "0\n"));
+        var exit = await monitor.WaitForExitAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(2));
+        if (!exit.Output.Contains(sample, StringComparison.Ordinal))
+            failures.Add($"captured output did not decode as GBK: {exit.Output}");
+        if (!gbk.GetString(display).Contains(sample, StringComparison.Ordinal))
+            failures.Add("display bytes were not re-encoded as GBK");
+
+        var capture = new LoginMenuOutputCapture();
+        capture.SetEncoding(gbk);
+        capture.Append(sampleBytes.AsSpan(0, 3));
+        capture.Append(sampleBytes.AsSpan(3));
+        if (!capture.Snapshot().Contains(sample, StringComparison.Ordinal))
+            failures.Add($"login-menu capture did not decode split GBK: {capture.Snapshot()}");
+
+        TabItem? tab = null;
+        var rendered = "";
+        var inputHex = "";
+        try
+        {
+            tab = await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main)
+                    throw new InvalidOperationException("MainWindow is not available.");
+                return main.DebugCreateTerminalTabForLifecycleProbe();
+            });
+            var view = await OnUiAsync(() => (TerminalView)tab!.Content!);
+            await OnUiAsync(() =>
+            {
+                view.DebugApplyTerminalEncoding("GBK");
+                // Split inside the second character, as an SSH packet boundary would.
+                view.DebugFeedRawOutput(sampleBytes[..3]);
+                view.DebugFeedRawOutput(sampleBytes[3..]);
+                inputHex = Convert.ToHexString(view.DebugEncodeInput("中文"));
+                return true;
+            });
+            await Task.Delay(300);
+            rendered = await OnUiAsync(() => view.DebugVisibleTerminalText ?? "");
+            if (!rendered.Contains(sample, StringComparison.Ordinal))
+                failures.Add("GBK output split across packets did not render intact");
+            if (inputHex != Convert.ToHexString(gbk.GetBytes("中文")))
+                failures.Add($"typed input was not re-encoded as GBK (got {inputHex})");
+        }
+        finally
+        {
+            if (tab is not null)
+            {
+                await OnUiAsync(() =>
+                {
+                    if (Desktop?.MainWindow is Views.MainWindow main)
+                        main.CloseTerminalSession(tab);
+                    return true;
+                });
+            }
+        }
+
+        var passed = failures.Count == 0;
+        var report = $"{(passed ? "PASS" : "FAIL")}: terminal encoding applies at every text boundary\n"
+            + $"renderedGbk={rendered.Contains(sample, StringComparison.Ordinal)}\ninputHex={inputHex}\n"
+            + $"failures={failures.Count}"
+            + (passed ? "" : "\n" + string.Join("\n", failures));
+        return ToolText(report, isError: !passed);
     }
 
     /// <summary>

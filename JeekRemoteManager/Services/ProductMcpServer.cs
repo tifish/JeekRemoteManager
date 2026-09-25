@@ -359,6 +359,8 @@ internal static class ProductMcpServer
             connection.PrivateKeyPath = keyPath.Trim();
         if (args["terminal_type"]?.GetValue<string>() is { } terminalType && terminalType.Trim().Length > 0)
             connection.TerminalType = terminalType.Trim();
+        if (args["terminal_encoding"]?.GetValue<string>() is { } terminalEncoding && terminalEncoding.Trim().Length > 0)
+            connection.TerminalEncoding = TerminalEncoding.Normalize(terminalEncoding);
         if (args["login_commands"]?.GetValue<string>() is { } loginCommands)
             connection.LoginCommands = loginCommands;
         if (args["wsl_distro"]?.GetValue<string>() is { } distro)
@@ -458,6 +460,7 @@ internal static class ProductMcpServer
         described["hasKeyPassphrase"] = !string.IsNullOrEmpty(connection.EncryptedPrivateKeyPassphrase);
         described["privateKeyPath"] = connection.PrivateKeyPath;
         described["terminalType"] = connection.TerminalType;
+        described["terminalEncoding"] = TerminalEncoding.Normalize(connection.TerminalEncoding);
         described["loginCommands"] = connection.LoginCommands;
         described["usesSharedBastionTemplate"] = connection.UsesBastionProfile;
         described["autoOpenMonitorPanel"] = connection.AutoOpenMonitorPanel;
