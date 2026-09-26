@@ -10,11 +10,11 @@ namespace JeekRemoteManager.Services;
 /// check them against, and who answers keyboard-interactive prompts (OTP, extra PAM
 /// fields) that the stored password cannot.
 /// </summary>
-/// <param name="OnMismatch">(keyType, saved, presented) =&gt; replace? — null rejects a changed key.</param>
+/// <param name="OnMismatch">(host, port, keyType, saved, presented) =&gt; replace? — null rejects a changed key.</param>
 /// <param name="PromptUser">Answers a keyboard-interactive challenge; null fails such prompts.</param>
 /// <param name="KnownHosts">Store to verify against; null = <see cref="KnownHostsStore.Default"/>.</param>
 public sealed record SshDialOptions(
-    Func<string, string, string, bool>? OnMismatch = null,
+    Func<string, int, string, string, string, bool>? OnMismatch = null,
     Action<string>? OnRejected = null,
     Action<string>? OnTrusted = null,
     Func<SshConnectionFactory.KeyboardInteractiveChallenge, string?>? PromptUser = null,

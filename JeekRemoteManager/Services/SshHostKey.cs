@@ -58,7 +58,7 @@ public static class SshHostKey
         }
     }
 
-    /// <param name="onMismatch">(keyType, savedFingerprint, presentedFingerprint) =&gt; replace? — prompt before replacing a remembered host key; null = reject.</param>
+    /// <param name="onMismatch">(host, port, keyType, savedFingerprint, presentedFingerprint) =&gt; replace? — prompt before replacing a remembered host key; null = reject.</param>
     /// <param name="onRejected">Invoked with a human-readable reason when the host is rejected.</param>
     /// <param name="onTrusted">Invoked with the SHA256 fingerprint when a host key is trusted and saved (lets a silent caller surface an audit line).</param>
     internal static bool Evaluate(
@@ -67,7 +67,7 @@ public static class SshHostKey
         int port,
         string keyType,
         string fingerprint,
-        Func<string, string, string, bool>? onMismatch = null,
+        Func<string, int, string, string, string, bool>? onMismatch = null,
         Action<string>? onRejected = null,
         Action<string>? onTrusted = null)
     {
@@ -80,7 +80,7 @@ public static class SshHostKey
                 var saved = store.TryGet(host, port, out var stored)
                     ? stored
                     : "(unavailable)";
-                if (onMismatch?.Invoke(keyType, saved, fingerprint) == true)
+                if (onMismatch?.Invoke(host, port, keyType, saved, fingerprint) == true)
                 {
                     store.Trust(host, port, fingerprint, keyType);
                     onTrusted?.Invoke(fingerprint);

@@ -299,7 +299,7 @@ public partial class TerminalView
                     connection,
                     info => new SshClient(info) { KeepAliveInterval = TimeSpan.FromSeconds(30) },
                     new SshDialOptions(
-                        OnMismatch: (keyType, saved, fingerprint) => HostKeyDialog.PromptReplace(host, port, keyType, saved, fingerprint),
+                        OnMismatch: HostKeyDialog.PromptReplace,
                         OnRejected: message => Dispatcher.UIThread.Post(() => FeedLine($"\r\n\u001b[31m[{message}]\u001b[0m\r\n")),
                         PromptUser: KeyboardInteractiveDialog.Prompt),
                     ResolveConnection);

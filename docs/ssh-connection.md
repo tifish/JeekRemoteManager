@@ -53,6 +53,7 @@ SSH.NET 没有内置的 host key 校验，默认信任所有主机。`KnownHosts
 **跳板机（ProxyJump）。** `Connection.JumpHost` 是另一个已保存 SSH 连接的**树路径**（如 `vps/bastion`），用它自己的凭据和主机密钥。SSH.NET 不能在另一个会话的通道上跑会话，所以做法是：先连跳板机，开一个 `ForwardedPortLocal("127.0.0.1", 0 → 目标 host:port)`，再连本机那个临时端口。要点：
 
 - **主机密钥按真实目标校验**，不是按 127.0.0.1——否则所有经跳板的主机都会共用一条 `127.0.0.1:随机端口` 记录。`Build(connection, dialHost, dialPort)` 只改实际连接的地址，提示框和 known_hosts 用的仍是真实主机名。
+- **替换密钥的回调必须携带本次受检主机的 host/port。** 同一组 `SshDialOptions` 会先用于跳板、再用于目标，终端和公钥安装不能在回调里捕获最终目标地址，否则跳板密钥变化时会以目标的名字请求用户批准。`host_key_trust_check` 检查回调收到的地址。
 - **拨号时才解析跳板机**（窗口注入的 `ResolveConnection`，就是 `ConnectionStore.TryLoadByTreePath`），改了跳板机下次连接就生效，不存解析结果。解析器在 UI 线程上捕获 store，因为它在拨号的工作线程上被调用，那里读窗口的 `DataContext` 会抛跨线程异常。
 - 只支持一跳：跳板机自己的 `JumpHost` 不跟随。
 - 隧道的生命周期挂在目标连接上：终端里通过 `SharedSshClient.AddOwnedResource`，SFTP 在 `DisposeClient` 里一起释放。

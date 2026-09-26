@@ -399,7 +399,7 @@ internal static partial class DebugMcpServer
                 port,
                 "ssh-ed25519",
                 first,
-                onMismatch: (_, _, _) =>
+                onMismatch: (_, _, _, _, _) =>
                 {
                     unexpectedPrompt = true;
                     return false;
@@ -422,9 +422,11 @@ internal static partial class DebugMcpServer
                 port,
                 "rsa-sha2-512",
                 replacement,
-                onMismatch: (_, saved, presented) =>
+                onMismatch: (actualHost, actualPort, _, saved, presented) =>
                 {
                     prompted = true;
+                    if (actualHost != host || actualPort != port)
+                        failures.Add("the replacement callback did not identify the host being checked");
                     return saved == first && presented == replacement;
                 });
             if (!prompted || !accepted)

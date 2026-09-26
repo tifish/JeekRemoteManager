@@ -25,13 +25,33 @@ public sealed class KnownHostsTests : IDisposable
     public void First_key_is_trusted_silently_and_a_change_needs_confirmation()
     {
         var prompted = false;
-        Assert.True(SshHostKey.Evaluate(_store, "h", 22, "ssh-ed25519", "first", onMismatch: (_, _, _) => prompted = true));
+        Assert.True(SshHostKey.Evaluate(_store, "h", 22, "ssh-ed25519", "first", onMismatch: (_, _, _, _, _) => prompted = true));
         Assert.False(prompted);
 
-        Assert.False(SshHostKey.Evaluate(_store, "h", 22, "ssh-ed25519", "second", onMismatch: (_, _, _) => false));
-        Assert.True(SshHostKey.Evaluate(_store, "h", 22, "ssh-ed25519", "second", onMismatch: (_, saved, presented) =>
+        Assert.False(SshHostKey.Evaluate(_store, "h", 22, "ssh-ed25519", "second", onMismatch: (_, _, _, _, _) => false));
+        Assert.True(SshHostKey.Evaluate(_store, "h", 22, "ssh-ed25519", "second", onMismatch: (_, _, _, saved, presented) =>
             saved == "first" && presented == "second"));
         Assert.Equal(KnownHostsStore.Status.Match, _store.Check("h", 22, "ssh-ed25519", "second"));
+    }
+
+    [Fact]
+    public void A_shared_dial_callback_identifies_the_host_whose_key_changed()
+    {
+        _store.Trust("jump", 2222, "old-jump");
+        _store.Trust("target", 22, "old-target");
+        var prompts = new List<(string Host, int Port, string Saved)>();
+        var options = new SshDialOptions(
+            OnMismatch: (host, port, _, saved, _) =>
+            {
+                prompts.Add((host, port, saved));
+                return host == "target";
+            },
+            KnownHosts: _store);
+
+        Assert.False(SshHostKey.Evaluate(options.Store, "jump", 2222, "ssh-ed25519", "new-jump", options.OnMismatch));
+        Assert.True(SshHostKey.Evaluate(options.Store, "target", 22, "ssh-ed25519", "new-target", options.OnMismatch));
+        Assert.Equal(new[] { ("jump", 2222, "old-jump"), ("target", 22, "old-target") }, prompts);
+        Assert.Equal(KnownHostsStore.Status.Match, _store.Check("jump", 2222, "ssh-ed25519", "old-jump"));
     }
 
     [Fact]

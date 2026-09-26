@@ -99,7 +99,7 @@ public static class PublicKeyInstaller
             connection,
             info => new SshClient(info),
             new SshDialOptions(
-                OnMismatch: (keyType, saved, fingerprint) => confirmHostKeyReplacement?.Invoke(host, port, keyType, saved, fingerprint) ?? false,
+                OnMismatch: confirmHostKeyReplacement,
                 OnRejected: message => output.Append(message).Append('\n'),
                 PromptUser: promptUser),
             resolveConnection), cancellationToken).ConfigureAwait(false);
