@@ -115,6 +115,7 @@ internal static partial class DebugMcpServer
         host.AddTool("screenshot", _ => ScreenshotAsync());
         host.AddTool("about_dialog_probe", _ => AboutDialogProbeAsync());
         host.AddTool("settings_dialog_layout_check", _ => SettingsDialogLayoutCheckAsync());
+        host.AddTool("settings_terminal_preview_check", _ => SettingsTerminalPreviewCheckAsync());
         host.AddTool("button_content_alignment_check", _ => ButtonContentAlignmentCheckAsync());
         host.AddTool("ai_runtime_snapshot", _ => AiRuntimeSnapshotAsync());
         host.AddTool("password_ime_check", _ => PasswordImeCheckAsync());
@@ -885,6 +886,86 @@ internal static partial class DebugMcpServer
             {
                 dialog.Close();
             }
+        });
+
+        return ToolText(report, isError: !passed);
+    }
+
+    private static async Task<JsonObject> SettingsTerminalPreviewCheckAsync()
+    {
+        var saved = await OnUiAsync(() =>
+        {
+            if (Desktop?.MainWindow is not Views.MainWindow main
+                || main.DataContext is not MainWindowViewModel vm)
+                return null;
+
+            main.ActivateMainWindow();
+            var appearance = main.DebugTerminalAppearance;
+            vm.OpenSettingsCommand.Execute(null);
+            return appearance;
+        });
+        if (saved is null)
+            return ToolText("FAIL: MainWindow is not available.", isError: true);
+
+        await Task.Delay(150);
+
+        static string? PaletteBackground() =>
+            (Application.Current?.Resources["SvcSystems.UI.TerminalColor0"] as ISolidColorBrush)?.Color.ToString();
+
+        var (passed, report) = await OnUiAsync(() =>
+        {
+            var dialog = Desktop?.Windows.FirstOrDefault(window => window.Name == "SettingsDialog");
+            if (dialog is null || Desktop?.MainWindow is not Views.MainWindow main)
+                return (false, "FAIL: Settings dialog did not open.");
+
+            var lines = new List<string>();
+            var ok = true;
+            void Check(bool condition, string line)
+            {
+                ok &= condition;
+                lines.Add($"{(condition ? "ok" : "FAIL")}: {line}");
+            }
+
+            try
+            {
+                var boxes = dialog.GetVisualDescendants().OfType<ComboBox>().ToArray();
+                var fontBox = boxes.First(box => box.Name == "SettingsTerminalFontBox");
+                var schemeBox = boxes.First(box => box.Name == "SettingsTerminalSchemeBox");
+
+                var fonts = fontBox.Items.Skip(1).Select(item => item?.ToString() ?? "").ToArray();
+                var proportional = fonts.Where(name =>
+                    name is "Arial" or "Segoe UI" or "Times New Roman" or "Microsoft YaHei").ToArray();
+                Check(fonts.Length > 0 && proportional.Length == 0 && fonts.Contains("Consolas"),
+                    $"font list has {fonts.Length} monospace families, proportional={string.Join(",", proportional)}");
+
+                var scheme = TerminalAppearance.Schemes.First(s => s.Name != saved.ColorScheme);
+                schemeBox.SelectedItem = scheme.Name;
+                Check(main.DebugTerminalAppearance.ColorScheme == scheme.Name
+                      && PaletteBackground() == Color.Parse(scheme.Palette[0]).ToString(),
+                    $"scheme preview {scheme.Name}: applied={main.DebugTerminalAppearance.ColorScheme}, color0={PaletteBackground()}");
+
+                fontBox.SelectedIndex = fontBox.Items.Cast<object?>().ToList()
+                    .FindIndex(item => item?.ToString() == "Consolas");
+                Check(main.DebugTerminalAppearance.FontFamily == "Consolas",
+                    $"font preview: applied={main.DebugTerminalAppearance.FontFamily ?? "(default)"}");
+
+                dialog.GetVisualDescendants().OfType<Button>().First(b => b.Name == "SettingsCancelButton")
+                    .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                var restored = Color.Parse(TerminalAppearance.FindScheme(saved.ColorScheme).Palette[0]).ToString();
+                Check(main.DebugTerminalAppearance == saved && PaletteBackground() == restored,
+                    $"cancel restores: applied={main.DebugTerminalAppearance}, color0={PaletteBackground()}");
+            }
+            catch (Exception ex)
+            {
+                Check(false, ex.ToString());
+            }
+            finally
+            {
+                if (dialog.IsVisible)
+                    dialog.Close();
+            }
+
+            return (ok, $"{(ok ? "PASS" : "FAIL")}: Settings terminal preview\n{string.Join("\n", lines)}");
         });
 
         return ToolText(report, isError: !passed);

@@ -88,6 +88,47 @@ public static class TerminalAppearance
             ? DefaultFontFamily
             : $"{name.Trim()}, {DefaultFontFamily}");
 
+    private static IReadOnlyList<string>? _monospaceFamilies;
+
+    /// <summary>
+    /// Installed font families a terminal can use: fixed pitch per the font's own flag, or
+    /// failing that, with equal advances for a spread of narrow and wide Latin glyphs (some
+    /// CJK mono fonts do not set the flag). Scanned once per process.
+    /// </summary>
+    public static IReadOnlyList<string> MonospaceFamilies => _monospaceFamilies ??= FontManager.Current.SystemFonts
+        .Select(family => family.Name)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .Where(IsMonospace)
+        .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
+    private static bool IsMonospace(string familyName)
+    {
+        try
+        {
+            if (!FontManager.Current.TryGetGlyphTypeface(new Typeface(familyName), out var typeface))
+                return false;
+            if (typeface.Metrics.IsFixedPitch)
+                return true;
+
+            ushort? width = null;
+            foreach (var ch in "iWM0.")
+            {
+                if (!typeface.CharacterToGlyphMap.TryGetGlyph(ch, out var glyph)
+                    || !typeface.TryGetHorizontalGlyphAdvance(glyph, out var advance)
+                    || (width is { } w && w != advance))
+                    return false;
+                width = advance;
+            }
+            return true;
+        }
+        catch (Exception)
+        {
+            // A broken font file must not take the whole list down.
+            return false;
+        }
+    }
+
     /// <summary>Writes a scheme into the resources the terminal control renders from.</summary>
     public static void ApplyColorScheme(IResourceDictionary resources, TerminalColorScheme scheme)
     {

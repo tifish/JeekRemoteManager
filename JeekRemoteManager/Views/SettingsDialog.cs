@@ -36,10 +36,12 @@ internal static class SettingsDialog
 {
     /// <param name="pickFolder">(suggested path, title) =&gt; chosen folder or null.</param>
     /// <param name="changeMasterPassword">Re-encrypts everything under a new master password.</param>
+    /// <param name="previewTerminal">Applies a terminal appearance to the open terminals without saving it.</param>
     public static Task<SettingsDialogResult?> ShowAsync(
         Window owner,
         Func<string, string?, Task<string?>> pickFolder,
         Action<string> changeMasterPassword,
+        Action<TerminalAppearanceSettings> previewTerminal,
         StorageLocation current,
         string? currentCustomPath,
         string? currentLanguage,
@@ -260,14 +262,10 @@ internal static class SettingsDialog
             Localizer.Get("SettingsAppearanceSection"),
             appearanceFields);
 
-        // Terminal font: "default" first, then every installed family (the saved one is kept
-        // even if it is no longer installed, so opening the dialog never changes it).
+        // Terminal font: "default" first, then every installed monospace family (the saved one
+        // is kept even if it is no longer listed, so opening the dialog never changes it).
         var fontChoices = new List<FontChoice> { new(Localizer.Get("TerminalFontDefault"), null) };
-        fontChoices.AddRange(FontManager.Current.SystemFonts
-            .Select(family => family.Name)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
-            .Select(name => new FontChoice(name, name)));
+        fontChoices.AddRange(TerminalAppearance.MonospaceFamilies.Select(name => new FontChoice(name, name)));
         if (currentTerminal.FontFamily is { } savedFont
             && !fontChoices.Any(choice => string.Equals(choice.Family, savedFont, StringComparison.OrdinalIgnoreCase)))
         {
@@ -302,6 +300,23 @@ internal static class SettingsDialog
             ItemsSource = scrollbackChoices,
             SelectedItem = currentTerminal.ScrollbackLines,
         };
+
+        // Font and colors preview live on the open terminals; Cancel or closing the window
+        // puts the saved appearance back, OK leaves the preview for the caller to persist.
+        // Only a dialog that previewed something restores, so merely opening and closing it
+        // never overwrites an appearance applied from elsewhere meanwhile.
+        var committed = false;
+        var previewed = false;
+        void PreviewTerminal()
+        {
+            previewed = true;
+            previewTerminal(new TerminalAppearanceSettings(
+                (terminalFontBox.SelectedItem as FontChoice)?.Family,
+                terminalSchemeBox.SelectedItem as string ?? TerminalAppearance.DefaultSchemeName,
+                currentTerminal.ScrollbackLines));
+        }
+        terminalFontBox.SelectionChanged += (_, _) => PreviewTerminal();
+        terminalSchemeBox.SelectionChanged += (_, _) => PreviewTerminal();
         var terminalFields = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("*,*"),
@@ -498,6 +513,7 @@ internal static class SettingsDialog
             var theme = (themeBox.SelectedItem as ThemeChoice)?.Code;
             var checkOnStartup = checkOnStartupBox.IsChecked == true;
             var intervalHours = (intervalBox.SelectedItem as IntervalChoice)?.Hours ?? 0;
+            committed = true;
             tcs.TrySetResult(new SettingsDialogResult(
                 storage,
                 storage == StorageLocation.CustomDirectory ? customPath : currentCustomPath,
@@ -513,7 +529,12 @@ internal static class SettingsDialog
             dialog.Close();
         };
         cancel.Click += (_, _) => { tcs.TrySetResult(null); dialog.Close(); };
-        dialog.Closed += (_, _) => tcs.TrySetResult(null);
+        dialog.Closed += (_, _) =>
+        {
+            if (previewed && !committed)
+                previewTerminal(currentTerminal);
+            tcs.TrySetResult(null);
+        };
 
         dialog.ShowDialog(owner);
         return tcs.Task;

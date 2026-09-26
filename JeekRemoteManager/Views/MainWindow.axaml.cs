@@ -442,6 +442,7 @@ public partial class MainWindow : Window
             this,
             PickFolderAsync,
             newPassword => (DataContext as MainWindowViewModel)?.ChangeMasterPassword(newPassword),
+            ApplyTerminalAppearanceToOpenTabs,
             current,
             currentCustomPath,
             currentLanguage,
