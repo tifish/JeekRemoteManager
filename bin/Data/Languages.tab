@@ -52,6 +52,12 @@ SshOptions	SSH options	SSH 选项
 TerminalType	Terminal type	终端类型
 TerminalEncoding	Encoding	编码
 TerminalEncodingTip	Character encoding of the remote shell. Choose GBK or GB18030 for servers whose locale is not UTF-8.	远程 shell 的字符编码。服务器的 locale 不是 UTF-8 时选择 GBK 或 GB18030。
+JumpHost	Jump host	跳板机
+JumpHostWatermark	optional, tree path of a saved SSH connection, e.g. vps/bastion	可选，已保存的 SSH 连接的树路径，如 vps/bastion
+JumpHostTip	Connect through another saved SSH connection first (like ssh -J). Its host key and credentials are its own.	先连到另一个已保存的 SSH 连接再跳到这里（相当于 ssh -J），跳板机使用它自己的主机密钥和凭据。
+PortForwards	Port forwarding	端口转发
+PortForwardsWatermark	one per line: L 8080 db:5432 / R 9000 localhost:3000 / D 1080	每行一条：L 8080 db:5432 / R 9000 localhost:3000 / D 1080
+PortForwardsTip	L = local port to a host the server can reach, R = server port back to this machine, D = SOCKS proxy. Local listeners bind 127.0.0.1 unless you give an address.	L = 本地端口转到服务器能访问的主机，R = 服务器端口转回本机，D = SOCKS 代理。本地监听默认只绑定 127.0.0.1。
 PrivateKey	Private key	私钥
 PrivateKeyWatermark	optional path to key file	可选，私钥文件路径
 LoginCommands	Login commands	登录后执行

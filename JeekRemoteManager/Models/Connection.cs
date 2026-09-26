@@ -112,6 +112,18 @@ public class Connection
     /// <summary>Record every session of this connection to a plain-text log file.</summary>
     public bool AutoLogSession { get; set; }
 
+    /// <summary>
+    /// Tree path of another saved SSH connection to hop through ("vps/bastion"), the
+    /// ProxyJump equivalent; empty dials directly. See <see cref="Services.SshDialer"/>.
+    /// </summary>
+    public string JumpHost { get; set; } = "";
+
+    /// <summary>
+    /// Port forwards started with each dial, one per line: "L 8080 db:5432",
+    /// "R 9000 localhost:3000", "D 1080". See <see cref="Services.SshPortForwarding"/>.
+    /// </summary>
+    public string PortForwards { get; set; } = "";
+
     /// <summary>Per-connection parameter bindings for reusable SSH scripts.</summary>
     public List<ConnectionScriptBinding> ScriptBindings { get; set; } = new();
 

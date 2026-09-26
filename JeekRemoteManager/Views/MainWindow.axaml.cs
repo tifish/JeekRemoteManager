@@ -1042,10 +1042,15 @@ public partial class MainWindow : Window
         var sessionNumber = NextTerminalSessionNumber(connection, sourcePath);
         var adjacentTitles = FindAdjacentConnectionTitles(sourcePath);
         var appearance = _terminalAppearance;
+        // Captured here, on the UI thread: the resolver runs on the dial's worker thread,
+        // where reading the window's DataContext throws. The store is one instance for the
+        // window's lifetime (a storage move re-roots it), so the capture never goes stale.
+        var store = (DataContext as MainWindowViewModel)?.Store;
         var view = new TerminalView(appearance.ScrollbackLines)
         {
             SessionNumber = sessionNumber,
             BastionSessionPool = _bastionSessionPool,
+            ResolveConnection = store is null ? null : store.TryLoadByTreePath,
         };
         view.PanelStateChanged += (_, _) => UpdateTerminalPanelToggleStates();
         var tab = new TabItem

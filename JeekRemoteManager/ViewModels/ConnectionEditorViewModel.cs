@@ -145,6 +145,20 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     [ObservableProperty]
     private bool _autoLogSession;
 
+    /// <summary>Tree path of the saved connection to hop through; empty dials directly.</summary>
+    [ObservableProperty]
+    private string _jumpHost = "";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PortForwardsValidationMessage))]
+    [NotifyPropertyChangedFor(nameof(HasPortForwardsValidationMessage))]
+    private string _portForwards = "";
+
+    /// <summary>Why the port-forwarding lines do not parse, or empty.</summary>
+    public string PortForwardsValidationMessage => SshPortForwarding.Validate(PortForwards) ?? "";
+
+    public bool HasPortForwardsValidationMessage => PortForwardsValidationMessage.Length > 0;
+
     public ObservableCollection<ConnectionScriptBindingViewModel> ScriptBindings { get; } = new();
 
     // WSL
@@ -288,6 +302,8 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             AutoOpenMonitorPanel = c.AutoOpenMonitorPanel,
             AutoOpenFileBrowserPanel = c.AutoOpenFileBrowserPanel,
             AutoLogSession = c.AutoLogSession,
+            JumpHost = c.JumpHost,
+            PortForwards = c.PortForwards,
             WslDistro = c.WslDistro,
             WslStartDirectory = c.WslStartDirectory,
             RdpFullScreen = c.RdpFullScreen,
@@ -411,6 +427,8 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         c.AutoOpenMonitorPanel = AutoOpenMonitorPanel;
         c.AutoOpenFileBrowserPanel = AutoOpenFileBrowserPanel;
         c.AutoLogSession = AutoLogSession;
+        c.JumpHost = JumpHost.Trim().Replace('\\', '/').Trim('/');
+        c.PortForwards = PortForwards;
         c.WslDistro = WslDistro.Trim();
         c.WslStartDirectory = WslStartDirectory.Trim();
         c.ScriptBindings = ScriptBindings

@@ -81,7 +81,8 @@ public static class PublicKeyInstaller
         Connection connection,
         string publicKeyText,
         Func<string, int, string, string, string, bool>? confirmHostKeyReplacement = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<string, Connection?>? resolveConnection = null)
     {
         if (connection.Type != ConnectionType.Ssh)
             throw new InvalidOperationException("Public keys can only be installed on SSH connections.");
@@ -93,15 +94,15 @@ public static class PublicKeyInstaller
         // Build (which may query ssh-agent / Pageant over IPC) and Connect both run
         // on a background thread; those calls can block and must not run on the UI
         // thread. Same auth + known_hosts path as the terminal and script runner.
-        using var client = await Task.Run(() =>
-        {
-            var sshClient = new SshClient(SshConnectionFactory.Build(connection));
-            SshHostKey.Attach(sshClient, host, port,
-                onMismatch: (keyType, saved, fingerprint) => confirmHostKeyReplacement?.Invoke(host, port, keyType, saved, fingerprint) ?? false,
-                onRejected: message => output.Append(message).Append('\n'));
-            sshClient.Connect();
-            return sshClient;
-        }, cancellationToken).ConfigureAwait(false);
+        var (client, tunnel) = await Task.Run(() => SshDialer.Connect(
+            connection,
+            info => new SshClient(info),
+            new SshHostKeyCallbacks(
+                OnMismatch: (keyType, saved, fingerprint) => confirmHostKeyReplacement?.Invoke(host, port, keyType, saved, fingerprint) ?? false,
+                OnRejected: message => output.Append(message).Append('\n')),
+            resolveConnection), cancellationToken).ConfigureAwait(false);
+        using var jumpTunnel = tunnel;
+        using var sshClient = client;
 
         var terminalType = string.IsNullOrWhiteSpace(connection.TerminalType)
             ? Connection.DefaultTerminalType

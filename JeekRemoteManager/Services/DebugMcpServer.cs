@@ -25,6 +25,7 @@ using JeekRemoteManager.ViewModels;
 using JeekTools;
 using JeekRemoteManager.Views;
 using Microsoft.Extensions.Logging;
+using Renci.SshNet;
 using Renci.SshNet.Common;
 using ZLogger;
 
@@ -137,6 +138,7 @@ internal static class DebugMcpServer
         host.AddTool("ssh_auth_prompt_check", _ => Task.FromResult(SshAuthPromptCheck()));
         host.AddTool("host_key_trust_check", _ => Task.FromResult(HostKeyTrustCheck()));
         host.AddTool("sftp_host_key_check", SftpHostKeyCheckAsync);
+        host.AddTool("ssh_jump_forward_check", SshJumpForwardCheckAsync);
         host.AddTool("sftp_retry_policy_check", _ => SftpRetryPolicyCheckAsync());
         host.AddTool("connection_write_watcher_check", _ => ConnectionWriteWatcherCheckAsync());
         host.AddTool("connection_external_change_check", _ => ConnectionExternalChangeCheckAsync());
@@ -1512,7 +1514,7 @@ internal static class DebugMcpServer
         try
         {
             KnownHostsStore.Trust(host, port, "planted-wrong-fingerprint", "ssh-ed25519");
-            using (var session = new SftpSession(() => SshConnectionFactory.Build(connection)))
+            using (var session = new SftpSession(connection))
             {
                 try
                 {
@@ -1528,7 +1530,7 @@ internal static class DebugMcpServer
             }
 
             KnownHostsStore.Forget(host, port);
-            using (var session = new SftpSession(() => SshConnectionFactory.Build(connection)))
+            using (var session = new SftpSession(connection))
             {
                 try
                 {
@@ -1549,9 +1551,8 @@ internal static class DebugMcpServer
             // SSH.NET upgrade does exactly this). The remembered family must still win the
             // negotiation, so the host is recognised instead of raising a false alarm.
             KnownHostsStore.TryGetKeyType(host, port, out rememberedFamily);
-            using (var session = new SftpSession(() =>
+            using (var session = new SftpSession(connection, configure: info =>
                    {
-                       var info = SshConnectionFactory.Build(connection);
                        foreach (var pair in info.HostKeyAlgorithms
                                     .Where(pair => KnownHostsStore.KeyFamily(pair.Key) != rememberedFamily)
                                     .Reverse()
@@ -1560,8 +1561,6 @@ internal static class DebugMcpServer
                            info.HostKeyAlgorithms.Remove(pair.Key);
                            info.HostKeyAlgorithms.Insert(0, pair.Key, pair.Value);
                        }
-
-                       return info;
                    }))
             {
                 try
@@ -1589,6 +1588,209 @@ internal static class DebugMcpServer
             + $"failures={failures.Count}"
             + (passed ? "" : "\n" + string.Join("\n", failures));
         return ToolText(report, isError: !passed);
+    }
+
+    /// <summary>
+    /// Jump hosts and port forwarding, against a real sshd (the local WSL rig by default):
+    /// dials the target through a jump connection and runs a command over it; starts L, D
+    /// and R forwards and pushes bytes through each (an SSH banner over L, a SOCKS5 CONNECT
+    /// over D, a remote /dev/tcp write back to a local listener over R); checks the forwards
+    /// stop with the transport that owns them; and checks parse errors and an unknown jump
+    /// host are reported. The rig's known-hosts entry is restored afterwards.
+    /// </summary>
+    private static async Task<JsonObject> SshJumpForwardCheckAsync(JsonObject args)
+    {
+        var host = ArgString(args, "host") ?? "127.0.0.1";
+        var port = ArgInt(args, "port") ?? 2222;
+        var username = ArgString(args, "username") ?? "jrmtest";
+        var failures = new List<string>();
+        var report = new List<string>();
+        var hadOriginal = KnownHostsStore.TryGet(host, port, out var originalFingerprint);
+        KnownHostsStore.TryGetKeyType(host, port, out var originalKeyType);
+
+        // Parsing.
+        try
+        {
+            var specs = SshPortForwarding.Parse("L 8080 db:5432\nL 0.0.0.0:8081:db:5432 # comment\nR 9000 localhost:3000\nD 1080\n");
+            report.Add("parsed=" + string.Join(" | ", specs));
+            if (specs.Count != 4 || specs[0].BindHost != "127.0.0.1" || specs[1].BindHost != "0.0.0.0"
+                || specs[3].Kind != 'D' || specs[1].TargetPort != 5432)
+            {
+                failures.Add("valid forwarding lines parsed wrongly");
+            }
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"valid forwarding lines were rejected: {ex.Message}");
+        }
+
+        foreach (var bad in new[] { "L 8080", "X 1 a:2", "L 70000 a:1", "D 1080 extra" })
+        {
+            if (SshPortForwarding.Validate(bad) is null)
+                failures.Add($"'{bad}' was accepted");
+        }
+
+        var jump = new Connection
+        {
+            ConnectionId = "jump-probe", Name = "jump", Type = ConnectionType.Ssh,
+            Host = host, Port = port, Username = username,
+        };
+        var target = new Connection
+        {
+            ConnectionId = "target-probe", Name = "target", Type = ConnectionType.Ssh,
+            Host = "127.0.0.1", Port = port, Username = username, JumpHost = "_probe/jump",
+        };
+        Connection? Resolve(string path) => path == "_probe/jump" ? jump : null;
+
+        try
+        {
+            await Task.Run(() =>
+            {
+                // Through the jump host.
+                var (viaJump, tunnel) = SshDialer.Connect(target, info => new SshClient(info), new SshHostKeyCallbacks(), Resolve);
+                using (tunnel)
+                using (viaJump)
+                {
+                    var output = viaJump.RunCommand("echo via-jump").Result.Trim();
+                    report.Add($"jump: localPort={tunnel?.LocalPort} output={output}");
+                    if (tunnel is null || tunnel.LocalPort == port || tunnel.LocalPort <= 0)
+                        failures.Add("the jump dial did not go through a local tunnel");
+                    if (output != "via-jump")
+                        failures.Add($"command over the jump failed: '{output}'");
+                }
+
+                try
+                {
+                    SshDialer.Connect(target, info => new SshClient(info), new SshHostKeyCallbacks(), _ => null);
+                    failures.Add("an unknown jump host was not reported");
+                }
+                catch (InvalidOperationException ex) when (ex.Message.Contains("not a saved connection", StringComparison.Ordinal))
+                {
+                    report.Add("unknownJump=reported");
+                }
+
+                // Forwards on a direct transport.
+                var (client, _) = SshDialer.Connect(jump, info => new SshClient(info), new SshHostKeyCallbacks());
+                var shared = new SharedSshClient(client);
+                var localPort = FreeTcpPort();
+                var socksPort = FreeTcpPort();
+                var remotePort = Random.Shared.Next(20000, 40000);
+                using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+                listener.Start();
+                var listenerPort = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+                var started = SshPortForwarding.StartAll(client, SshPortForwarding.Parse(
+                    $"L {localPort} 127.0.0.1:{port}\nD {socksPort}\nR {remotePort} 127.0.0.1:{listenerPort}"));
+                foreach (var result in started.Where(result => result.Error is not null))
+                    failures.Add($"forward {result.Spec} did not start: {result.Error}");
+                shared.AddOwnedResource(new PortForwardSet(started.Where(r => r.Port is not null).Select(r => r.Port!).ToList()));
+
+                var banner = ReadBanner(localPort, socks: false, port);
+                report.Add($"L banner={banner}");
+                if (!banner.StartsWith("SSH-", StringComparison.Ordinal))
+                    failures.Add("nothing came back through the local forward");
+
+                var socksBanner = ReadBanner(socksPort, socks: true, port);
+                report.Add($"D banner={socksBanner}");
+                if (!socksBanner.StartsWith("SSH-", StringComparison.Ordinal))
+                    failures.Add("nothing came back through the SOCKS forward");
+
+                var accept = listener.AcceptTcpClientAsync();
+                client.RunCommand($"bash -c 'echo hi-from-remote > /dev/tcp/127.0.0.1/{remotePort}'");
+                if (accept.Wait(TimeSpan.FromSeconds(5)))
+                {
+                    using var inbound = accept.Result;
+                    using var reader = new StreamReader(inbound.GetStream());
+                    var line = reader.ReadLine();
+                    report.Add($"R received={line}");
+                    if (line != "hi-from-remote")
+                        failures.Add($"the remote forward delivered '{line}'");
+                }
+                else
+                {
+                    failures.Add("the remote forward never connected back");
+                }
+
+                // Releasing the transport stops the forwards it owns.
+                shared.Release();
+                var stillListening = IsListening(localPort);
+                report.Add($"afterRelease localListening={stillListening}");
+                if (stillListening)
+                    failures.Add("the local forward kept listening after its transport was released");
+            });
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"{ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            if (hadOriginal)
+                KnownHostsStore.Trust(host, port, originalFingerprint, originalKeyType);
+            else
+                KnownHostsStore.Forget(host, port);
+        }
+
+        var passed = failures.Count == 0;
+        return ToolText(
+            $"{(passed ? "PASS" : "FAIL")}: jump hosts and port forwarding\n"
+            + string.Join("\n", report)
+            + $"\nfailures={failures.Count}"
+            + (passed ? "" : "\n" + string.Join("\n", failures)),
+            isError: !passed);
+    }
+
+    private static int FreeTcpPort()
+    {
+        var probe = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        probe.Start();
+        var free = ((System.Net.IPEndPoint)probe.LocalEndpoint).Port;
+        probe.Stop();
+        return free;
+    }
+
+    private static bool IsListening(int port)
+    {
+        try
+        {
+            using var client = new System.Net.Sockets.TcpClient();
+            return client.ConnectAsync(System.Net.IPAddress.Loopback, port).Wait(TimeSpan.FromSeconds(2))
+                   && client.Connected;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Connects to a forward and returns the SSH banner that comes back through it.</summary>
+    private static string ReadBanner(int forwardPort, bool socks, int sshPort)
+    {
+        try
+        {
+            using var client = new System.Net.Sockets.TcpClient();
+            client.Connect(System.Net.IPAddress.Loopback, forwardPort);
+            var stream = client.GetStream();
+            stream.ReadTimeout = 5000;
+            if (socks)
+            {
+                stream.Write([5, 1, 0]);
+                var greeting = new byte[2];
+                stream.ReadExactly(greeting);
+                stream.Write([5, 1, 0, 1, 127, 0, 0, 1, (byte)(sshPort >> 8), (byte)sshPort]);
+                var reply = new byte[10];
+                stream.ReadExactly(reply);
+                if (reply[1] != 0)
+                    return $"(socks error {reply[1]})";
+            }
+
+            var buffer = new byte[64];
+            var read = stream.Read(buffer);
+            return Encoding.ASCII.GetString(buffer, 0, read).Trim();
+        }
+        catch (Exception ex)
+        {
+            return $"({ex.GetType().Name}: {ex.Message})";
+        }
     }
 
     private static string? ArgString(JsonObject args, string name) =>

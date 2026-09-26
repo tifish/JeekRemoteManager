@@ -26,6 +26,27 @@ public sealed class SharedSshClient
 
     public SshClient Client { get; }
 
+    private readonly List<IDisposable> _ownedResources = [];
+
+    /// <summary>
+    /// Ties something to this transport's lifetime — the jump tunnel it was dialed
+    /// through, the port forwards started on it. Disposed right after the client, when the
+    /// last holder releases it (or at once if that already happened).
+    /// </summary>
+    public void AddOwnedResource(IDisposable resource)
+    {
+        lock (_gate)
+        {
+            if (_refCount > 0)
+            {
+                _ownedResources.Add(resource);
+                return;
+            }
+        }
+
+        try { resource.Dispose(); } catch { /* ignore */ }
+    }
+
     /// <summary>Non-secret process-local identifier used in pool diagnostics.</summary>
     public string SessionId { get; }
 
@@ -231,6 +252,19 @@ public sealed class SharedSshClient
 
         try { Client.Disconnect(); } catch { /* ignore */ }
         try { Client.Dispose(); } catch { /* ignore */ }
+
+        IDisposable[] owned;
+        lock (_gate)
+        {
+            owned = [.. _ownedResources];
+            _ownedResources.Clear();
+        }
+
+        // Forwards and tunnels last: the client was using them until a moment ago.
+        foreach (var resource in owned)
+        {
+            try { resource.Dispose(); } catch { /* ignore */ }
+        }
     }
 }
 

@@ -44,6 +44,27 @@ SSH.NET 没有内置的 host key 校验，默认信任所有主机。`KnownHosts
 - 密钥族存成旁边的 `host:port#type` 条目，而不是改写 `host:port` 的值：这个文件是机器本地的，同一台机器上的旧版 Release 也在读它，旧版只查 `host:port`，看到的指纹不变。旧条目在下一次匹配时补记密钥族。
 - **损坏的文件先挪走再按空处理**（`known_hosts.json.corrupt-<时间戳>`，并记警告日志）。原先直接按空处理，下一次 `Trust` 会把整个文件覆盖掉，用户信任过的主机全部静默丢失。读文件本身失败（I/O 错误）则抛异常让这次连接失败，而不是拿空表继续——那同样会覆盖真实文件。
 
+## 拨号：SshDialer、跳板机与端口转发
+
+涉及 `Services/SshDialer.cs`、`SshPortForwarding.cs`。
+
+**所有自己拨号的地方都走 `SshDialer.Connect`**：终端的新连接、文件浏览器的 SFTP、公钥安装。它负责组装凭据、按需经过跳板机、挂上主机密钥校验再连接，所以任何一条路径都不会漏掉校验或忽略跳板机。
+
+**跳板机（ProxyJump）。** `Connection.JumpHost` 是另一个已保存 SSH 连接的**树路径**（如 `vps/bastion`），用它自己的凭据和主机密钥。SSH.NET 不能在另一个会话的通道上跑会话，所以做法是：先连跳板机，开一个 `ForwardedPortLocal("127.0.0.1", 0 → 目标 host:port)`，再连本机那个临时端口。要点：
+
+- **主机密钥按真实目标校验**，不是按 127.0.0.1——否则所有经跳板的主机都会共用一条 `127.0.0.1:随机端口` 记录。`Build(connection, dialHost, dialPort)` 只改实际连接的地址，提示框和 known_hosts 用的仍是真实主机名。
+- **拨号时才解析跳板机**（窗口注入的 `ResolveConnection`，就是 `ConnectionStore.TryLoadByTreePath`），改了跳板机下次连接就生效，不存解析结果。解析器在 UI 线程上捕获 store，因为它在拨号的工作线程上被调用，那里读窗口的 `DataContext` 会抛跨线程异常。
+- 只支持一跳：跳板机自己的 `JumpHost` 不跟随。
+- 隧道的生命周期挂在目标连接上：终端里通过 `SharedSshClient.AddOwnedResource`，SFTP 在 `DisposeClient` 里一起释放。
+
+**端口转发。** `Connection.PortForwards` 每行一条：`L 8080 db:5432`（或 ssh -L 的 `L 8080:db:5432`）、`R 9000 localhost:3000`、`D 1080`（SOCKS）。
+
+- **监听默认只绑 127.0.0.1**，包括远端转发在服务器上的那一端；要对外暴露必须显式写绑定地址。不用 `localhost`：SSH.NET 会自己解析，可能拿到 `::1`，服务器上的 IPv4 客户端就连不上。
+- **转发属于这个标签页拨出的传输**，作为 owned resource 挂在 `SharedSshClient` 上：复制出来的标签页共享它们，最后一个持有者释放传输时一起停掉。借用的堡垒机池传输不会再启动一遍。
+- **一条失败不影响其它条，也不影响会话**：端口被占用、服务器禁止远端转发，都只在终端里打一行黄色提示。格式错误在编辑器里就提示；通过产品 MCP 写入时直接报错。
+
+回归检查是 Debug MCP 的 `ssh_jump_forward_check`（经跳板执行命令，L/D/R 三种转发各真实传一次数据，释放后端口关闭）。
+
 ## 传输复用：SharedSshClient
 
 SSH 在一条已认证连接上多路复用多个 session channel。所以"复制标签页"应该在同一个传输上开一条新的 shell 通道，而不是重新拨号 + 重新认证（对堡垒机来说还意味着重新过一遍 2FA）。

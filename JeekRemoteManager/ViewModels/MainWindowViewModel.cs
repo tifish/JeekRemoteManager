@@ -2463,7 +2463,8 @@ public partial class MainWindowViewModel : ViewModelBase
             publicKeyText => PublicKeyInstaller.InstallAsync(
                 connection,
                 publicKeyText,
-                ConfirmHostKeyReplacement));
+                ConfirmHostKeyReplacement,
+                resolveConnection: _store.TryLoadByTreePath));
 
     /// <summary>
     /// Installs the local public key on the given connection's host

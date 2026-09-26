@@ -691,7 +691,7 @@
                                             IsVisible="{Binding IsSsh}">
                                         <StackPanel Spacing="12">
                                             <TextBlock Classes="section-title" Text="{l:Localize SshOptions}" />
-                                            <Grid ColumnDefinitions="128,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                                            <Grid ColumnDefinitions="128,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                                                 <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="{l:Localize TerminalType}" />
                                                 <ComboBox Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2"
                                                           HorizontalAlignment="Stretch"
@@ -784,6 +784,28 @@
                                                     <CheckBox Content="{l:Localize AutoLogSession}"
                                                               IsChecked="{Binding AutoLogSession, Mode=TwoWay}" />
                                                 </StackPanel>
+
+                                                <TextBlock Grid.Row="7" Grid.Column="0" Classes="label" Text="{l:Localize JumpHost}" />
+                                                <TextBox x:Name="JumpHostBox"
+                                                         Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2"
+                                                         Text="{Binding JumpHost, Mode=TwoWay}"
+                                                         ToolTip.Tip="{l:Localize JumpHostTip}"
+                                                         PlaceholderText="{l:Localize JumpHostWatermark}" />
+
+                                                <TextBlock Grid.Row="8" Grid.Column="0" Classes="label"
+                                                           Text="{l:Localize PortForwards}" VerticalAlignment="Top" Margin="0,6,0,0" />
+                                                <TextBox x:Name="PortForwardsBox"
+                                                         Grid.Row="8" Grid.Column="1" Grid.ColumnSpan="2"
+                                                         Text="{Binding PortForwards, Mode=TwoWay}"
+                                                         AcceptsReturn="True" TextWrapping="NoWrap" MinHeight="60"
+                                                         FontFamily="Cascadia Mono, Consolas, monospace"
+                                                         ToolTip.Tip="{l:Localize PortForwardsTip}"
+                                                         PlaceholderText="{l:Localize PortForwardsWatermark}" />
+                                                <TextBlock Grid.Row="9" Grid.Column="1" Grid.ColumnSpan="2"
+                                                           Text="{Binding PortForwardsValidationMessage}"
+                                                           IsVisible="{Binding HasPortForwardsValidationMessage}"
+                                                           TextWrapping="Wrap"
+                                                           Foreground="#D97706" FontSize="11" />
                                             </Grid>
 
                                         </StackPanel>

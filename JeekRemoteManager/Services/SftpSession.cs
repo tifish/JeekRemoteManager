@@ -4,6 +4,7 @@ using System.IO;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using JeekRemoteManager.Models;
 using Renci.SshNet;
 using Renci.SshNet.Common;
 
@@ -20,13 +21,25 @@ namespace JeekRemoteManager.Services;
 /// </summary>
 public sealed class SftpSession : IFileSystemSession
 {
-    private readonly Func<ConnectionInfo> _buildConnectionInfo;
+    private readonly Connection _connection;
+    private readonly Func<string, Connection?>? _resolveConnection;
+    private readonly Action<ConnectionInfo>? _configure;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private SftpClient? _client;
+    private SshJumpTunnel? _tunnel;
     private volatile bool _disposed;
 
-    public SftpSession(Func<ConnectionInfo> buildConnectionInfo) =>
-        _buildConnectionInfo = buildConnectionInfo;
+    /// <param name="resolveConnection">Resolves the connection's jump host by tree path.</param>
+    /// <param name="configure">Debug hook applied to each dial's connection info.</param>
+    public SftpSession(
+        Connection connection,
+        Func<string, Connection?>? resolveConnection = null,
+        Action<ConnectionInfo>? configure = null)
+    {
+        _connection = connection;
+        _resolveConnection = resolveConnection;
+        _configure = configure;
+    }
 
     /// <summary>The remote user's home directory, captured on first connect
     /// (an SFTP session always starts there).</summary>
@@ -151,27 +164,32 @@ public sealed class SftpSession : IFileSystemSession
             return live;
 
         DisposeClient();
-        var info = _buildConnectionInfo();
-        var client = new SftpClient(info);
-        client.OperationTimeout = TimeSpan.FromSeconds(30);
-        client.KeepAliveInterval = TimeSpan.FromSeconds(30);
         // This dial is a separate transport from the terminal's, so it must pass the same
-        // known-hosts check: without a handler SSH.NET trusts any host and would hand the
-        // credentials to whoever answers. A changed key is rejected outright — the
-        // replacement prompt belongs to the terminal connection, not a background dial.
+        // known-hosts check (the dialer attaches it): without a handler SSH.NET trusts any
+        // host and would hand the credentials to whoever answers. A changed key is rejected
+        // outright — the replacement prompt belongs to the terminal connection, not a
+        // background dial. It also goes through the same jump host as the terminal.
         string? rejection = null;
-        SshHostKey.Attach(client, info.Host, info.Port, onRejected: message => rejection = message);
+        SftpClient client;
         try
         {
-            client.Connect();
+            (client, _tunnel) = SshDialer.Connect(
+                _connection,
+                info =>
+                {
+                    var sftp = new SftpClient(info);
+                    sftp.OperationTimeout = TimeSpan.FromSeconds(30);
+                    sftp.KeepAliveInterval = TimeSpan.FromSeconds(30);
+                    return sftp;
+                },
+                new SshHostKeyCallbacks(OnRejected: message => rejection = message),
+                _resolveConnection,
+                _configure);
             HomePath ??= client.WorkingDirectory;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (rejection is not null)
         {
-            try { client.Dispose(); } catch { /* ignore */ }
-            if (rejection is not null)
-                throw new InvalidOperationException(rejection, ex);
-            throw;
+            throw new InvalidOperationException(rejection, ex);
         }
 
         _client = client;
@@ -200,11 +218,16 @@ public sealed class SftpSession : IFileSystemSession
     private void DisposeClient()
     {
         var client = _client;
+        var tunnel = _tunnel;
         _client = null;
-        if (client is null)
-            return;
-        try { client.Disconnect(); } catch { /* ignore */ }
-        try { client.Dispose(); } catch { /* ignore */ }
+        _tunnel = null;
+        if (client is not null)
+        {
+            try { client.Disconnect(); } catch { /* ignore */ }
+            try { client.Dispose(); } catch { /* ignore */ }
+        }
+
+        tunnel?.Dispose();
     }
 
     public void Dispose()

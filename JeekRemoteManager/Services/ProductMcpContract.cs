@@ -320,6 +320,10 @@ public static class ProductMcpContract
         leading["notes"] = Prop("string", "Free-form note.");
         leading["auto_open_monitor_panel"] = Prop("boolean", "Open the server monitor after login.");
         leading["auto_open_file_browser_panel"] = Prop("boolean", "Open the file browser after login.");
+        leading["jump_host"] = Prop("string",
+            "Tree path of another saved SSH connection to hop through (ProxyJump), e.g. 'vps/bastion'. Empty dials directly.");
+        leading["port_forwards"] = Prop("string",
+            "Port forwards started with each connection, one per line: 'L 8080 db:5432', 'R 9000 localhost:3000', 'D 1080' (SOCKS). Local listeners bind 127.0.0.1 unless a bind address is given.");
         leading["auto_log_session"] = Prop("boolean",
             "Record every session to a plain-text log under %LocalAppData%\\JeekRemoteManager\\SessionLogs.");
         return leading;

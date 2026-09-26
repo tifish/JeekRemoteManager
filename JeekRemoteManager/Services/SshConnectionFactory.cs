@@ -53,7 +53,10 @@ public static class SshConnectionFactory
     /// falls back to ssh-agent / Pageant identities and the default <c>~/.ssh</c> keys.
     /// </summary>
     /// <exception cref="InvalidOperationException">When no username is set, or no usable credential is available.</exception>
-    public static ConnectionInfo Build(Connection connection)
+    /// <param name="dialHost">Where to actually connect when it differs from the connection's
+    /// host — the loopback end of a jump tunnel. Prompts still name the real host.</param>
+    /// <param name="dialPort">Port to connect to together with <paramref name="dialHost"/>.</param>
+    public static ConnectionInfo Build(Connection connection, string? dialHost = null, int? dialPort = null)
     {
         if (string.IsNullOrWhiteSpace(connection.Host))
             throw new InvalidOperationException("Host is empty.");
@@ -137,7 +140,7 @@ public static class SshConnectionFactory
             HandleAuthenticationPrompt(e, password, conversation, context, PromptUser);
         methods.Add(keyboard);
 
-        return new ConnectionInfo(host, port, user, methods.ToArray());
+        return new ConnectionInfo(dialHost ?? host, dialPort ?? port, user, methods.ToArray());
     }
 
     /// <summary>

@@ -757,6 +757,12 @@ public partial class TerminalView : UserControl
     /// <summary>Application-owned authenticated bastion transport pool.</summary>
     public BastionSessionPool? BastionSessionPool { get; set; }
 
+    /// <summary>
+    /// Looks a saved connection up by tree path — how a jump host is found at dial time,
+    /// so an edit to it applies on the next connect. Set by the window.
+    /// </summary>
+    public Func<string, Connection?>? ResolveConnection { get; set; }
+
     /// <summary>Held while this tab authenticates a new transport for its bastion, so
     /// other connections to the same bastion wait for it instead of logging in too.</summary>
     private BastionSessionPool.FreshLoginReservation? _freshLoginReservation;
@@ -1146,7 +1152,8 @@ public partial class TerminalView : UserControl
                 : $"{connection.Username.Trim()}@{host}";
             // Each SFTP session dials its own connection; build fresh auth methods
             // per dial (they hold per-attempt state).
-            createSession = () => new SftpSession(() => SshConnectionFactory.Build(connection));
+            var resolveConnection = ResolveConnection;
+            createSession = () => new SftpSession(connection, resolveConnection);
         }
 
         var vm = new FileBrowserViewModel(
@@ -2269,12 +2276,27 @@ public partial class TerminalView : UserControl
         // got there first, which costs this one connection its own login.
         _freshLoginReservation = BastionSessionPool?.TryReserveFreshLogin(connection);
 
-        FeedLine($"Connecting to {host}:{port} ...");
+        var jumpPath = connection.JumpHost.Trim();
+        FeedLine(jumpPath.Length == 0
+            ? $"Connecting to {host}:{port} ..."
+            : $"Connecting to {host}:{port} via {jumpPath} ...");
         Volatile.Write(
             ref _bastionSessionState,
             _forceNewTcpConnection ? "new-tcp-forced" : "fresh");
 
+        // A malformed forward is reported and skipped; it must not cost the session.
+        IReadOnlyList<PortForwardSpec> forwards = [];
+        try
+        {
+            forwards = SshPortForwarding.Parse(connection.PortForwards);
+        }
+        catch (FormatException ex)
+        {
+            FeedLine($"\u001b[33m[port forwarding] {ex.Message}\u001b[0m");
+        }
+
         SharedSshClient client;
+        var forwardReport = new List<string>();
         try
         {
             // Build (which may query ssh-agent / Pageant over IPC) and Connect both
@@ -2282,13 +2304,27 @@ public partial class TerminalView : UserControl
             // would freeze the whole window.
             client = await Task.Run(() =>
             {
-                var sshClient = new SshClient(SshConnectionFactory.Build(connection));
-                SshHostKey.Attach(sshClient, host, port,
-                onMismatch: (keyType, saved, fingerprint) => HostKeyDialog.PromptReplace(host, port, keyType, saved, fingerprint),
-                onRejected: message => Dispatcher.UIThread.Post(() => FeedLine($"\r\n\u001b[31m[{message}]\u001b[0m\r\n")));
-                sshClient.KeepAliveInterval = TimeSpan.FromSeconds(30);
-                sshClient.Connect();
-                return new SharedSshClient(sshClient);
+                var (sshClient, tunnel) = SshDialer.Connect(
+                    connection,
+                    info => new SshClient(info) { KeepAliveInterval = TimeSpan.FromSeconds(30) },
+                    new SshHostKeyCallbacks(
+                        OnMismatch: (keyType, saved, fingerprint) => HostKeyDialog.PromptReplace(host, port, keyType, saved, fingerprint),
+                        OnRejected: message => Dispatcher.UIThread.Post(() => FeedLine($"\r\n\u001b[31m[{message}]\u001b[0m\r\n"))),
+                    ResolveConnection);
+                var shared = new SharedSshClient(sshClient);
+                if (tunnel is not null)
+                    shared.AddOwnedResource(tunnel);
+
+                // Forwards live with the transport this tab dialed: duplicated tabs share
+                // them, and they stop when the last holder releases it.
+                var started = SshPortForwarding.StartAll(sshClient, forwards);
+                var ports = started.Where(result => result.Port is not null).Select(result => result.Port!).ToList();
+                if (ports.Count > 0)
+                    shared.AddOwnedResource(new PortForwardSet(ports));
+                forwardReport.AddRange(started.Select(result => result.Error is null
+                    ? $"\u001b[90m[port forwarding] {result.Spec}\u001b[0m"
+                    : $"\u001b[33m[port forwarding] {result.Spec} failed: {result.Error}\u001b[0m"));
+                return shared;
             });
         }
         catch (Exception ex)
@@ -2309,6 +2345,9 @@ public partial class TerminalView : UserControl
             client.Release();
             return;
         }
+
+        foreach (var line in forwardReport)
+            FeedLine(line);
 
         // On success the login sequence owns the claim and releases it as soon as the
         // transport is pooled; a channel that never opened releases it here.

@@ -375,6 +375,14 @@ internal static class ProductMcpServer
             connection.AutoOpenFileBrowserPanel = fileBrowserPanel.GetValue<bool>();
         if (args["auto_log_session"] is { } logSession)
             connection.AutoLogSession = logSession.GetValue<bool>();
+        if (args["jump_host"]?.GetValue<string>() is { } jumpHost)
+            connection.JumpHost = jumpHost.Trim().Trim('/');
+        if (args["port_forwards"]?.GetValue<string>() is { } portForwards)
+        {
+            if (SshPortForwarding.Validate(portForwards) is { } problem)
+                throw new InvalidOperationException(problem);
+            connection.PortForwards = portForwards;
+        }
     }
 
     /// <summary>
@@ -468,6 +476,8 @@ internal static class ProductMcpServer
         described["autoOpenMonitorPanel"] = connection.AutoOpenMonitorPanel;
         described["autoOpenFileBrowserPanel"] = connection.AutoOpenFileBrowserPanel;
         described["autoLogSession"] = connection.AutoLogSession;
+        described["jumpHost"] = connection.JumpHost;
+        described["portForwards"] = connection.PortForwards;
         described["wslDistro"] = connection.WslDistro;
         described["wslStartDirectory"] = connection.WslStartDirectory;
         described["notes"] = connection.Notes;

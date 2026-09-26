@@ -341,6 +341,32 @@ public class ConnectionStore
         return text;
     }
 
+    /// <summary>
+    /// Loads a saved connection by its tree path ("vps/bwg", the form MCP tools and jump
+    /// hosts use), or null when there is none. Paths that would leave the root are refused.
+    /// </summary>
+    public Connection? TryLoadByTreePath(string treePath)
+    {
+        var relative = treePath.Trim().Replace('\\', '/').Trim('/');
+        if (relative.Length == 0)
+            return null;
+        if (relative.EndsWith(FileExtension, StringComparison.OrdinalIgnoreCase))
+            relative = relative[..^FileExtension.Length];
+
+        var file = Path.GetFullPath(Path.Combine(RootPath, relative.Replace('/', Path.DirectorySeparatorChar) + FileExtension));
+        if (!IsSameOrInside(RootPath, file) || !File.Exists(file))
+            return null;
+
+        try
+        {
+            return Load(file);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>Loads a connection from a file.</summary>
     public Connection Load(string filePath) => LoadFromText(filePath, File.ReadAllText(filePath));
 
