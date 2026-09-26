@@ -2,4 +2,6 @@
   <Project Path="JeekRemoteManager/JeekRemoteManager.csproj" />
   <Project Path="JeekTools.NET/JeekTools.csproj" />
   <Project Path="Tools/JeekRemoteManagerMcp/JeekRemoteManagerMcp.csproj" />
+  <Project Path="Tests/JeekRemoteManager.Tests/JeekRemoteManager.Tests.csproj" />
+  <Project Path="Tests/SmokeTest/SmokeTest.csproj" />
 </Solution>

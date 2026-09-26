@@ -47,6 +47,15 @@ jobs:
             - name: Build Release
               run: dotnet build JeekRemoteManager\JeekRemoteManager.csproj -c Release /p:Version=${{ steps.ver.outputs.count }}
 
+            # Gate the release: a failing test stops the job before anything is zipped or
+            # published. Same configuration and version as the build above, so the shared
+            # bin output is rebuilt identically rather than replaced with a dev build.
+            - name: Unit tests
+              run: dotnet test Tests\JeekRemoteManager.Tests\JeekRemoteManager.Tests.csproj -c Release /p:Version=${{ steps.ver.outputs.count }}
+
+            - name: Smoke test
+              run: dotnet run --project Tests\SmokeTest\SmokeTest.csproj -c Release -p:Version=${{ steps.ver.outputs.count }}
+
             - name: Zip files
               shell: pwsh
               run: |

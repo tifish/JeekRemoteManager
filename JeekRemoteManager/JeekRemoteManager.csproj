@@ -23,6 +23,11 @@
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Unit tests reach the same internal seams the Debug MCP probes use. -->
+    <InternalsVisibleTo Include="JeekRemoteManager.Tests" />
+  </ItemGroup>
+
   <PropertyGroup>
     <BeautySharedRuntimeMode>False</BeautySharedRuntimeMode>
     <!-- beauty into sub-directory, default is libs, quote with "" if contains space  -->

@@ -34,6 +34,14 @@
 - **走真实路由**：`DebugRaiseFunctionKey` 之类的方法触发的是真正的按键处理链，而不是绕过它去调内部方法。
 - **提供无网络的夹具**：`SetConnectionWithoutStarting`、指向一个会拒绝连接的本地端口的探针标签页、SSH 类型的假标签页。这样面板的状态机（挂起/恢复、生命周期）可以在完全不碰真实服务器的情况下验证——因为这些状态机本来就与"采样是否成功"无关。
 
+## 单元测试
+
+`Tests/JeekRemoteManager.Tests`（xUnit）覆盖不需要窗口的逻辑：端口转发解析、终端编码与转义剥离、known_hosts 信任流程、连接树指纹与读取缓存、终端外观的规整化等。主工程对它开了 `InternalsVisibleTo`，用的是 Debug MCP 探针同样的内部接缝（如 `KnownHostsStore.FilePathOverride`、`ConnectionStore.ConnectionFileReadsForDebug`）。
+
+**分工**：能脱离窗口和网络验证的断言写在这里，CI 每次发布前都跑；只有真实窗口、真实终端渲染或真实 sshd 才能验证的，才写成 Debug MCP 探针。新加的探针如果核心断言其实不依赖这些，应该下沉到单元测试。
+
+`dotnet test Tests/JeekRemoteManager.Tests` 同样会重新构建主工程，跑之前也要先停掉应用。
+
 ## SmokeTest
 
 `Tests/SmokeTest` 是控制台断言集，**直接引用主工程的类**（不是黑盒测试）。它覆盖那些纯逻辑、不需要 GUI 的部分：`ConnectionStore` 的文件操作、`Utf8ChunkAssembler` 的边界、`TerminalDimColorFilter` 的 SGR 解析、MCP 适配器的文件元数据比较、登录命令解析等。

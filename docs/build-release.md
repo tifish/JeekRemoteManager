@@ -35,7 +35,9 @@ CI 用 `git rev-list --count HEAD` 算出提交数，作为程序集主版本号
 
 ## 发布流程（CI）
 
-push 到 `main` 时：算提交数 → Release 构建 → 校验适配器存在 → 删 PDB → 打包 `bin\*` 成 zip → 删掉旧的 `latest_release` 发布和标签 → 重建 → 上传 zip 和 `version.txt`。
+push 到 `main` 时：算提交数 → Release 构建 → **单元测试 → SmokeTest** → 校验适配器存在 → 删 PDB → 打包 `bin\*` 成 zip → 删掉旧的 `latest_release` 发布和标签 → 重建 → 上传 zip 和 `version.txt`。
+
+**测试是发布的闸门。** 两套测试任何一条失败，job 就停在打包之前，旧的发布原样保留。测试用和发布构建相同的配置与 `/p:Version`，所以它们顺带重建主工程时写进共享 `bin` 的产物与发布构建一致，不会被换成开发构建。pull request 只跑到测试为止，不发布。
 
 用固定标签 `latest_release` 而不是版本号标签，是为了让下载地址永远稳定，安装脚本和自动更新都能写死。
 
