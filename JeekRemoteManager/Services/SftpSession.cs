@@ -24,6 +24,7 @@ public sealed class SftpSession : IFileSystemSession
     private readonly Connection _connection;
     private readonly Func<string, Connection?>? _resolveConnection;
     private readonly Action<ConnectionInfo>? _configure;
+    private readonly Func<SshConnectionFactory.KeyboardInteractiveChallenge, string?>? _promptUser;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private SftpClient? _client;
     private SshJumpTunnel? _tunnel;
@@ -31,14 +32,17 @@ public sealed class SftpSession : IFileSystemSession
 
     /// <param name="resolveConnection">Resolves the connection's jump host by tree path.</param>
     /// <param name="configure">Debug hook applied to each dial's connection info.</param>
+    /// <param name="promptUser">Answers keyboard-interactive prompts (OTP) on this dial.</param>
     public SftpSession(
         Connection connection,
         Func<string, Connection?>? resolveConnection = null,
-        Action<ConnectionInfo>? configure = null)
+        Action<ConnectionInfo>? configure = null,
+        Func<SshConnectionFactory.KeyboardInteractiveChallenge, string?>? promptUser = null)
     {
         _connection = connection;
         _resolveConnection = resolveConnection;
         _configure = configure;
+        _promptUser = promptUser;
     }
 
     /// <summary>The remote user's home directory, captured on first connect
@@ -182,7 +186,7 @@ public sealed class SftpSession : IFileSystemSession
                     sftp.KeepAliveInterval = TimeSpan.FromSeconds(30);
                     return sftp;
                 },
-                new SshHostKeyCallbacks(OnRejected: message => rejection = message),
+                new SshDialOptions(OnRejected: message => rejection = message, PromptUser: _promptUser),
                 _resolveConnection,
                 _configure);
             HomePath ??= client.WorkingDirectory;

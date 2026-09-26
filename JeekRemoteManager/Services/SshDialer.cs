@@ -4,11 +4,24 @@ using Renci.SshNet;
 
 namespace JeekRemoteManager.Services;
 
-/// <summary>What a dial does with host keys: the same three hooks <see cref="SshHostKey.Attach"/> takes.</summary>
-public sealed record SshHostKeyCallbacks(
+/// <summary>
+/// Everything a dial needs from its caller, passed explicitly rather than read from
+/// process-wide settable state: what to do with host keys, which known-hosts store to
+/// check them against, and who answers keyboard-interactive prompts (OTP, extra PAM
+/// fields) that the stored password cannot.
+/// </summary>
+/// <param name="OnMismatch">(keyType, saved, presented) =&gt; replace? — null rejects a changed key.</param>
+/// <param name="PromptUser">Answers a keyboard-interactive challenge; null fails such prompts.</param>
+/// <param name="KnownHosts">Store to verify against; null = <see cref="KnownHostsStore.Default"/>.</param>
+public sealed record SshDialOptions(
     Func<string, string, string, bool>? OnMismatch = null,
     Action<string>? OnRejected = null,
-    Action<string>? OnTrusted = null);
+    Action<string>? OnTrusted = null,
+    Func<SshConnectionFactory.KeyboardInteractiveChallenge, string?>? PromptUser = null,
+    KnownHostsStore? KnownHosts = null)
+{
+    public KnownHostsStore Store => KnownHosts ?? KnownHostsStore.Default;
+}
 
 /// <summary>
 /// A connection to a jump host with a local port forwarded to the real target — the
@@ -35,14 +48,14 @@ public sealed class SshJumpTunnel : IDisposable
         Connection jump,
         string targetHost,
         int targetPort,
-        SshHostKeyCallbacks hostKeys)
+        SshDialOptions options)
     {
         var jumpHost = jump.Host.Trim();
         var jumpPort = jump.Port > 0 ? jump.Port : 22;
-        var client = new SshClient(SshConnectionFactory.Build(jump));
+        var client = new SshClient(SshConnectionFactory.Build(jump, options.PromptUser));
         try
         {
-            SshHostKey.Attach(client, jumpHost, jumpPort, hostKeys.OnMismatch, hostKeys.OnRejected, hostKeys.OnTrusted);
+            SshHostKey.Attach(client, jumpHost, jumpPort, options);
             client.KeepAliveInterval = TimeSpan.FromSeconds(30);
             client.Connect();
 
@@ -84,7 +97,7 @@ public static class SshDialer
     public static (TClient Client, SshJumpTunnel? Tunnel) Connect<TClient>(
         Connection connection,
         Func<ConnectionInfo, TClient> createClient,
-        SshHostKeyCallbacks hostKeys,
+        SshDialOptions options,
         Func<string, Connection?>? resolveConnection = null,
         Action<ConnectionInfo>? configure = null)
         where TClient : BaseClient
@@ -98,17 +111,17 @@ public static class SshDialer
             ConnectionInfo info;
             if (ResolveJump(connection, resolveConnection) is { } jump)
             {
-                tunnel = SshJumpTunnel.Open(jump, host, port, hostKeys);
-                info = SshConnectionFactory.Build(connection, "127.0.0.1", tunnel.LocalPort);
+                tunnel = SshJumpTunnel.Open(jump, host, port, options);
+                info = SshConnectionFactory.Build(connection, options.PromptUser, "127.0.0.1", tunnel.LocalPort);
             }
             else
             {
-                info = SshConnectionFactory.Build(connection);
+                info = SshConnectionFactory.Build(connection, options.PromptUser);
             }
 
             configure?.Invoke(info);
             client = createClient(info);
-            SshHostKey.Attach(client, host, port, hostKeys.OnMismatch, hostKeys.OnRejected, hostKeys.OnTrusted);
+            SshHostKey.Attach(client, host, port, options);
             client.Connect();
             return (client, tunnel);
         }

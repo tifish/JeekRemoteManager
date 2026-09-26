@@ -16,7 +16,11 @@ namespace JeekRemoteManager.Services;
 /// detection. Stored next to the machine settings file (host trust is a
 /// per-machine decision, like OpenSSH's ~/.ssh/known_hosts).
 /// </summary>
-public static class KnownHostsStore
+/// <remarks>
+/// An instance per file: the app uses <see cref="Default"/>, tests and probes make their own
+/// on a temporary file instead of redirecting the one the running app trusts hosts with.
+/// </remarks>
+public sealed class KnownHostsStore
 {
     private static readonly ILogger Log = LogManager.CreateLogger(nameof(KnownHostsStore));
 
@@ -43,15 +47,16 @@ public static class KnownHostsStore
     /// </summary>
     private const string KeyTypeSuffix = "#type";
 
-    private static readonly object Gate = new();
+    private readonly object _gate = new();
 
-    /// <summary>Overrides the file location for Debug MCP checks; null = the real file.</summary>
-    internal static string? FilePathOverride { get; set; }
+    public KnownHostsStore(string filePath) => FilePath = filePath;
 
-    private static string FilePath =>
-        FilePathOverride ?? Path.Combine(
-            Path.GetDirectoryName(SettingsService.DefaultMachineSettingsPath) ?? AppContext.BaseDirectory,
-            "known_hosts.json");
+    /// <summary>The machine's store, next to the machine-local settings file.</summary>
+    public static KnownHostsStore Default { get; } = new(Path.Combine(
+        Path.GetDirectoryName(SettingsService.DefaultMachineSettingsPath) ?? AppContext.BaseDirectory,
+        "known_hosts.json"));
+
+    public string FilePath { get; }
 
     private static string Key(string host, int port) =>
         $"{host.Trim().ToLowerInvariant()}:{(port > 0 ? port : 22)}";
@@ -74,9 +79,9 @@ public static class KnownHostsStore
     /// Compares a presented SHA256 fingerprint against the stored one. A match also records
     /// the key family when an older entry lacks it, so the next dial can prefer it.
     /// </summary>
-    public static Status Check(string host, int port, string keyType, string fingerprintSha256)
+    public Status Check(string host, int port, string keyType, string fingerprintSha256)
     {
-        lock (Gate)
+        lock (_gate)
         {
             using var lease = SharedDataFile.Acquire(FilePath);
             var map = Load();
@@ -99,9 +104,9 @@ public static class KnownHostsStore
     }
 
     /// <summary>Returns the trusted fingerprint for a host, if one is stored.</summary>
-    public static bool TryGet(string host, int port, out string fingerprintSha256)
+    public bool TryGet(string host, int port, out string fingerprintSha256)
     {
-        lock (Gate)
+        lock (_gate)
         {
             using var lease = SharedDataFile.Acquire(FilePath);
             return Load().TryGetValue(Key(host, port), out fingerprintSha256!);
@@ -109,9 +114,9 @@ public static class KnownHostsStore
     }
 
     /// <summary>Returns the key family a trusted host presented, if it was recorded.</summary>
-    public static bool TryGetKeyType(string host, int port, out string keyType)
+    public bool TryGetKeyType(string host, int port, out string keyType)
     {
-        lock (Gate)
+        lock (_gate)
         {
             using var lease = SharedDataFile.Acquire(FilePath);
             var map = Load();
@@ -128,9 +133,9 @@ public static class KnownHostsStore
     }
 
     /// <summary>Every trusted host with its SHA256 fingerprint and recorded key family.</summary>
-    public static IReadOnlyList<Entry> All()
+    public IReadOnlyList<Entry> All()
     {
-        lock (Gate)
+        lock (_gate)
         {
             using var lease = SharedDataFile.Acquire(FilePath);
             var map = Load();
@@ -149,9 +154,9 @@ public static class KnownHostsStore
     /// to that host is treated as new instead of failing the mismatch check. Returns false
     /// when nothing was stored for it.
     /// </summary>
-    public static bool Forget(string host, int port)
+    public bool Forget(string host, int port)
     {
-        lock (Gate)
+        lock (_gate)
         {
             using var lease = SharedDataFile.Acquire(FilePath);
             var map = Load();
@@ -167,9 +172,9 @@ public static class KnownHostsStore
 
     /// <summary>Records a host's SHA256 fingerprint as trusted, with the key family it used
     /// (empty = unknown, which leaves no family recorded).</summary>
-    public static void Trust(string host, int port, string fingerprintSha256, string keyType = "")
+    public void Trust(string host, int port, string fingerprintSha256, string keyType = "")
     {
-        lock (Gate)
+        lock (_gate)
         {
             using var lease = SharedDataFile.Acquire(FilePath);
             var map = Load();
@@ -190,7 +195,7 @@ public static class KnownHostsStore
     /// the user had trusted would be gone for good. A read that fails for I/O reasons
     /// throws instead — carrying on with an empty map would overwrite the real file.
     /// </summary>
-    private static Dictionary<string, string> Load()
+    private Dictionary<string, string> Load()
     {
         var path = FilePath;
         if (!File.Exists(path))
@@ -214,7 +219,7 @@ public static class KnownHostsStore
         return new Dictionary<string, string>(StringComparer.Ordinal);
     }
 
-    private static void BackUpCorruptFile(string path, string reason)
+    private void BackUpCorruptFile(string path, string reason)
     {
         var backup = $"{path}.corrupt-{DateTime.Now:yyyyMMdd-HHmmss}";
         try
@@ -231,7 +236,7 @@ public static class KnownHostsStore
         }
     }
 
-    private static void Save(Dictionary<string, string> map)
+    private void Save(Dictionary<string, string> map)
     {
         try
         {

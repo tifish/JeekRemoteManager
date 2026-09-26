@@ -6,9 +6,9 @@ using Renci.SshNet.Common;
 namespace JeekRemoteManager.Services;
 
 /// <summary>
-/// Wires SSH.NET host-key verification against <see cref="KnownHostsStore"/>.
+/// Wires SSH.NET host-key verification against a <see cref="KnownHostsStore"/>.
 /// First-seen keys are trusted and saved automatically. A remembered key that
-/// changes is accepted only when <paramref name="onMismatch"/> confirms replacing it.
+/// changes is accepted only when <see cref="SshDialOptions.OnMismatch"/> confirms replacing it.
 /// </summary>
 /// <remarks>
 /// A server usually holds several host keys (ed25519, ecdsa, rsa) and presents whichever
@@ -20,28 +20,21 @@ namespace JeekRemoteManager.Services;
 /// </remarks>
 public static class SshHostKey
 {
-    /// <param name="onMismatch">(keyType, savedFingerprint, presentedFingerprint) =&gt; replace? — prompt before replacing a remembered host key; null = reject.</param>
-    /// <param name="onRejected">Invoked with a human-readable reason when the host is rejected.</param>
-    /// <param name="onTrusted">Invoked with the SHA256 fingerprint when a host key is trusted and saved (lets a silent caller surface an audit line).</param>
-    public static void Attach(
-        BaseClient client,
-        string host,
-        int port,
-        Func<string, string, string, bool>? onMismatch = null,
-        Action<string>? onRejected = null,
-        Action<string>? onTrusted = null)
+    public static void Attach(BaseClient client, string host, int port, SshDialOptions options)
     {
-        PreferRememberedKeyType(client.ConnectionInfo, host, port);
+        var store = options.Store;
+        PreferRememberedKeyType(store, client.ConnectionInfo, host, port);
         client.HostKeyReceived += (_, e) =>
         {
             e.CanTrust = Evaluate(
+                store,
                 host,
                 port,
                 e.HostKeyName ?? "ssh",
                 e.FingerPrintSHA256,
-                onMismatch,
-                onRejected,
-                onTrusted);
+                options.OnMismatch,
+                options.OnRejected,
+                options.OnTrusted);
         };
     }
 
@@ -49,9 +42,9 @@ public static class SshHostKey
     /// Moves every host-key algorithm of the family remembered for this host to the front of
     /// the client's offer, keeping their relative order. No-op for unknown hosts.
     /// </summary>
-    internal static void PreferRememberedKeyType(ConnectionInfo info, string host, int port)
+    internal static void PreferRememberedKeyType(KnownHostsStore store, ConnectionInfo info, string host, int port)
     {
-        if (!KnownHostsStore.TryGetKeyType(host, port, out var family))
+        if (!store.TryGetKeyType(host, port, out var family))
             return;
 
         var algorithms = info.HostKeyAlgorithms;
@@ -65,7 +58,11 @@ public static class SshHostKey
         }
     }
 
+    /// <param name="onMismatch">(keyType, savedFingerprint, presentedFingerprint) =&gt; replace? — prompt before replacing a remembered host key; null = reject.</param>
+    /// <param name="onRejected">Invoked with a human-readable reason when the host is rejected.</param>
+    /// <param name="onTrusted">Invoked with the SHA256 fingerprint when a host key is trusted and saved (lets a silent caller surface an audit line).</param>
     internal static bool Evaluate(
+        KnownHostsStore store,
         string host,
         int port,
         string keyType,
@@ -74,18 +71,18 @@ public static class SshHostKey
         Action<string>? onRejected = null,
         Action<string>? onTrusted = null)
     {
-        switch (KnownHostsStore.Check(host, port, keyType, fingerprint))
+        switch (store.Check(host, port, keyType, fingerprint))
         {
             case KnownHostsStore.Status.Match:
                 return true;
 
             case KnownHostsStore.Status.Mismatch:
-                var saved = KnownHostsStore.TryGet(host, port, out var stored)
+                var saved = store.TryGet(host, port, out var stored)
                     ? stored
                     : "(unavailable)";
                 if (onMismatch?.Invoke(keyType, saved, fingerprint) == true)
                 {
-                    KnownHostsStore.Trust(host, port, fingerprint, keyType);
+                    store.Trust(host, port, fingerprint, keyType);
                     onTrusted?.Invoke(fingerprint);
                     return true;
                 }
@@ -95,7 +92,7 @@ public static class SshHostKey
                 return false;
 
             default:
-                KnownHostsStore.Trust(host, port, fingerprint, keyType);
+                store.Trust(host, port, fingerprint, keyType);
                 onTrusted?.Invoke(fingerprint);
                 return true;
         }

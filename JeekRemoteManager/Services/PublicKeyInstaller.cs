@@ -82,7 +82,8 @@ public static class PublicKeyInstaller
         string publicKeyText,
         Func<string, int, string, string, string, bool>? confirmHostKeyReplacement = null,
         CancellationToken cancellationToken = default,
-        Func<string, Connection?>? resolveConnection = null)
+        Func<string, Connection?>? resolveConnection = null,
+        Func<SshConnectionFactory.KeyboardInteractiveChallenge, string?>? promptUser = null)
     {
         if (connection.Type != ConnectionType.Ssh)
             throw new InvalidOperationException("Public keys can only be installed on SSH connections.");
@@ -97,9 +98,10 @@ public static class PublicKeyInstaller
         var (client, tunnel) = await Task.Run(() => SshDialer.Connect(
             connection,
             info => new SshClient(info),
-            new SshHostKeyCallbacks(
+            new SshDialOptions(
                 OnMismatch: (keyType, saved, fingerprint) => confirmHostKeyReplacement?.Invoke(host, port, keyType, saved, fingerprint) ?? false,
-                OnRejected: message => output.Append(message).Append('\n')),
+                OnRejected: message => output.Append(message).Append('\n'),
+                PromptUser: promptUser),
             resolveConnection), cancellationToken).ConfigureAwait(false);
         using var jumpTunnel = tunnel;
         using var sshClient = client;

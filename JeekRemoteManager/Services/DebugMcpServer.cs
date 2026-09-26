@@ -135,7 +135,7 @@ internal static class DebugMcpServer
         host.AddTool(
             "zmodem_detector_latency_check",
             _ => Task.FromResult(ZmodemDetectorLatencyCheck()));
-        host.AddTool("ssh_auth_prompt_check", _ => Task.FromResult(SshAuthPromptCheck()));
+        host.AddTool("ssh_auth_prompt_check", _ => Task.Run(SshAuthPromptCheck));
         host.AddTool("host_key_trust_check", _ => Task.FromResult(HostKeyTrustCheck()));
         host.AddTool("sftp_host_key_check", SftpHostKeyCheckAsync);
         host.AddTool("ssh_jump_forward_check", SshJumpForwardCheckAsync);
@@ -1364,8 +1364,10 @@ internal static class DebugMcpServer
                 new Connection { Type = ConnectionType.Ssh, Host = "h", Username = "u" }) is not null)
             failures.Add("a connection without a key path reported a key problem");
 
-        if (SshConnectionFactory.PromptUser is null)
-            failures.Add("PromptUser is not wired; OTP prompts would fail at connect time");
+        var promptUserWired = OnUiAsync(() =>
+            (Desktop?.MainWindow?.DataContext as ViewModels.MainWindowViewModel)?.PromptUser is not null).GetAwaiter().GetResult();
+        if (!promptUserWired)
+            failures.Add("MainVm.PromptUser is not wired; OTP prompts on its dials would fail at connect time");
 
         foreach (var key in new[] { "SshAuthTitle", "SshAuthPrompt", "SshAuthResponse", "SshAuthHint", "SshAuthShow" })
         {
@@ -1379,7 +1381,7 @@ internal static class DebugMcpServer
             $"{(passed ? "PASS" : "FAIL")}: SSH keyboard-interactive and key-path diagnostics\n"
             + $"namesMissingKey={namesMissingKey}\n"
             + $"missingKeyMessage={missingKeyMessage}\n"
-            + $"promptUserWired={SshConnectionFactory.PromptUser is not null}\n"
+            + $"promptUserWired={promptUserWired}\n"
             + $"failures={failures.Count}"
             + (passed ? "" : "\n" + string.Join("\n", failures));
         return ToolText(report, isError: !passed);
@@ -1395,11 +1397,12 @@ internal static class DebugMcpServer
         var corruptDir = Path.Combine(Path.GetTempPath(), "jrm-known-hosts-" + Guid.NewGuid().ToString("N"));
         try
         {
-            if (KnownHostsStore.Check(host, port, "ssh-ed25519", first) != KnownHostsStore.Status.Unknown)
+            if (KnownHostsStore.Default.Check(host, port, "ssh-ed25519", first) != KnownHostsStore.Status.Unknown)
                 failures.Add("new host was not unknown");
 
             var unexpectedPrompt = false;
             var firstAccepted = SshHostKey.Evaluate(
+                KnownHostsStore.Default,
                 host,
                 port,
                 "ssh-ed25519",
@@ -1411,17 +1414,18 @@ internal static class DebugMcpServer
                 });
             if (!firstAccepted || unexpectedPrompt)
                 failures.Add("first-seen key was not accepted silently");
-            if (KnownHostsStore.Check(host, port, "ssh-ed25519", first) != KnownHostsStore.Status.Match)
+            if (KnownHostsStore.Default.Check(host, port, "ssh-ed25519", first) != KnownHostsStore.Status.Match)
                 failures.Add("first-seen key was not saved");
-            if (!KnownHostsStore.TryGetKeyType(host, port, out var firstFamily) || firstFamily != "ssh-ed25519")
+            if (!KnownHostsStore.Default.TryGetKeyType(host, port, out var firstFamily) || firstFamily != "ssh-ed25519")
                 failures.Add($"first-seen key family was not recorded (got '{firstFamily}')");
-            if (KnownHostsStore.Check(host, port, "ssh-ed25519", replacement) != KnownHostsStore.Status.Mismatch)
+            if (KnownHostsStore.Default.Check(host, port, "ssh-ed25519", replacement) != KnownHostsStore.Status.Mismatch)
                 failures.Add("changed key was not detected as a mismatch");
-            if (KnownHostsStore.Check(host, port, "ecdsa-sha2-nistp256", replacement) != KnownHostsStore.Status.Mismatch)
+            if (KnownHostsStore.Default.Check(host, port, "ecdsa-sha2-nistp256", replacement) != KnownHostsStore.Status.Mismatch)
                 failures.Add("a key of another family was not treated as a mismatch");
 
             var prompted = false;
             var accepted = SshHostKey.Evaluate(
+                KnownHostsStore.Default,
                 host,
                 port,
                 "rsa-sha2-512",
@@ -1433,15 +1437,15 @@ internal static class DebugMcpServer
                 });
             if (!prompted || !accepted)
                 failures.Add("replacement decision was not accepted");
-            if (KnownHostsStore.Check(host, port, "rsa-sha2-256", replacement) != KnownHostsStore.Status.Match)
+            if (KnownHostsStore.Default.Check(host, port, "rsa-sha2-256", replacement) != KnownHostsStore.Status.Match)
                 failures.Add("replacement key was not stored");
-            if (!KnownHostsStore.TryGetKeyType(host, port, out var rsaFamily) || rsaFamily != "ssh-rsa")
+            if (!KnownHostsStore.Default.TryGetKeyType(host, port, out var rsaFamily) || rsaFamily != "ssh-rsa")
                 failures.Add($"rsa-sha2-512 was not recorded as the ssh-rsa family (got '{rsaFamily}')");
 
             // Remembered family goes first in the offer, whatever SSH.NET's default order is.
             var info = new Renci.SshNet.ConnectionInfo(host, port, "probe",
                 new Renci.SshNet.PasswordAuthenticationMethod("probe", "probe"));
-            SshHostKey.PreferRememberedKeyType(info, host, port);
+            SshHostKey.PreferRememberedKeyType(KnownHostsStore.Default, info, host, port);
             var offered = info.HostKeyAlgorithms.Keys.ToList();
             var firstOffered = offered.FirstOrDefault() ?? "";
             if (KnownHostsStore.KeyFamily(firstOffered) != "ssh-rsa")
@@ -1451,30 +1455,31 @@ internal static class DebugMcpServer
                 failures.Add("reordering changed the set of offered algorithms");
 
             // An entry from before families were recorded learns its family on the next match.
-            KnownHostsStore.Trust(host, port, first);
-            var legacyHasFamily = KnownHostsStore.TryGetKeyType(host, port, out _);
+            KnownHostsStore.Default.Trust(host, port, first);
+            var legacyHasFamily = KnownHostsStore.Default.TryGetKeyType(host, port, out _);
             if (legacyHasFamily)
                 failures.Add("a family-less trust still reported a family");
-            KnownHostsStore.Check(host, port, "ecdsa-sha2-nistp256", first);
-            if (!KnownHostsStore.TryGetKeyType(host, port, out var learned) || learned != "ecdsa-sha2-nistp256")
+            KnownHostsStore.Default.Check(host, port, "ecdsa-sha2-nistp256", first);
+            if (!KnownHostsStore.Default.TryGetKeyType(host, port, out var learned) || learned != "ecdsa-sha2-nistp256")
                 failures.Add($"legacy entry did not learn its family on match (got '{learned}')");
 
-            if (KnownHostsStore.All().Any(entry => entry.Host.Contains('#')))
+            if (KnownHostsStore.Default.All().Any(entry => entry.Host.Contains('#')))
                 failures.Add("All() exposed an internal family entry as a host");
 
             // A corrupt file is kept aside instead of being silently overwritten.
             Directory.CreateDirectory(corruptDir);
             var corruptPath = Path.Combine(corruptDir, "known_hosts.json");
             File.WriteAllText(corruptPath, "{ \"kept.example:22\": \"abc\", broken");
-            KnownHostsStore.FilePathOverride = corruptPath;
-            var corruptStatus = KnownHostsStore.Check("kept.example", 22, "ssh-ed25519", "abc");
-            KnownHostsStore.Trust("new.example", 22, "def", "ssh-ed25519");
+            // Its own store on its own file: the running app keeps using the real one.
+            var corruptStore = new KnownHostsStore(corruptPath);
+            var corruptStatus = corruptStore.Check("kept.example", 22, "ssh-ed25519", "abc");
+            corruptStore.Trust("new.example", 22, "def", "ssh-ed25519");
             var backups = Directory.GetFiles(corruptDir, "known_hosts.json.corrupt-*");
             if (corruptStatus != KnownHostsStore.Status.Unknown)
                 failures.Add($"corrupt file was not treated as empty (got {corruptStatus})");
             if (backups.Length != 1 || !File.ReadAllText(backups[0]).Contains("kept.example", StringComparison.Ordinal))
                 failures.Add($"corrupt file was not backed up (backups={backups.Length})");
-            if (KnownHostsStore.Check("new.example", 22, "ssh-ed25519", "def") != KnownHostsStore.Status.Match)
+            if (corruptStore.Check("new.example", 22, "ssh-ed25519", "def") != KnownHostsStore.Status.Match)
                 failures.Add("store did not recover after backing up a corrupt file");
 
             var passed = failures.Count == 0;
@@ -1487,8 +1492,7 @@ internal static class DebugMcpServer
         }
         finally
         {
-            KnownHostsStore.FilePathOverride = null;
-            KnownHostsStore.Forget(host, port);
+            KnownHostsStore.Default.Forget(host, port);
             try { Directory.Delete(corruptDir, recursive: true); } catch { /* ignore */ }
         }
     }
@@ -1507,13 +1511,13 @@ internal static class DebugMcpServer
         var username = ArgString(args, "username") ?? "jrmtest";
         var connection = new Connection { Type = ConnectionType.Ssh, Host = host, Port = port, Username = username };
         var failures = new List<string>();
-        var hadOriginal = KnownHostsStore.TryGet(host, port, out var original);
+        var hadOriginal = KnownHostsStore.Default.TryGet(host, port, out var original);
         string rejectedMessage = "(none)";
         string trusted = "(none)";
         string rememberedFamily = "(none)";
         try
         {
-            KnownHostsStore.Trust(host, port, "planted-wrong-fingerprint", "ssh-ed25519");
+            KnownHostsStore.Default.Trust(host, port, "planted-wrong-fingerprint", "ssh-ed25519");
             using (var session = new SftpSession(connection))
             {
                 try
@@ -1529,7 +1533,7 @@ internal static class DebugMcpServer
                 }
             }
 
-            KnownHostsStore.Forget(host, port);
+            KnownHostsStore.Default.Forget(host, port);
             using (var session = new SftpSession(connection))
             {
                 try
@@ -1542,7 +1546,7 @@ internal static class DebugMcpServer
                 }
             }
 
-            if (KnownHostsStore.TryGet(host, port, out var saved))
+            if (KnownHostsStore.Default.TryGet(host, port, out var saved))
                 trusted = saved;
             else
                 failures.Add("first-use SFTP dial did not record the host key");
@@ -1550,7 +1554,7 @@ internal static class DebugMcpServer
             // Simulate a client whose default ranking now puts another family first (an
             // SSH.NET upgrade does exactly this). The remembered family must still win the
             // negotiation, so the host is recognised instead of raising a false alarm.
-            KnownHostsStore.TryGetKeyType(host, port, out rememberedFamily);
+            KnownHostsStore.Default.TryGetKeyType(host, port, out rememberedFamily);
             using (var session = new SftpSession(connection, configure: info =>
                    {
                        foreach (var pair in info.HostKeyAlgorithms
@@ -1576,9 +1580,9 @@ internal static class DebugMcpServer
         finally
         {
             if (hadOriginal)
-                KnownHostsStore.Trust(host, port, original);
+                KnownHostsStore.Default.Trust(host, port, original);
             else
-                KnownHostsStore.Forget(host, port);
+                KnownHostsStore.Default.Forget(host, port);
         }
 
         var passed = failures.Count == 0;
@@ -1605,8 +1609,8 @@ internal static class DebugMcpServer
         var username = ArgString(args, "username") ?? "jrmtest";
         var failures = new List<string>();
         var report = new List<string>();
-        var hadOriginal = KnownHostsStore.TryGet(host, port, out var originalFingerprint);
-        KnownHostsStore.TryGetKeyType(host, port, out var originalKeyType);
+        var hadOriginal = KnownHostsStore.Default.TryGet(host, port, out var originalFingerprint);
+        KnownHostsStore.Default.TryGetKeyType(host, port, out var originalKeyType);
 
         // Parsing.
         try
@@ -1647,7 +1651,7 @@ internal static class DebugMcpServer
             await Task.Run(() =>
             {
                 // Through the jump host.
-                var (viaJump, tunnel) = SshDialer.Connect(target, info => new SshClient(info), new SshHostKeyCallbacks(), Resolve);
+                var (viaJump, tunnel) = SshDialer.Connect(target, info => new SshClient(info), new SshDialOptions(), Resolve);
                 using (tunnel)
                 using (viaJump)
                 {
@@ -1661,7 +1665,7 @@ internal static class DebugMcpServer
 
                 try
                 {
-                    SshDialer.Connect(target, info => new SshClient(info), new SshHostKeyCallbacks(), _ => null);
+                    SshDialer.Connect(target, info => new SshClient(info), new SshDialOptions(), _ => null);
                     failures.Add("an unknown jump host was not reported");
                 }
                 catch (InvalidOperationException ex) when (ex.Message.Contains("not a saved connection", StringComparison.Ordinal))
@@ -1670,7 +1674,7 @@ internal static class DebugMcpServer
                 }
 
                 // Forwards on a direct transport.
-                var (client, _) = SshDialer.Connect(jump, info => new SshClient(info), new SshHostKeyCallbacks());
+                var (client, _) = SshDialer.Connect(jump, info => new SshClient(info), new SshDialOptions());
                 var shared = new SharedSshClient(client);
                 var localPort = FreeTcpPort();
                 var socksPort = FreeTcpPort();
@@ -1725,9 +1729,9 @@ internal static class DebugMcpServer
         finally
         {
             if (hadOriginal)
-                KnownHostsStore.Trust(host, port, originalFingerprint, originalKeyType);
+                KnownHostsStore.Default.Trust(host, port, originalFingerprint, originalKeyType);
             else
-                KnownHostsStore.Forget(host, port);
+                KnownHostsStore.Default.Forget(host, port);
         }
 
         var passed = failures.Count == 0;

@@ -688,7 +688,7 @@ internal static class ProductMcpServer
 
     private static async Task<JsonObject> KnownHostsListAsync()
     {
-        var hosts = await Task.Run(() => KnownHostsStore.All()
+        var hosts = await Task.Run(() => KnownHostsStore.Default.All()
             .OrderBy(entry => entry.Host, StringComparer.OrdinalIgnoreCase)
             .Select(JsonNode (entry) => new JsonObject
             {
@@ -714,7 +714,7 @@ internal static class ProductMcpServer
         var host = McpHost.RequiredString(args, "host").Trim();
         var port = args["port"]?.GetValue<int>() ?? 22;
 
-        var forgotten = await Task.Run(() => KnownHostsStore.Forget(host, port)).ConfigureAwait(false);
+        var forgotten = await Task.Run(() => KnownHostsStore.Default.Forget(host, port)).ConfigureAwait(false);
         return ToolText(new JsonObject
         {
             ["status"] = forgotten ? "forgotten" : "not_stored",

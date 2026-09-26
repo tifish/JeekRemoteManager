@@ -18,20 +18,13 @@ namespace JeekRemoteManager.Services;
 /// Builds an SSH.NET <see cref="ConnectionInfo"/> from a <see cref="Connection"/>,
 /// authenticating programmatically with the master-password-decrypted credentials
 /// so the user never has to type a password. A keyboard-interactive OTP or other
-/// second factor is answered in the GUI via <see cref="PromptUser"/>. Shared by
+/// second factor is answered in the GUI through the prompt the caller passes to <see cref="Build"/>. Shared by
 /// the interactive terminal and the non-interactive script runner so both use
 /// one auth path.
 /// </summary>
 public static class SshConnectionFactory
 {
     private static readonly ILogger Log = LogManager.CreateLogger(nameof(SshConnectionFactory));
-
-    /// <summary>
-    /// Called from the SSH handshake thread for any keyboard-interactive prompt
-    /// the stored password cannot answer (OTP, second factor, extra PAM fields).
-    /// Return the response, or null to cancel the login.
-    /// </summary>
-    public static Func<KeyboardInteractiveChallenge, string?>? PromptUser { get; set; }
 
     /// <summary>One keyboard-interactive prompt the stored password cannot fill.</summary>
     public readonly record struct KeyboardInteractiveChallenge(
@@ -56,7 +49,13 @@ public static class SshConnectionFactory
     /// <param name="dialHost">Where to actually connect when it differs from the connection's
     /// host — the loopback end of a jump tunnel. Prompts still name the real host.</param>
     /// <param name="dialPort">Port to connect to together with <paramref name="dialHost"/>.</param>
-    public static ConnectionInfo Build(Connection connection, string? dialHost = null, int? dialPort = null)
+    /// <param name="promptUser">Answers keyboard-interactive prompts the stored password cannot
+    /// (OTP, extra PAM fields); null makes such a prompt fail the login.</param>
+    public static ConnectionInfo Build(
+        Connection connection,
+        Func<KeyboardInteractiveChallenge, string?>? promptUser = null,
+        string? dialHost = null,
+        int? dialPort = null)
     {
         if (string.IsNullOrWhiteSpace(connection.Host))
             throw new InvalidOperationException("Host is empty.");
@@ -137,7 +136,7 @@ public static class SshConnectionFactory
         var conversation = new KeyboardInteractiveConversation();
         var context = new KeyboardInteractiveChallenge(host, port, user, "", false, "");
         keyboard.AuthenticationPrompt += (_, e) =>
-            HandleAuthenticationPrompt(e, password, conversation, context, PromptUser);
+            HandleAuthenticationPrompt(e, password, conversation, context, promptUser);
         methods.Add(keyboard);
 
         return new ConnectionInfo(dialHost ?? host, dialPort ?? port, user, methods.ToArray());

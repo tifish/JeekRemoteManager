@@ -57,6 +57,17 @@ Tools/LegacyPasswordConverter/   历史密码格式迁移工具
 
 `ConPtySession` 是这套边界最典型的例子：读线程和等待退出线程整段包在 try 里，`Write` 和 `Dispose` 用两把不同的锁——因为写可能卡在满的输入管道上，而 `Dispose` 绝不能排在一次可能永不返回的写后面。
 
+## 进程级状态
+
+拨号需要的东西都显式传入：`SshDialer.Connect` 拿一个 `SshDialOptions`（主机密钥回调、known_hosts 实例、键盘交互提示），跳板机解析器由窗口注入。原先 `SshConnectionFactory.PromptUser` 是主窗口启动时设置的静态属性、`KnownHostsStore` 是带路径覆盖开关的静态类——前者让依赖关系隐形，后者让 Debug 探针一改路径就影响到同时在跑的真实连接。
+
+刻意保留为进程级的只有两处：
+
+- **`MasterKeyService.Current`**：一个进程只有一个解锁后的主密码，`PasswordProtector` 的所有加解密都对它。把它改成逐层传递的依赖只会让每个读写连接的地方多一个参数，得不到可替换性——测试直接构造 `MasterKeyService` 即可。
+- **`WslDistroService` 的发行版缓存**：它缓存的是机器上的事实（装了哪些发行版），不是会话状态。
+
+新增代码不要再引入可设置的静态属性来传递依赖。
+
 ## 数据落盘的分层
 
 | 位置 | 内容 | 为什么在这里 |

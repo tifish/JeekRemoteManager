@@ -29,13 +29,13 @@ ssh-agent 查询跑在有超时的工作线程上：agent 缺失或无响应不�
 
 二次因子的措辞列表是**刻意具体**的：只写 "code" 会连 "passcode" 一起匹配，把第一轮的密码提示误分类会直接搞坏普通密码登录。
 
-答不上来的提示（OTP、额外 PAM 字段）通过 `PromptUser` 回调交给 GUI 对话框。**必须抛异常而不是返回 null 的 Response**，否则 SSH.NET 会冒出一个无法阅读的 `ArgumentNullException`。
+答不上来的提示（OTP、额外 PAM 字段）通过调用方传入的 `SshDialOptions.PromptUser` 交给 GUI 对话框（原先是一个由主窗口设置的静态属性，谁先拨号谁用，测试里也无法替换）。**必须抛异常而不是返回 null 的 Response**，否则 SSH.NET 会冒出一个无法阅读的 `ArgumentNullException`。
 
 ## 主机密钥信任
 
 SSH.NET 没有内置的 host key 校验，默认信任所有主机。`KnownHostsStore` 补上 TOFU（首次见到即信任并保存）+ 后续不匹配检测，等价于 OpenSSH 的 `known_hosts`。
 
-- 存在**机器本地**设置文件旁边——主机信任是每台机器自己的决定。
+- 存在**机器本地**设置文件旁边——主机信任是每台机器自己的决定。应用用 `KnownHostsStore.Default`；它是按文件的实例，测试和探针在临时文件上建自己的实例，不再去改运行中应用正在用的路径。
 - 首次见到的密钥自动信任并保存；已记住的密钥发生变化时，必须由 `onMismatch` 回调（GUI 对话框）确认才替换。
 - `Forget(host, port)` 等价于 `ssh-keygen -R`：下次连接按新主机处理，而不是继续报不匹配。
 - **每一条自己拨号的传输都要挂 `SshHostKey.Attach`**，不只是终端。文件浏览器的 `SftpSession` 另开一条连接，漏挂就等于对那条连接关掉了校验，凭据会交给任何冒名应答的主机。后台拨号遇到不匹配直接拒绝，不弹替换对话框——替换是终端连接的事。回归检查是 Debug MCP 的 `sftp_host_key_check`（默认打本机 WSL sshd 测试环境）。

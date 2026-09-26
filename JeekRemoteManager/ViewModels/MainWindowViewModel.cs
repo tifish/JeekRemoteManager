@@ -365,6 +365,10 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>Prompts before replacing a remembered SSH host key.</summary>
     public Func<string, int, string, string, string, bool>? ConfirmHostKeyReplacement { get; set; }
 
+    /// <summary>Set by the view: answers keyboard-interactive prompts (OTP) for dials the
+    /// view model starts itself.</summary>
+    public Func<SshConnectionFactory.KeyboardInteractiveChallenge, string?>? PromptUser { get; set; }
+
     /// <summary>Set by the view to push a new font size to all open terminals.</summary>
     public Action<int>? ApplyTerminalFontSize { get; set; }
 
@@ -2464,7 +2468,8 @@ public partial class MainWindowViewModel : ViewModelBase
                 connection,
                 publicKeyText,
                 ConfirmHostKeyReplacement,
-                resolveConnection: _store.TryLoadByTreePath));
+                resolveConnection: _store.TryLoadByTreePath,
+                promptUser: PromptUser));
 
     /// <summary>
     /// Installs the local public key on the given connection's host

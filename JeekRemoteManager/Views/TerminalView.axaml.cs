@@ -1153,7 +1153,7 @@ public partial class TerminalView : UserControl
             // Each SFTP session dials its own connection; build fresh auth methods
             // per dial (they hold per-attempt state).
             var resolveConnection = ResolveConnection;
-            createSession = () => new SftpSession(connection, resolveConnection);
+            createSession = () => new SftpSession(connection, resolveConnection, promptUser: KeyboardInteractiveDialog.Prompt);
         }
 
         var vm = new FileBrowserViewModel(
@@ -2307,9 +2307,10 @@ public partial class TerminalView : UserControl
                 var (sshClient, tunnel) = SshDialer.Connect(
                     connection,
                     info => new SshClient(info) { KeepAliveInterval = TimeSpan.FromSeconds(30) },
-                    new SshHostKeyCallbacks(
+                    new SshDialOptions(
                         OnMismatch: (keyType, saved, fingerprint) => HostKeyDialog.PromptReplace(host, port, keyType, saved, fingerprint),
-                        OnRejected: message => Dispatcher.UIThread.Post(() => FeedLine($"\r\n\u001b[31m[{message}]\u001b[0m\r\n"))),
+                        OnRejected: message => Dispatcher.UIThread.Post(() => FeedLine($"\r\n\u001b[31m[{message}]\u001b[0m\r\n")),
+                        PromptUser: KeyboardInteractiveDialog.Prompt),
                     ResolveConnection);
                 var shared = new SharedSshClient(sshClient);
                 if (tunnel is not null)

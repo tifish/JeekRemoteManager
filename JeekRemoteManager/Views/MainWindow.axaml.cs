@@ -460,7 +460,7 @@ public partial class MainWindow : Window
         vm.ApplyTerminalAppearance = ApplyTerminalAppearanceToOpenTabs;
         ApplyTerminalAppearanceToOpenTabs(vm.TerminalAppearance);
         vm.ConfirmHostKeyReplacement = HostKeyDialog.PromptReplace;
-        SshConnectionFactory.PromptUser = KeyboardInteractiveDialog.Prompt;
+        vm.PromptUser = KeyboardInteractiveDialog.Prompt;
         vm.RequestFocusTree = FocusSelectedTreeItem;
         vm.RequestFocusTreeNode = FocusTreeItem;
         vm.RequestFocusTreeNameEditor = FocusTreeNameEditor;
