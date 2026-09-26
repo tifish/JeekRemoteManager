@@ -17,7 +17,7 @@ JeekRemoteManager.exe            Avalonia 桌面应用（唯一的有状态进�
 ├── Models/                      纯数据：Connection、AppSettings、RemoteScript、BastionLoginProfile
 ├── Services/                    无 UI 依赖的机制层：SSH、ConPTY、ZMODEM、加密、存储、MCP 服务端
 ├── ViewModels/                  MVVM（CommunityToolkit.Mvvm）
-├── Views/                       Avalonia 视图；TerminalView 是最重的一个，承载整条终端管线
+├── Views/                       Avalonia 视图；TerminalView 是最重的一个，承载整条终端管线（按关注点拆成 partial 文件，见下）
 └── Controls/                    自定义控件（登录命令编辑器）
 
 JeekRemoteManagerMcp.exe         MCP stdio 适配器（无状态转发器）
@@ -25,6 +25,19 @@ JeekTools.NET/                   submodule：McpHost、AutoUpdater、SettingsSto
 Tests/SmokeTest/                 控制台断言集，直接引用主工程的类
 Tools/LegacyPasswordConverter/   历史密码格式迁移工具
 ```
+
+### 大类的文件组织
+
+几个大类按关注点拆成 partial 文件，文件名就是索引：
+
+- `TerminalView`：`.axaml.cs`（生命周期、输入、输出管线）、`.Connection.cs`（拨号、通道、重连、登录命令与堡垒机复用）、`.Panels.cs`、`.AgentTools.cs`、`.Transfers.cs`（拖放上传与 ZMODEM）、`.FindAndLog.cs`。
+- `MainWindow`：`.axaml.cs`、`.TerminalTabs.cs`、`.Tree.cs`、`.Layout.cs`、`.Dialogs.cs`；设置对话框是独立的 `SettingsDialog` 类，只通过委托拿窗口提供的服务（选文件夹、改主密码）。
+- `MainWindowViewModel`：`.cs`、`.Tree.cs`、`.TreeCommands.cs`、`.Watcher.cs`、`.Scripts.cs`、`.Maintenance.cs`。
+- `DebugMcpServer`：`.cs`（宿主、对象图、通用工具）加按领域分的探针文件 `.Terminal.cs`、`.Ssh.cs`、`.Connections.cs`、`.Mcp.cs`、`.Agents.cs`、`.Bastion.cs`。
+
+拆分只移动整块成员、不改行为。仍然成立的一点：SSH 会话的生命周期还在 `TerminalView`（视图层）里，只是有了自己的文件。把它抽成独立于视图的会话对象是下一步，但它牵动堡垒机复用、登录命令和面板的全部时序，而这些时序只有在真实堡垒机上才能完整回归，所以没有和这次拆分一起做。
+
+新代码加到对应的 partial 文件；某个文件再长到难以浏览时，继续按关注点拆，而不是往主文件里堆。SmokeTest 里读源码的检查按"类"读取所有 partial 文件，移动成员不会让它们失效。
 
 外部依赖里有三个决定了设计边界：
 

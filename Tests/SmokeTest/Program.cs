@@ -19,6 +19,19 @@ void Check(bool cond, string label)
     if (!cond) failures++;
 }
 
+// A class's source is its main file plus its partial files (Name.axaml.cs + Name.*.cs, or
+// Name.cs + Name.*.cs): source checks look for a member, not for the file it lives in.
+string ReadClassSource(string mainFile)
+{
+    var folder = Path.GetDirectoryName(mainFile)!;
+    var name = Path.GetFileName(mainFile);
+    var className = name[..name.IndexOf('.')];
+    var parts = Directory.GetFiles(folder, className + ".*.cs")
+        .Where(file => !string.Equals(Path.GetFileName(file), name, StringComparison.OrdinalIgnoreCase))
+        .OrderBy(file => file, StringComparer.OrdinalIgnoreCase);
+    return string.Join("\n", new[] { mainFile }.Concat(parts).Select(File.ReadAllText));
+}
+
 string FindRepoRoot()
 {
     var dir = new DirectoryInfo(Environment.CurrentDirectory);
@@ -248,7 +261,7 @@ try
     var terminalViewXaml = File.ReadAllText(Path.Combine(
             repoRoot, "JeekRemoteManager", "Views", "TerminalView.axaml"))
         .Replace("\r\n", "\n", StringComparison.Ordinal);
-    var terminalViewCode = File.ReadAllText(Path.Combine(
+    var terminalViewCode = ReadClassSource(Path.Combine(
         repoRoot, "JeekRemoteManager", "Views", "TerminalView.axaml.cs"));
     var monitorSessionCode = File.ReadAllText(Path.Combine(
         repoRoot, "JeekRemoteManager", "Services", "ServerMonitorSession.cs"));
@@ -260,8 +273,10 @@ try
         repoRoot, "bin", "Data", "Languages.tab"));
     var mainWindowXaml = File.ReadAllText(Path.Combine(
         repoRoot, "JeekRemoteManager", "Views", "MainWindow.axaml"));
-    var mainWindowCode = File.ReadAllText(Path.Combine(
-        repoRoot, "JeekRemoteManager", "Views", "MainWindow.axaml.cs"));
+    // The settings dialog was split out of the window into its own class.
+    var mainWindowCode = ReadClassSource(Path.Combine(
+            repoRoot, "JeekRemoteManager", "Views", "MainWindow.axaml.cs"))
+        + File.ReadAllText(Path.Combine(repoRoot, "JeekRemoteManager", "Views", "SettingsDialog.cs"));
     var appControlsXaml = File.ReadAllText(Path.Combine(
         repoRoot, "JeekRemoteManager", "Themes", "AppControls.axaml"));
     var sharedButtonStyleStart = appControlsXaml.IndexOf(
@@ -2851,7 +2866,7 @@ try
           && autoUpdateAppService.Contains("TryGetReusableStagedPackageDir"),
           "App update service stages under %LOCALAPPDATA%\\JeekRemoteManager\\Update");
     var mainWindowVmPath = Path.Combine(FindRepoRoot(), "JeekRemoteManager", "ViewModels", "MainWindowViewModel.cs");
-    var mainWindowVm = File.Exists(mainWindowVmPath) ? File.ReadAllText(mainWindowVmPath) : "";
+    var mainWindowVm = File.Exists(mainWindowVmPath) ? ReadClassSource(mainWindowVmPath) : "";
     Check(mainWindowVm.Contains("TryGetReusableStagedPackageDir")
           && mainWindowVm.Contains("DialogUpdateReadyMessage"),
           "Update prompt reuses a staged package and only asks once before restart");
