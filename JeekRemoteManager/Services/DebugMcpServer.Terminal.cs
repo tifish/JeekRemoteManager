@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.IO.Pipes;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -959,6 +960,17 @@ internal static partial class DebugMcpServer
             await OnUiAsync(() =>
             {
                 view.DebugApplyTerminalEncoding("GBK");
+                // Inspect the actual payload builder used by terminal_run and scripts,
+                // including the bytes hidden inside its ASCII base64 envelope.
+                var script = view.BuildInteractivePayload("printf '%s' '中文'\n");
+                var encoded = string.Concat(script.ExecuteCommand.Split('\n').Skip(1)
+                    .TakeWhile(line => line != script.PayloadDelimiter));
+                using var input = new MemoryStream(Convert.FromBase64String(encoded));
+                using var gzip = new GZipStream(input, CompressionMode.Decompress);
+                using var output = new MemoryStream();
+                gzip.CopyTo(output);
+                if (!output.ToArray().SequenceEqual(gbk.GetBytes("printf '%s' '中文'\n")))
+                    failures.Add("the compressed script body was not encoded as GBK");
                 // Split inside the second character, as an SSH packet boundary would.
                 view.DebugFeedRawOutput(sampleBytes[..3]);
                 view.DebugFeedRawOutput(sampleBytes[3..]);

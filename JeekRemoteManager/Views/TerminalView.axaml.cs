@@ -1260,6 +1260,10 @@ public partial class TerminalView : UserControl
     private static bool IsTerminalCopyGestureKey(Key key) =>
         key is Key.C or Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift;
 
+    /// <summary>The real script encoding boundary, also inspected by the Debug MCP.</summary>
+    internal InteractiveShellPayload BuildInteractivePayload(string payload) =>
+        InteractiveShellPayloadRunner.Build(payload, encoding: _terminalEncoding);
+
     private async Task<RemotePayloadResult> ExecuteRemotePayloadAsync(
         string payload,
         CancellationToken cancellationToken)
@@ -1267,7 +1271,7 @@ public partial class TerminalView : UserControl
         if (_channel is null || _disposed || _shellClosed)
             throw new InvalidOperationException("Terminal is not connected.");
 
-        var interactivePayload = InteractiveShellPayloadRunner.Build(payload);
+        var interactivePayload = BuildInteractivePayload(payload);
         // This monitor's output is rendered, so the exit result must not be released
         // until OnShellData has queued that packet's bytes -- see DeferExitCompletion.
         var monitor = new InteractiveShellPayloadMonitor(interactivePayload, _terminalEncoding)

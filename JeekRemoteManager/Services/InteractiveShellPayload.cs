@@ -25,7 +25,7 @@ public static class InteractiveShellPayloadRunner
     public const int EncodedPayloadLineLength = 3000;
     public const string CurrentShellHookVariable = "JEEKREMOTE_CURRENT_SHELL_HOOK";
 
-    public static InteractiveShellPayload Build(string payload, string? token = null)
+    public static InteractiveShellPayload Build(string payload, string? token = null, Encoding? encoding = null)
     {
         token = NormalizeToken(token);
         var normalizedPayload = NormalizePayload(payload);
@@ -34,7 +34,7 @@ public static class InteractiveShellPayloadRunner
         var beginMarker = "__JRM_BEGIN_" + token + "__";
         var exitMarkerPrefix = "__JRM_EXIT_" + token + "__:";
         var payloadDelimiter = BuildPayloadDelimiter(token);
-        var encodedPayload = Convert.ToBase64String(CompressPayload(normalizedPayload));
+        var encodedPayload = Convert.ToBase64String(CompressPayload(normalizedPayload, encoding ?? TerminalEncoding.Utf8));
         var encodedPayloadLines = SplitLines(encodedPayload, EncodedPayloadLineLength);
 
         // Everything the interactive shell reads as a separate command makes it print
@@ -114,15 +114,15 @@ public static class InteractiveShellPayloadRunner
 
     private static string BuildPayloadDelimiter(string token) => "__JRM_PAYLOAD_" + token + "__";
 
-    public static string EncodePayloadForShell(string payload) =>
-        Convert.ToBase64String(CompressPayload(NormalizePayload(payload)));
+    public static string EncodePayloadForShell(string payload, Encoding? encoding = null) =>
+        Convert.ToBase64String(CompressPayload(NormalizePayload(payload), encoding ?? TerminalEncoding.Utf8));
 
-    private static byte[] CompressPayload(string payload)
+    private static byte[] CompressPayload(string payload, Encoding encoding)
     {
         using var output = new MemoryStream();
         using (var gzip = new GZipStream(output, CompressionLevel.SmallestSize, leaveOpen: true))
         {
-            var bytes = Encoding.UTF8.GetBytes(payload);
+            var bytes = encoding.GetBytes(payload);
             gzip.Write(bytes, 0, bytes.Length);
         }
 

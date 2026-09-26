@@ -1,4 +1,5 @@
 using System.Text;
+using System.IO.Compression;
 using JeekRemoteManager.Services;
 
 namespace JeekRemoteManager.Tests;
@@ -34,6 +35,26 @@ public class TerminalTextTests
 
         Assert.Equal(Gbk.GetBytes("中文"), new TerminalInputEncoder(Gbk).Encode(utf8));
         Assert.Equal(utf8, new TerminalInputEncoder(TerminalEncoding.Utf8).Encode(utf8));
+    }
+
+    [Fact]
+    public void Script_payload_uses_the_session_encoding_before_compression()
+    {
+        const string script = "printf '%s' '中文'\r\n";
+        foreach (var name in new[] { "UTF-8", "GBK", "GB18030", "Big5" })
+        {
+            var encoding = TerminalEncoding.Resolve(name);
+            var payload = InteractiveShellPayloadRunner.Build(script, encoding: encoding);
+            var encoded = string.Concat(payload.ExecuteCommand.Split('\n').Skip(1)
+                .TakeWhile(line => line != payload.PayloadDelimiter));
+            using var input = new MemoryStream(Convert.FromBase64String(encoded));
+            using var gzip = new GZipStream(input, CompressionMode.Decompress);
+            using var output = new MemoryStream();
+            gzip.CopyTo(output);
+
+            Assert.Equal(encoding.GetBytes("printf '%s' '中文'\n"), output.ToArray());
+            Assert.Equal(encoded, InteractiveShellPayloadRunner.EncodePayloadForShell(script, encoding));
+        }
     }
 
     [Fact]

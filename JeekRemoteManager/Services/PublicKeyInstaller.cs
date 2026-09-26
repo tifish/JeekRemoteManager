@@ -116,8 +116,9 @@ public static class PublicKeyInstaller
             0,
             0,
             4096);
-        var payload = InteractiveShellPayloadRunner.Build(BuildPayload(publicKeyText));
-        var monitor = new InteractiveShellPayloadMonitor(payload);
+        var encoding = TerminalEncoding.Resolve(connection.TerminalEncoding);
+        var payload = InteractiveShellPayloadRunner.Build(BuildPayload(publicKeyText), encoding: encoding);
+        var monitor = new InteractiveShellPayloadMonitor(payload, encoding);
         shell.DataReceived += (_, e) => monitor.Append(e.Data);
         shell.ErrorOccurred += (_, e) => monitor.Fail(e.Exception);
         shell.Closed += (_, _) => monitor.Fail(new InvalidOperationException("SSH shell closed during public key installation."));
@@ -147,7 +148,7 @@ public static class PublicKeyInstaller
 
         void WriteToShell(string text)
         {
-            var bytes = Encoding.UTF8.GetBytes(text);
+            var bytes = encoding.GetBytes(text);
             shell.Write(bytes, 0, bytes.Length);
             shell.Flush();
         }

@@ -658,7 +658,7 @@ public sealed class ServerMonitorSession : IDisposable
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(SampleTimeoutSeconds));
 
-        var payload = InteractiveShellPayloadRunner.Build(heavy ? HeavyCommand : LightCommand);
+        var payload = InteractiveShellPayloadRunner.Build(heavy ? HeavyCommand : LightCommand, encoding: _encoding);
         var monitor = new InteractiveShellPayloadMonitor(payload, _encoding);
         if (Interlocked.CompareExchange(ref _activePayloadMonitor, monitor, null) is not null)
             throw new InvalidOperationException("A server monitor sample is already running.");

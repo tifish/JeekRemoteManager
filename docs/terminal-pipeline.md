@@ -57,6 +57,7 @@
 - 显示解码器（`TerminalStreamDecoder` 按连接的编码构造）；
 - 用户输入：终端控件给出的是 UTF-8，经 `TerminalInputEncoder` 有状态地转成目标编码；应用替用户敲的文本（`WriteToShell(string)`、agent 的 send-keys）直接按目标编码编码；
 - `InteractiveShellPayloadMonitor`：按目标编码解码捕获的输出，**交回显示的字节也按同一编码重新编码**，因为它们接着要进显示解码器；
+- 脚本、agent 命令的 payload 必须在 **gzip/Base64 之前**按会话编码转成字节；外层 Base64 是 ASCII，对外层转码无法修正内部固定为 UTF-8 的中文参数。终端、隐藏监控 shell、公钥安装都传入自己的会话编码；`terminal_encoding_check` 会解压真实终端构造的 payload 检查 GBK 字节。
 - 登录菜单捕获 `LoginMenuOutputCapture`（`#select` 按名字匹配菜单，中文菜单名必须解对），终端和监控的隐藏 shell 各有一个；
 - 应用自己插进字节管线的提示行。
 
