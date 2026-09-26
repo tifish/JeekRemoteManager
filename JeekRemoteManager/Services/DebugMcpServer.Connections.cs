@@ -286,6 +286,7 @@ internal static partial class DebugMcpServer
         var externalPath = Path.Combine(folderPath, "external" + ConnectionStore.FileExtension);
         long skippedBefore = 0, skippedAfter = 0, reloadsBefore = 0, reloadsAfter = 0;
         var externalShown = false;
+        var duringBatchShown = false;
         try
         {
             await OnUiAsync(() =>
@@ -328,6 +329,25 @@ internal static partial class DebugMcpServer
                 failures.Add($"an own write reloaded the tree {reloadsAfter - reloadsBefore} times (expected 1)");
             if (skippedAfter <= skippedBefore)
                 failures.Add("the watcher never recognised the own write as already reflected");
+
+            var duringBatchPath = Path.Combine(folderPath, "external-during-batch.json");
+            await OnUiAsync(() =>
+            {
+                vm.Store.RunBatch(() =>
+                {
+                    vm.Store.Save(new Connection { Name = "batch-first", Host = "own.invalid" }, folderPath);
+                    Task.Run(() => File.WriteAllText(duringBatchPath,
+                        """{"ConnectionId":"11111111-1111-1111-1111-111111111111","Host":"outside.invalid","Type":"Ssh"}"""))
+                        .GetAwaiter().GetResult();
+                    vm.Store.Save(new Connection { Name = "batch-last", Host = "own.invalid" }, folderPath);
+                });
+                // No explicit reload: a background sweep relies on the file watcher.
+                return true;
+            }).ConfigureAwait(false);
+            await Task.Delay(2000).ConfigureAwait(false);
+            duringBatchShown = await OnUiAsync(() => vm.DebugTreeContains(duringBatchPath)).ConfigureAwait(false);
+            if (!duringBatchShown)
+                failures.Add("an external write during an own-write batch was claimed without reading it");
         }
         finally
         {
@@ -341,7 +361,7 @@ internal static partial class DebugMcpServer
 
         var passed = failures.Count == 0;
         var report = $"{(passed ? "PASS" : "FAIL")}: external changes next to own writes reach the tree\n"
-            + $"externalShown={externalShown}\nownWriteReloads={reloadsAfter - reloadsBefore}\n"
+            + $"externalShown={externalShown}\nduringBatchShown={duringBatchShown}\nownWriteReloads={reloadsAfter - reloadsBefore}\n"
             + $"watcherSkips={skippedAfter - skippedBefore}\nfailures={failures.Count}"
             + (passed ? "" : "\n" + string.Join("\n", failures));
         return ToolText(report, isError: !passed);

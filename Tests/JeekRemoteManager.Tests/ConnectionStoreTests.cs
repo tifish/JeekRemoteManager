@@ -19,12 +19,14 @@ public sealed class ConnectionStoreTests : IDisposable
         folder.Connections.Concat(folder.Folders.SelectMany(All));
 
     [Fact]
-    public void Own_writes_carry_the_fingerprint_forward()
+    public void Only_a_tree_read_confirms_the_state_after_own_writes()
     {
         _store.ReadTree();
         var folder = _store.CreateFolder(_root, "group");
         _store.Save(new Connection { Name = "a", Host = "a.invalid" }, folder);
 
+        Assert.Null(_store.KnownSignature);
+        _store.ReadTree();
         Assert.NotNull(_store.KnownSignature);
         Assert.Equal(_store.ComputeSignature(), _store.KnownSignature);
     }
@@ -39,6 +41,26 @@ public sealed class ConnectionStoreTests : IDisposable
 
         // Unknown, so the watcher reloads and shows the external file.
         Assert.Null(_store.KnownSignature);
+    }
+
+    [Fact]
+    public void External_changes_during_a_batch_are_not_claimed_by_its_own_writes()
+    {
+        var path = _store.Save(new Connection { Name = "own", Host = "a.invalid" }, _root);
+        _store.ReadTree();
+        _store.RunBatch(() =>
+        {
+            _store.SaveInPlace(new Connection { Name = "own", Host = "b.invalid" }, path);
+            // An independent writer lands between two writes in a master-password sweep.
+            Task.Run(() => File.WriteAllText(Path.Combine(_root, "external.json"),
+                "{\"ConnectionId\":\"11111111-1111-1111-1111-111111111111\",\"Host\":\"outside.invalid\"}"))
+                .GetAwaiter().GetResult();
+            _store.SaveInPlace(new Connection { Name = "own", Host = "c.invalid" }, path);
+        });
+
+        Assert.Null(_store.KnownSignature);
+        Assert.Contains(All(_store.ReadTree()), file => file.Connection.Host == "outside.invalid");
+        Assert.Equal(_store.ComputeSignature(), _store.KnownSignature);
     }
 
     [Fact]

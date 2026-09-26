@@ -54,51 +54,32 @@ public class ConnectionStore
     public BastionLoginProfileStore BastionProfiles { get; }
 
     /// <summary>
-    /// Fingerprint (<see cref="ComputeSignature"/>) of the on-disk state the app's tree
-    /// reflects: set by every <see cref="ReadTree"/> and carried forward across the
-    /// store's own writes. The file watcher compares the live fingerprint with this one
-    /// instead of ignoring every event for a while after an own write — that window also
-    /// swallowed any external change (a sync client, another instance) landing inside it,
-    /// and the tree then stayed stale until something else changed. Null means unknown:
-    /// the next watcher event always reloads.
+    /// Fingerprint of the last stable tree read. Writes invalidate it: adopting the entire
+    /// post-write directory would also claim unrelated external changes made during a write.
+    /// A caller that immediately reloads the tree establishes a new fingerprint, allowing
+    /// the watcher to skip its redundant reload. Null means the watcher must read again.
     /// </summary>
     public string? KnownSignature { get; private set; }
 
     private readonly object _ownWriteGate = new();
+    private long _writeVersion;
     private int _ownWriteDepth;
-    private bool _ownWriteInSync;
 
-    /// <summary>
-    /// Runs one of the store's own writes and carries <see cref="KnownSignature"/> across
-    /// it. The fingerprint is only carried when the disk still matched it before the write;
-    /// otherwise something external changed first, and adopting the post-write fingerprint
-    /// would hide that change from the watcher. Nested writes (a batch) check once.
-    /// </summary>
     private T OwnWrite<T>(Func<T> write)
     {
         lock (_ownWriteGate)
         {
-            if (_ownWriteDepth++ == 0)
-            {
-                var known = KnownSignature;
-                _ownWriteInSync = known is not null && known == ComputeSignature();
-            }
-
-            var completed = false;
+            _writeVersion++;
+            _ownWriteDepth++;
+            KnownSignature = null;
             try
             {
-                var result = write();
-                completed = true;
-                return result;
+                return write();
             }
             finally
             {
-                // A write that threw may have left the disk half-changed; let the next
-                // watcher event reload rather than trust a fingerprint of that state.
-                if (--_ownWriteDepth == 0)
-                    KnownSignature = completed && _ownWriteInSync ? ComputeSignature() : null;
-                else if (!completed)
-                    _ownWriteInSync = false;
+                _ownWriteDepth--;
+                KnownSignature = null;
             }
         }
     }
@@ -111,7 +92,7 @@ public class ConnectionStore
 
     /// <summary>
     /// Runs several writes as one, so a sweep over every connection (re-encryption after a
-    /// master-password change) fingerprints the tree twice instead of twice per file.
+    /// master-password change) leaves the fingerprint unknown until the next tree read.
     /// </summary>
     public void RunBatch(Action writes) => OwnWrite(writes);
 
@@ -243,10 +224,16 @@ public class ConnectionStore
         // Fingerprint on both sides of the read: if something changed while it ran, the
         // snapshot may predate that change, so leave the fingerprint unknown and let the
         // watcher event for it reload again.
+        long writeVersion;
+        lock (_ownWriteGate)
+            writeVersion = _writeVersion;
         var before = ComputeSignature();
         var snapshot = ReadFolder(RootPath);
         var after = ComputeSignature();
-        KnownSignature = before == after ? after : null;
+        lock (_ownWriteGate)
+            KnownSignature = before == after && writeVersion == _writeVersion && _ownWriteDepth == 0
+                ? after
+                : null;
         PruneTextCache(snapshot);
         return snapshot;
     }
