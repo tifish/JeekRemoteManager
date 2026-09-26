@@ -2,13 +2,14 @@
 
 [English](README.md) | 简体中文
 
-一个 Windows 平台的远程连接管理工具，集中管理 SSH 和 RDP 连接。
+一个 Windows 平台的远程连接管理工具，集中管理 SSH、RDP 和 VNC 连接。
 
 基于 .NET 10 + Avalonia 开发，仅支持 Windows。
 
 ## 功能特性
 
-- 以文件夹树的方式管理 SSH 和 RDP 连接
+- 以文件夹树的方式管理 SSH、RDP 和 VNC 连接
+- VNC 在 TigerVNC 查看器中打开（首次使用时通过 winget 安装），可经 SSH 隧道连接
 - 内置 SSH 终端，支持多标签页、拖拽排序，以及 ZMODEM（rz/sz）文件传输
 - 集成 AI Agent，支持使用 Claude/Codex/Grok/GitHub Copilot/OpenCode/Pi/OMP/Cursor CLI/Antigravity 操作当前 SSH 终端，也可通过全局 AI Agent 管理整个软件并操作多个连接；Copilot 同时支持 Desktop，也可将生成的工作区在 VS Code、Cursor、Zed 或 Antigravity IDE 中打开
 - SFTP 远程文件浏览器

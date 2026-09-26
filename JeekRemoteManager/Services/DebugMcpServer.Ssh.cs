@@ -737,6 +737,168 @@ internal static partial class DebugMcpServer
             isError: !passed);
     }
 
+    /// <summary>
+    /// The VNC launch path without a VNC server: winget/viewer discovery, the viewer's
+    /// command line (no secret in it) and environment, and a real SSH tunnel through the
+    /// WSL rig observed by a stand-in viewer that reads sshd's banner through it.
+    /// </summary>
+    private static async Task<JsonObject> VncLaunchCheckAsync(JsonObject args)
+    {
+        var host = ArgString(args, "host") ?? "127.0.0.1";
+        var port = ArgInt(args, "port") ?? 2222;
+        var username = ArgString(args, "username") ?? "jrmtest";
+        var failures = new List<string>();
+        var report = new List<string>();
+
+        report.Add($"viewer={VncViewer.Locate() ?? "(not installed)"}");
+        var winget = VncViewer.LocateWinget();
+        report.Add($"winget={winget ?? "(missing)"}");
+        var install = VncViewer.CreateInstallProcessStartInfo(winget ?? @"C:\winget.exe");
+        var installCommand = install.ArgumentList.LastOrDefault() ?? "";
+        report.Add($"install={installCommand}");
+        if (!installCommand.Contains($"install -e --id {VncViewer.WingetPackageId} --source winget", StringComparison.Ordinal)
+            || installCommand.Contains("--accept", StringComparison.Ordinal)
+            || install.CreateNoWindow)
+        {
+            failures.Add("the winget install is not the visible, unattended-agreement-free command shown to the user");
+        }
+
+        foreach (var (inHost, inPort, expected) in new[]
+                 {
+                     ("vnc.example", 5901, "vnc.example::5901"),
+                     ("10.0.0.2", 5900, "10.0.0.2::5900"),
+                     ("::1", 5900, "[::1]::5900"),
+                     ("[fe80::1]", 5902, "[fe80::1]::5902"),
+                 })
+        {
+            var actual = VncViewer.FormatServer(inHost, inPort);
+            if (actual != expected)
+                failures.Add($"server '{inHost}' port {inPort} formatted as '{actual}', expected '{expected}'");
+        }
+
+        const string secret = "s3cret-pw";
+        var vnc = new Connection
+        {
+            ConnectionId = "vnc-probe", Name = "vnc", Type = ConnectionType.Vnc,
+            Host = "127.0.0.1", Port = port, Username = "alice",
+            VncFullScreen = false, VncViewOnly = true, VncShared = false,
+        };
+        var viewerStart = VncViewer.CreateViewerStartInfo(@"C:\TigerVNC\vncviewer.exe", vnc, "vnc.example", 5901, secret);
+        var arguments = string.Join(" ", viewerStart.ArgumentList);
+        report.Add($"args={arguments}");
+        if (arguments != "-FullScreen=0 -ViewOnly=1 -Shared=0 vnc.example::5901")
+            failures.Add($"unexpected viewer arguments '{arguments}'");
+        if (arguments.Contains(secret, StringComparison.Ordinal))
+            failures.Add("the password is on the viewer command line");
+        if (viewerStart.Environment.TryGetValue("VNC_PASSWORD", out var envPassword) is false || envPassword != secret
+            || viewerStart.Environment.TryGetValue("VNC_USERNAME", out var envUser) is false || envUser != "alice")
+        {
+            failures.Add("the password/username did not reach the viewer's environment");
+        }
+
+        // No stored password: nothing inherited from this process may answer for the connection.
+        var inherited = Environment.GetEnvironmentVariable("VNC_PASSWORD");
+        Environment.SetEnvironmentVariable("VNC_PASSWORD", "inherited");
+        try
+        {
+            var bare = VncViewer.CreateViewerStartInfo(@"C:\TigerVNC\vncviewer.exe", vnc, "vnc.example", 5901, "");
+            if (bare.Environment.ContainsKey("VNC_PASSWORD") || bare.Environment.ContainsKey("VNC_USERNAME"))
+                failures.Add("an inherited VNC_PASSWORD reached a viewer started without a password");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("VNC_PASSWORD", inherited);
+        }
+
+        // Tunnel: the "VNC server" is the rig's sshd, reached from the jump host's side.
+        var hadOriginal = KnownHostsStore.Default.TryGet(host, port, out var originalFingerprint);
+        KnownHostsStore.Default.TryGetKeyType(host, port, out var originalKeyType);
+        var jump = new Connection
+        {
+            ConnectionId = "vnc-jump-probe", Name = "jump", Type = ConnectionType.Ssh,
+            Host = host, Port = port, Username = username,
+        };
+        vnc.JumpHost = "_probe/jump";
+        vnc.EncryptedPassword = PasswordProtector.Encrypt(secret);
+        try
+        {
+            string? endpoint = null;
+            var banner = "";
+            using var viewer = await VncViewer.LaunchAsync(
+                vnc,
+                @"C:\TigerVNC\vncviewer.exe",
+                new SshDialOptions(),
+                path => path == "_probe/jump" ? jump : null,
+                startInfo =>
+                {
+                    endpoint = startInfo.ArgumentList.Last();
+                    if (startInfo.Environment.TryGetValue("VNC_PASSWORD", out var tunneledPassword) is false
+                        || tunneledPassword != secret)
+                    {
+                        failures.Add("the tunneled launch lost the stored password");
+                    }
+
+                    var separator = endpoint.LastIndexOf("::", StringComparison.Ordinal);
+                    banner = ReadBanner(int.Parse(endpoint[(separator + 2)..]), socks: false, port);
+                    return Process.Start(new ProcessStartInfo("cmd.exe", "/c exit 0") { CreateNoWindow = true, UseShellExecute = false });
+                });
+
+            report.Add($"tunnel endpoint={endpoint} banner={banner}");
+            if (endpoint is null || !endpoint.StartsWith("127.0.0.1::", StringComparison.Ordinal)
+                || endpoint == $"127.0.0.1::{port}")
+            {
+                failures.Add("the tunneled viewer was not pointed at a local forward");
+            }
+
+            if (!banner.StartsWith("SSH-", StringComparison.Ordinal))
+                failures.Add("nothing came back through the VNC tunnel");
+
+            await viewer.WaitForExitAsync();
+            var tunnelPort = int.Parse(endpoint![(endpoint.LastIndexOf("::", StringComparison.Ordinal) + 2)..]);
+            var closed = false;
+            for (var i = 0; i < 20 && !closed; i++)
+            {
+                await Task.Delay(150);
+                closed = !IsListening(tunnelPort);
+            }
+
+            report.Add($"afterViewerExit tunnelListening={!closed}");
+            if (!closed)
+                failures.Add("the tunnel kept listening after the viewer exited");
+
+            vnc.JumpHost = "_probe/missing";
+            try
+            {
+                using var unexpected = await VncViewer.LaunchAsync(vnc, @"C:\TigerVNC\vncviewer.exe", new SshDialOptions(), _ => null,
+                    _ => throw new InvalidOperationException("the viewer started without its tunnel"));
+                failures.Add("an unknown tunnel host was not reported");
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("not a saved connection", StringComparison.Ordinal))
+            {
+                report.Add("unknownTunnel=reported");
+            }
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"{ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            if (hadOriginal)
+                KnownHostsStore.Default.Trust(host, port, originalFingerprint, originalKeyType);
+            else
+                KnownHostsStore.Default.Forget(host, port);
+        }
+
+        var passed = failures.Count == 0;
+        return ToolText(
+            $"{(passed ? "PASS" : "FAIL")}: VNC viewer launch and SSH tunnel\n"
+            + string.Join("\n", report)
+            + $"\nfailures={failures.Count}"
+            + (passed ? "" : "\n" + string.Join("\n", failures)),
+            isError: !passed);
+    }
+
     private static int FreeTcpPort()
     {
         var probe = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);

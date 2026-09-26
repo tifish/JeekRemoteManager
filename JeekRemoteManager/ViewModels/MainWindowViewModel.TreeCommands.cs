@@ -62,6 +62,9 @@ public partial class MainWindowViewModel
     [RelayCommand]
     private void NewWsl() => CreateConnection(ConnectionType.Wsl);
 
+    [RelayCommand]
+    private void NewVnc() => CreateConnection(ConnectionType.Vnc);
+
     private void CreateConnection(ConnectionType type)
     {
         try
@@ -72,6 +75,7 @@ public partial class MainWindowViewModel
                 Name = type switch
                 {
                     ConnectionType.Rdp => L("NewRdpDefault"),
+                    ConnectionType.Vnc => L("NewVncDefault"),
                     ConnectionType.Wsl => L("NewWslDefault"),
                     _ => L("NewSshDefault"),
                 },
@@ -285,14 +289,108 @@ public partial class MainWindowViewModel
                 return;
             }
 
-            // RDP launches the OS client (mstsc).
-            StatusMessage = L("StatusLaunching", connection.Type.ToDisplayName(), connection.Host);
-            _launcher.Launch(connection);
-            RecordRecent(node.FullPath);
+            if (await LaunchExternalAsync(connection))
+                RecordRecent(node.FullPath);
         }
         catch (Exception ex)
         {
             StatusMessage = L("StatusFailedToLaunch", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Opens an RDP (mstsc) or VNC (TigerVNC) connection in its external client. Returns
+    /// false when the user declined to install a missing VNC viewer or its install failed.
+    /// </summary>
+    public async Task<bool> LaunchExternalAsync(Connection connection)
+    {
+        if (connection.IsVnc)
+            return await LaunchVncAsync(connection);
+
+        StatusMessage = L("StatusLaunching", connection.Type.ToDisplayName(), connection.Host);
+        _launcher.Launch(connection);
+        return true;
+    }
+
+    /// <summary>For callers with no status handling of their own (product MCP): failures land in the status bar.</summary>
+    internal async Task LaunchExternalReportingErrorsAsync(Connection connection)
+    {
+        try
+        {
+            await LaunchExternalAsync(connection);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = L("StatusFailedToLaunch", ex.Message);
+        }
+    }
+
+    private async Task<bool> LaunchVncAsync(Connection connection)
+    {
+        // Report an unusable connection before offering to install anything for it.
+        if (string.IsNullOrWhiteSpace(connection.Host))
+            throw new InvalidOperationException("The VNC connection has no host.");
+
+        var viewer = VncViewer.Locate() ?? await InstallVncViewerAsync();
+        if (viewer is null)
+            return false;
+
+        StatusMessage = L("StatusLaunching", connection.Type.ToDisplayName(), connection.Host);
+        await VncViewer.LaunchAsync(
+            connection,
+            viewer,
+            new SshDialOptions(OnMismatch: ConfirmHostKeyReplacement, PromptUser: PromptUser),
+            _store.TryLoadByTreePath);
+        return true;
+    }
+
+    private Task<string?>? _vncViewerInstall;
+
+    /// <summary>
+    /// Asks before installing TigerVNC through winget, then waits for it. Launches that
+    /// arrive while one install is pending share it rather than asking again.
+    /// </summary>
+    private async Task<string?> InstallVncViewerAsync()
+    {
+        if (_vncViewerInstall is { } pending)
+            return await pending;
+
+        var install = InstallVncViewerCoreAsync();
+        _vncViewerInstall = install;
+        try
+        {
+            return await install;
+        }
+        finally
+        {
+            if (ReferenceEquals(_vncViewerInstall, install))
+                _vncViewerInstall = null;
+        }
+    }
+
+    private async Task<string?> InstallVncViewerCoreAsync()
+    {
+        // Installing software is the user's call: without a way to ask, do not install.
+        if (ConfirmAsync is null
+            || !await ConfirmAsync(
+                L("DialogInstallVncViewerTitle"),
+                L("DialogInstallVncViewerMessage", VncViewer.InstallCommand)))
+        {
+            StatusMessage = L("StatusVncViewerMissing");
+            return null;
+        }
+
+        StatusMessage = L("StatusInstallingVncViewer");
+        try
+        {
+            var viewer = await VncViewer.InstallAsync();
+            StatusMessage = L("StatusVncViewerInstalled", viewer);
+            return viewer;
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = L("StatusVncViewerInstallFailed", ex.Message);
+            return null;
         }
     }
 

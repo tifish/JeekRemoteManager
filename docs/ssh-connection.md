@@ -1,6 +1,6 @@
 # SSH 连接、认证与传输复用
 
-涉及 `Services/SshConnectionFactory.cs`、`SshHostKey.cs`、`KnownHostsStore.cs`、`SharedSshClient.cs`、`PublicKeyInstaller.cs`、`ConnectionLauncher.cs`、`WslDistroService.cs`。
+涉及 `Services/SshConnectionFactory.cs`、`SshHostKey.cs`、`KnownHostsStore.cs`、`SharedSshClient.cs`、`PublicKeyInstaller.cs`、`ConnectionLauncher.cs`、`VncViewer.cs`、`WslDistroService.cs`。
 
 ## 认证：一条路径，两个调用方
 
@@ -90,13 +90,22 @@ SSH 在一条已认证连接上多路复用多个 session channel。所以"复�
 
 `Build`（可能通过 IPC 查 ssh-agent）和 `Connect` 都跑在后台线程——这两个调用会阻塞，绝不能在 UI 线程上跑。
 
-## RDP 与 WSL
+## RDP、VNC 与 WSL
 
 **RDP** 不走应用内终端，通过系统的 `mstsc.exe` 启动。要点：
 
 - 生成的 `.rdp` 文件里的密码用 DPAPI 加密成 mstsc 期望的确切格式（见 [凭据保护](secrets.md)），并在 mstsc 读取后**尽快删除**，不让加密 blob 留在磁盘上。
 - mstsc 用 `.rdp` 文件名当窗口标题，所以文件按连接名命名，并放进独立子目录避免多个连接同时启动时撞名。
 - 文件写 UTF-16 LE——Windows 自己就是这么写的。
+
+**VNC** 同样不走应用内终端，交给外部的 TigerVNC 查看器（`vncviewer.exe`）。要点：
+
+- **不自带、不自己下载查看器。** Windows 没有 VNC 客户端；找不到时在 GUI 里确认后用 `winget install -e --id TigerVNC.TigerVNC --source winget` 安装，命令跑在可见的控制台里（进度、UAC、错误都在用户眼前，失败时停住等回车）。不打包是因为 23 MB 的 GPL 程序会让每个用户、每次更新都背上它；不自己下载是为了不在应用里维护下载源和校验。`--source winget` 避开 msstore 源另外的协议确认。
+- **定位只认 TigerVNC。** 顺序是卸载注册表项的 `InstallLocation`、`Program Files\TigerVNC`，最后才是 PATH。别家（RealVNC、UltraVNC）的查看器也叫 `vncviewer.exe` 但参数不同，所以 PATH 上的只有路径或版本信息带 TigerVNC 才算。
+- **密码走子进程的 `VNC_PASSWORD` / `VNC_USERNAME` 环境变量**，TigerVNC 会在弹认证框前先读它们。不放命令行（任何进程都能读到），也不写 `-passwd` 文件（那只是固定 DES 密钥的混淆，等于明文落盘）。本进程继承来的这两个变量一律先清掉，免得替别的连接应答。经典 VNC 认证只用密码的前 8 个字符，编辑器里有提示。
+- **每个选项都显式传**（`-FullScreen=0/1`、`-ViewOnly`、`-Shared`）：TigerVNC 会把上次的选项存进注册表，不传就沿用上一个连接的。服务器参数一律写成 `host::port`——单冒号是显示号（5900+N）；IPv6 加方括号。`Shared` 默认开，免得连上去就把别人的查看器挤掉。
+- **SSH 隧道复用 `JumpHost`。** VNC 通常不加密，实际用法多半是经 SSH 访问。填了跳板机就用 `SshJumpTunnel` 开一个 `127.0.0.1:0 → host:port` 的本地转发，查看器连这个本地端口；目标主机在跳板机那一侧解析，所以 `localhost` 指跳板机本身。隧道的生命周期跟着查看器进程：进程退出就关掉。这依赖 TigerVNC 一个窗口一个进程。
+- 产品 MCP 的 `session_open` 对 RDP/VNC 不开终端标签页，而是启动外部查看器，返回 `launched`；查看器缺失时返回 `awaiting_user`，安装与否由用户在窗口里决定。回归检查是 Debug MCP 的 `vnc_launch_check`。
 
 **WSL** 通过 `wsl.exe` 在 ConPTY 里开发行版 shell。两个坑：
 

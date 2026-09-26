@@ -30,7 +30,7 @@ public static class ProductMcpContract
     public static JsonArray BuildToolList() => new(
         // --- Directory and metadata (read-only) ---
         Tool("connection_list",
-            "List saved connections. Returns tree path, name, type (SSH/WSL/RDP), and target for each. Never returns credentials.",
+            "List saved connections. Returns tree path, name, type (SSH/WSL/RDP/VNC), and target for each. Never returns credentials.",
             new()
             {
                 ["filter"] = Prop("string", "Case-insensitive substring matched against name, path, host, and user."),
@@ -211,7 +211,7 @@ public static class ProductMcpContract
             "Terminal tabs currently open, with their session id, connection, and live state. " + SessionHelp,
             new()),
         Tool("session_open",
-            "Open a terminal tab for a connection and return its session id. May block while the user "
+            "Open a terminal tab for a connection and return its session id (RDP/VNC instead open their external viewer and return no session). May block while the user "
             + "completes login steps in the window (master password, two-factor); if that takes too long "
             + "the tool returns status 'awaiting_user' and the session id to poll with session_list.",
             new()
@@ -303,9 +303,9 @@ public static class ProductMcpContract
     private static JsonObject EditableFields(JsonObject leading)
     {
         leading["name"] = Prop("string", "Display name; also the file name on disk.");
-        leading["host"] = Prop("string", "Host name or IP (SSH/RDP).");
-        leading["port"] = Prop("integer", "TCP port; defaults to 22 (SSH) or 3389 (RDP).");
-        leading["username"] = Prop("string", "Login user (SSH/RDP).");
+        leading["host"] = Prop("string", "Host name or IP (SSH/RDP/VNC).");
+        leading["port"] = Prop("integer", "TCP port; defaults to 22 (SSH), 3389 (RDP) or 5900 (VNC).");
+        leading["username"] = Prop("string", "Login user (SSH/RDP; VNC only for servers that ask for one).");
         leading["private_key_path"] = Prop("string", "Private key file for SSH.");
         leading["terminal_type"] = Prop("string", "TERM sent on login; default xterm-256color.");
         leading["terminal_encoding"] = Prop("string",
@@ -321,7 +321,7 @@ public static class ProductMcpContract
         leading["auto_open_monitor_panel"] = Prop("boolean", "Open the server monitor after login.");
         leading["auto_open_file_browser_panel"] = Prop("boolean", "Open the file browser after login.");
         leading["jump_host"] = Prop("string",
-            "Tree path of another saved SSH connection to hop through (ProxyJump), e.g. 'vps/bastion'. Empty dials directly.");
+            "Tree path of another saved SSH connection to hop through (ProxyJump; for VNC, the SSH tunnel), e.g. 'vps/bastion'. Empty dials directly.");
         leading["port_forwards"] = Prop("string",
             "Port forwards started with each connection, one per line: 'L 8080 db:5432', 'R 9000 localhost:3000', 'D 1080' (SOCKS). Local listeners bind 127.0.0.1 unless a bind address is given.");
         leading["auto_log_session"] = Prop("boolean",
@@ -334,7 +334,7 @@ public static class ProductMcpContract
         var properties = EditableFields(new JsonObject
         {
             ["folder"] = Prop("string", "Destination folder in the tree; empty = root."),
-            ["type"] = Prop("string", "ssh (default), wsl, or rdp."),
+            ["type"] = Prop("string", "ssh (default), wsl, rdp, or vnc."),
         });
         properties["open"] = Prop("boolean", "Open a session immediately after creating (default false).");
         return properties;

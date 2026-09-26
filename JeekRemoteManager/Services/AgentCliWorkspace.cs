@@ -527,11 +527,7 @@ public static class AgentCliWorkspace
     }
 
     private static string ResolveConnectionKind(Connection? connection) =>
-        connection?.IsWsl == true
-            ? "WSL"
-            : connection?.IsRdp == true
-                ? "RDP"
-                : "SSH";
+        (connection?.Type ?? ConnectionType.Ssh).ToDisplayName();
 
     private static string ResolveConnectionTarget(Connection? connection) =>
         connection?.IsWsl == true

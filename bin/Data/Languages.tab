@@ -12,10 +12,12 @@ NewFolder	New folder	新建文件夹
 NewSsh	New SSH connection	新建 SSH 连接
 NewRdp	New RDP connection	新建 RDP 连接
 NewWsl	New WSL connection	新建 WSL 连接
+NewVnc	New VNC connection	新建 VNC 连接
 Folder	Folder	文件夹
 SSH	SSH	SSH
 RDP	RDP	RDP
 WSL	WSL	WSL
+VNC	VNC	VNC
 Connect	Connect	连接
 ConnectTooltip	Connect (Enter / double-click; hold Ctrl for a new session)	连接（回车 / 双击；按住 Ctrl 新开会话）
 ConnectNewSession	Open new session	新建会话
@@ -107,6 +109,13 @@ ShareClipboard	Share clipboard	共享剪贴板
 ShareDrives	Share drives	共享磁盘
 PlayRemoteAudio	Play remote audio here	在本机播放远程音频
 ShareMicrophone	Share microphone	共享麦克风
+VncOptions	VNC options	VNC 选项
+VncViewOnly	View only	仅查看
+VncShared	Shared session	共享会话
+VncSharedTip	Keep other viewers connected; unchecked asks the server to disconnect them.	保留其他已连接的查看器；不勾选时会要求服务器断开它们。
+VncTunnel	SSH tunnel	SSH 隧道
+VncTunnelTip	Reach the VNC server through this saved SSH connection. The host above is resolved on the SSH server, so localhost means that server itself.	经由这个已保存的 SSH 连接访问 VNC 服务器。上面的主机名在 SSH 服务器上解析，因此 localhost 指的就是那台服务器本身。
+VncCredentialsHint	Opens in the TigerVNC viewer. Classic VNC authentication uses only the first 8 characters of the password; the username is only for servers that ask for one.	在 TigerVNC 查看器中打开。经典 VNC 认证只使用密码的前 8 个字符；用户名仅用于要求用户名的服务器。
 Notes	Notes	备注
 AutoSaveHint	Changes are saved automatically.	更改将自动保存。
 SelectConnectionHint	Select a connection to edit, or create one from the toolbar.	选择一个连接进行编辑，或在工具栏新建一个。
@@ -124,6 +133,10 @@ StatusLaunchingSshWithClipboard	Launching SSH to {0} — password copied to clip
 StatusLaunchingSsh	Launching SSH to {0}.	正在启动 SSH 到 {0}。
 StatusLaunching	Launching {0} to {1}.	正在启动 {0} 到 {1}。
 StatusFailedToLaunch	Failed to launch: {0}	启动失败：{0}
+StatusVncViewerMissing	The TigerVNC viewer is not installed.	未安装 TigerVNC 查看器。
+StatusInstallingVncViewer	Installing the TigerVNC viewer with winget…	正在用 winget 安装 TigerVNC 查看器…
+StatusVncViewerInstalled	TigerVNC viewer installed: {0}	已安装 TigerVNC 查看器：{0}
+StatusVncViewerInstallFailed	Could not install the TigerVNC viewer: {0}	无法安装 TigerVNC 查看器：{0}
 StatusCouldNotDelete	Could not delete: {0}	无法删除：{0}
 StatusDeleted	Deleted {0}.	已删除 {0}。
 StatusDeletedMultiple	Deleted {0} items.	已删除 {0} 项。
@@ -170,6 +183,7 @@ StatusStorageCopyFailed	Could not move Config data to the new location: {0}	无�
 NewSshDefault	New SSH	新建 SSH
 NewRdpDefault	New RDP	新建 RDP
 NewWslDefault	New WSL	新建 WSL
+NewVncDefault	New VNC	新建 VNC
 NewFolderDefault	New Folder	新建文件夹
 UnnamedConnection	Unnamed	未命名
 DialogYes	Yes	是
@@ -220,6 +234,8 @@ DuplicateSessionShort	Duplicate	复制
 CopyPublicKeyToServer	Copy public key to server	复制公钥到服务器
 DialogCopyPublicKeyTitle	Copy public key	复制公钥
 DialogCopyPublicKeyMessage	Install local public key on {1}?\n\nKey: {0}\n\nThis applies to the host configured above — not to servers reached by jumping inside the terminal.	将本地公钥安装到 {1}？\n\n公钥：{0}\n\n此操作作用于上述配置的主机本身，不作用于终端中跳转后的服务器。
+DialogInstallVncViewerTitle	Install TigerVNC viewer	安装 TigerVNC 查看器
+DialogInstallVncViewerMessage	VNC connections open in the TigerVNC viewer, which is not installed.\n\nInstall it now with winget?\n\n{0}\n\nA console window shows the progress, and Windows may ask for administrator permission.	VNC 连接在 TigerVNC 查看器中打开，但它尚未安装。\n\n现在用 winget 安装吗？\n\n{0}\n\n安装进度显示在控制台窗口中，Windows 可能会请求管理员权限。
 StatusNoPublicKey	No local public key found. Generate one with ssh-keygen, or set a private key whose .pub sibling exists.	未找到本地公钥。请用 ssh-keygen 生成，或设置一个存在对应 .pub 文件的私钥。
 StatusCopyingPublicKey	Installing public key on {0}…	正在将公钥安装到 {0}…
 StatusPublicKeyInstalled	Public key installed on {0}.	公钥已安装到 {0}。

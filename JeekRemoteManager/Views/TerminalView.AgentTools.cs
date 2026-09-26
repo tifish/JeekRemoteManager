@@ -203,7 +203,7 @@ public partial class TerminalView
         if (c is null)
             return "label=(none)\ntype=unknown\nconnected=false";
 
-        var kind = c.IsWsl ? "WSL" : c.IsRdp ? "RDP" : "SSH";
+        var kind = c.Type.ToDisplayName();
         var target = c.IsWsl
             ? (string.IsNullOrWhiteSpace(c.WslDistro) ? "default WSL distribution" : c.WslDistro.Trim())
             : string.IsNullOrWhiteSpace(c.Host)

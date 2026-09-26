@@ -10,7 +10,7 @@
 | --- | --- |
 | [总体架构](architecture.md) | 模块划分、启动顺序、线程模型、数据落盘分层 |
 | [终端通道与输出管线](terminal-pipeline.md) | `ITerminalChannel`、ConPTY、UTF-8 分包、输出合并与背压、resize 修补、dim 颜色 |
-| [SSH 连接、认证与传输复用](ssh-connection.md) | 认证顺序、keyboard-interactive 安全规则、主机密钥、共享传输与通道容量、RDP/WSL |
+| [SSH 连接、认证与传输复用](ssh-connection.md) | 认证顺序、keyboard-interactive 安全规则、主机密钥、共享传输与通道容量、RDP/VNC/WSL |
 | [堡垒机登录与会话复用](bastion-login.md) | 登录命令 DSL、按名字选菜单、翻页、会话池与路由切换、共享模板 |
 | [ZMODEM 文件传输](zmodem.md) | 触发串检测的延迟权衡、字节队列、帧上限 |
 | [文件浏览（SFTP / WSL）](file-browser.md) | 会话抽象、重试策略、双会话、缓存与远程编辑 |

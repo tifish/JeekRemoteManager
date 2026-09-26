@@ -7,6 +7,7 @@ public static class ConnectionTypeDisplay
         ConnectionType.Ssh => "SSH",
         ConnectionType.Rdp => "RDP",
         ConnectionType.Wsl => "WSL",
+        ConnectionType.Vnc => "VNC",
         _ => type.ToString().ToUpperInvariant(),
     };
 
@@ -14,6 +15,7 @@ public static class ConnectionTypeDisplay
     {
         ConnectionType.Rdp => "\U0001F5A5",
         ConnectionType.Wsl => "\U0001F427",
+        ConnectionType.Vnc => "\U0001F4FA",
         _ => ">_",
     };
 
@@ -22,6 +24,7 @@ public static class ConnectionTypeDisplay
         {
             "RDP" => ConnectionType.Rdp,
             "WSL" => ConnectionType.Wsl,
+            "VNC" => ConnectionType.Vnc,
             _ => ConnectionType.Ssh,
         };
 }

@@ -102,6 +102,20 @@
                             <TextBlock Classes="toolbar-label" Text="{l:Localize RDP}" />
                         </StackPanel>
                     </Button>
+                    <Button x:Name="NewVncToolbarButton"
+                            Command="{Binding NewVncCommand}"
+                            ToolTip.Tip="{l:Localize NewVnc}"
+                            Classes="toolbar">
+                        <StackPanel Orientation="Horizontal" Spacing="7">
+                            <Border Classes="connection-icon-badge">
+                                <TextBlock Classes="connection-icon emoji"
+                                           Text="&#x1F4FA;"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" />
+                            </Border>
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize VNC}" />
+                        </StackPanel>
+                    </Button>
                     <Border x:Name="GlobalAgentToolbarSeparator"
                             Width="1"
                             Height="24"
@@ -350,6 +364,16 @@
                                             </Border>
                                         </MenuItem.Icon>
                                     </MenuItem>
+                                    <MenuItem Header="{l:Localize NewVnc}" Command="{Binding NewVncCommand}">
+                                        <MenuItem.Icon>
+                                            <Border Classes="connection-icon-badge">
+                                                <TextBlock Classes="connection-icon emoji"
+                                                           Text="&#x1F4FA;"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center" />
+                                            </Border>
+                                        </MenuItem.Icon>
+                                    </MenuItem>
                                     <Separator />
                                     <MenuItem Header="{l:Localize Copy}" Command="{Binding CopyCommand}" InputGesture="Ctrl+C">
                                         <MenuItem.Icon>
@@ -493,6 +517,17 @@
                                         <Border Classes="connection-icon-badge">
                                             <TextBlock Classes="connection-icon emoji"
                                                        Text="&#x1F5A5;"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center" />
+                                        </Border>
+                                    </MenuItem.Icon>
+                                </MenuItem>
+                                <MenuItem Header="{l:Localize NewVnc}" Command="{Binding NewVncCommand}"
+                                          IsVisible="{Binding IsRegularContext}">
+                                    <MenuItem.Icon>
+                                        <Border Classes="connection-icon-badge">
+                                            <TextBlock Classes="connection-icon emoji"
+                                                       Text="&#x1F4FA;"
                                                        HorizontalAlignment="Center"
                                                        VerticalAlignment="Center" />
                                         </Border>
@@ -865,6 +900,35 @@
                                                           IsChecked="{Binding RdpRedirectAudioPlayback, Mode=TwoWay}" />
                                                 <CheckBox Grid.Row="1" Grid.Column="1" Content="{l:Localize ShareMicrophone}"
                                                           IsChecked="{Binding RdpRedirectMicrophone, Mode=TwoWay}" />
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- VNC-specific -->
+                                    <Border Classes="form-card"
+                                            IsVisible="{Binding IsVnc}">
+                                        <StackPanel Spacing="12">
+                                            <TextBlock Classes="section-title" Text="{l:Localize VncOptions}" />
+                                            <StackPanel Orientation="Horizontal" Spacing="18">
+                                                <CheckBox Content="{l:Localize FullScreen}"
+                                                          IsChecked="{Binding VncFullScreen, Mode=TwoWay}" />
+                                                <CheckBox Content="{l:Localize VncViewOnly}"
+                                                          IsChecked="{Binding VncViewOnly, Mode=TwoWay}" />
+                                                <CheckBox Content="{l:Localize VncShared}"
+                                                          ToolTip.Tip="{l:Localize VncSharedTip}"
+                                                          IsChecked="{Binding VncShared, Mode=TwoWay}" />
+                                            </StackPanel>
+
+                                            <Grid ColumnDefinitions="128,*" RowDefinitions="Auto,Auto" RowSpacing="10">
+                                                <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="{l:Localize VncTunnel}" />
+                                                <TextBox x:Name="VncTunnelBox"
+                                                         Grid.Row="0" Grid.Column="1"
+                                                         Text="{Binding JumpHost, Mode=TwoWay}"
+                                                         ToolTip.Tip="{l:Localize VncTunnelTip}"
+                                                         PlaceholderText="{l:Localize JumpHostWatermark}" />
+                                                <TextBlock Grid.Row="1" Grid.Column="1" Classes="hint"
+                                                           Text="{l:Localize VncCredentialsHint}"
+                                                           TextWrapping="Wrap" />
                                             </Grid>
                                         </StackPanel>
                                     </Border>

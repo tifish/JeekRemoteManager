@@ -2,7 +2,7 @@
 
 ## 目标
 
-JeekRemoteManager 是一个 Windows 桌面的远程连接管理器：把 SSH / RDP / WSL 连接组织成文件夹树，SSH 在应用内的终端里跑，并在同一个终端旁边挂上 AI 助手、SFTP 文件浏览、服务器监控三个面板。
+JeekRemoteManager 是一个 Windows 桌面的远程连接管理器：把 SSH / RDP / VNC / WSL 连接组织成文件夹树，SSH 在应用内的终端里跑，并在同一个终端旁边挂上 AI 助手、SFTP 文件浏览、服务器监控三个面板。
 
 架构上有三条贯穿全局的取向：
 

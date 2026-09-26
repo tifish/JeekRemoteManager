@@ -766,6 +766,7 @@ public partial class MainWindowViewModel : ViewModelBase
         if (e.PropertyName is nameof(ConnectionEditorViewModel.IsSsh)
                           or nameof(ConnectionEditorViewModel.IsRdp)
                           or nameof(ConnectionEditorViewModel.IsWsl)
+                          or nameof(ConnectionEditorViewModel.IsVnc)
                           or nameof(ConnectionEditorViewModel.HasHostPort)
                           or nameof(ConnectionEditorViewModel.HasPassword)
                           or nameof(ConnectionEditorViewModel.SupportsScripts)

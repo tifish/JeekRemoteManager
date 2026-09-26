@@ -232,7 +232,8 @@ internal static class ProductMcpServer
             "ssh" => ConnectionType.Ssh,
             "wsl" => ConnectionType.Wsl,
             "rdp" => ConnectionType.Rdp,
-            _ => throw new InvalidOperationException($"Unknown connection type '{typeText}'. Use ssh, wsl, or rdp."),
+            "vnc" => ConnectionType.Vnc,
+            _ => throw new InvalidOperationException($"Unknown connection type '{typeText}'. Use ssh, wsl, rdp, or vnc."),
         };
 
         var folder = NormalizeTreePath(args["folder"]?.GetValue<string>());
@@ -263,7 +264,9 @@ internal static class ProductMcpServer
             var result = DescribeConnection(connection, treePath, full: true);
             result["created"] = true;
 
-            if (open)
+            if (open && IsExternalClient(connection))
+                result["launch"] = LaunchExternal(connection, treePath);
+            else if (open)
                 result["session"] = MainWindow.OpenTerminalSession(connection, savedPath, duplicate: false, activate: true);
 
             return result;
@@ -1037,6 +1040,32 @@ internal static class ProductMcpServer
             return (found, file);
         });
 
+    /// <summary>RDP and VNC open in mstsc / TigerVNC rather than in a terminal tab.</summary>
+    private static bool IsExternalClient(Connection connection) =>
+        connection.Type is ConnectionType.Rdp or ConnectionType.Vnc;
+
+    /// <summary>
+    /// Starts the external client without waiting for it. A missing VNC viewer is offered for
+    /// installation in the window, so that case reports awaiting_user instead of blocking.
+    /// </summary>
+    private static JsonObject LaunchExternal(Connection connection, string treePath)
+    {
+        var needsUser = connection.IsVnc && VncViewer.Locate() is null;
+        _ = MainVm.LaunchExternalReportingErrorsAsync(connection);
+        if (needsUser)
+            MainWindow.ActivateMainWindow();
+
+        return new JsonObject
+        {
+            ["status"] = needsUser ? "awaiting_user" : "launched",
+            ["connection"] = treePath,
+            ["message"] = needsUser
+                ? "The TigerVNC viewer is not installed; the JeekRemoteManager window asks the user whether to "
+                  + "install it with winget, then opens the connection. There is no terminal session."
+                : $"Opened in the external {connection.Type.ToDisplayName()} client. There is no terminal session.",
+        };
+    }
+
     /// <summary>Existing session for a connection, opening one when allowed.</summary>
     private static async Task<TerminalView> ResolveOrOpenSessionAsync(string connectionPath, bool openMissing)
     {
@@ -1053,6 +1082,12 @@ internal static class ProductMcpServer
         return await OnUiAsync(() =>
         {
             var (connection, _, filePath) = LoadConnection(connectionPath);
+            if (IsExternalClient(connection))
+            {
+                throw new InvalidOperationException(
+                    $"'{connectionPath}' is an {connection.Type.ToDisplayName()} connection; it opens in an external viewer and has no terminal session.");
+            }
+
             var sessionId = MainWindow.OpenTerminalSession(connection, filePath, duplicate: false, activate: false);
             return MainWindow.EnumerateTerminalSessions().First(s => s.SessionId == sessionId).View;
         }).ConfigureAwait(false);
@@ -1155,11 +1190,15 @@ internal static class ProductMcpServer
         var activate = args["activate"]?.GetValue<bool>() ?? true;
         var waitSeconds = Math.Clamp(args["wait_seconds"]?.GetValue<int>() ?? 30, 1, 300);
 
-        var sessionId = await OnUiAsync(() =>
+        var (sessionId, external) = await OnUiAsync(() =>
         {
-            var (connection, _, filePath) = LoadConnection(path);
-            return MainWindow.OpenTerminalSession(connection, filePath, duplicate, activate);
+            var (connection, treePath, filePath) = LoadConnection(path);
+            return IsExternalClient(connection)
+                ? ("", LaunchExternal(connection, treePath))
+                : (MainWindow.OpenTerminalSession(connection, filePath, duplicate, activate), (JsonObject?)null);
         }).ConfigureAwait(false);
+        if (external is not null)
+            return ToolText(external.ToJsonString(PrettyOptions));
 
         // Logging in can need the user (master password, two-factor, a bastion menu). Wait a
         // bounded time, then hand back a pollable id instead of holding the tool call open.

@@ -58,6 +58,8 @@ AES-256-GCM（salt 16 字节、nonce 12 字节、tag 16 字节），密钥从主
 
 `PasswordProtector.EncryptForRdpFile` 仍然走 DPAPI，因为它必须产出 `mstsc.exe` 期望的那个确切的、机器本地的格式：明文密码编码成 UTF-16LE，DPAPI（当前用户）加密，再渲染成大写十六进制串，写进 `.rdp` 的 `password 51:b:` 字段。这里没有可移植性的诉求——`.rdp` 文件本来就是临时生成、用完即删的。
 
+VNC 没有可用的加密格式：TigerVNC 的密码文件只是固定 DES 密钥的混淆。所以 VNC 密码**不落盘**，只放进查看器子进程的 `VNC_PASSWORD` 环境变量（见 [SSH 连接](ssh-connection.md)），也从不出现在命令行上。
+
 ## 对外暴露的规则
 
 - MCP 产品面的响应**按显式字段白名单逐个组装**，从不序列化 `Connection` 模型。这样以后往模型上加字段不会意外泄漏。

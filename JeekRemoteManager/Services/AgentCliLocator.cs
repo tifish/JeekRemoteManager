@@ -411,7 +411,7 @@ public static class AgentCliLocator
         yield return Path.Combine(localAppData, "grok", "bin", "grok.exe");
     }
 
-    private static string? FindOnPath(string fileName)
+    internal static string? FindOnPath(string fileName)
     {
         var pathVar = Environment.GetEnvironmentVariable("PATH");
         if (string.IsNullOrEmpty(pathVar))

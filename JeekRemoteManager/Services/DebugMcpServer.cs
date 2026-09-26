@@ -139,6 +139,7 @@ internal static partial class DebugMcpServer
         host.AddTool("host_key_trust_check", _ => Task.FromResult(HostKeyTrustCheck()));
         host.AddTool("sftp_host_key_check", SftpHostKeyCheckAsync);
         host.AddTool("ssh_jump_forward_check", SshJumpForwardCheckAsync);
+        host.AddTool("vnc_launch_check", VncLaunchCheckAsync);
         host.AddTool("sftp_retry_policy_check", _ => SftpRetryPolicyCheckAsync());
         host.AddTool("connection_write_watcher_check", _ => ConnectionWriteWatcherCheckAsync());
         host.AddTool("connection_external_change_check", _ => ConnectionExternalChangeCheckAsync());

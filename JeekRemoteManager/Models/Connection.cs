@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 namespace JeekRemoteManager.Models;
 
 /// <summary>
-/// A single remote connection (SSH, RDP, or a local WSL distribution). Each
+/// A single remote connection (SSH, RDP, VNC, or a local WSL distribution). Each
 /// instance is persisted to its own file on disk by <see cref="Services.ConnectionStore"/>.
 /// </summary>
 public class Connection
@@ -23,7 +23,7 @@ public class Connection
 
     public string Host { get; set; } = "";
 
-    /// <summary>TCP port. Defaults to 22 (SSH) or 3389 (RDP).</summary>
+    /// <summary>TCP port. Defaults to 22 (SSH), 3389 (RDP) or 5900 (VNC).</summary>
     public int Port { get; set; } = 22;
 
     public string Username { get; set; } = "";
@@ -114,7 +114,7 @@ public class Connection
 
     /// <summary>
     /// Tree path of another saved SSH connection to hop through ("vps/bastion"), the
-    /// ProxyJump equivalent; empty dials directly. See <see cref="Services.SshDialer"/>.
+    /// ProxyJump equivalent (for VNC, the SSH tunnel); empty dials directly. See <see cref="Services.SshDialer"/>.
     /// </summary>
     public string JumpHost { get; set; } = "";
 
@@ -159,12 +159,27 @@ public class Connection
     /// <summary>Capture the local microphone and send it to the remote session.</summary>
     public bool RdpRedirectMicrophone { get; set; } = false;
 
+    // --- VNC specific ---
+
+    /// <summary>Start the viewer full screen.</summary>
+    public bool VncFullScreen { get; set; } = false;
+
+    /// <summary>Send no keyboard or mouse input to the server.</summary>
+    public bool VncViewOnly { get; set; } = false;
+
+    /// <summary>Leave other viewers connected instead of asking the server to drop them.</summary>
+    public bool VncShared { get; set; } = true;
+
     /// <summary>Free-form note shown in the editor.</summary>
     public string Notes { get; set; } = "";
 
     /// <summary>Default port for the given connection type.</summary>
-    public static int DefaultPort(ConnectionType type) =>
-        type == ConnectionType.Rdp ? 3389 : 22;
+    public static int DefaultPort(ConnectionType type) => type switch
+    {
+        ConnectionType.Rdp => 3389,
+        ConnectionType.Vnc => 5900,
+        _ => 22,
+    };
 
     [JsonIgnore]
     public bool IsSsh => Type == ConnectionType.Ssh;
@@ -175,8 +190,11 @@ public class Connection
     [JsonIgnore]
     public bool IsWsl => Type == ConnectionType.Wsl;
 
+    [JsonIgnore]
+    public bool IsVnc => Type == ConnectionType.Vnc;
+
     /// <summary>What this connection points at, for status/log messages:
-    /// the host for SSH/RDP, the distribution (or "WSL") for WSL.</summary>
+    /// the host for SSH/RDP/VNC, the distribution (or "WSL") for WSL.</summary>
     [JsonIgnore]
     public string TargetLabel => IsWsl
         ? (string.IsNullOrWhiteSpace(WslDistro) ? "WSL" : WslDistro.Trim())

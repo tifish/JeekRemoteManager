@@ -8,4 +8,5 @@ public enum ConnectionType
     Ssh,
     Rdp,
     Wsl,
+    Vnc,
 }

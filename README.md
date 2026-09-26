@@ -2,13 +2,14 @@
 
 English | [简体中文](README.zh-CN.md)
 
-A remote connection manager for Windows that organizes SSH and RDP connections in one place.
+A remote connection manager for Windows that organizes SSH, RDP, and VNC connections in one place.
 
 Built with .NET 10 and Avalonia. Windows only.
 
 ## Features
 
-- Manage SSH and RDP connections in a folder tree
+- Manage SSH, RDP, and VNC connections in a folder tree
+- VNC opens in the TigerVNC viewer (installed through winget on first use), optionally through an SSH tunnel
 - Built-in SSH terminal with tabs, drag-to-reorder, and ZMODEM (rz/sz) file transfer
 - Integrated AI agents: use Claude, Codex, Grok, GitHub Copilot, OpenCode, Pi, OMP, Cursor CLI, or Antigravity to operate the current SSH terminal, or use the global AI Agent to manage the application and work across multiple connections; Copilot also supports its desktop app, and generated workspaces open in VS Code, Cursor, Zed, or Antigravity IDE
 - SFTP file browser for remote hosts

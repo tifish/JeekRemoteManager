@@ -19,6 +19,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsSsh))]
     [NotifyPropertyChangedFor(nameof(IsRdp))]
     [NotifyPropertyChangedFor(nameof(IsWsl))]
+    [NotifyPropertyChangedFor(nameof(IsVnc))]
     [NotifyPropertyChangedFor(nameof(HasHostPort))]
     [NotifyPropertyChangedFor(nameof(HasPassword))]
     [NotifyPropertyChangedFor(nameof(SupportsScripts))]
@@ -194,6 +195,16 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     [ObservableProperty]
     private bool _rdpRedirectMicrophone;
 
+    // VNC
+    [ObservableProperty]
+    private bool _vncFullScreen;
+
+    [ObservableProperty]
+    private bool _vncViewOnly;
+
+    [ObservableProperty]
+    private bool _vncShared = true;
+
     [ObservableProperty]
     private string _notes = "";
 
@@ -202,6 +213,8 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     public bool IsRdp => Type == ConnectionType.Rdp;
 
     public bool IsWsl => Type == ConnectionType.Wsl;
+
+    public bool IsVnc => Type == ConnectionType.Vnc;
 
     /// <summary>WSL connections have no host/port — the editor swaps that row for
     /// the distribution selector.</summary>
@@ -239,6 +252,13 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             return;
         _wslDistro = oldValue ?? "";
         Avalonia.Threading.Dispatcher.UIThread.Post(() => OnPropertyChanged(nameof(WslDistro)));
+    }
+
+    partial void OnTypeChanged(ConnectionType oldValue, ConnectionType newValue)
+    {
+        // Follow the protocol's default port unless the user chose another one.
+        if (Port == Connection.DefaultPort(oldValue))
+            Port = Connection.DefaultPort(newValue);
     }
 
     partial void OnTypeChanged(ConnectionType value)
@@ -314,6 +334,9 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             RdpRedirectDrives = c.RdpRedirectDrives,
             RdpRedirectAudioPlayback = c.RdpRedirectAudioPlayback,
             RdpRedirectMicrophone = c.RdpRedirectMicrophone,
+            VncFullScreen = c.VncFullScreen,
+            VncViewOnly = c.VncViewOnly,
+            VncShared = c.VncShared,
             Notes = c.Notes,
         };
 
@@ -445,6 +468,9 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         c.RdpRedirectDrives = RdpRedirectDrives;
         c.RdpRedirectAudioPlayback = RdpRedirectAudioPlayback;
         c.RdpRedirectMicrophone = RdpRedirectMicrophone;
+        c.VncFullScreen = VncFullScreen;
+        c.VncViewOnly = VncViewOnly;
+        c.VncShared = VncShared;
         c.Notes = Notes;
     }
 
