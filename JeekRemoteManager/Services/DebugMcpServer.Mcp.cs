@@ -34,6 +34,125 @@ namespace JeekRemoteManager.Services;
 /// <summary>MCP probes: transport, concurrency, the product surface and the offline adapter.</summary>
 internal static partial class DebugMcpServer
 {
+    /// <summary>Old requests must not tear down the pipe used by their own retries.</summary>
+    private static async Task<JsonObject> McpReconnectCheckAsync()
+    {
+        const int requestCount = 20;
+        var failures = new List<string>();
+        var reports = new List<string>();
+        for (var trial = 1; trial <= 5; trial++)
+        {
+            var pipeName = "jrm-reconnect-check-" + Guid.NewGuid().ToString("N");
+            using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var handlers = new List<Task>();
+            var connections = 0;
+            var listener = Task.Run(async () =>
+            {
+                try
+                {
+                    while (!stop.IsCancellationRequested)
+                    {
+                        var pipe = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 32,
+                            PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+                        try { await pipe.WaitForConnectionAsync(stop.Token).ConfigureAwait(false); }
+                        catch { pipe.Dispose(); throw; }
+                        var first = Interlocked.Increment(ref connections) == 1;
+                        handlers.Add(Task.Run(async () =>
+                        {
+                            try
+                            {
+                                using (pipe)
+                                using (var reader = new StreamReader(pipe, new UTF8Encoding(false)))
+                                using (var writer = new StreamWriter(pipe, new UTF8Encoding(false)) { AutoFlush = true })
+                                {
+                                    var count = 0;
+                                    while (await reader.ReadLineAsync(stop.Token).ConfigureAwait(false) is { } line)
+                                    {
+                                        var request = JsonNode.Parse(line)!;
+                                        // Drop the original connection only after all requests are in flight.
+                                        if (first)
+                                        {
+                                            if (++count == requestCount)
+                                                return;
+                                            continue;
+                                        }
+                                        await Task.Delay(10, stop.Token).ConfigureAwait(false);
+                                        await writer.WriteLineAsync(new JsonObject
+                                        {
+                                            ["jsonrpc"] = "2.0",
+                                            ["id"] = request["id"]!.DeepClone(),
+                                            ["result"] = new JsonObject { ["probeId"] = request["id"]!.DeepClone() },
+                                        }.ToJsonString()).ConfigureAwait(false);
+                                    }
+                                }
+                            }
+                            catch (Exception ex) when (ex is IOException or OperationCanceledException)
+                            {
+                                // The adapter or the bounded probe closed this session.
+                            }
+                        }));
+                    }
+                }
+                catch (OperationCanceledException) { /* probe finished */ }
+            });
+
+            Process? adapter = null;
+            var replies = new HashSet<int>();
+            try
+            {
+                var psi = new ProcessStartInfo(McpAdapterRegistry.AdapterPath)
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardInput = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    StandardOutputEncoding = new UTF8Encoding(false),
+                    StandardInputEncoding = new UTF8Encoding(false),
+                };
+                foreach (var arg in new[] { "--surface", "debug", "--pipe", pipeName, "--no-launch" })
+                    psi.ArgumentList.Add(arg);
+                adapter = Process.Start(psi)!;
+                for (var id = 1; id <= requestCount; id++)
+                {
+                    await adapter.StandardInput.WriteLineAsync(new JsonObject
+                    {
+                        ["jsonrpc"] = "2.0", ["id"] = id, ["method"] = "tools/call",
+                        ["params"] = new JsonObject { ["name"] = "probe", ["arguments"] = new JsonObject() },
+                    }.ToJsonString()).ConfigureAwait(false);
+                }
+                await adapter.StandardInput.FlushAsync().ConfigureAwait(false);
+                for (var i = 0; i < requestCount; i++)
+                {
+                    var line = await adapter.StandardOutput.ReadLineAsync(stop.Token).ConfigureAwait(false);
+                    var reply = line is null ? null : JsonNode.Parse(line);
+                    var id = reply?["id"]?.GetValue<int>() ?? -1;
+                    if (id < 1 || id > requestCount || reply?["result"]?["probeId"]?.GetValue<int>() != id
+                        || !replies.Add(id))
+                        failures.Add($"trial {trial}: request {id} lost its response during reconnect");
+                }
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"trial {trial}: {ex.GetType().Name}: {ex.Message}");
+            }
+            finally
+            {
+                try { if (adapter is { HasExited: false }) adapter.Kill(); } catch { /* exited */ }
+                adapter?.Dispose();
+                stop.Cancel();
+                await listener.ConfigureAwait(false);
+                await Task.WhenAll(handlers).ConfigureAwait(false);
+            }
+            if (connections != 2)
+                failures.Add($"trial {trial}: expected one replacement pipe, got {connections} total connections");
+            reports.Add($"trial {trial}: replies={replies.Count}/{requestCount}, connections={connections}");
+        }
+        return ToolText($"{(failures.Count == 0 ? "PASS" : "FAIL")}: concurrent MCP reconnect\n"
+            + string.Join("\n", reports) + $"\nfailures={failures.Count}\n" + string.Join("\n", failures),
+            isError: failures.Count != 0);
+    }
+
     /// <summary>
     /// The adapter used to answer tools/list with an empty array while the app was closed.
     /// Only a tools/call starts the app, so an agent that began its session first saw no tools,

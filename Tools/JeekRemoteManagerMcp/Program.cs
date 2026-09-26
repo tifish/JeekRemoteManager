@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO.Pipes;
 using System.Runtime.Versioning;
+using System.Text.Json;
 using System.Text;
 using System.Text.Json.Nodes;
 using JeekRemoteManager.Services;
@@ -401,10 +402,17 @@ internal sealed class PipeConnection(
     private readonly object _stateGate = new();
     private readonly SemaphoreSlim _connectGate = new(1, 1);
     private readonly SemaphoreSlim _writeGate = new(1, 1);
-    private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pending = new(StringComparer.Ordinal);
-    private NamedPipeClientStream? _pipe;
-    private StreamReader? _reader;
-    private StreamWriter? _writer;
+    // Each connection owns its replies. A late failure/read from the old pipe must never
+    // close its replacement or complete a retried request with the same JSON-RPC id.
+    private sealed class PipeSession(NamedPipeClientStream pipe)
+    {
+        public NamedPipeClientStream Pipe { get; } = pipe;
+        public StreamReader Reader { get; } = new(pipe, AdapterText.Utf8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+        public StreamWriter Writer { get; } = new(pipe, AdapterText.Utf8, leaveOpen: true) { AutoFlush = true };
+        public ConcurrentDictionary<string, TaskCompletionSource<string>> Pending { get; } = new(StringComparer.Ordinal);
+    }
+
+    private PipeSession? _session;
     private int _freshConnection;
     private bool _disposed;
 
@@ -426,24 +434,30 @@ internal sealed class PipeConnection(
         {
             TaskCompletionSource<string>? reply = null;
             string? requestKey = null;
+            PipeSession? session = null;
             try
             {
-                var (pipe, writer) = await ConnectAsync(mayLaunch).ConfigureAwait(false);
+                session = await ConnectAsync(mayLaunch).ConfigureAwait(false);
                 if (expectsResponse)
                 {
                     requestKey = RequestKey(message)
                                  ?? throw new InvalidOperationException("A request expecting a response must have an id.");
                     reply = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    if (!_pending.TryAdd(requestKey, reply))
-                        throw new InvalidOperationException($"A request with id {requestKey} is already in flight.");
+                    lock (_stateGate)
+                    {
+                        if (!ReferenceEquals(session, _session))
+                            throw new IOException("The app pipe changed before the request could be registered.");
+                        if (!session.Pending.TryAdd(requestKey, reply))
+                            throw new InvalidOperationException($"A request with id {requestKey} is already in flight.");
+                    }
                 }
 
                 await _writeGate.WaitAsync().ConfigureAwait(false);
                 try
                 {
-                    if (!ReferenceEquals(pipe, _pipe) || !pipe.IsConnected)
+                    if (!ReferenceEquals(session, _session) || !session.Pipe.IsConnected)
                         throw new IOException("The app pipe changed before the request could be written.");
-                    await writer.WriteLineAsync(payload).ConfigureAwait(false);
+                    await session.Writer.WriteLineAsync(payload).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -452,25 +466,26 @@ internal sealed class PipeConnection(
 
                 return reply is null ? null : await reply.Task.ConfigureAwait(false);
             }
-            catch (Exception ex) when (attempt == 0)
+            catch (Exception ex) when (attempt == 0 && ex is IOException or ObjectDisposedException or TimeoutException or JsonException)
             {
-                Reset(ex);
+                if (session is not null)
+                    Reset(ex, session);
             }
             finally
             {
-                if (requestKey is not null && reply is not null)
-                    _pending.TryRemove(new KeyValuePair<string, TaskCompletionSource<string>>(requestKey, reply));
+                if (requestKey is not null && reply is not null && session is not null)
+                    session.Pending.TryRemove(new KeyValuePair<string, TaskCompletionSource<string>>(requestKey, reply));
             }
         }
     }
 
-    private async Task<(NamedPipeClientStream Pipe, StreamWriter Writer)> ConnectAsync(bool mayLaunch)
+    private async Task<PipeSession> ConnectAsync(bool mayLaunch)
     {
         lock (_stateGate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (_writer is { } existingWriter && _pipe is { IsConnected: true } existingPipe)
-                return (existingPipe, existingWriter);
+            if (_session is { Pipe.IsConnected: true } existing)
+                return existing;
         }
 
         await _connectGate.WaitAsync().ConfigureAwait(false);
@@ -479,8 +494,8 @@ internal sealed class PipeConnection(
             lock (_stateGate)
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
-                if (_writer is { } existingWriter && _pipe is { IsConnected: true } existingPipe)
-                    return (existingPipe, existingWriter);
+                if (_session is { Pipe.IsConnected: true } existing)
+                    return existing;
             }
 
             Reset(new IOException("Replacing an unusable app pipe."));
@@ -496,7 +511,7 @@ internal sealed class PipeConnection(
             }
 
             lock (_stateGate)
-                return (_pipe!, _writer!);
+                return _session ?? throw new IOException("The app closed the pipe during connection.");
         }
         finally
         {
@@ -522,17 +537,14 @@ internal sealed class PipeConnection(
                 continue;
             }
 
-            var reader = new StreamReader(pipe, AdapterText.Utf8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
-            var writer = new StreamWriter(pipe, AdapterText.Utf8, leaveOpen: true) { AutoFlush = true };
+            var session = new PipeSession(pipe);
             lock (_stateGate)
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
-                _pipe = pipe;
-                _reader = reader;
-                _writer = writer;
+                _session = session;
                 Interlocked.Exchange(ref _freshConnection, 1);
             }
-            _ = Task.Run(() => ReadLoopAsync(pipe, reader));
+            _ = Task.Run(() => ReadLoopAsync(session));
             return;
         }
 
@@ -552,19 +564,19 @@ internal sealed class PipeConnection(
         });
     }
 
-    private async Task ReadLoopAsync(NamedPipeClientStream pipe, StreamReader reader)
+    private async Task ReadLoopAsync(PipeSession session)
     {
         Exception ended = new IOException("The app closed the pipe before replying.");
         try
         {
-            while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line)
+            while (await session.Reader.ReadLineAsync().ConfigureAwait(false) is { } line)
             {
                 if (line.Length == 0)
                     continue;
 
                 JsonNode? message = JsonNode.Parse(line);
                 var key = message is null ? null : RequestKey(message);
-                if (key is not null && _pending.TryRemove(key, out var reply))
+                if (key is not null && session.Pending.TryRemove(key, out var reply))
                     reply.TrySetResult(line);
                 else if (message is JsonObject notification && notification["id"] is null)
                     await forwardNotification(line).ConfigureAwait(false);
@@ -576,7 +588,7 @@ internal sealed class PipeConnection(
         }
         finally
         {
-            Reset(ended, pipe);
+            Reset(ended, session);
         }
     }
 
@@ -590,29 +602,25 @@ internal sealed class PipeConnection(
         _ => null,
     };
 
-    private void Reset(Exception reason, NamedPipeClientStream? expectedPipe = null)
+    private void Reset(Exception reason, PipeSession? expectedSession = null)
     {
-        NamedPipeClientStream? pipe;
-        StreamReader? reader;
-        StreamWriter? writer;
+        PipeSession? session;
         lock (_stateGate)
         {
-            if (expectedPipe is not null && !ReferenceEquals(expectedPipe, _pipe))
+            if (expectedSession is not null && !ReferenceEquals(expectedSession, _session))
                 return;
-            pipe = _pipe;
-            reader = _reader;
-            writer = _writer;
-            _pipe = null;
-            _reader = null;
-            _writer = null;
+            session = _session;
+            _session = null;
         }
 
-        try { reader?.Dispose(); } catch { /* torn down */ }
-        try { writer?.Dispose(); } catch { /* torn down */ }
-        try { pipe?.Dispose(); } catch { /* torn down */ }
-        foreach (var pending in _pending.ToArray())
+        if (session is null)
+            return;
+        try { session.Pipe.Dispose(); } catch { /* torn down */ }
+        try { session.Reader.Dispose(); } catch { /* torn down */ }
+        try { session.Writer.Dispose(); } catch { /* torn down */ }
+        foreach (var pending in session.Pending.ToArray())
         {
-            if (_pending.TryRemove(pending.Key, out var reply))
+            if (session.Pending.TryRemove(pending.Key, out var reply))
                 reply.TrySetException(reason);
         }
     }

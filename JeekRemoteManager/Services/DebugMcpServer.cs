@@ -176,6 +176,7 @@ internal static partial class DebugMcpServer
         host.AddTool("global_agent_check", _ => GlobalAgentCheckAsync());
         host.AddTool("mcp_transport_check", _ => McpTransportCheckAsync());
         host.AddTool("mcp_concurrency_check", _ => McpConcurrencyCheckAsync());
+        host.AddTool("mcp_reconnect_check", _ => McpReconnectCheckAsync());
         host.AddTool("mcp_adapter_offline_check", _ => McpAdapterOfflineCheckAsync());
         host.AddTool("product_mcp_check", _ => ProductMcpCheckAsync());
         return host;

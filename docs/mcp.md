@@ -61,6 +61,7 @@ agent 启动的是 `%LocalAppData%\JeekRemoteManager\Mcp\JeekRemoteManagerMcp.ex
 - 应用不可达时**保持会话可用**而不是让握手失败：客户端保持连接，只有真正的工具调用才报告为什么什么都没发生。离线 `tools/list` 直接从链接进适配器的对应 Contract 返回静态工具表；不能返回空表，否则客户端根本没有工具可调用，而只有 `tools/call` 才会按需启动应用。
 - `initialize` 声明 `tools.listChanged`。适配器连到一个新应用进程后会把在线工具表与客户端上次看到的表比较，变化时发送 `notifications/tools/list_changed`，让一次长期存在的 agent 会话能发现应用升级后的工具。回归检查是 Debug MCP 的 `mcp_adapter_offline_check`。
 - **断管道时重试一次**，这样应用重启不会结束 agent 的会话。
+- **待回复请求属于各自的管道实例。** 断线清理只能关闭出错的那条管道、失败它自己的请求；旧请求较晚处理异常或收到旧响应时，不能关闭新管道，也不能完成新管道上复用了相同 id 的重试。Debug MCP 的 `mcp_reconnect_check` 连续五轮在 20 个请求等待回复时断线，检查全部回复和唯一一次重连。
 - 适配器用一条专门的读循环按 JSON-RPC `id` 路由响应，并把服务端主动通知原样转给 stdio 客户端；不能让每个调用自己读一行，否则并发响应会串台，通知也可能被误当作回复。
 - `--connection` 参数把适配器**钉在**某个连接上，链接到项目里的配置就不必每次调用都写连接路径。显式参数总是优先。
 - **显式路由过的或固定的适配器绝不回退到 Release**：如果一个 Debug worktree 离线了，转而连上用户已安装的实例是危险的。
