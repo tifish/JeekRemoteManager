@@ -36,7 +36,7 @@
 
 ## 单元测试
 
-`Tests/JeekRemoteManager.Tests`（xUnit）覆盖不需要窗口的逻辑：端口转发解析、终端编码与转义剥离、known_hosts 信任流程、连接树指纹与读取缓存、终端外观的规整化等。主工程对它开了 `InternalsVisibleTo`，用的是 Debug MCP 探针同样的内部接缝（如 `KnownHostsStore.FilePathOverride`、`ConnectionStore.ConnectionFileReadsForDebug`）。
+`Tests/JeekRemoteManager.Tests`（xUnit）覆盖不需要窗口的逻辑：端口转发解析、终端编码与转义剥离、known_hosts 信任流程、连接树指纹与读取缓存、终端外观的规整化等。主工程对它开了 `InternalsVisibleTo`，用的是 Debug MCP 探针同样的内部接缝（如独立临时文件上的 `KnownHostsStore`、`ConnectionStore.ConnectionFileReadsForDebug`）。回归用例包括不完整的转发输入、密钥回调中的真实地址、压缩脚本的编码，以及批量写入期间的外部改动；真实适配器并发断线重连由 `mcp_reconnect_check` 验证。
 
 **分工**：能脱离窗口和网络验证的断言写在这里，CI 每次发布前都跑；只有真实窗口、真实终端渲染或真实 sshd 才能验证的，才写成 Debug MCP 探针。新加的探针如果核心断言其实不依赖这些，应该下沉到单元测试。
 

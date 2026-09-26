@@ -177,6 +177,8 @@ internal static partial class DebugMcpServer
         host.AddTool("mcp_transport_check", _ => McpTransportCheckAsync());
         host.AddTool("mcp_concurrency_check", _ => McpConcurrencyCheckAsync());
         host.AddTool("mcp_reconnect_check", _ => McpReconnectCheckAsync());
+        host.AddTool("ssh_port_forward_validate", args => Task.FromResult(ToolText(
+            SshPortForwarding.Validate(McpHost.RequiredString(args, "text")) ?? "valid")));
         host.AddTool("mcp_adapter_offline_check", _ => McpAdapterOfflineCheckAsync());
         host.AddTool("product_mcp_check", _ => ProductMcpCheckAsync());
         return host;

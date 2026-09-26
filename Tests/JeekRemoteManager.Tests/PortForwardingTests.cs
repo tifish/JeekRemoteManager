@@ -24,6 +24,9 @@ public class PortForwardingTests
     [InlineData("L 70000 a:1")]
     [InlineData("L 8080 5432")]
     [InlineData("D 1080 extra")]
+    [InlineData("-")]
+    [InlineData("--")]
+    [InlineData("- 8080 db:5432")]
     public void Rejects_malformed_lines_with_the_line_number(string line)
     {
         var message = SshPortForwarding.Validate("D 1080\n" + line);

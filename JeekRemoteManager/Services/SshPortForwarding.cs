@@ -82,8 +82,9 @@ public static class SshPortForwarding
 
     private static PortForwardSpec ParseLine(string[] parts)
     {
-        var kind = char.ToUpperInvariant(parts[0].TrimStart('-')[0]);
-        if (parts[0].TrimStart('-').Length != 1 || kind is not ('L' or 'R' or 'D'))
+        var token = parts[0].TrimStart('-');
+        var kind = token.Length == 1 ? char.ToUpperInvariant(token[0]) : '\0';
+        if (kind is not ('L' or 'R' or 'D'))
             throw new FormatException("start with L (local), R (remote) or D (SOCKS).");
 
         if (kind == 'D')

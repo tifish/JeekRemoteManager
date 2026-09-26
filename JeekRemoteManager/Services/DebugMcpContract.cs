@@ -232,6 +232,9 @@ public static class DebugMcpContract
         Tool("mcp_reconnect_check",
             "Disconnects the real adapter with 20 requests in flight and verifies every retry returns its matching response on one replacement pipe; repeats five times.",
             new()),
+        Tool("ssh_port_forward_validate",
+            "Runs the connection editor's port-forward validation, returning its line-specific error or valid. Accepts incomplete input such as a lone dash.",
+            new() { ["text"] = Prop("string", "Port forwarding lines to validate.") }, ["text"]),
         Tool("agent_project_link_check",
             "Links a throwaway project folder to a synthetic agent workspace and verifies the AGENTS.md/CLAUDE.md reference block plus every merged MCP config in the catalog uses the portable cmd launcher (no username path), then a selective rewrite (unused files/folders removed), refresh (no duplicates) and unlink (project content restored). Also checks the AI options menu exposes workspace open/copy and the connection MCP write action, and that copy writes the exact absolute workspace path.",
             new()
