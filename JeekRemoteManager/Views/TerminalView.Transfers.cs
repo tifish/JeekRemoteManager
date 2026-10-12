@@ -102,11 +102,20 @@ public partial class TerminalView
         _ = ExpireDropUploadAsync(generation);
     }
 
+    /// <summary>
+    /// How long a queued `rz`/`sz` may take to answer with the ZMODEM handshake before it is
+    /// reported as missing. Generous on purpose: behind a bastion the command can sit in a
+    /// slow nested hop for seconds, and a handshake that arrives after the deadline falls
+    /// through to the manual file picker even though the caller was already told it failed.
+    /// A missing lrzsz only costs this long to report.
+    /// </summary>
+    public static readonly TimeSpan ZmodemHandshakeTimeout = TimeSpan.FromSeconds(15);
+
     private async Task ExpireDropUploadAsync(int generation)
     {
         // If the ZMODEM handshake never arrives (rz missing, shell busy inside a
         // full-screen app, session dropped), release the queued files and explain.
-        await Task.Delay(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        await Task.Delay(ZmodemHandshakeTimeout).ConfigureAwait(false);
         if (generation != _dropUploadGeneration)
             return;
         if (Interlocked.Exchange(ref _pendingDropUploadFiles, null) is not null)
@@ -118,9 +127,9 @@ public partial class TerminalView
 
     private async Task ExpireDownloadRequestAsync(int generation)
     {
-        // Same idea for an AI-requested `sz`: no handshake within 5s means sz is
+        // Same idea for an AI-requested `sz`: no handshake in time means sz is
         // missing or the shell was not at a prompt.
-        await Task.Delay(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        await Task.Delay(ZmodemHandshakeTimeout).ConfigureAwait(false);
         if (generation != _downloadRequestGeneration)
             return;
         if (Interlocked.Exchange(ref _pendingDownloadFolder, null) is not null)

@@ -91,9 +91,9 @@ public partial class MainWindowViewModel
             while (true)
             {
                 var hours = _settings.Settings.UpdateCheckIntervalHours;
-                // Idle (1h) re-poll when periodic is disabled, so enabling it
-                // from Settings starts taking effect within the hour.
-                var delay = hours > 0 ? TimeSpan.FromHours(hours) : TimeSpan.FromHours(1);
+                // With periodic checks off there is nothing to wake up for: turning them
+                // on changes the interval, which cancels the waker below.
+                var delay = hours > 0 ? TimeSpan.FromHours(hours) : Timeout.InfiniteTimeSpan;
 
                 var waker = _updateIntervalChanged;
                 try

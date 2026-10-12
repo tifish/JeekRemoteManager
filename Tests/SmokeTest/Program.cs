@@ -484,6 +484,8 @@ try
           && bastionPoolCode.Contains("ReferenceReleased +=", StringComparison.Ordinal)
           && terminalViewCode.Contains("HoldPooledTransportForReconnect();", StringComparison.Ordinal),
           "Bastion pool releases a transport by references, never by idle time, and a reconnect holds it across the re-borrow");
+    Check(TerminalView.ZmodemHandshakeTimeout >= TimeSpan.FromSeconds(15),
+          "A queued rz/sz gets a bastion-sized window for the ZMODEM handshake before it is reported missing");
     Check(DebugMcpContract.BuildToolList()
               .Any(tool => tool?["name"]?.GetValue<string>() == "connection_editor_switch_check"),
           "Debug MCP advertises connection-editor switch performance verification");

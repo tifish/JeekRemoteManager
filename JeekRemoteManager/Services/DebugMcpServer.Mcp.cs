@@ -316,8 +316,11 @@ internal static partial class DebugMcpServer
 
     /// <summary>
     /// Exercises request multiplexing and cancellation through the real stdio adapter, then
-    /// checks the pipe host's expanded session capacity and idle-session reaper.
+    /// checks that the pipe host takes more sessions than the old 32-instance cap and keeps a
+    /// quiet session open instead of timing it out.
     /// </summary>
+    private const int ConcurrentSessionTarget = 40;
+
     private static async Task<JsonObject> McpConcurrencyCheckAsync()
     {
         var adapterPath = Path.Combine(AppContext.BaseDirectory, "JeekRemoteManagerMcp.exe");
@@ -337,8 +340,6 @@ internal static partial class DebugMcpServer
             }),
             PipeName = pipeName,
             DefaultPort = 0,
-            MaxPipeSessions = 32,
-            PipeSessionIdleTimeout = TimeSpan.FromMinutes(1),
         });
         host.AddTool("wait", async (_, cancellationToken) =>
         {
@@ -395,8 +396,8 @@ internal static partial class DebugMcpServer
                 failures.Add($"cancelled request did not return -32800 (got {cancelled ?? "(eof)"})");
             }
 
-            // Keep twelve sessions connected at once; the old default stopped at eight.
-            for (var i = 0; i < 12; i++)
+            // Keep more sessions connected at once than the old 32-instance cap allowed.
+            for (var i = 0; i < ConcurrentSessionTarget; i++)
             {
                 var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
                 await pipe.ConnectAsync(3000, timeout.Token).ConfigureAwait(false);
@@ -420,8 +421,8 @@ internal static partial class DebugMcpServer
             host.Stop();
         }
 
-        // A separate short-lived host proves a connected client with no active work releases
-        // its pipe instance instead of occupying one forever.
+        // A client that goes quiet is still a live agent: its session must stay open, not be
+        // timed out. Only the client closing the pipe ends it.
         var idlePipeName = pipeName + "-idle";
         var idleHost = new McpHost(new McpHostOptions
         {
@@ -434,7 +435,6 @@ internal static partial class DebugMcpServer
             }),
             PipeName = idlePipeName,
             DefaultPort = 0,
-            PipeSessionIdleTimeout = TimeSpan.FromMilliseconds(300),
         });
         try
         {
@@ -442,26 +442,19 @@ internal static partial class DebugMcpServer
             await using var idle = new NamedPipeClientStream(
                 ".", idlePipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
             await idle.ConnectAsync(3000).ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+
             using var reader = new StreamReader(idle, new UTF8Encoding(false), false, leaveOpen: true);
+            await using var writer = new StreamWriter(idle, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
             using var idleTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-            try
-            {
-                var line = await reader.ReadLineAsync(idleTimeout.Token).ConfigureAwait(false);
-                if (line is not null)
-                    failures.Add($"idle session produced unexpected data: {line}");
-            }
-            catch (IOException)
-            {
-                // Disconnection is the expected idle-reaper result.
-            }
-            catch (OperationCanceledException)
-            {
-                failures.Add("idle session was not reclaimed within 3 seconds");
-            }
+            await writer.WriteLineAsync("""{"jsonrpc":"2.0","id":1,"method":"ping"}""").ConfigureAwait(false);
+            var line = await reader.ReadLineAsync(idleTimeout.Token).ConfigureAwait(false);
+            if (line is null || JsonNode.Parse(line)?["id"]?.GetValue<int>() != 1)
+                failures.Add($"quiet session did not answer a ping after 2 seconds (got {line ?? "(eof)"})");
         }
         catch (Exception ex)
         {
-            failures.Add($"idle check {ex.GetType().Name}: {ex.Message}");
+            failures.Add($"quiet session {ex.GetType().Name}: {ex.Message}");
         }
         finally
         {
@@ -470,8 +463,8 @@ internal static partial class DebugMcpServer
 
         var passed = failures.Count == 0;
         return ToolText(
-            $"{(passed ? "PASS" : "FAIL")}: concurrent MCP requests, cancellation, capacity, and idle reaping\n"
-            + $"concurrentSessions={sessions.Count}/12\nfailures={failures.Count}"
+            $"{(passed ? "PASS" : "FAIL")}: concurrent MCP requests, cancellation, capacity, and quiet sessions\n"
+            + $"concurrentSessions={sessions.Count}/{ConcurrentSessionTarget}\nfailures={failures.Count}"
             + (passed ? "" : "\n" + string.Join("\n", failures)),
             isError: !passed);
     }
@@ -698,6 +691,34 @@ internal static partial class DebugMcpServer
             })).ConfigureAwait(false));
             Check("prompt mode hands the secret entry to the GUI",
                 prompt.Contains("awaiting_user", StringComparison.Ordinal));
+
+            // A refused connection must be reported as soon as it fails, not after the
+            // whole wait: session_open awaits the attempt instead of polling for "live".
+            const string refused = folder + "/refused";
+            await session.CallAsync(ToolCall(40, "connection_create", new JsonObject
+            {
+                ["name"] = "refused",
+                ["folder"] = folder,
+                ["type"] = "ssh",
+                ["host"] = "127.0.0.1",
+                ["port"] = 1,
+                ["username"] = "selftest",
+            })).ConfigureAwait(false);
+            var refusedWatch = Stopwatch.StartNew();
+            var refusedOpen = ExtractToolText(await session.CallAsync(ToolCall(41, "session_open", new JsonObject
+            {
+                ["connection"] = refused,
+                ["activate"] = false,
+                ["wait_seconds"] = 30,
+            })).ConfigureAwait(false));
+            refusedWatch.Stop();
+            Check($"session_open reports a refused connection as failed at once ({refusedWatch.ElapsedMilliseconds} ms)",
+                refusedOpen.Contains("\"status\": \"failed\"", StringComparison.Ordinal)
+                && refusedWatch.Elapsed < TimeSpan.FromSeconds(10));
+            await session.CallAsync(ToolCall(42, "session_close", new JsonObject
+            {
+                ["session"] = refused,
+            })).ConfigureAwait(false);
 
             // Session lifecycle against 127.0.0.1, which has no sshd here: the tab opens and
             // stays un-live, which is exactly the addressing path we need to exercise without

@@ -213,7 +213,8 @@ public static class ProductMcpContract
         Tool("session_open",
             "Open a terminal tab for a connection and return its session id (RDP/VNC instead open their external viewer and return no session). May block while the user "
             + "completes login steps in the window (master password, two-factor); if that takes too long "
-            + "the tool returns status 'awaiting_user' and the session id to poll with session_list.",
+            + "the tool returns status 'awaiting_user' and the session id to poll with session_list. "
+            + "Status 'failed' means the connection did not come up; the message says why.",
             new()
             {
                 ["connection"] = Prop("string", "Connection tree path to open."),

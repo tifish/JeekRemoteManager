@@ -1190,37 +1190,53 @@ internal static class ProductMcpServer
         var activate = args["activate"]?.GetValue<bool>() ?? true;
         var waitSeconds = Math.Clamp(args["wait_seconds"]?.GetValue<int>() ?? 30, 1, 300);
 
-        var (sessionId, external) = await OnUiAsync(() =>
+        var (sessionId, external, connected) = await OnUiAsync(() =>
         {
             var (connection, treePath, filePath) = LoadConnection(path);
-            return IsExternalClient(connection)
-                ? ("", LaunchExternal(connection, treePath))
-                : (MainWindow.OpenTerminalSession(connection, filePath, duplicate, activate), (JsonObject?)null);
+            if (IsExternalClient(connection))
+                return ("", LaunchExternal(connection, treePath), Task.CompletedTask);
+
+            var id = MainWindow.OpenTerminalSession(connection, filePath, duplicate, activate);
+            var view = MainWindow.EnumerateTerminalSessions().First(s => s.SessionId == id).View;
+            // Start() has already begun connecting, so this is the attempt just launched.
+            return (id, (JsonObject?)null, view.WaitUntilConnectedAsync());
         }).ConfigureAwait(false);
         if (external is not null)
             return ToolText(external.ToJsonString(PrettyOptions));
 
         // Logging in can need the user (master password, two-factor, a bastion menu). Wait a
-        // bounded time, then hand back a pollable id instead of holding the tool call open.
-        var deadline = DateTime.UtcNow.AddSeconds(waitSeconds);
-        var live = false;
-        while (DateTime.UtcNow < deadline)
+        // bounded time for the shell, then hand back a pollable id instead of holding the
+        // tool call open. A failed connection answers at once rather than at the deadline.
+        string status;
+        string message;
+        try
         {
-            live = await OnUiAsync(() => MainWindow.EnumerateTerminalSessions()
-                .Any(s => s.SessionId == sessionId && s.View.IsSessionLive)).ConfigureAwait(false);
-            if (live)
-                break;
-            await Task.Delay(250).ConfigureAwait(false);
+            await connected.WaitAsync(TimeSpan.FromSeconds(waitSeconds)).ConfigureAwait(false);
+            status = "open";
+            message = "The shell is up; address it with this session id.";
+        }
+        catch (TimeoutException)
+        {
+            status = "awaiting_user";
+            message = "Still logging in — the JeekRemoteManager window may be waiting for the user "
+                      + "(master password, two-factor, bastion menu). Poll session_list for 'live'.";
+        }
+        catch (OperationCanceledException)
+        {
+            status = "failed";
+            message = "The session was closed or restarted before its shell came up.";
+        }
+        catch (Exception ex)
+        {
+            status = "failed";
+            message = ex.Message;
         }
 
         return ToolText(new JsonObject
         {
-            ["status"] = live ? "open" : "awaiting_user",
+            ["status"] = status,
             ["session"] = sessionId,
-            ["message"] = live
-                ? "The shell is up; address it with this session id."
-                : "Still logging in — the JeekRemoteManager window may be waiting for the user "
-                  + "(master password, two-factor, bastion menu). Poll session_list for 'live'.",
+            ["message"] = message,
         }.ToJsonString(PrettyOptions));
     }
 

@@ -62,7 +62,6 @@ public sealed class ServerMonitorSession : IDisposable
     private static readonly ILogger Log = LogManager.CreateLogger(nameof(ServerMonitorSession));
 
     private const int LightIntervalSeconds = 2;
-    private const int SuspendedPollIntervalSeconds = 1;
     private const int HeavyEveryNTicks = 5;
     private const int FailedProbeIntervalSeconds = 15;
     private const int MaxConsecutiveFailures = 3;
@@ -119,7 +118,9 @@ public sealed class ServerMonitorSession : IDisposable
     private Exception? _shellFailure;
     private long _sampleCount;
     private long _shellGeneration;
-    private bool _suspended;
+    // Completed whenever sampling is not suspended; a suspended loop awaits it, so Resume
+    // wakes it at once instead of the loop checking a flag every second.
+    private TaskCompletionSource _resumed = NewResumeSignal(completed: true);
 
     // Delta state between ticks (background thread only).
     private (long Total, long Idle)? _prevCpu;
@@ -170,7 +171,14 @@ public sealed class ServerMonitorSession : IDisposable
     public bool IsShellReady => _shell is not null && Volatile.Read(ref _shellFailure) is null;
     public long SampleCount => Interlocked.Read(ref _sampleCount);
     public long ShellGeneration => Interlocked.Read(ref _shellGeneration);
-    public bool IsSuspended => Volatile.Read(ref _suspended);
+    public bool IsSuspended
+    {
+        get
+        {
+            lock (_gate)
+                return !_resumed.Task.IsCompleted;
+        }
+    }
 
     /// <summary>
     /// Stops issuing samples while the panel is not on screen. The shell and its login
@@ -178,10 +186,31 @@ public sealed class ServerMonitorSession : IDisposable
     /// more than the samples it saves, and the point here is to stop talking to the
     /// server, not to give up the channel.
     /// </summary>
-    public void Suspend() => Volatile.Write(ref _suspended, true);
+    public void Suspend()
+    {
+        lock (_gate)
+        {
+            if (_resumed.Task.IsCompleted)
+                _resumed = NewResumeSignal(completed: false);
+        }
+    }
 
-    /// <summary>Resumes sampling; the next tick happens within a second.</summary>
-    public void Resume() => Volatile.Write(ref _suspended, false);
+    /// <summary>Resumes sampling; the next tick starts right away.</summary>
+    public void Resume()
+    {
+        TaskCompletionSource resumed;
+        lock (_gate)
+            resumed = _resumed;
+        resumed.TrySetResult();
+    }
+
+    private static TaskCompletionSource NewResumeSignal(bool completed)
+    {
+        var signal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (completed)
+            signal.TrySetResult();
+        return signal;
+    }
 
     public void Start()
     {
@@ -224,11 +253,13 @@ public sealed class ServerMonitorSession : IDisposable
             while (!cancellationToken.IsCancellationRequested)
             {
                 var delaySeconds = LightIntervalSeconds;
-                if (Volatile.Read(ref _suspended))
+                Task resumed;
+                lock (_gate)
+                    resumed = _resumed.Task;
+                if (!resumed.IsCompleted)
                 {
                     wasSuspended = true;
-                    await Task.Delay(TimeSpan.FromSeconds(SuspendedPollIntervalSeconds), cancellationToken)
-                        .ConfigureAwait(false);
+                    await resumed.WaitAsync(cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 

@@ -28,7 +28,7 @@
 
 分帧是**每行一条 JSON-RPC 消息**——和 stdio 适配器另一端说的是同一种分帧，所以适配器转发字节时不需要重新分帧。
 
-每个接受的客户端占一个管道实例，也就是它的 MCP 会话。上限是 32（不是旧版的 8），而且没有活动请求的会话空闲 10 分钟后由服务端断开，残留适配器不会永久占住实例。开发构建前仍要清掉残留的 `JeekRemoteManagerMcp.exe`：它们还会锁住固定适配器并在宽限期内占用管道。
+每个接受的客户端占一个管道实例，也就是它的 MCP 会话。实例数取 Windows 允许的最大值（`NamedPipeServerStream.MaxAllowedServerInstances`），**会话只在客户端关闭管道时结束，没有空闲超时**：适配器在 agent 关闭 stdin 时退出，管道随之关闭，所以不存在需要按时间回收的“残留会话”；一个暂时没调用的会话背后是仍然活着的 agent，断开它只会换来一次重连。旧版的 32 实例上限加 10 分钟空闲断开，是在用计时器弥补一个自设的上限。开发构建前仍要清掉残留的 `JeekRemoteManagerMcp.exe`：它们会锁住固定适配器。
 
 **同一会话内的请求并发执行。** 读循环只负责解析和派发，不等待某个工具完成后才继续读下一行；响应写入另行串行化，并按 JSON-RPC `id` 由适配器复用的读循环路由，所以响应可以乱序返回。`notifications/cancelled` 在读循环里直接找到对应请求的 `CancellationTokenSource`，取消令牌沿 `McpHost` 工具处理链传到脚本、`terminal_run`、批量命令和文件传输。被取消的请求返回 JSON-RPC `-32800`。长请求不能挡住取消通知、`ping` 或 `terminal_interrupt`。回归检查是 Debug MCP 的 `mcp_concurrency_check`。
 
