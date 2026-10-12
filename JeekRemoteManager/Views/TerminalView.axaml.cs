@@ -113,6 +113,13 @@ public partial class TerminalView : UserControl
     private SharedSshClient? _client;
     private bool _ownsClientReference;
     private SharedSshClient? _pendingSharedClient;
+    /// <summary>
+    /// This tab's pooled transport, kept referenced across a reconnect until the next
+    /// attempt has had its chance to borrow it. The pool releases a transport as soon as
+    /// nobody else holds it, so without this the tab's own reconnect would throw away
+    /// its authenticated bastion session and ask for another two-factor code.
+    /// </summary>
+    private SharedSshClient? _reconnectHold;
     private ITerminalChannel? _channel;
     private string? _sourcePath;
     /// <summary>
@@ -1640,6 +1647,7 @@ public partial class TerminalView : UserControl
         _sessionOutputBuffer.Clear();
         _windowSizeSyncTimer?.Stop();
         Interlocked.Exchange(ref _pendingSharedClient, null)?.Release();
+        Interlocked.Exchange(ref _reconnectHold, null)?.Release();
         // A tab closed mid-login must not keep other connections to the same bastion
         // parked behind a login that will never finish.
         ReleaseFreshLoginReservation();
@@ -1662,6 +1670,5 @@ public partial class TerminalView : UserControl
         ReleaseLocalValueBindings(FileBrowser);
         ReleaseLocalValueBindings(MonitorPanel);
         ReleaseLocalValueBindings(this);
-        BastionSessionPool?.ReleaseUnusedSessions();
     }
 }

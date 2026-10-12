@@ -52,23 +52,18 @@ public sealed record BastionRoute(
 /// by endpoint, user, and credential identity; no bastion-group setting is persisted.
 /// Each entry also tracks the last known logical target. A newly-opened channel
 /// typically starts at the bastion menu, not inside that target. The pool keeps its own
-/// reference while at least one terminal or monitor still owns the transport; when the
-/// last external reference goes away, the entry is removed instead of surviving into a
-/// later, unrelated connection attempt.
+/// reference exactly as long as a terminal, monitor, or borrow still holds the transport:
+/// however long that is, it stays reusable, and the moment the pool is the only holder
+/// left the entry is released instead of surviving into a later, unrelated connection
+/// attempt. There is deliberately no idle timer — "unused" is decided by references, not
+/// guessed from how long ago a borrow happened.
 /// </summary>
 public sealed class BastionSessionPool : IDisposable
 {
-    private static readonly TimeSpan IdleLifetime = TimeSpan.FromHours(8);
-    private static readonly TimeSpan SweepInterval = TimeSpan.FromMinutes(5);
-
     private readonly object _gate = new();
     private readonly Dictionary<string, List<Entry>> _entries = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TaskCompletionSource> _freshLogins = new(StringComparer.Ordinal);
-    private readonly Timer _sweepTimer;
     private bool _disposed;
-
-    public BastionSessionPool() =>
-        _sweepTimer = new Timer(_ => SweepIdle(), null, SweepInterval, SweepInterval);
 
     /// <summary>Number of live authenticated transports retained by the pool.</summary>
     public int SessionCount
@@ -284,7 +279,7 @@ public sealed class BastionSessionPool : IDisposable
 
     /// <summary>
     /// Retains an authenticated fresh transport. The caller keeps its own reference;
-    /// the pool takes one additional reference until expiry or application shutdown.
+    /// the pool takes one additional reference for as long as anyone else holds one.
     /// <paramref name="route"/> says where the transport actually is: pass
     /// <see cref="BastionRoute.AtEntry"/> right after authentication, because the
     /// target has not been entered yet, and let it default to the connection's own
@@ -305,90 +300,90 @@ public sealed class BastionSessionPool : IDisposable
 
         var key = BuildKey(routeConnection);
         var entry = new Entry(
+            this,
             key,
             BuildEndpointLabel(routeConnection),
             client,
             route ?? BastionRoute.FromConnection(routeConnection));
         List<Entry>? disconnected = null;
-
+        var registered = false;
+        var added = false;
         lock (_gate)
         {
-            if (_disposed)
+            if (!_disposed)
             {
-                client.Release();
-                return false;
-            }
+                if (!_entries.TryGetValue(key, out var entries))
+                {
+                    entries = [];
+                    _entries.Add(key, entries);
+                }
 
-            if (!_entries.TryGetValue(key, out var entries))
-            {
-                entries = [];
-                _entries.Add(key, entries);
-            }
-            else
-            {
                 var existing = entries.FirstOrDefault(candidate =>
                     ReferenceEquals(candidate.Client, client));
                 if (existing is not null)
                 {
                     existing.Route = entry.Route;
                     existing.LastUsedUtc = DateTime.UtcNow;
-                    client.Release(); // the pool already owns a reference
-                    return true;
                 }
-
-                foreach (var stale in entries.Where(candidate => !candidate.Client.IsConnected).ToArray())
+                else
                 {
-                    entries.Remove(stale);
-                    (disconnected ??= []).Add(stale);
-                }
-            }
+                    foreach (var stale in entries.Where(candidate => !candidate.Client.IsConnected).ToArray())
+                    {
+                        entries.Remove(stale);
+                        (disconnected ??= []).Add(stale);
+                    }
 
-            entries.Add(entry);
+                    entries.Add(entry);
+                    client.ReferenceReleased += entry.OnReferenceReleased;
+                    added = true;
+                }
+
+                registered = true;
+            }
         }
 
+        // Releases happen outside the lock: each one may call back into the pool.
         if (disconnected is not null)
         {
             foreach (var stale in disconnected)
-                stale.Client.Release();
+                ReleasePoolReference(stale);
         }
-        return true;
+
+        if (!added)
+            client.Release(); // disposed, or the pool already owns a reference
+        return registered;
     }
 
     /// <summary>
-    /// Removes connected transports that have no active borrow and no owner outside the
-    /// pool. This is called after terminal/monitor teardown so a new connection cannot
-    /// switch through a route left behind by the last closed session.
+    /// Runs whenever someone drops a reference to a pooled transport. Once only the pool
+    /// holds it and nobody is mid-borrow, nobody is using it: release it now, so a later
+    /// connection cannot switch through a route left behind by the last closed session
+    /// and the bastion is not kept holding a connection nobody needs.
     /// </summary>
-    public int ReleaseUnusedSessions()
+    private void ReleaseIfUnused(Entry entry)
     {
-        List<Entry>? unused = null;
         lock (_gate)
         {
-            if (_disposed)
-                return 0;
-
-            foreach (var pair in _entries.ToArray())
+            if (_disposed
+                || entry.ActiveLeases != 0
+                || entry.Client.ReferenceCount != 1
+                || !_entries.TryGetValue(entry.Key, out var entries)
+                || !entries.Remove(entry))
             {
-                foreach (var entry in pair.Value.ToArray())
-                {
-                    if (entry.ActiveLeases != 0 || entry.Client.ReferenceCount != 1)
-                        continue;
-
-                    pair.Value.Remove(entry);
-                    (unused ??= []).Add(entry);
-                }
-
-                if (pair.Value.Count == 0)
-                    _entries.Remove(pair.Key);
+                return;
             }
+
+            if (entries.Count == 0)
+                _entries.Remove(entry.Key);
         }
 
-        if (unused is null)
-            return 0;
+        ReleasePoolReference(entry);
+    }
 
-        foreach (var entry in unused)
-            entry.Client.Release();
-        return unused.Count;
+    private static void ReleasePoolReference(Entry entry)
+    {
+        entry.Client.ReferenceReleased -= entry.OnReferenceReleased;
+        entry.Client.Release();
     }
 
     public void Dispose()
@@ -410,9 +405,8 @@ public sealed class BastionSessionPool : IDisposable
         foreach (var pending in pendingLogins)
             pending.TrySetResult();
 
-        _sweepTimer.Dispose();
         foreach (var entry in entries)
-            entry.Client.Release();
+            ReleasePoolReference(entry);
     }
 
     private void Complete(BastionSessionLease lease)
@@ -442,51 +436,17 @@ public sealed class BastionSessionPool : IDisposable
 
     private void ReleaseBorrow(Entry entry, bool releaseClient, bool releaseRouteGate)
     {
-        if (releaseRouteGate)
-            entry.RouteGate.Release();
-        if (releaseClient)
-            entry.Client.Release();
-
+        // The borrow ends before its reference is dropped, so that drop sees no active
+        // lease and can release a transport whose last owner closed mid-borrow.
         lock (_gate)
         {
             entry.ActiveLeases = Math.Max(0, entry.ActiveLeases - 1);
             entry.LastUsedUtc = DateTime.UtcNow;
         }
-    }
 
-    private void SweepIdle()
-    {
-        List<Entry>? expired = null;
-        lock (_gate)
-        {
-            if (_disposed)
-                return;
-
-            var cutoff = DateTime.UtcNow - IdleLifetime;
-            foreach (var pair in _entries.ToArray())
-            {
-                foreach (var entry in pair.Value.ToArray())
-                {
-                    if (entry.ActiveLeases != 0
-                        || entry.Client.IsConnected
-                        && !entry.Client.IsShellChannelExhausted
-                        && entry.LastUsedUtc >= cutoff)
-                    {
-                        continue;
-                    }
-
-                    pair.Value.Remove(entry);
-                    (expired ??= []).Add(entry);
-                }
-
-                if (pair.Value.Count == 0)
-                    _entries.Remove(pair.Key);
-            }
-        }
-
-        if (expired is null)
-            return;
-        foreach (var entry in expired)
+        if (releaseRouteGate)
+            entry.RouteGate.Release();
+        if (releaseClient)
             entry.Client.Release();
     }
 
@@ -504,7 +464,7 @@ public sealed class BastionSessionPool : IDisposable
         }
 
         if (removed)
-            entry.Client.Release(); // pool reference
+            ReleasePoolReference(entry);
     }
 
     private static Entry? SelectEntry(
@@ -591,11 +551,14 @@ public sealed class BastionSessionPool : IDisposable
     }
 
     internal sealed class Entry(
+        BastionSessionPool owner,
         string key,
         string endpointLabel,
         SharedSshClient client,
         BastionRoute route)
     {
+        public void OnReferenceReleased(SharedSshClient _) => owner.ReleaseIfUnused(this);
+
         public string Key { get; } = key;
         public string EndpointLabel { get; } = endpointLabel;
         public SharedSshClient Client { get; } = client;

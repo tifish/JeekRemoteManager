@@ -1098,12 +1098,13 @@ internal static partial class DebugMcpServer
         var registered = pool.Register(client, first);
         var reusableAfterRegister = pool.HasReusableSession(second);
 
+        // The pool lets go the moment it is the only holder, with no sweep or call.
         using var cleanupPool = new BastionSessionPool();
         var cleanupClient = SharedSshClient.CreateDebugProbe();
         var cleanupRegistered = cleanupPool.Register(cleanupClient, first);
         cleanupClient.Release(); // Leave only the pool's reference.
-        var removedWithoutExternalOwner = cleanupPool.ReleaseUnusedSessions() == 1
-                                          && !cleanupPool.HasKnownSession(first);
+        var removedWithoutExternalOwner = !cleanupPool.HasKnownSession(first)
+                                          && cleanupClient.ReferenceCount == 0;
 
         using var retainedPool = new BastionSessionPool();
         var retainedClient = SharedSshClient.CreateDebugProbe();
@@ -1115,8 +1116,38 @@ internal static partial class DebugMcpServer
         retainedClient.Release(); // Drop the test owner's reference.
         var retainedBeforeExternalRelease = retainedPool.HasKnownSession(first);
         retainedClient.Release(); // Simulate the last terminal closing.
-        var removedAfterLastOwner = retainedPool.ReleaseUnusedSessions() == 1
-                                    && !retainedPool.HasKnownSession(first);
+        var removedAfterLastOwner = !retainedPool.HasKnownSession(first)
+                                    && retainedClient.ReferenceCount == 0;
+
+        // A terminal closed while a monitor was mid-borrow: the borrow keeps the
+        // transport, and the borrow ending is what releases it.
+        using var leasePool = new BastionSessionPool();
+        var leaseClient = SharedSshClient.CreateDebugProbe();
+        leasePool.Register(leaseClient, first);
+        var outliving = await leasePool.TryAcquireAsync(second);
+        leaseClient.Release(); // The owning terminal closes mid-borrow.
+        var keptDuringBorrow = outliving is not null && leasePool.HasKnownSession(first);
+        outliving?.KeepAndRelease();
+        outliving?.Dispose();
+        var releasedWhenBorrowEnds = !leasePool.HasKnownSession(first)
+                                     && leaseClient.ReferenceCount == 0;
+
+        // A reconnecting tab that is the transport's only user holds it across the gap
+        // between dropping its channel and borrowing again, or it would pay a new 2FA.
+        using var holdPool = new BastionSessionPool();
+        var holdClient = SharedSshClient.CreateDebugProbe();
+        holdPool.Register(holdClient, first);
+        var holdTaken = holdClient.TryAddRef(); // HoldPooledTransportForReconnect
+        holdClient.Release(); // DisposeTransport drops the tab's own reference.
+        var keptAcrossReconnect = holdTaken && holdPool.HasReusableSession(first);
+        var reborrowed = await holdPool.TryAcquireAsync(first);
+        holdClient.Release(); // The attempt has decided its borrow.
+        reborrowed?.CompleteAndTakeClient();
+        reborrowed?.Dispose();
+        var reconnectReused = reborrowed is { ReuseStart: BastionReuseStart.Duplicate }
+                              && holdPool.HasKnownSession(first);
+        holdClient.Release(); // The reconnected tab closes.
+        var releasedAfterReconnectedTab = !holdPool.HasKnownSession(first);
 
         // A borrow that fails must not cost the transport its place in the pool.
         var failed = await pool.TryAcquireAsync(second);
@@ -1194,6 +1225,11 @@ internal static partial class DebugMcpServer
                      && retainedBorrowed
                      && retainedBeforeExternalRelease
                      && removedAfterLastOwner
+                     && keptDuringBorrow
+                     && releasedWhenBorrowEnds
+                     && keptAcrossReconnect
+                     && reconnectReused
+                     && releasedAfterReconnectedTab
                      && registeredAtEntry
                      && entryStartsWithEnter
                      && arrivalRelearnsRoute
@@ -1213,6 +1249,11 @@ internal static partial class DebugMcpServer
             + $"retainedBorrowed={retainedBorrowed}\n"
             + $"retainedBeforeExternalRelease={retainedBeforeExternalRelease}\n"
             + $"removedAfterLastOwner={removedAfterLastOwner}\n"
+            + $"keptDuringBorrow={keptDuringBorrow}\n"
+            + $"releasedWhenBorrowEnds={releasedWhenBorrowEnds}\n"
+            + $"keptAcrossReconnect={keptAcrossReconnect}\n"
+            + $"reconnectReused={reconnectReused}\n"
+            + $"releasedAfterReconnectedTab={releasedAfterReconnectedTab}\n"
             + $"failedBorrowSwitches={failedSwitches}\n"
             + $"keptAfterFailedBorrow={keptAfterFailedBorrow}\n"
             + $"routeUnknownAfterFailure={routeUnknownAfterFailure}\n"

@@ -241,13 +241,28 @@ public sealed class SharedSshClient
         }
     }
 
+    /// <summary>
+    /// Raised after a release that left other holders behind, outside any lock. The
+    /// bastion pool listens for it so it can let go the moment it is the only holder,
+    /// instead of keeping an unused authenticated transport open.
+    /// </summary>
+    public event Action<SharedSshClient>? ReferenceReleased;
+
     /// <summary>Drops one reference; the final release tears the connection down.</summary>
     public void Release()
     {
+        bool stillHeld;
         lock (_gate)
         {
-            if (_refCount <= 0 || --_refCount > 0)
+            if (_refCount <= 0)
                 return;
+            stillHeld = --_refCount > 0;
+        }
+
+        if (stillHeld)
+        {
+            ReferenceReleased?.Invoke(this);
+            return;
         }
 
         try { Client.Disconnect(); } catch { /* ignore */ }

@@ -120,6 +120,15 @@ lease 的四种收尾方式对应四种不同的后果：
 `login_menu_select_check`、`login_menu_select_probe`（single/paged/switch 三种场景）、`login_command_flow_check`、`login_command_completion_check`、`login_command_variable_check`、`bastion_login_template_check`、`bastion_template_preset_check`、`bastion_channel_limit_check`、`bastion_reuse_landing_check`。
 ### 会话池生命周期补充
 
-池只在仍有终端或监控持有者时保留已认证传输。最后一个外部持有者关闭后，`ReleaseUnusedSessions` 会立即移除无活动借用的池条目；下一次重新打开连接不会把上一次目标当作仍需切换的来源。
+池对一条已认证传输的去留**只看引用，不看时间**：只要还有终端、监控面板或进行中的借用持有它，无论多久都保留可借；池一旦成为唯一持有者（`ReferenceCount == 1` 且没有借用），就当场释放。`SharedSshClient.ReferenceReleased` 在每次释放后通知池，所以不需要任何定时扫描，也不需要在各处关闭路径上手动调用清理。当场释放还保证下一次重新打开连接时，不会把上一次的目标当成仍需切换离开的来源。
+
+**不能按空闲时长回收。** `LastUsedUtc` 只在登记和借用时刷新，一个开了几天的终端在它眼里就是"闲置"。2026-10-12 实测：旧版每 5 分钟扫描一次、空闲 8 小时就摘掉条目，第一台目标的终端开了 3 天，第二台目标找不到可借的传输，只能重新拨号、再要一次 `2nd Password:`。断线的条目、首个通道就被拒（`IsShellChannelExhausted`）的条目本来就不会被借用选中，等最后一个持有者释放时一起回收。
+
+两个必须守住的细节：
+
+- **借用结束时先减 `ActiveLeases`，再释放借用的引用**。否则在借用期间关掉了最后一个终端时，释放那一刻还看得到这次借用，传输就会永远留在池里。
+- **重连时先多持有一份引用（`HoldPooledTransportForReconnect`），等新一次连接决定完借用再释放**。回车重连、手动重连、复用失败后的自动重试，都是先丢掉旧通道再去池里借；如果这个标签页是这条传输唯一的使用者，中间那一刻池会是唯一持有者，传输被当场释放，重连就得再过一次 2FA。
+
+`bastion_pool_lease_check` 覆盖上面几条。
 
 主窗口隐藏到托盘不结束池的生命周期：只有实际 `Closed` 才释放整个池，不能在会被取消的 `Closing` 中释放。否则所有后续登录都会成为 `fresh-pool-rejected`，即使原终端已经过二次验证也无法复用。Debug MCP 的 `bastion_tray_lifecycle_check` 覆盖此边界。

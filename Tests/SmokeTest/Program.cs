@@ -480,6 +480,10 @@ try
               "ShellOpenTimeoutSeconds = 10",
               StringComparison.Ordinal),
           "Bastion pool retains multiple transports and skips known full channel sets");
+    Check(!bastionPoolCode.Contains("Timer", StringComparison.Ordinal)
+          && bastionPoolCode.Contains("ReferenceReleased +=", StringComparison.Ordinal)
+          && terminalViewCode.Contains("HoldPooledTransportForReconnect();", StringComparison.Ordinal),
+          "Bastion pool releases a transport by references, never by idle time, and a reconnect holds it across the re-borrow");
     Check(DebugMcpContract.BuildToolList()
               .Any(tool => tool?["name"]?.GetValue<string>() == "connection_editor_switch_check"),
           "Debug MCP advertises connection-editor switch performance verification");

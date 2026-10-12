@@ -41,16 +41,14 @@ public partial class TerminalView
         Interlocked.Increment(ref _connectionGeneration);
         // When only the shell channel died (e.g. the user typed `exit`) but the
         // transport is still up, reopen a channel on it instead of redialing;
-        // ConnectAsync falls back to a fresh connection if that fails.
-        var useManagedPool = BastionSessionPool is not null
-                             && _connection is not null
-                             && LoginCommandSequence.HasStructuredReuseWorkflow(
-                                 _connection.EffectiveLoginCommands);
-        _pendingSharedClient = !useManagedPool
+        // ConnectAsync falls back to a fresh connection if that fails. A pooled bastion
+        // transport is borrowed back through the pool instead.
+        _pendingSharedClient = !UsesManagedBastionPool
                                && _client is { IsConnected: true } live
                                && live.TryAddRef()
             ? live
             : null;
+        HoldPooledTransportForReconnect();
         DisposeTransport();
 
         FeedLine("\r\n\u001b[36m[reconnect]\u001b[0m");
@@ -97,6 +95,7 @@ public partial class TerminalView
         _activePayloadMonitor = null;
         _suppressUserInput = false;
         Interlocked.Increment(ref _connectionGeneration);
+        HoldPooledTransportForReconnect();
         DisposeTransport();
 
         FeedLine("\r\n\u001b[36m[reconnect]\u001b[0m");
@@ -172,6 +171,7 @@ public partial class TerminalView
         }
 
         BastionSessionPool.BastionSessionLease? pooledLease = null;
+        var reconnectHold = Interlocked.Exchange(ref _reconnectHold, null);
         try
         {
             // Normal connects may automatically borrow a matching structured-bastion
@@ -223,6 +223,12 @@ public partial class TerminalView
         catch (Exception ex)
         {
             FeedLine($"\u001b[33m[bastion pool unavailable] {ex.Message}\u001b[0m");
+        }
+        finally
+        {
+            // The borrow is decided: a lease now holds the transport if it was taken,
+            // and if not, nothing here needs it kept alive any more.
+            reconnectHold?.Release();
         }
 
         if (pooledLease is not null)
@@ -963,8 +969,34 @@ public partial class TerminalView
 
         _bastionReuseRetries++;
         FeedLine($"\u001b[33m{BastionReuseRetryMessage}\u001b[0m");
+        HoldPooledTransportForReconnect();
         DisposeTransport();
         BeginConnectionAttempt();
+    }
+
+    private bool UsesManagedBastionPool =>
+        BastionSessionPool is not null
+        && _connection is not null
+        && LoginCommandSequence.HasStructuredReuseWorkflow(_connection.EffectiveLoginCommands);
+
+    /// <summary>
+    /// Takes an extra reference on this tab's live pooled transport before the tab lets
+    /// go of it to reconnect. The pool keeps a transport only while someone else holds
+    /// it, and for the moment between dropping the old channel and borrowing again this
+    /// tab may be its only user. The next connection attempt releases the hold once its
+    /// borrow has been decided.
+    /// </summary>
+    private void HoldPooledTransportForReconnect()
+    {
+        if (!UsesManagedBastionPool)
+            return;
+
+        SharedSshClient? client;
+        lock (_clientReferenceGate)
+            client = _ownsClientReference ? _client : null;
+
+        var held = client is { IsConnected: true } && client.TryAddRef() ? client : null;
+        Interlocked.Exchange(ref _reconnectHold, held)?.Release();
     }
 
     /// <summary>Releases this tab's claim on its bastion's fresh login, letting any
