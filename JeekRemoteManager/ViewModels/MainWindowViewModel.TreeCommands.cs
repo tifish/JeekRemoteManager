@@ -239,6 +239,17 @@ public partial class MainWindowViewModel
     /// Cancels any pending delayed rebuild so callers that need an immediate
     /// refresh (remove/clear/full reload) win over a later timer tick.
     /// </summary>
+    /// <summary>
+    /// Recent entries load their own copy of each connection, so an in-place save that
+    /// skips the full tree reload has to refresh them, or a click there would launch
+    /// the connection as it was before the edit.
+    /// </summary>
+    private void RefreshRecentCopiesOf(string path)
+    {
+        if (_recentGroup?.Children.Any(child => PathEquals(child.FullPath, path)) == true)
+            RebuildRecentGroupInPlace();
+    }
+
     private void RebuildRecentGroupInPlace()
     {
         _recentRebuildTimer?.Stop();

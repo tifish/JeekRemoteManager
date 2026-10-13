@@ -630,4 +630,98 @@ internal static partial class DebugMcpServer
 
         return ToolText(report, isError: !passed);
     }
+
+    /// <summary>
+    /// Typing in the editor must survive auto-saves. An in-place auto-save is adopted as
+    /// the tree's known state, so the watcher skips its reload; a reload that does
+    /// happen (a rename, an external change) hands the open editor over to the rebuilt
+    /// node instead of rebuilding it. Either way the focused field keeps focus.
+    /// </summary>
+    private static async Task<JsonObject> EditorReloadFocusCheckAsync()
+    {
+        var setup = await OnUiAsync<(string? Error, MainWindowViewModel? Vm, TextBox? Box)>(() =>
+        {
+            if (ResolveRoot("MainVm") is not MainWindowViewModel vm
+                || ResolveRoot("MainWindow") is not MainWindow window)
+                return ("MainWindow is not available.", null, null);
+            if (vm.Editor is null)
+                return ("Select a connection so its editor is open, then run again.", vm, null);
+
+            vm.FlushAutoSave();
+            var box = window.GetVisualDescendants()
+                .OfType<ContentControl>()
+                .Where(control => ReferenceEquals(control.Content, vm.Editor))
+                .SelectMany(control => control.GetVisualDescendants().OfType<TextBox>())
+                .FirstOrDefault(textBox => textBox.IsEffectivelyVisible && textBox.IsEffectivelyEnabled);
+            if (box is null || !box.Focus())
+                return ("No focusable text box was found in the editor.", vm, null);
+            return (null, vm, box);
+        });
+        if (setup.Error is not null)
+            return ToolText($"FAIL: {setup.Error}", isError: true);
+
+        var vm = setup.Vm!;
+        var box = setup.Box!;
+        var failures = new List<string>();
+        var editor = await OnUiAsync(() => vm.Editor);
+
+        void CheckEditorAndFocus(string phase)
+        {
+            var focused = TopLevel.GetTopLevel(box)?.FocusManager?.GetFocusedElement();
+            if (!ReferenceEquals(vm.Editor, editor))
+                failures.Add($"{phase}: the editor was rebuilt");
+            if (!ReferenceEquals(focused, box))
+                failures.Add($"{phase}: focus moved to {focused?.GetType().Name ?? "(none)"}");
+        }
+
+        // 1. A reload the watcher does run: the editor is retargeted, not rebuilt.
+        var (nodeBefore, reloadsBefore, retargetsBefore) = await OnUiAsync(() =>
+            (vm.SelectedNode, vm.TreeReloadCountForDebug, vm.EditorRetargetCountForDebug));
+        await await OnUiAsync(() => vm.DebugReloadTreeInBackgroundAsync());
+        // Let the TreeView and the editor template react to the swapped nodes.
+        await Task.Delay(300);
+        await OnUiAsync(() =>
+        {
+            if (vm.TreeReloadCountForDebug == reloadsBefore)
+                failures.Add("reload: the tree was not reloaded");
+            if (ReferenceEquals(vm.SelectedNode, nodeBefore))
+                failures.Add("reload: the selected node was not replaced");
+            if (vm.EditorRetargetCountForDebug == retargetsBefore)
+                failures.Add("reload: the editor was not retargeted to the reloaded node");
+            CheckEditorAndFocus("reload");
+            return true;
+        });
+
+        // 2. An in-place auto-save: rewrites the same content, and the watcher event it
+        // raises must be recognised as already reflected in the tree.
+        var (savedReloadsBefore, skipsBefore, adoptedBefore) = await OnUiAsync(() =>
+        {
+            var counts = (vm.TreeReloadCountForDebug, vm.WatcherReloadsSkippedForDebug, vm.Store.OwnEditsAdoptedForDebug);
+            vm.DebugAutoSaveNow();
+            return counts;
+        });
+        // Past the watcher's debounce and its background fingerprint check.
+        await Task.Delay(1500);
+        var (savedReloads, skips, adopted, field) = await OnUiAsync(() =>
+        {
+            CheckEditorAndFocus("auto-save");
+            return (vm.TreeReloadCountForDebug, vm.WatcherReloadsSkippedForDebug, vm.Store.OwnEditsAdoptedForDebug,
+                box.Name ?? box.Text);
+        });
+        if (adopted == adoptedBefore)
+            failures.Add("auto-save: the write was not adopted as the known tree state");
+        if (savedReloads != savedReloadsBefore)
+            failures.Add($"auto-save: the tree was reloaded {savedReloads - savedReloadsBefore} time(s)");
+        if (skips == skipsBefore)
+            failures.Add("auto-save: the watcher never saw the write");
+
+        var passed = failures.Count == 0;
+        return ToolText(
+            $"{(passed ? "PASS" : "FAIL")}: editor keeps focus across auto-saves and tree reloads\n"
+            + $"field={field}\n"
+            + $"autoSaveReloads={savedReloads - savedReloadsBefore}\n"
+            + $"watcherSkips={skips - skipsBefore}\n"
+            + string.Join("\n", failures),
+            isError: !passed);
+    }
 }

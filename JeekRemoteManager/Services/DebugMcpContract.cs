@@ -212,6 +212,9 @@ public static class DebugMcpContract
         Tool("connection_editor_switch_check",
             "Switch among real SSH connections on the UI thread, restore the prior selection, verify each editor is constructed, and report timing.",
             new()),
+        Tool("editor_reload_focus_check",
+            "With a connection selected, focus a text box in its editor. Reload the tree the way the file watcher does and verify the editor is retargeted rather than rebuilt; then auto-save the connection in place (same content) and verify the watcher skips the reload. The text box must keep focus throughout.",
+            new()),
         Tool("login_menu_select_probe",
             "End-to-end check of the \"#select <name>\" login directive: 'open' adds a terminal tab on a local cmd.exe shell that prints a numbered menu and selects an entry by name, 'status' returns the scrollback, 'close' removes the tab.",
             new()

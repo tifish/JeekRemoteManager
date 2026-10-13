@@ -20,6 +20,8 @@
   - 原先的做法是"自己写盘后 1 秒内的事件全部丢弃"。连接目录在 Syncthing 同步盘上，落在这 1 秒里的外部改动会被一起丢掉，树一直停在旧状态。回归检查是 Debug MCP 的 `connection_external_change_check`。
   - 批量写（改主密码后的重新加密）用 `RunBatch` 包起来，写入期间不扫描指纹，结束后由下一次树读取确认磁盘状态。`connection_external_change_check` 也检查批量写入中途的外部文件最终出现在树中。
   - 便携模式下漫游设置文件同理按**内容**判断（`RoamingFileMatchesLastSave`），不按时间。
+  - **自动保存例外。** 编辑器写回的是树里已就地更新的那个 `Connection`，走 `SaveEdit`：写前指纹等于 `KnownSignature`（树此前已同步），且写后与写前的差异只落在本次写的那个文件上，才采用写后指纹，监视器到期比对一致即跳过重载。改名、或写入前后出现任何其他差异，仍置空走重读。跳过重载后"最近使用"里的独立副本由 `RefreshRecentCopiesOf` 单独重建，否则从那里启动会用旧数据。
+  - 仍会发生的重建（改名、外部改动）若重新选中的是同一文件且内容与正在编辑的一致（`ConnectionStore.ContentEquals`），编辑器只改挂到新节点上，不重建；重建期间 TreeView 短暂回推的 null 选中也被忽略。否则用户正在输入的框会失去焦点。回归检查是 Debug MCP 的 `editor_reload_focus_check`。
 
 ## 设置：按漫游行为分层
 

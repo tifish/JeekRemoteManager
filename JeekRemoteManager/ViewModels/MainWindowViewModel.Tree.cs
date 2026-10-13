@@ -150,6 +150,28 @@ public partial class MainWindowViewModel
         // delayed refresh so it does not fire against a replaced tree.
         _recentRebuildTimer?.Stop();
 
+        _rebuildingTree = true;
+        try
+        {
+            RebuildNodes(snapshot, pathToSelect ?? previousSelection, pathToSelect != null && requestFocus);
+        }
+        finally
+        {
+            _rebuildingTree = false;
+        }
+
+        // The TreeView may have pushed a transient null while the nodes were cleared,
+        // which was ignored above; settle the editor on the final selection.
+        if (SelectedNode is null && Editor is not null)
+            OnSelectedNodeChanged(null);
+    }
+
+    /// <summary>True while <see cref="ReloadTree"/> swaps the nodes out, so the
+    /// selection briefly dropping to null does not tear down the open editor.</summary>
+    private bool _rebuildingTree;
+
+    private void RebuildNodes(ConnectionFolderSnapshot snapshot, string? selectPath, bool focusSelection)
+    {
         Nodes.Clear();
         _recentGroup = null;
 
@@ -174,7 +196,6 @@ public partial class MainWindowViewModel
             }
         }
 
-        var selectPath = pathToSelect ?? previousSelection;
         if (selectPath != null)
         {
             var node = FindNode(Nodes, selectPath);
@@ -186,7 +207,7 @@ public partial class MainWindowViewModel
                 // When ReloadTree was triggered by a user action (paste, new, rename,
                 // refresh), put keyboard focus on the tree so the new item is ready
                 // to receive Enter/F2/Delete/Ctrl+C etc.
-                if (pathToSelect != null && requestFocus)
+                if (focusSelection)
                     RequestTreeFocus(node);
             }
             else

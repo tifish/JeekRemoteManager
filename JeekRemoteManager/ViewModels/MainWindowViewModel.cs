@@ -734,6 +734,14 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // A tree reload hands back an identical copy of the node being edited — the
+        // watcher reloads after every auto-save. Retarget the editor instead of
+        // rebuilding it, so the field the user is typing in keeps focus.
+        if (_rebuildingTree && value is null)
+            return;
+        if (TryRetargetEditor(value))
+            return;
+
         // Flush any pending auto-save against the PREVIOUS editing target first,
         // before we rebind to the new node.
         FlushPendingAutoSave();
@@ -759,6 +767,28 @@ public partial class MainWindowViewModel : ViewModelBase
         BrowseKeyCommand.NotifyCanExecuteChanged();
         RunSelectedScriptBindingCommand.NotifyCanExecuteChanged();
     }
+
+    private bool TryRetargetEditor(TreeNodeViewModel? value)
+    {
+        if (Editor is null
+            || _editingNode?.Connection is not { } editing
+            || value is not { IsRecent: false, IsConnection: true, Connection: { } reloaded }
+            || ReferenceEquals(value, _editingNode)
+            || !PathEquals(value.FullPath, _editingNode.FullPath)
+            || !ConnectionStore.ContentEquals(editing, reloaded))
+        {
+            return false;
+        }
+
+        // Unsaved keystrokes typed while the tree was being read stay pending and
+        // are flushed against the new node, which mirrors the same file.
+        _editingNode = value;
+        EditorRetargetCountForDebug++;
+        return true;
+    }
+
+    /// <summary>Debug MCP only: tree reloads that kept the open editor instead of rebuilding it.</summary>
+    internal int EditorRetargetCountForDebug { get; private set; }
 
     private void OnEditorPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -796,6 +826,13 @@ public partial class MainWindowViewModel : ViewModelBase
 
         _autoSaveTimer.Stop();
         _autoSaveTimer.Start();
+    }
+
+    /// <summary>Debug MCP only: writes the open editor back to its file, as an auto-save does.</summary>
+    internal void DebugAutoSaveNow()
+    {
+        _editorHasPendingChanges = true;
+        FlushPendingAutoSave();
     }
 
     /// <summary>Forces any pending editor changes to be written to disk now.</summary>
@@ -836,8 +873,7 @@ public partial class MainWindowViewModel : ViewModelBase
             editor.ApplyTo(node.Connection);
             ProtectConnectionScriptBindings(node.Connection);
 
-            var folder = Path.GetDirectoryName(node.FullPath) ?? _store.RootPath;
-            var newPath = _store.Save(node.Connection, folder, node.FullPath);
+            var newPath = _store.SaveEdit(node.Connection, node.FullPath);
 
             if (!PathEquals(newPath, node.FullPath))
             {
@@ -847,6 +883,10 @@ public partial class MainWindowViewModel : ViewModelBase
                     _clipboardEntries[clipboardIndex] = _clipboardEntries[clipboardIndex] with { Path = newPath };
                 node.FullPath = newPath;
                 node.Name = node.Connection.Name;
+            }
+            else
+            {
+                RefreshRecentCopiesOf(newPath);
             }
 
             StatusMessage = L("StatusAutoSaved", node.Name);

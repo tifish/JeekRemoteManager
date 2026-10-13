@@ -101,13 +101,15 @@ public class ConnectionStore
     /// time for files, just the path for folders (their times change with any child).
     /// Cheap next to <see cref="ReadTree"/> — metadata only, nothing is opened.
     /// </summary>
-    public string ComputeSignature()
+    public string ComputeSignature() => HashSignature(ComputeSignatureEntries());
+
+    private List<string> ComputeSignatureEntries()
     {
         var root = RootPath;
-        if (!Directory.Exists(root))
-            return "";
-
         var entries = new List<string>();
+        if (!Directory.Exists(root))
+            return entries;
+
         var options = new EnumerationOptions
         {
             RecurseSubdirectories = true,
@@ -123,6 +125,14 @@ public class ConnectionStore
         }
 
         entries.Sort(StringComparer.Ordinal);
+        return entries;
+    }
+
+    private static string HashSignature(List<string> entries)
+    {
+        if (entries.Count == 0)
+            return "";
+
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         foreach (var entry in entries)
         {
@@ -354,6 +364,10 @@ public class ConnectionStore
         }
     }
 
+    /// <summary>Whether two connections would be written to disk as the same text.</summary>
+    public static bool ContentEquals(Connection a, Connection b) =>
+        JsonSerializer.Serialize(a, JsonOptions) == JsonSerializer.Serialize(b, JsonOptions);
+
     /// <summary>Loads a connection from a file.</summary>
     public Connection Load(string filePath) => LoadFromText(filePath, File.ReadAllText(filePath));
 
@@ -382,6 +396,46 @@ public class ConnectionStore
     /// </summary>
     public string Save(Connection connection, string folderPath, string? previousFilePath = null) =>
         OwnWrite(() => SaveCore(connection, folderPath, previousFilePath));
+
+    /// <summary>
+    /// Saves an edit the caller has already applied to the connection the tree holds,
+    /// back to the same file. When the tree was in sync before the write and the only
+    /// change on disk afterwards is that one file, the post-write state is adopted as
+    /// <see cref="KnownSignature"/>, so the watcher does not reload the whole tree for
+    /// an auto-save. Any other difference — an external change landing during the
+    /// write, or a rename — leaves the fingerprint unknown, exactly like <see cref="Save"/>.
+    /// </summary>
+    public string SaveEdit(Connection connection, string filePath)
+    {
+        var folderPath = Path.GetDirectoryName(filePath) ?? RootPath;
+        lock (_ownWriteGate)
+        {
+            var known = KnownSignature;
+            var before = known is null ? null : ComputeSignatureEntries();
+            var savedPath = OwnWrite(() => SaveCore(connection, folderPath, filePath));
+            if (before is null
+                || HashSignature(before) != known
+                || !PathsEqual(savedPath, filePath))
+            {
+                return savedPath;
+            }
+
+            var after = ComputeSignatureEntries();
+            var ownEntry = Path.GetRelativePath(RootPath, savedPath) + "|";
+            if (before.Except(after).Concat(after.Except(before))
+                .All(entry => entry.StartsWith(ownEntry, StringComparison.Ordinal)))
+            {
+                KnownSignature = HashSignature(after);
+                OwnEditsAdoptedForDebug++;
+            }
+
+            return savedPath;
+        }
+    }
+
+    /// <summary>Debug MCP only: <see cref="SaveEdit"/> calls whose write was adopted
+    /// without leaving the watcher a reload to do.</summary>
+    internal long OwnEditsAdoptedForDebug { get; private set; }
 
     private string SaveCore(Connection connection, string folderPath, string? previousFilePath)
     {

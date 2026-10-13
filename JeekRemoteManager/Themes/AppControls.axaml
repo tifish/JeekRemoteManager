@@ -258,6 +258,17 @@
     <Style Selector="TextBox:focus">
         <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
     </Style>
+    <!-- Fluent paints hover and focus straight onto the template border, and its
+         bright hover border outshines the focus border, so a hovered box looked
+         like it had taken focus. Keep hover subtle; focus is declared last so it wins. -->
+    <Style Selector="TextBox:pointerover /template/ Border#PART_BorderElement">
+        <Setter Property="Background" Value="{DynamicResource InputBackgroundBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushStrong}" />
+    </Style>
+    <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
+        <Setter Property="Background" Value="{DynamicResource InputBackgroundBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+    </Style>
     <Style Selector="TextBox.output">
         <Setter Property="Background" Value="{DynamicResource TerminalBackgroundBrush}" />
         <Setter Property="Foreground" Value="{DynamicResource TerminalForegroundBrush}" />

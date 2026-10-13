@@ -32,6 +32,40 @@ public sealed class ConnectionStoreTests : IDisposable
     }
 
     [Fact]
+    public void An_in_place_edit_is_adopted_without_a_tree_read()
+    {
+        var path = _store.Save(new Connection { Name = "own", Host = "a.invalid" }, _root);
+        _store.ReadTree();
+
+        _store.SaveEdit(new Connection { Name = "own", Host = "b.invalid" }, path);
+
+        Assert.Equal(_store.ComputeSignature(), _store.KnownSignature);
+    }
+
+    [Fact]
+    public void An_edit_that_renames_its_file_is_not_adopted()
+    {
+        var path = _store.Save(new Connection { Name = "own", Host = "a.invalid" }, _root);
+        _store.ReadTree();
+
+        _store.SaveEdit(new Connection { Name = "renamed", Host = "a.invalid" }, path);
+
+        Assert.Null(_store.KnownSignature);
+    }
+
+    [Fact]
+    public void An_external_change_before_an_in_place_edit_is_not_claimed()
+    {
+        var path = _store.Save(new Connection { Name = "own", Host = "a.invalid" }, _root);
+        _store.ReadTree();
+        File.WriteAllText(Path.Combine(_root, "external.json"), "{\"Host\":\"x\"}");
+
+        _store.SaveEdit(new Connection { Name = "own", Host = "b.invalid" }, path);
+
+        Assert.Null(_store.KnownSignature);
+    }
+
+    [Fact]
     public void An_external_change_before_an_own_write_is_not_claimed()
     {
         _store.ReadTree();

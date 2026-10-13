@@ -607,12 +607,15 @@ public partial class MainWindowViewModel
         try
         {
             ProtectConnectionScriptBindings(node.Connection);
-            var folder = Path.GetDirectoryName(node.FullPath) ?? _store.RootPath;
-            var newPath = _store.Save(node.Connection, folder, node.FullPath);
+            var newPath = _store.SaveEdit(node.Connection, node.FullPath);
             if (!PathEquals(newPath, node.FullPath))
             {
                 node.FullPath = newPath;
                 node.Name = node.Connection.Name;
+            }
+            else
+            {
+                RefreshRecentCopiesOf(newPath);
             }
         }
         catch (Exception ex)
