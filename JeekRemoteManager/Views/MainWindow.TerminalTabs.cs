@@ -1145,6 +1145,37 @@ public partial class MainWindow
         var wasSelected = ReferenceEquals(RightTabs.SelectedItem, tab);
         var index = RightTabs.Items.IndexOf(tab);
 
+        RemoveTerminalTab(tab);
+
+        if (wasSelected && RightTabs.Items.Count > 0)
+            RightTabs.SelectedIndex = Math.Clamp(index - 1, 0, RightTabs.Items.Count - 1);
+
+        RefreshAutomationPeerChildren(RightTabs);
+    }
+
+    /// <summary>
+    /// Closes several tabs as one operation. Selection moves to <paramref name="select"/>
+    /// before anything is removed, so the TabControl never falls back through the tabs
+    /// being closed — each fallback would attach, lay out and focus a terminal that is
+    /// about to go away. The automation-peer sweep walks every remaining tab, so it runs
+    /// once at the end rather than once per tab.
+    /// </summary>
+    private void CloseTerminalTabs(IReadOnlyCollection<TabItem> tabs, object select)
+    {
+        if (tabs.Count == 0)
+            return;
+
+        if (tabs.Contains(RightTabs.SelectedItem as TabItem))
+            RightTabs.SelectedItem = select;
+
+        foreach (var tab in tabs)
+            RemoveTerminalTab(tab);
+
+        RefreshAutomationPeerChildren(RightTabs);
+    }
+
+    private void RemoveTerminalTab(TabItem tab)
+    {
         if (tab.Content is TerminalView view)
             view.Close();
 
@@ -1159,11 +1190,6 @@ public partial class MainWindow
         tab.ContextMenu = null;
         tab.DataContext = null;
         tab.Tag = null;
-
-        if (wasSelected && RightTabs.Items.Count > 0)
-            RightTabs.SelectedIndex = Math.Clamp(index - 1, 0, RightTabs.Items.Count - 1);
-
-        RefreshAutomationPeerChildren(RightTabs);
     }
 
     /// <summary>
@@ -1200,19 +1226,20 @@ public partial class MainWindow
     /// Closes every terminal tab except <paramref name="keep"/>. Permanent tabs
     /// (editor, global agent) are never closed.
     /// </summary>
-    internal void CloseOtherTerminalTabs(TabItem keep)
-    {
-        foreach (var tab in EnumerateTerminalTabs().Where(t => !ReferenceEquals(t, keep)).ToList())
-            CloseTerminalTab(tab);
-    }
+    internal void CloseOtherTerminalTabs(TabItem keep) =>
+        CloseTerminalTabs(EnumerateTerminalTabs().Where(t => !ReferenceEquals(t, keep)).ToList(), keep);
 
     /// <summary>
     /// Closes every terminal tab. Permanent tabs (editor, global agent) stay open.
     /// </summary>
     internal void CloseAllTerminalTabs()
     {
-        foreach (var tab in EnumerateTerminalTabs().ToList())
-            CloseTerminalTab(tab);
+        var tabs = EnumerateTerminalTabs().ToList();
+        // Where closing the leftmost terminal one by one would end up: the nearest
+        // permanent tab to its left.
+        var firstIndex = tabs.Count == 0 ? 0 : RightTabs.Items.IndexOf(tabs[0]);
+        var select = RightTabs.Items.Take(firstIndex).LastOrDefault() ?? EditorTab;
+        CloseTerminalTabs(tabs, select);
     }
 
     private IEnumerable<TabItem> EnumerateTerminalTabs()

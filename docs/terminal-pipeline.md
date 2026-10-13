@@ -107,6 +107,13 @@ Ctrl+Shift+F 打开查找栏（普通的 Ctrl+F 属于远端：readline 的前�
 
 回归检查是 Debug MCP 的 `terminal_session_log_check`。
 
+## 关闭标签页
+
+- **传输层的拆除不在 UI 线程上做。** 关闭 SSH shell 通道要等服务器回 close，释放最后一个客户端引用会断开连接，ConPTY 的 `ClosePseudoConsole` 也会阻塞。`TerminalView.Close` 只在 UI 线程上摘掉引用，然后把这些交给后台线程（同一任务里先关通道、再释放客户端）。否则"关闭其他/关闭所有"一次关几十个标签，窗口就会卡住同样多个往返。重连时的 `DisposeTransport()` 仍然是同步的：新通道不能和还没关掉的旧通道抢通道配额。
+- **批量关闭只切换一次选中项。** 先把选中项直接设到最终要留下的标签，再移除其余标签；自动化 peer 的刷新要遍历所有剩下的标签，所以只在最后做一次。逐个关闭会让 `TabControl` 一路回退到每个即将关闭的标签上，每次都要挂载、布局并聚焦一个马上就要销毁的终端。
+
+回归检查是 Debug MCP 的 `terminal_bulk_close_check`。
+
 ## AI 面板的 ConPTY 渲染
 
 AI 面板另有两条独立的约束：

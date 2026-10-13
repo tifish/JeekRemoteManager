@@ -177,6 +177,128 @@ internal static partial class DebugMcpServer
         return weakView;
     }
 
+    /// <summary>A transport whose teardown takes as long as an SSH channel close round trip
+    /// to a slow server, recording which thread ran it.</summary>
+    private sealed class SlowTeardownChannel : ITerminalChannel
+    {
+        public const int TeardownMs = 1000;
+        private int _disposed;
+
+        public event Action<byte[]>? DataReceived { add { } remove { } }
+        public event Action<string>? ErrorMessage { add { } remove { } }
+        public event Action? Closed { add { } remove { } }
+        public bool SupportsBinaryTransfers => false;
+        public bool Disposed => Volatile.Read(ref _disposed) != 0;
+        public bool DisposedOnUiThread { get; private set; }
+
+        public void Write(byte[] data) { }
+        public void Resize(uint cols, uint rows) { }
+
+        public void Dispose()
+        {
+            DisposedOnUiThread = Dispatcher.UIThread.CheckAccess();
+            Thread.Sleep(TeardownMs);
+            Volatile.Write(ref _disposed, 1);
+        }
+    }
+
+    private static async Task<JsonObject> TerminalBulkCloseCheckAsync()
+    {
+        const int othersBatch = 12;
+        const int allBatch = 6;
+        var channels = new List<SlowTeardownChannel>();
+
+        (TabItem[] Tabs, TabControl RightTabs) OpenBatch(Views.MainWindow main, int count)
+        {
+            var rightTabs = main.FindControl<TabControl>("RightTabs")
+                            ?? throw new InvalidOperationException("RightTabs not found.");
+            var tabs = new TabItem[count];
+            for (var i = 0; i < count; i++)
+            {
+                tabs[i] = main.DebugCreateTerminalTabForLifecycleProbe();
+                var channel = new SlowTeardownChannel();
+                channels.Add(channel);
+                ((TerminalView)tabs[i].Content!).DebugAttachChannel(channel);
+            }
+            rightTabs.SelectedItem = tabs[^1];
+            return (tabs, rightTabs);
+        }
+
+        static (long Ms, int SelectionChanges) Measure(TabControl rightTabs, Action close)
+        {
+            var changes = 0;
+            void OnChanged(object? sender, SelectionChangedEventArgs e)
+            {
+                if (ReferenceEquals(e.Source, sender))
+                    changes++;
+            }
+
+            rightTabs.SelectionChanged += OnChanged;
+            var stopwatch = Stopwatch.StartNew();
+            try { close(); }
+            finally { rightTabs.SelectionChanged -= OnChanged; }
+            return (stopwatch.ElapsedMilliseconds, changes);
+        }
+
+        var others = await OnUiAsync(() =>
+        {
+            if (Desktop?.MainWindow is not Views.MainWindow main)
+                throw new InvalidOperationException("MainWindow is not available.");
+            if (main.EnumerateTerminalSessions().Count > 0)
+                throw new InvalidOperationException("Close every terminal tab first: this check runs Close all.");
+
+            var (tabs, rightTabs) = OpenBatch(main, othersBatch);
+            var keep = tabs[othersBatch / 2];
+            var (ms, changes) = Measure(rightTabs, () => main.CloseOtherTerminalTabs(keep));
+            var remaining = main.EnumerateTerminalSessions().Count;
+            var keptSelected = ReferenceEquals(rightTabs.SelectedItem, keep);
+            return (ms, changes, remaining, keptSelected);
+        });
+
+        // Let the kept tab finish its layout so Close all starts from a settled window.
+        await Task.Delay(100);
+
+        var all = await OnUiAsync(() =>
+        {
+            var main = (Views.MainWindow)Desktop!.MainWindow!;
+            var (_, rightTabs) = OpenBatch(main, allBatch);
+            var (ms, changes) = Measure(rightTabs, main.CloseAllTerminalTabs);
+            var remaining = main.EnumerateTerminalSessions().Count;
+            var landedOnPermanentTab = rightTabs.SelectedItem is TabItem { Content: not TerminalView };
+            return (ms, changes, remaining, landedOnPermanentTab);
+        });
+
+        // Teardowns run in parallel on the pool, so this is about one teardown long.
+        var waited = Stopwatch.StartNew();
+        while (channels.Any(c => !c.Disposed) && waited.ElapsedMilliseconds < 15_000)
+            await Task.Delay(100);
+        var disposed = channels.Count(c => c.Disposed);
+        var onUiThread = channels.Count(c => c.DisposedOnUiThread);
+
+        // Generous against a slow machine, and far below a single blocking teardown.
+        const long budgetMs = SlowTeardownChannel.TeardownMs / 2;
+        var passed = others.ms < budgetMs
+                     && others.changes <= 1
+                     && others.remaining == 1
+                     && others.keptSelected
+                     && all.ms < budgetMs
+                     && all.changes <= 1
+                     && all.remaining == 0
+                     && all.landedOnPermanentTab
+                     && disposed == channels.Count
+                     && onUiThread == 0;
+
+        return ToolText(
+            $"{(passed ? "PASS" : "FAIL")}: bulk tab close does not wait for transport teardown.\n"
+            + $"teardownMsPerTab={SlowTeardownChannel.TeardownMs}\n"
+            + $"closeOthers.tabs={othersBatch - 1} ms={others.ms} selectionChanges={others.changes} "
+            + $"remaining={others.remaining} keptSelected={others.keptSelected}\n"
+            + $"closeAll.tabs={othersBatch + allBatch - (othersBatch - 1)} ms={all.ms} selectionChanges={all.changes} "
+            + $"remaining={all.remaining} landedOnPermanentTab={all.landedOnPermanentTab}\n"
+            + $"teardownsCompleted={disposed}/{channels.Count} teardownsOnUiThread={onUiThread}",
+            isError: !passed);
+    }
+
     private static async Task<JsonObject> TerminalConnectionActionsCheckAsync()
     {
         var tabs = new List<TabItem>();

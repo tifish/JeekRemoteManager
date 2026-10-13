@@ -538,6 +538,12 @@ public partial class TerminalView : UserControl
         _connectInProgress = true;
     }
 
+    /// <summary>
+    /// Gives a network-free probe tab a stand-in transport, so Debug MCP can check
+    /// that closing the tab does not wait for the transport's teardown.
+    /// </summary>
+    internal void DebugAttachChannel(ITerminalChannel channel) => _channel = channel;
+
     /// <summary>Connection-start policy exposed for the Debug MCP new-TCP probe.</summary>
     internal bool DebugRequiresNewTcpConnection => _forceNewTcpConnection;
 
@@ -1608,13 +1614,22 @@ public partial class TerminalView : UserControl
 
     private void FeedReconnectHint() => FeedLine("\u001b[90m[press Enter to reconnect]\u001b[0m");
 
-    private void DisposeTransport()
+    /// <param name="inBackground">Tear the transport down on a worker. Closing a shell
+    /// channel waits for the server's close reply and releasing the last client reference
+    /// disconnects, so a tab close must not do either on the UI thread — closing many
+    /// tabs at once would stall the window for that many round trips. Reconnects stay
+    /// synchronous: the new channel must not race the old one for channel capacity.</param>
+    private void DisposeTransport(bool inBackground = false)
     {
-        try { _channel?.Dispose(); } catch { /* ignore */ }
+        var channel = _channel;
         // Drop our reference only: another tab duplicated from this one may still
         // be using the connection; the last holder tears it down.
         SharedSshClient? client;
         bool ownsClientReference;
+        if (!inBackground)
+        {
+            try { channel?.Dispose(); } catch { /* ignore */ }
+        }
         lock (_clientReferenceGate)
         {
             client = _client;
@@ -1622,9 +1637,25 @@ public partial class TerminalView : UserControl
             _client = null;
             _ownsClientReference = false;
         }
-        if (ownsClientReference)
-            client?.Release();
         _channel = null;
+
+        if (!inBackground)
+        {
+            if (ownsClientReference)
+                client?.Release();
+            return;
+        }
+
+        if (channel is null && !(ownsClientReference && client is not null))
+            return;
+
+        _ = Task.Run(() =>
+        {
+            // Channel first: it runs on the client being released.
+            try { channel?.Dispose(); } catch { /* ignore */ }
+            if (ownsClientReference)
+                client?.Release();
+        });
     }
 
     /// <summary>Tears down the SSH session. Safe to call multiple times.</summary>
@@ -1646,12 +1677,22 @@ public partial class TerminalView : UserControl
         _outputFrameFlushTimer.Dispose();
         _sessionOutputBuffer.Clear();
         _windowSizeSyncTimer?.Stop();
-        Interlocked.Exchange(ref _pendingSharedClient, null)?.Release();
-        Interlocked.Exchange(ref _reconnectHold, null)?.Release();
+        // Either may be the last reference, and that release disconnects: keep it off
+        // the UI thread like the transport below.
+        var pendingSharedClient = Interlocked.Exchange(ref _pendingSharedClient, null);
+        var reconnectHold = Interlocked.Exchange(ref _reconnectHold, null);
+        if (pendingSharedClient is not null || reconnectHold is not null)
+        {
+            _ = Task.Run(() =>
+            {
+                pendingSharedClient?.Release();
+                reconnectHold?.Release();
+            });
+        }
         // A tab closed mid-login must not keep other connections to the same bastion
         // parked behind a login that will never finish.
         ReleaseFreshLoginReservation();
-        DisposeTransport();
+        DisposeTransport(inBackground: true);
 
         _fileBrowserViewModel?.Dispose();
         _fileBrowserViewModel = null;
