@@ -352,6 +352,8 @@ internal static class ProductMcpServer
     {
         if (args["name"]?.GetValue<string>() is { } name && name.Trim().Length > 0)
             connection.Name = name.Trim();
+        if (args["short_name"]?.GetValue<string>() is { } shortName)
+            connection.ShortName = shortName.Trim();
         if (args["host"]?.GetValue<string>() is { } host)
             connection.Host = host.Trim();
         if (args["port"] is { } port)
@@ -459,6 +461,7 @@ internal static class ProductMcpServer
         {
             ["connection"] = treePath,
             ["name"] = connection.Name,
+            ["shortName"] = connection.ShortName,
             ["type"] = connection.Type.ToString().ToUpperInvariant(),
             ["target"] = connection.TargetLabel,
         };

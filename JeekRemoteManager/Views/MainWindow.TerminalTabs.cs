@@ -870,7 +870,9 @@ public partial class MainWindow
     }
 
     private static string GetTerminalTabTitle(Connection connection) =>
-        string.IsNullOrWhiteSpace(connection.Name) ? connection.Host : connection.Name;
+        Connection.FormatDisplayName(
+            connection.ShortName,
+            string.IsNullOrWhiteSpace(connection.Name) ? connection.Host : connection.Name);
 
     private static Control CreateConnectionTypeIcon(ConnectionType type)
     {

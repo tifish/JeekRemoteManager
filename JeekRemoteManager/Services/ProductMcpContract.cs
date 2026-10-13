@@ -304,6 +304,7 @@ public static class ProductMcpContract
     private static JsonObject EditableFields(JsonObject leading)
     {
         leading["name"] = Prop("string", "Display name; also the file name on disk.");
+        leading["short_name"] = Prop("string", "Optional short label shown as [short] before the name in the tree and tab titles; empty clears it.");
         leading["host"] = Prop("string", "Host name or IP (SSH/RDP/VNC).");
         leading["port"] = Prop("integer", "TCP port; defaults to 22 (SSH), 3389 (RDP) or 5900 (VNC).");
         leading["username"] = Prop("string", "Login user (SSH/RDP; VNC only for servers that ask for one).");

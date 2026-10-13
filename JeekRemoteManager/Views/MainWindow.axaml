@@ -582,7 +582,7 @@
                                                        VerticalAlignment="Center" />
                                         </Border>
                                         <TextBlock Grid.Column="1"
-                                                   Text="{Binding Name}"
+                                                   Text="{Binding DisplayName}"
                                                    TextTrimming="CharacterEllipsis"
                                                    VerticalAlignment="Center"
                                                    IsVisible="{Binding !IsNameEditing}" />
@@ -662,7 +662,13 @@
                                                           SelectedItem="{Binding TypeDisplay, Mode=TwoWay}" />
 
                                                 <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="{l:Localize Name}" />
-                                                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Name, Mode=TwoWay}" />
+                                                <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,86,96" ColumnSpacing="10">
+                                                    <TextBox Grid.Column="0" Text="{Binding Name, Mode=TwoWay}" />
+                                                    <TextBlock Grid.Column="1" Classes="label" Text="{l:Localize ShortName}"
+                                                               HorizontalAlignment="Right" />
+                                                    <TextBox Grid.Column="2" Text="{Binding ShortName, Mode=TwoWay}"
+                                                             PlaceholderText="{l:Localize ShortNameWatermark}" />
+                                                </Grid>
 
                                                 <TextBlock Grid.Row="2" Grid.Column="0" Classes="label" Text="{l:Localize Host}"
                                                            IsVisible="{Binding HasHostPort}" />

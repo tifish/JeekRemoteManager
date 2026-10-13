@@ -44,6 +44,8 @@ Connection	Connection	连接
 Edit	Edit	编辑
 Type	Type	类型
 Name	Name	名称
+ShortName	Short name	简称
+ShortNameWatermark	shown before the name	显示在名称前面
 Host	Host	主机
 Port	Port	端口
 HostWatermark	hostname or IP	主机名或 IP

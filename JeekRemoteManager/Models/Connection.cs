@@ -21,6 +21,16 @@ public class Connection
     /// <summary>Display name. Also used as the file name on disk.</summary>
     public string Name { get; set; } = "New Connection";
 
+    /// <summary>Optional short label shown in front of <see cref="Name"/> in the tree and tab titles.</summary>
+    public string ShortName { get; set; } = "";
+
+    /// <summary><see cref="Name"/> prefixed with the bracketed <see cref="ShortName"/> when one is set.</summary>
+    [JsonIgnore]
+    public string DisplayName => FormatDisplayName(ShortName, Name);
+
+    public static string FormatDisplayName(string? shortName, string name) =>
+        string.IsNullOrWhiteSpace(shortName) ? name : $"[{shortName.Trim()}] {name}";
+
     public string Host { get; set; } = "";
 
     /// <summary>TCP port. Defaults to 22 (SSH), 3389 (RDP) or 5900 (VNC).</summary>

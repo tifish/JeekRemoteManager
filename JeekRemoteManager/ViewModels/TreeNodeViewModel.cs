@@ -19,6 +19,7 @@ public partial class TreeNodeViewModel : ViewModelBase
         if (isFolder)
             _name = System.IO.Path.GetFileName(fullPath.TrimEnd(System.IO.Path.DirectorySeparatorChar));
         _editName = _name;
+        _shortName = connection?.ShortName ?? "";
     }
 
     public bool IsFolder { get; }
@@ -43,7 +44,16 @@ public partial class TreeNodeViewModel : ViewModelBase
     private string _fullPath;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DisplayName))]
     private string _name;
+
+    /// <summary>Mirrors <see cref="Models.Connection.ShortName"/>; refreshed when the connection is saved.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DisplayName))]
+    private string _shortName;
+
+    /// <summary>Text shown in the tree: the name, prefixed with the short name when set.</summary>
+    public string DisplayName => Models.Connection.FormatDisplayName(ShortName, Name);
 
     [ObservableProperty]
     private string _editName = string.Empty;

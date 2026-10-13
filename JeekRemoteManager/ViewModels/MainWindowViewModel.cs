@@ -888,6 +888,7 @@ public partial class MainWindowViewModel : ViewModelBase
             {
                 RefreshRecentCopiesOf(newPath);
             }
+            node.ShortName = node.Connection.ShortName;
 
             StatusMessage = L("StatusAutoSaved", node.Name);
             _editorHasPendingChanges = false;

@@ -31,6 +31,9 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     private string _name = "";
 
     [ObservableProperty]
+    private string _shortName = "";
+
+    [ObservableProperty]
     private string _host = "";
 
     [ObservableProperty]
@@ -305,6 +308,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             _bastionProfiles = bastionProfiles,
             Type = c.Type,
             Name = c.Name,
+            ShortName = c.ShortName,
             Host = c.Host,
             Port = c.Port,
             Username = c.Username,
@@ -428,6 +432,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     {
         c.Type = Type;
         c.Name = string.IsNullOrWhiteSpace(Name) ? L("UnnamedConnection") : Name.Trim();
+        c.ShortName = ShortName.Trim();
         c.Host = Host.Trim();
         c.Port = Port > 0 ? Port : Connection.DefaultPort(Type);
         c.Username = Username.Trim();
