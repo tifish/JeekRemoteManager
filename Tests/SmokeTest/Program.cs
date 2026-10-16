@@ -294,8 +294,8 @@ try
         repoRoot, "JeekRemoteManager", "Views", "AgentCliPanelView.axaml.cs"));
     Check(terminalViewXaml.IndexOf("x:Name=\"AiPanelHost\"", StringComparison.Ordinal)
               < terminalViewXaml.IndexOf("x:Name=\"MonitorPanelHost\"", StringComparison.Ordinal)
-          && terminalViewXaml.Contains("x:Name=\"AiPanelHost\"\n                Grid.Column=\"0\"", StringComparison.Ordinal)
-          && terminalViewXaml.Contains("x:Name=\"MonitorPanelHost\"\n                Grid.Column=\"4\"", StringComparison.Ordinal),
+          && System.Text.RegularExpressions.Regex.IsMatch(terminalViewXaml, "x:Name=\"AiPanelHost\"\\s+Grid\\.Column=\"0\"")
+          && System.Text.RegularExpressions.Regex.IsMatch(terminalViewXaml, "x:Name=\"MonitorPanelHost\"\\s+Grid\\.Column=\"4\""),
           "AI panel is left of the terminal and monitor panel is right of it");
     Check(mainWindowXaml.IndexOf("x:Name=\"AiPanelToolbarButton\"", StringComparison.Ordinal)
               < mainWindowXaml.IndexOf("x:Name=\"MonitorToolbarButton\"", StringComparison.Ordinal),
@@ -2591,7 +2591,7 @@ try
           && machineSettingsJson.Contains(nameof(MachineAppSettings.AiRunMode))
           && machineSettingsJson.Contains(nameof(MachineAppSettings.AiGrokRunMode))
           && machineSettingsJson.Contains(nameof(MachineAppSettings.AiHideSshTerminal))
-          && machineSettingsJson.Contains(nameof(MachineAppSettings.AiPanelOpen))
+          && machineSettingsJson.Contains(nameof(MachineAppSettings.AiAutoOpenPanel))
           && machineSettingsJson.Contains(nameof(MachineAppSettings.LastMcpProjectDirectory))
           && machineSettingsJson.Contains(nameof(MachineAppSettings.LastMcpWrittenTargetPaths))
           && !machineSettingsJson.Contains(nameof(RoamingAppSettings.Language))
@@ -2671,7 +2671,7 @@ try
     tempSettings.Settings.AiRunMode = AgentCliRunMode.Desktop;
     tempSettings.Settings.AiGrokRunMode = AgentCliRunMode.WindowsTerminal;
     tempSettings.Settings.AiHideSshTerminal = true;
-    tempSettings.Settings.AiPanelOpen = true;
+    tempSettings.Settings.AiAutoOpenPanel = true;
     tempSettings.Settings.ConnectionPanelCollapsed = true;
     tempSettings.Settings.MainWindowMaximized = true;
     tempSettings.Settings.MainWindowX = 120;
@@ -2682,7 +2682,7 @@ try
     Check(savedMachineJson.Contains("\"AiRunMode\": \"Desktop\"")
           && savedMachineJson.Contains("\"AiGrokRunMode\": \"WindowsTerminal\"")
           && savedMachineJson.Contains("\"AiHideSshTerminal\": true")
-          && savedMachineJson.Contains("\"AiPanelOpen\": true")
+          && savedMachineJson.Contains("\"AiAutoOpenPanel\": true")
           && savedMachineJson.Contains("\"ConnectionPanelCollapsed\": true")
           && savedMachineJson.Contains("\"MainWindowMaximized\": true")
           && savedMachineJson.Contains("\"MainWindowX\": 120")
@@ -2692,7 +2692,7 @@ try
     Check(reloadedAiSettings.Settings.AiRunMode == AgentCliRunMode.Desktop
           && reloadedAiSettings.Settings.AiGrokRunMode == AgentCliRunMode.WindowsTerminal
           && reloadedAiSettings.Settings.AiHideSshTerminal
-          && reloadedAiSettings.Settings.AiPanelOpen
+          && reloadedAiSettings.Settings.AiAutoOpenPanel
           && reloadedAiSettings.Settings.ConnectionPanelCollapsed
           && reloadedAiSettings.Settings.MainWindowMaximized
           && reloadedAiSettings.Settings.MainWindowX == 120
@@ -3120,8 +3120,10 @@ try
           && runtimeServerOptimizationScript.Contains("try_enable_timesyncd_time_sync")
           && runtimeServerOptimizationScript.Contains("install_packages chrony")
           && runtimeServerOptimizationScript.Contains("apt_get install -y systemd-timesyncd")
-          && runtimeServerOptimizationScript.Contains("systemctl enable --now chronyd.service")
-          && runtimeServerOptimizationScript.Contains("systemctl enable --now chrony.service")
+          && runtimeServerOptimizationScript.Contains("chrony_service=chrony.service")
+          && runtimeServerOptimizationScript.Contains("chrony_service=chronyd.service")
+          && runtimeServerOptimizationScript.Contains("systemctl show -p Id \"$chrony_service\"")
+          && runtimeServerOptimizationScript.Contains("systemctl enable --now \"$chrony_service\"")
           && runtimeServerOptimizationScript.Contains("systemctl enable --now systemd-timesyncd.service")
           && runtimeServerOptimizationScript.Contains("timedatectl set-ntp true")
           && runtimeServerOptimizationScript.Contains("stop_disable_service systemd-timesyncd.service")
