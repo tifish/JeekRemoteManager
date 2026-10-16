@@ -130,6 +130,8 @@ public partial class AgentCliPanelView : UserControl
         };
     }
 
+    private void OnOptionsMenuOpening(object? sender, EventArgs e) => _vm?.RefreshSharedOptions();
+
     /// <summary>Localized AI-options menu labels exposed for Debug MCP verification.</summary>
     public IReadOnlyList<string> OptionsMenuHeaders =>
         (AiOptionsButton.Flyout as MenuFlyout)?.Items

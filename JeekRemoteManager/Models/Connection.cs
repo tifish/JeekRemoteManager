@@ -113,8 +113,8 @@ public class Connection
     /// <summary>Open the server monitor after an SSH shell logs in.</summary>
     public bool AutoOpenMonitorPanel { get; set; }
 
-    // The AI panel is opened by the global remembered AiPanelOpen setting, not
-    // per connection; a legacy "AutoOpenAiPanel" key in old files is ignored.
+    // The AI panel is opened by the global AiAutoOpenPanel setting, not per
+    // connection; a legacy "AutoOpenAiPanel" key in old files is ignored.
 
     /// <summary>Open the file browser after an SSH shell logs in.</summary>
     public bool AutoOpenFileBrowserPanel { get; set; }

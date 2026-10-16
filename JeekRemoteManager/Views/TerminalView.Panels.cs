@@ -44,10 +44,6 @@ public partial class TerminalView
             _aiViewModel = CreateAgentCliPanelViewModel();
 
         AiPanelHost.IsVisible = true;
-        // The AI panel open state is a global preference (not per-connection):
-        // remember the last toggle so new SSH tabs and restarts reopen it after login.
-        if (DataContext is MainWindowViewModel mainVm)
-            mainVm.AiPanelOpen = true;
         ApplyAiPanelLayout();
         PanelStateChanged?.Invoke(this, EventArgs.Empty);
 
@@ -75,10 +71,6 @@ public partial class TerminalView
             PersistAiPanelWidth();
 
         AiPanelHost.IsVisible = false;
-        // Closing is also a preference change: new SSH sessions stay closed until
-        // the user opens the panel again.
-        if (DataContext is MainWindowViewModel mainVm)
-            mainVm.AiPanelOpen = false;
         _aiViewModel = null;
         AiPanel.DataContext = null;
         ApplyAiPanelLayout();
@@ -450,7 +442,13 @@ public partial class TerminalView
             },
             preferredRunMode: preferredRunMode,
             resolvePreferredRunMode: kind =>
-                (DataContext as MainWindowViewModel)?.GetAiRunModeForKind(kind) ?? AgentCliRunMode.Cli);
+                (DataContext as MainWindowViewModel)?.GetAiRunModeForKind(kind) ?? AgentCliRunMode.Cli,
+            getAutoOpenPanel: () => (DataContext as MainWindowViewModel)?.AiAutoOpenPanel ?? false,
+            setAutoOpenPanel: open =>
+            {
+                if (DataContext is MainWindowViewModel ownerVm)
+                    ownerVm.AiAutoOpenPanel = open;
+            });
 
         // Rewrite AGENTS.md + project MCP configs (including Codex default_tools_approval_mode)
         // before each launch so persisted MCP permissions stay current.

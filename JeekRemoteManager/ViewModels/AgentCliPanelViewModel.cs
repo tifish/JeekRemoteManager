@@ -29,6 +29,8 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     private readonly string _workingDirectory;
     private readonly Action<bool>? _onHideSshTerminalChanged;
     private readonly Func<AgentCliKind, AgentCliRunMode>? _resolvePreferredRunMode;
+    private readonly Func<bool>? _getAutoOpenPanel;
+    private readonly Action<bool>? _setAutoOpenPanel;
     private readonly SemaphoreSlim _startGate = new(1, 1);
     private ConPtySession? _session;
     private Process? _externalProcess;
@@ -79,11 +81,15 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         Action<bool>? onHideSshTerminalChanged = null,
         AgentCliRunMode preferredRunMode = AgentCliRunMode.Cli,
         Func<AgentCliKind, AgentCliRunMode>? resolvePreferredRunMode = null,
-        bool showConnectionOptions = true)
+        bool showConnectionOptions = true,
+        Func<bool>? getAutoOpenPanel = null,
+        Action<bool>? setAutoOpenPanel = null)
     {
         _workingDirectory = workingDirectory;
         _onHideSshTerminalChanged = onHideSshTerminalChanged;
         _resolvePreferredRunMode = resolvePreferredRunMode;
+        _getAutoOpenPanel = getAutoOpenPanel;
+        _setAutoOpenPanel = setAutoOpenPanel;
         _hideSshTerminal = hideSshTerminal;
         ShowConnectionOptions = showConnectionOptions;
         Directory.CreateDirectory(_workingDirectory);
@@ -132,6 +138,25 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
     [ObservableProperty]
     private bool _hideSshTerminal;
+
+    /// <summary>
+    /// Global "open the AI panel after every SSH login" option. Read through to the shared
+    /// setting rather than cached, so every open panel shows the current value.
+    /// </summary>
+    public bool AutoOpenPanel
+    {
+        get => _getAutoOpenPanel?.Invoke() ?? false;
+        set
+        {
+            if (AutoOpenPanel == value)
+                return;
+            _setAutoOpenPanel?.Invoke(value);
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>Re-reads options shared by all panels (another tab may have changed them).</summary>
+    public void RefreshSharedOptions() => OnPropertyChanged(nameof(AutoOpenPanel));
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowInstallPrompt))]

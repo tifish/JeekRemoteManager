@@ -550,16 +550,16 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    /// <summary>Global remembered in-terminal AI panel open state: toggling it in any
-    /// SSH tab is recorded here, and new SSH sessions open the panel after login when true.</summary>
-    public bool AiPanelOpen
+    /// <summary>Whether every SSH session opens the AI panel after login (global option
+    /// from the AI panel menu, machine-local, off by default).</summary>
+    public bool AiAutoOpenPanel
     {
-        get => _settings.Settings.AiPanelOpen;
+        get => _settings.Settings.AiAutoOpenPanel;
         set
         {
-            if (_settings.Settings.AiPanelOpen == value)
+            if (_settings.Settings.AiAutoOpenPanel == value)
                 return;
-            _settings.Settings.AiPanelOpen = value;
+            _settings.Settings.AiAutoOpenPanel = value;
             _settings.SaveIfChanged();
         }
     }

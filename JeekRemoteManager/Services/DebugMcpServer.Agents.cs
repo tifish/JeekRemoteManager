@@ -95,6 +95,86 @@ internal static partial class DebugMcpServer
         }
     }
 
+    private static async Task<JsonObject> AiPanelAutoOpenCheckAsync()
+    {
+        TabItem? firstTab = null;
+        TabItem? secondTab = null;
+        bool? original = null;
+        Task? closeFirst = null;
+        Task? closeSecond = null;
+        try
+        {
+            var result = await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main
+                    || main.DataContext is not MainWindowViewModel mainVm)
+                    throw new InvalidOperationException("MainWindow is not available.");
+
+                original = mainVm.AiAutoOpenPanel;
+                mainVm.AiAutoOpenPanel = false;
+
+                firstTab = main.DebugCreateTerminalTabForLifecycleProbe();
+                var firstView = (TerminalView)firstTab.Content!;
+                firstView.ToggleAiPanel();
+                var firstVm = firstView.AiViewModel
+                              ?? throw new InvalidOperationException("AI view model was not created.");
+                var toggleKeepsOff = !mainVm.AiAutoOpenPanel && !firstVm.AutoOpenPanel;
+
+                secondTab = main.DebugCreateTerminalTabForLifecycleProbe();
+                var secondView = (TerminalView)secondTab.Content!;
+                secondView.ToggleAiPanel();
+                var secondVm = secondView.AiViewModel
+                               ?? throw new InvalidOperationException("Second AI view model was not created.");
+
+                firstVm.AutoOpenPanel = true;
+                var writesThrough = mainVm.AiAutoOpenPanel && secondVm.AutoOpenPanel;
+                // Machine-local: the value lands in the machine settings file, never the roaming one.
+                var persisted = JsonNode.Parse(File.ReadAllText(SettingsService.DefaultMachineSettingsPath))
+                    ?["AiAutoOpenPanel"]?.GetValue<bool>() == true;
+
+                closeFirst = firstView.CloseAiPanelAsync();
+                var closeKeepsOn = mainVm.AiAutoOpenPanel;
+                secondVm.AutoOpenPanel = false;
+                var turnsOff = !mainVm.AiAutoOpenPanel && !firstVm.AutoOpenPanel;
+                closeSecond = secondView.CloseAiPanelAsync();
+
+                return (toggleKeepsOff, writesThrough, persisted, closeKeepsOn, turnsOff);
+            });
+
+            var passed = result.toggleKeepsOff && result.writesThrough && result.persisted
+                         && result.closeKeepsOn && result.turnsOff;
+            return ToolText(
+                $"{(passed ? "PASS" : "FAIL")}: AI panel auto-open option is global and independent of toggling.\n"
+                + $"toggleKeepsOff={result.toggleKeepsOff}\n"
+                + $"writesThrough={result.writesThrough}\n"
+                + $"persisted={result.persisted}\n"
+                + $"closeKeepsOn={result.closeKeepsOn}\n"
+                + $"turnsOff={result.turnsOff}\n"
+                + $"original={original}",
+                isError: !passed);
+        }
+        finally
+        {
+            if (closeFirst is not null)
+                await closeFirst;
+            if (closeSecond is not null)
+                await closeSecond;
+            await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is Views.MainWindow main)
+                {
+                    if (original is { } value && main.DataContext is MainWindowViewModel mainVm)
+                        mainVm.AiAutoOpenPanel = value;
+                    if (secondTab is not null)
+                        main.CloseTerminalSession(secondTab);
+                    if (firstTab is not null)
+                        main.CloseTerminalSession(firstTab);
+                }
+                return true;
+            });
+        }
+    }
+
     private static async Task<JsonObject> AiRuntimeSnapshotAsync()
     {
         var text = await OnUiAsync(() =>
@@ -510,6 +590,7 @@ internal static partial class DebugMcpServer
             var openWorkspaceLabel = Localizer.Get("AiOpenWorkspaceFolder");
             var copyWorkspaceLabel = Localizer.Get("AiCopyWorkspaceFolder");
             var connectionLinkLabel = Localizer.Get("AiLinkProject");
+            var autoOpenLabel = Localizer.Get("AiAutoOpenPanel");
             var (optionHeaders, hasExecutionToggle, copiedWorkspace, copyStatus) = await OnUiAsync(() =>
             {
                 var panel = new Views.AgentCliPanelView();
@@ -531,6 +612,7 @@ internal static partial class DebugMcpServer
                 copiedWorkspace == Path.GetFullPath(workspace)
                 && copyStatus.Contains(copiedWorkspace, StringComparison.Ordinal));
             Check("AI options menu exposes connection MCP write", optionHeaders.Contains(connectionLinkLabel));
+            Check("AI options menu exposes auto-open panel", optionHeaders.Contains(autoOpenLabel));
             Check("AI options menu has no execution approval toggles", !hasExecutionToggle);
 
             if (usePanel)

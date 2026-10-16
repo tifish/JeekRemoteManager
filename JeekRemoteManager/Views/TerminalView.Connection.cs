@@ -687,8 +687,8 @@ public partial class TerminalView
 
         if (connection.AutoOpenMonitorPanel && !IsMonitorPanelOpen)
             ToggleMonitorPanel();
-        // The AI panel follows the global remembered state instead of a per-connection option.
-        if ((DataContext as MainWindowViewModel)?.AiPanelOpen == true && !IsAiPanelOpen)
+        // The AI panel follows the global auto-open option instead of a per-connection one.
+        if ((DataContext as MainWindowViewModel)?.AiAutoOpenPanel == true && !IsAiPanelOpen)
             ToggleAiPanel();
         if (connection.AutoOpenFileBrowserPanel && !IsFileBrowserPanelOpen)
             ToggleFileBrowserPanel();

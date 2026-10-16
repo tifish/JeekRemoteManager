@@ -147,6 +147,9 @@ public static class DebugMcpContract
         Tool("ai_panel_lifecycle_check",
             "Opens and closes a real terminal AI panel without launching a CLI, verifies disposal, and verifies a new tab does not inherit the open state.",
             new()),
+        Tool("ai_panel_auto_open_check",
+            "Verifies the global AI panel auto-open option: opening/closing a panel leaves it unchanged, the panel menu writes it through to the shared machine-local setting seen by every panel, and the setting is restored afterwards.",
+            new()),
         Tool("file_browser_session_lifecycle_check",
             "Drives the file-browser visibility lifecycle with an in-process SFTP-shaped session, verifying active transfers block release and reopening reconnects.",
             new()),
@@ -255,7 +258,7 @@ public static class DebugMcpContract
             "Runs the connection editor's port-forward validation, returning its line-specific error or valid. Accepts incomplete input such as a lone dash.",
             new() { ["text"] = Prop("string", "Port forwarding lines to validate.") }, ["text"]),
         Tool("agent_project_link_check",
-            "Links a throwaway project folder to a synthetic agent workspace and verifies the AGENTS.md/CLAUDE.md reference block plus every merged MCP config in the catalog uses the portable cmd launcher (no username path), then a selective rewrite (unused files/folders removed), refresh (no duplicates) and unlink (project content restored). Also checks the AI options menu exposes workspace open/copy and the connection MCP write action, and that copy writes the exact absolute workspace path.",
+            "Links a throwaway project folder to a synthetic agent workspace and verifies the AGENTS.md/CLAUDE.md reference block plus every merged MCP config in the catalog uses the portable cmd launcher (no username path), then a selective rewrite (unused files/folders removed), refresh (no duplicates) and unlink (project content restored). Also checks the AI options menu exposes workspace open/copy, the connection MCP write action and the auto-open panel option, and that copy writes the exact absolute workspace path.",
             new()
             {
                 ["panel"] = Prop("boolean", "Also drive the live AI panel view model from the open ai_render_probe tab (default false)."),

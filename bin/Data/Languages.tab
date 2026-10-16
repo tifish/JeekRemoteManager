@@ -393,6 +393,8 @@ AiModel	Model	模型
 AiEffort	Effort	强度
 AiOptionDefault	Default	默认
 AiSettingsChanged	Settings changed; applies to a new conversation.	设置已更改，将用于新对话。
+AiAutoOpenPanel	Open AI panel automatically	自动打开 AI 面板
+AiAutoOpenPanelHint	Open the AI panel after every SSH login. Applies to all connections.	每次 SSH 登录后自动打开 AI 面板，对所有连接生效。
 AiHideSshTerminal	Hide SSH terminal	隐藏 SSH 终端
 AiHideSshTerminalHint	Hide the SSH terminal and let the assistant fill the whole tab. Commands still run on the server.	隐藏 SSH 终端面板，AI 助手占满整个页面。命令仍会在服务器上执行。
 AiOpenWorkspaceFolder	Open the workspace folder	打开工作区目录

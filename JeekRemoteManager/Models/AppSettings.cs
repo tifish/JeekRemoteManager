@@ -139,9 +139,9 @@ public class AppSettings
     /// <summary>AI panel: hide the SSH terminal while the AI side panel is open.</summary>
     public bool AiHideSshTerminal { get; set; }
 
-    /// <summary>Whether the in-terminal AI panel was open when last toggled; new SSH
-    /// tabs and restarts open it after login when true (global, not per-connection).</summary>
-    public bool AiPanelOpen { get; set; }
+    /// <summary>Open the in-terminal AI panel after every SSH login (global, not
+    /// per-connection). Off by default; toggling the panel itself does not change it.</summary>
+    public bool AiAutoOpenPanel { get; set; }
 
     /// <summary>
     /// Last project folder chosen in the MCP write dialog. Machine-local because it is
@@ -225,8 +225,8 @@ public class MachineAppSettings
     /// <summary>AI panel: hide the SSH terminal while the AI side panel is open.</summary>
     public bool AiHideSshTerminal { get; set; }
 
-    /// <summary>Whether the in-terminal AI panel was open when last toggled (global layout state).</summary>
-    public bool AiPanelOpen { get; set; }
+    /// <summary>Open the in-terminal AI panel after every SSH login. Off by default.</summary>
+    public bool AiAutoOpenPanel { get; set; }
 
     /// <summary>Last project folder chosen in the MCP write dialog (a local path).</summary>
     public string? LastMcpProjectDirectory { get; set; }

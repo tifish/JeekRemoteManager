@@ -223,7 +223,7 @@ public class SettingsService
             AiRunMode = machineSettings.AiRunMode,
             AiGrokRunMode = machineSettings.AiGrokRunMode,
             AiHideSshTerminal = machineSettings.AiHideSshTerminal,
-            AiPanelOpen = machineSettings.AiPanelOpen,
+            AiAutoOpenPanel = machineSettings.AiAutoOpenPanel,
             LastMcpProjectDirectory = machineSettings.LastMcpProjectDirectory,
             LastMcpWrittenTargetPaths = machineSettings.LastMcpWrittenTargetPaths ?? new List<string>(),
             Language = roamingSettings.Language,
@@ -261,7 +261,7 @@ public class SettingsService
             AiRunMode = settings.AiRunMode,
             AiGrokRunMode = settings.AiGrokRunMode,
             AiHideSshTerminal = settings.AiHideSshTerminal,
-            AiPanelOpen = settings.AiPanelOpen,
+            AiAutoOpenPanel = settings.AiAutoOpenPanel,
             LastMcpProjectDirectory = settings.LastMcpProjectDirectory,
             LastMcpWrittenTargetPaths = settings.LastMcpWrittenTargetPaths ?? new List<string>(),
         };
@@ -313,7 +313,7 @@ public class SettingsService
         settings.AiRunMode = normalized.AiRunMode;
         settings.AiGrokRunMode = normalized.AiGrokRunMode;
         settings.AiHideSshTerminal = normalized.AiHideSshTerminal;
-        settings.AiPanelOpen = normalized.AiPanelOpen;
+        settings.AiAutoOpenPanel = normalized.AiAutoOpenPanel;
         settings.LastMcpProjectDirectory = normalized.LastMcpProjectDirectory;
         settings.LastMcpWrittenTargetPaths = normalized.LastMcpWrittenTargetPaths;
         settings.Language = normalized.Language;
