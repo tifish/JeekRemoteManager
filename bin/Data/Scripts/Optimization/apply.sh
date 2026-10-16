@@ -315,15 +315,23 @@ enable_chrony_time_sync() {
     stop_disable_service ntpd.service
     stop_disable_service openntpd.service
 
-    if service_unit_exists chronyd.service; then
-        systemctl enable --now chronyd.service
-        chrony_service=chronyd.service
-    elif service_unit_exists chrony.service; then
-        systemctl enable --now chrony.service
+    # Debian/Ubuntu ship chrony.service with chronyd.service as an alias, and
+    # systemctl refuses to enable an alias; RHEL-family ships chronyd.service.
+    if service_unit_exists chrony.service; then
         chrony_service=chrony.service
+    elif service_unit_exists chronyd.service; then
+        chrony_service=chronyd.service
     else
         fail "chrony package is present but no chrony/chronyd systemd unit was found."
     fi
+
+    # Resolve any remaining alias to the real unit name before enabling it.
+    chrony_unit_id=$(systemctl show -p Id "$chrony_service" 2>/dev/null | sed -n 's/^Id=//p')
+    if [ -n "$chrony_unit_id" ]; then
+        chrony_service=$chrony_unit_id
+    fi
+
+    systemctl enable --now "$chrony_service"
 
     if ! systemctl is-active --quiet "$chrony_service"; then
         fail "chrony service ${chrony_service} is not active after setup."
