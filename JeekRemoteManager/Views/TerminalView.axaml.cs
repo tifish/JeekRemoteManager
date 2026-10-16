@@ -829,7 +829,7 @@ public partial class TerminalView : UserControl
     /// <summary>Whether the SSH terminal is currently hidden by the AI panel preference.</summary>
     public bool IsSshTerminalHidden => ShouldHideSshTerminal(
         AiPanelHost.IsVisible,
-        _aiViewModel?.HideSshTerminal == true,
+        _aiViewModel is { HideSshTerminal: true, IsCompact: false },
         IsLoginManualInputPending);
 
     /// <summary>Computes whether the SSH terminal should be hidden without changing the preference.</summary>
@@ -854,6 +854,15 @@ public partial class TerminalView : UserControl
 
     /// <summary>Rendered side-panel columns exposed for Debug MCP verification.</summary>
     public int AiPanelColumn => Grid.GetColumn(AiPanelHost);
+
+    /// <summary>Whether the AI panel currently sits in the compact bar above the terminal.</summary>
+    public bool IsAiPanelCompact => AiBarHost.IsVisible;
+
+    /// <summary>Rendered compact-bar height, for Debug MCP layout verification.</summary>
+    public double AiBarHeight => AiBarHost.Bounds.Height;
+
+    /// <summary>Rendered AI side-column width, for Debug MCP layout verification.</summary>
+    public double AiColumnWidth => AiColumn.ActualWidth;
 
     public int MonitorPanelColumn => Grid.GetColumn(MonitorPanelHost);
 

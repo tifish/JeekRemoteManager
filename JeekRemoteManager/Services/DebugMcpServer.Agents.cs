@@ -175,6 +175,121 @@ internal static partial class DebugMcpServer
         }
     }
 
+    private static async Task<JsonObject> AiPanelCompactLayoutCheckAsync()
+    {
+        TabItem? tab = null;
+        Task? close = null;
+        (string? Provider, AgentCliRunMode RunMode, AgentCliRunMode GrokRunMode, bool Hide, double Width)? saved = null;
+        try
+        {
+            var results = await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main
+                    || main.DataContext is not MainWindowViewModel mainVm)
+                    throw new InvalidOperationException("MainWindow is not available.");
+
+                saved = (mainVm.AiProvider, mainVm.AiRunMode, mainVm.AiGrokRunMode,
+                    mainVm.AiHideSshTerminal, mainVm.AiPanelWidth);
+                mainVm.AiHideSshTerminal = false;
+
+                tab = main.DebugCreateTerminalTabForLifecycleProbe();
+                main.DebugSelectTab(tab);
+                var view = (TerminalView)tab.Content!;
+                view.ToggleAiPanel();
+                var vm = view.AiViewModel
+                         ?? throw new InvalidOperationException("AI view model was not created.");
+                // Mode switches below must not launch anything; the panel's auto-start is
+                // posted, so it sees this flag too.
+                vm.DebugSuppressLaunch = true;
+
+                vm.SelectedProvider = vm.Providers.FirstOrDefault(p =>
+                                          AgentCliCatalog.RunModesFor(p.Kind) is var modes
+                                          && modes.Contains(AgentCliRunMode.Cli)
+                                          && modes.Any(m => m != AgentCliRunMode.Cli))
+                                      ?? throw new InvalidOperationException(
+                                          "No agent offers both CLI and an external mode.");
+                AgentCliRunModeOption Option(Func<AgentCliRunMode, bool> match) =>
+                    vm.RunModeOptions.First(o => match(o.Mode));
+                bool InHost(string name) => view.DebugAiPanel.Parent is Border border && border.Name == name;
+
+                var checks = new List<(string Name, bool Ok, string Detail)>();
+                void Check(string name, bool ok, string detail = "") => checks.Add((name, ok, detail));
+
+                vm.SelectedRunModeOption = Option(m => m == AgentCliRunMode.Cli);
+                main.UpdateLayout();
+                var sideWidth = mainVm.AiPanelWidth;
+                Check("CLI uses the side column",
+                    !view.IsAiPanelCompact && vm.ShowPanelBody && InHost("AiPanelHost") && view.AiColumnWidth > 0,
+                    $"column={view.AiColumnWidth:0}");
+
+                vm.HideSshTerminal = true;
+                Check("CLI can hide the SSH terminal", view.IsSshTerminalHidden && !view.IsTerminalAreaVisible);
+
+                var external = Option(m => m != AgentCliRunMode.Cli);
+                vm.SelectedRunModeOption = external;
+                main.UpdateLayout();
+                Check($"{external.Label} uses the compact bar",
+                    view.IsAiPanelCompact && !vm.ShowPanelBody && InHost("AiBarHost") && view.AiColumnWidth == 0,
+                    $"column={view.AiColumnWidth:0}");
+                Check("compact bar is header height",
+                    view.AiBarHeight > 0 && Math.Abs(view.AiBarHeight - view.DebugAiPanel.DebugHeaderHeight) < 1,
+                    $"bar={view.AiBarHeight:0.#} header={view.DebugAiPanel.DebugHeaderHeight:0.#}");
+                Check("compact bar keeps the SSH terminal visible",
+                    !view.IsSshTerminalHidden && view.IsTerminalAreaVisible && vm.HideSshTerminal);
+                Check("compact bar hides the hide-terminal option", !vm.ShowHideSshTerminalOption);
+                Check("compact bar puts the hint on the status tooltip",
+                    vm.StatusToolTip.Contains(vm.ExternalHintText, StringComparison.Ordinal));
+                Check("compact bar keeps the side width", Math.Abs(mainVm.AiPanelWidth - sideWidth) < 0.5,
+                    $"before={sideWidth:0} after={mainVm.AiPanelWidth:0}");
+
+                vm.HideSshTerminal = false;
+                vm.SelectedRunModeOption = Option(m => m == AgentCliRunMode.Cli);
+                main.UpdateLayout();
+                Check("back to CLI restores the side column",
+                    !view.IsAiPanelCompact && vm.ShowPanelBody && InHost("AiPanelHost")
+                    && Math.Abs(view.AiColumnWidth - sideWidth) < 1,
+                    $"column={view.AiColumnWidth:0} remembered={sideWidth:0}");
+
+                vm.SelectedRunModeOption = external;
+                close = view.CloseAiPanelAsync();
+                Check("closing from the bar returns the panel to the side host",
+                    !view.IsAiPanelCompact && InHost("AiPanelHost"));
+
+                return checks;
+            });
+
+            var passed = results.All(c => c.Ok);
+            var text = new StringBuilder(
+                $"{(passed ? "PASS" : "FAIL")}: AI panel shrinks to a header bar for external agents.\n");
+            foreach (var (name, ok, detail) in results)
+                text.Append(ok ? "  ok   " : "  FAIL ").Append(name)
+                    .Append(detail.Length > 0 ? $" ({detail})" : "").Append('\n');
+            return ToolText(text.ToString(), isError: !passed);
+        }
+        finally
+        {
+            if (close is not null)
+                await close;
+            await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is Views.MainWindow main)
+                {
+                    if (saved is { } value && main.DataContext is MainWindowViewModel mainVm)
+                    {
+                        mainVm.AiProvider = value.Provider;
+                        mainVm.AiRunMode = value.RunMode;
+                        mainVm.AiGrokRunMode = value.GrokRunMode;
+                        mainVm.AiHideSshTerminal = value.Hide;
+                        mainVm.AiPanelWidth = value.Width;
+                    }
+                    if (tab is not null)
+                        main.CloseTerminalSession(tab);
+                }
+                return true;
+            });
+        }
+    }
+
     private static async Task<JsonObject> AiRuntimeSnapshotAsync()
     {
         var text = await OnUiAsync(() =>

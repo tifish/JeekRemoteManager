@@ -7,266 +7,274 @@
              x:Class="JeekRemoteManager.Views.TerminalView"
              x:Name="TerminalRoot"
              x:DataType="vm:MainWindowViewModel">
-    <Grid x:Name="RootGrid">
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="0" MinWidth="0" />
-            <ColumnDefinition Width="Auto" />
-            <ColumnDefinition Width="*" MinWidth="200" />
-            <ColumnDefinition Width="Auto" />
-            <ColumnDefinition Width="0" MinWidth="0" />
-        </Grid.ColumnDefinitions>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="*" MinHeight="120" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="0" MinHeight="0" />
-        </Grid.RowDefinitions>
+    <DockPanel LastChildFill="True">
+        <!-- Compact AI bar: the AI panel moves here, header only, while its agent runs
+             outside the tab (Windows Terminal / Desktop / IDE). -->
+        <Border x:Name="AiBarHost"
+                DockPanel.Dock="Top"
+                IsVisible="False" />
 
-        <Border x:Name="AiPanelHost"
-                Grid.Column="0"
-                Grid.RowSpan="3"
-                IsVisible="False"
-                BorderBrush="{DynamicResource BorderBrushSoft}"
-                BorderThickness="0,0,1,0">
-            <views:AgentCliPanelView x:Name="AiPanel" />
-        </Border>
+        <Grid x:Name="RootGrid">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="0" MinWidth="0" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" MinWidth="200" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="0" MinWidth="0" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" MinHeight="120" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="0" MinHeight="0" />
+            </Grid.RowDefinitions>
 
-        <GridSplitter x:Name="AiSplitter"
-                      Grid.Column="1"
-                      Grid.RowSpan="3"
-                      Width="5"
-                      ResizeDirection="Columns"
-                      ResizeBehavior="PreviousAndNext"
-                      Background="Transparent"
-                      IsVisible="False" />
-
-        <Grid x:Name="TerminalArea" Grid.Column="2" Grid.Row="0">
-            <terminal:TerminalControl x:Name="Term"
-                                      RightClickAction="ContextMenu" />
-            <!-- Shown when the viewport is scrolled away from the live bottom. -->
-            <Button x:Name="ScrollToBottomButton"
-                    Classes="scroll-to-bottom"
-                    HorizontalAlignment="Right"
-                    VerticalAlignment="Bottom"
-                    Margin="0,0,28,16"
+            <Border x:Name="AiPanelHost"
+                    Grid.Column="0"
+                    Grid.RowSpan="3"
                     IsVisible="False"
-                    Click="OnScrollToBottomClick">
-                <TextBlock FontFamily="Segoe MDL2 Assets"
-                           FontSize="14"
-                           Foreground="{DynamicResource AccentForegroundBrush}"
-                           Text="&#xE74B;"
-                           HorizontalAlignment="Center"
-                           VerticalAlignment="Center" />
-            </Button>
-            <!-- Find in terminal (Ctrl+Shift+F). Plain Ctrl+F belongs to the remote shell. -->
-            <Border x:Name="FindBar"
-                    HorizontalAlignment="Right"
-                    VerticalAlignment="Top"
-                    Margin="0,8,28,0"
-                    Padding="6"
-                    CornerRadius="6"
-                    BorderThickness="1"
-                    Background="{DynamicResource ChromeSurfaceBrush}"
                     BorderBrush="{DynamicResource BorderBrushSoft}"
-                    IsVisible="False">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <TextBox x:Name="FindBox"
-                             Width="220"
-                             KeyDown="OnFindBoxKeyDown"
-                             TextChanged="OnFindTextChanged" />
-                    <TextBlock x:Name="FindCountText"
-                               MinWidth="56"
-                               VerticalAlignment="Center"
-                               TextAlignment="Center"
-                               Foreground="{DynamicResource TextMutedBrush}" />
-                    <Button x:Name="FindPreviousButton" Click="OnFindPreviousClick"
-                            Width="30" Height="30" MinWidth="0" Padding="0">
-                        <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="12" Text="&#xE70E;"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Button>
-                    <Button x:Name="FindNextButton" Click="OnFindNextClick"
-                            Width="30" Height="30" MinWidth="0" Padding="0">
-                        <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="12" Text="&#xE70D;"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Button>
-                    <Button x:Name="FindCloseButton" Click="OnFindCloseClick"
-                            Width="30" Height="30" MinWidth="0" Padding="0">
-                        <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="11" Text="&#xE711;"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Button>
-                </StackPanel>
+                    BorderThickness="0,0,1,0">
+                <views:AgentCliPanelView x:Name="AiPanel" />
+            </Border>
+
+            <GridSplitter x:Name="AiSplitter"
+                          Grid.Column="1"
+                          Grid.RowSpan="3"
+                          Width="5"
+                          ResizeDirection="Columns"
+                          ResizeBehavior="PreviousAndNext"
+                          Background="Transparent"
+                          IsVisible="False" />
+
+            <Grid x:Name="TerminalArea" Grid.Column="2" Grid.Row="0">
+                <terminal:TerminalControl x:Name="Term"
+                                          RightClickAction="ContextMenu" />
+                <!-- Shown when the viewport is scrolled away from the live bottom. -->
+                <Button x:Name="ScrollToBottomButton"
+                        Classes="scroll-to-bottom"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Bottom"
+                        Margin="0,0,28,16"
+                        IsVisible="False"
+                        Click="OnScrollToBottomClick">
+                    <TextBlock FontFamily="Segoe MDL2 Assets"
+                               FontSize="14"
+                               Foreground="{DynamicResource AccentForegroundBrush}"
+                               Text="&#xE74B;"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center" />
+                </Button>
+                <!-- Find in terminal (Ctrl+Shift+F). Plain Ctrl+F belongs to the remote shell. -->
+                <Border x:Name="FindBar"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Top"
+                        Margin="0,8,28,0"
+                        Padding="6"
+                        CornerRadius="6"
+                        BorderThickness="1"
+                        Background="{DynamicResource ChromeSurfaceBrush}"
+                        BorderBrush="{DynamicResource BorderBrushSoft}"
+                        IsVisible="False">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBox x:Name="FindBox"
+                                 Width="220"
+                                 KeyDown="OnFindBoxKeyDown"
+                                 TextChanged="OnFindTextChanged" />
+                        <TextBlock x:Name="FindCountText"
+                                   MinWidth="56"
+                                   VerticalAlignment="Center"
+                                   TextAlignment="Center"
+                                   Foreground="{DynamicResource TextMutedBrush}" />
+                        <Button x:Name="FindPreviousButton" Click="OnFindPreviousClick"
+                                Width="30" Height="30" MinWidth="0" Padding="0">
+                            <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="12" Text="&#xE70E;"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Button>
+                        <Button x:Name="FindNextButton" Click="OnFindNextClick"
+                                Width="30" Height="30" MinWidth="0" Padding="0">
+                            <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="12" Text="&#xE70D;"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Button>
+                        <Button x:Name="FindCloseButton" Click="OnFindCloseClick"
+                                Width="30" Height="30" MinWidth="0" Padding="0">
+                            <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="11" Text="&#xE711;"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Button>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <GridSplitter x:Name="FileSplitter"
+                          Grid.Column="2"
+                          Grid.Row="1"
+                          Height="5"
+                          ResizeDirection="Rows"
+                          ResizeBehavior="PreviousAndNext"
+                          Background="Transparent"
+                          IsVisible="False" />
+
+            <Border x:Name="FileBrowserHost"
+                    Grid.Column="2"
+                    Grid.Row="2"
+                    IsVisible="False"
+                    BorderBrush="{DynamicResource BorderBrushSoft}"
+                    BorderThickness="0,1,0,0">
+                <views:FileBrowserView x:Name="FileBrowser" />
+            </Border>
+
+            <GridSplitter x:Name="MonitorSplitter"
+                          Grid.Column="3"
+                          Grid.RowSpan="3"
+                          Width="5"
+                          ResizeDirection="Columns"
+                          ResizeBehavior="PreviousAndNext"
+                          Background="Transparent"
+                          IsVisible="False" />
+
+            <Border x:Name="MonitorPanelHost"
+                    Grid.Column="4"
+                    Grid.RowSpan="3"
+                    IsVisible="False"
+                    BorderBrush="{DynamicResource BorderBrushSoft}"
+                    BorderThickness="1,0,0,0">
+                <views:ServerMonitorView x:Name="MonitorPanel" />
+            </Border>
+
+            <Border x:Name="ScriptPanelOverlay"
+                    Grid.Column="0"
+                    Grid.ColumnSpan="5"
+                    Grid.RowSpan="3"
+                    IsVisible="False"
+                    Background="#88000000"
+                    Padding="14">
+                <Border Classes="panel"
+                        Padding="12"
+                        MaxWidth="760"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Top">
+                    <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
+                        <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0"
+                                       Classes="page-title"
+                                       Text="{Binding ScriptPanel.SuiteName}" />
+                            <Button x:Name="CloseScriptPanelButton"
+                                    Grid.Column="1"
+                                    Classes="toolbar icon-button"
+                                    Command="{Binding CloseScriptExecutionCommand}">
+                                <TextBlock Classes="icon"
+                                           Text="&#xE711;"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           TextAlignment="Center" />
+                            </Button>
+                        </Grid>
+
+                        <Border Grid.Row="1"
+                                BorderBrush="{DynamicResource BorderBrushSoft}"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Padding="8,6">
+                            <ScrollViewer MinHeight="0"
+                                          MaxHeight="260"
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          VerticalScrollBarVisibility="Auto">
+                                <Grid ColumnDefinitions="*,156" ColumnSpacing="12">
+                                    <ItemsControl Grid.Column="0"
+                                                  ItemsSource="{Binding ScriptPanel.Parameters}"
+                                                  Grid.IsSharedSizeScope="True">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="vm:ScriptParameterValueViewModel">
+                                                <Grid ColumnSpacing="10" Margin="0,3">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"
+                                                                          MinWidth="120"
+                                                                          SharedSizeGroup="ScriptParamName" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0"
+                                                               Classes="label"
+                                                               Text="{Binding Name}"
+                                                               TextWrapping="Wrap" />
+                                                    <Grid Grid.Column="1">
+                                                        <TextBox Text="{Binding Value, Mode=TwoWay}"
+                                                                 IsVisible="{Binding IsText}" />
+                                                        <TextBox Text="{Binding Value, Mode=TwoWay}"
+                                                                 PasswordChar="&#x2022;"
+                                                                 IsVisible="{Binding IsSecret}" />
+                                                        <CheckBox IsChecked="{Binding BoolValue, Mode=TwoWay}"
+                                                                  IsVisible="{Binding IsBool}" />
+                                                        <ComboBox ItemsSource="{Binding EnumOptions}"
+                                                                  SelectedItem="{Binding SelectedEnumValue, Mode=TwoWay}"
+                                                                  IsVisible="{Binding IsEnum}" />
+                                                    </Grid>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <ItemsControl Grid.Column="1"
+                                                  ItemsSource="{Binding ScriptPanel.Scripts}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Orientation="Vertical" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="models:RemoteScriptFile">
+                                                <Button Content="{Binding DisplayName}"
+                                                        Classes="toolbar"
+                                                        HorizontalAlignment="Stretch"
+                                                        HorizontalContentAlignment="Center"
+                                                        Margin="0,0,0,6"
+                                                        Command="{Binding #TerminalRoot.((vm:MainWindowViewModel)DataContext).RunScriptFileCommand}"
+                                                        CommandParameter="{Binding}" />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </Grid>
+                            </ScrollViewer>
+                        </Border>
+
+                        <Grid Grid.Row="2" ColumnDefinitions="Auto,*" ColumnSpacing="9" MinHeight="30">
+                            <Grid Grid.Column="0"
+                                  Width="24"
+                                  Height="24"
+                                  VerticalAlignment="Center"
+                                  IsVisible="{Binding ScriptPanel.ShowResultIcon}">
+                                <TextBlock Classes="icon"
+                                           Text="&#xE73E;"
+                                           FontSize="22"
+                                           Foreground="{DynamicResource SuccessBrush}"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           TextAlignment="Center"
+                                           IsVisible="{Binding ScriptPanel.ShowSuccessIcon}" />
+                                <TextBlock Classes="icon"
+                                           Text="&#xE711;"
+                                           FontSize="22"
+                                           Foreground="{DynamicResource DangerBrush}"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           TextAlignment="Center"
+                                           IsVisible="{Binding ScriptPanel.ShowFailureIcon}" />
+                            </Grid>
+                            <TextBlock Grid.Column="1"
+                                       Classes="hint"
+                                       Text="{Binding ScriptPanel.StatusText}"
+                                       FontSize="14"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       VerticalAlignment="Center" />
+                        </Grid>
+
+                        <Button x:Name="ClearScriptParametersButton"
+                                Grid.Row="3"
+                                Classes="toolbar"
+                                HorizontalAlignment="Left"
+                                Command="{Binding ClearScriptParametersCommand}" />
+                    </Grid>
+                </Border>
             </Border>
         </Grid>
-
-        <GridSplitter x:Name="FileSplitter"
-                      Grid.Column="2"
-                      Grid.Row="1"
-                      Height="5"
-                      ResizeDirection="Rows"
-                      ResizeBehavior="PreviousAndNext"
-                      Background="Transparent"
-                      IsVisible="False" />
-
-        <Border x:Name="FileBrowserHost"
-                Grid.Column="2"
-                Grid.Row="2"
-                IsVisible="False"
-                BorderBrush="{DynamicResource BorderBrushSoft}"
-                BorderThickness="0,1,0,0">
-            <views:FileBrowserView x:Name="FileBrowser" />
-        </Border>
-
-        <GridSplitter x:Name="MonitorSplitter"
-                      Grid.Column="3"
-                      Grid.RowSpan="3"
-                      Width="5"
-                      ResizeDirection="Columns"
-                      ResizeBehavior="PreviousAndNext"
-                      Background="Transparent"
-                      IsVisible="False" />
-
-        <Border x:Name="MonitorPanelHost"
-                Grid.Column="4"
-                Grid.RowSpan="3"
-                IsVisible="False"
-                BorderBrush="{DynamicResource BorderBrushSoft}"
-                BorderThickness="1,0,0,0">
-            <views:ServerMonitorView x:Name="MonitorPanel" />
-        </Border>
-
-        <Border x:Name="ScriptPanelOverlay"
-                Grid.Column="0"
-                Grid.ColumnSpan="5"
-                Grid.RowSpan="3"
-                IsVisible="False"
-                Background="#88000000"
-                Padding="14">
-            <Border Classes="panel"
-                    Padding="12"
-                    MaxWidth="760"
-                    HorizontalAlignment="Right"
-                    VerticalAlignment="Top">
-                <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
-                    <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
-                        <TextBlock Grid.Column="0"
-                                   Classes="page-title"
-                                   Text="{Binding ScriptPanel.SuiteName}" />
-                        <Button x:Name="CloseScriptPanelButton"
-                                Grid.Column="1"
-                                Classes="toolbar icon-button"
-                                Command="{Binding CloseScriptExecutionCommand}">
-                            <TextBlock Classes="icon"
-                                       Text="&#xE711;"
-                                       HorizontalAlignment="Center"
-                                       VerticalAlignment="Center"
-                                       TextAlignment="Center" />
-                        </Button>
-                    </Grid>
-
-                    <Border Grid.Row="1"
-                            BorderBrush="{DynamicResource BorderBrushSoft}"
-                            BorderThickness="1"
-                            CornerRadius="6"
-                            Padding="8,6">
-                        <ScrollViewer MinHeight="0"
-                                      MaxHeight="260"
-                                      HorizontalScrollBarVisibility="Disabled"
-                                      VerticalScrollBarVisibility="Auto">
-                            <Grid ColumnDefinitions="*,156" ColumnSpacing="12">
-                                <ItemsControl Grid.Column="0"
-                                              ItemsSource="{Binding ScriptPanel.Parameters}"
-                                              Grid.IsSharedSizeScope="True">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate DataType="vm:ScriptParameterValueViewModel">
-                                            <Grid ColumnSpacing="10" Margin="0,3">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="Auto"
-                                                                      MinWidth="120"
-                                                                      SharedSizeGroup="ScriptParamName" />
-                                                    <ColumnDefinition Width="*" />
-                                                </Grid.ColumnDefinitions>
-                                                <TextBlock Grid.Column="0"
-                                                           Classes="label"
-                                                           Text="{Binding Name}"
-                                                           TextWrapping="Wrap" />
-                                                <Grid Grid.Column="1">
-                                                    <TextBox Text="{Binding Value, Mode=TwoWay}"
-                                                             IsVisible="{Binding IsText}" />
-                                                    <TextBox Text="{Binding Value, Mode=TwoWay}"
-                                                             PasswordChar="&#x2022;"
-                                                             IsVisible="{Binding IsSecret}" />
-                                                    <CheckBox IsChecked="{Binding BoolValue, Mode=TwoWay}"
-                                                              IsVisible="{Binding IsBool}" />
-                                                    <ComboBox ItemsSource="{Binding EnumOptions}"
-                                                              SelectedItem="{Binding SelectedEnumValue, Mode=TwoWay}"
-                                                              IsVisible="{Binding IsEnum}" />
-                                                </Grid>
-                                            </Grid>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-
-                                <ItemsControl Grid.Column="1"
-                                              ItemsSource="{Binding ScriptPanel.Scripts}">
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <StackPanel Orientation="Vertical" />
-                                        </ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate DataType="models:RemoteScriptFile">
-                                            <Button Content="{Binding DisplayName}"
-                                                    Classes="toolbar"
-                                                    HorizontalAlignment="Stretch"
-                                                    HorizontalContentAlignment="Center"
-                                                    Margin="0,0,0,6"
-                                                    Command="{Binding #TerminalRoot.((vm:MainWindowViewModel)DataContext).RunScriptFileCommand}"
-                                                    CommandParameter="{Binding}" />
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </Grid>
-                        </ScrollViewer>
-                    </Border>
-
-                    <Grid Grid.Row="2" ColumnDefinitions="Auto,*" ColumnSpacing="9" MinHeight="30">
-                        <Grid Grid.Column="0"
-                              Width="24"
-                              Height="24"
-                              VerticalAlignment="Center"
-                              IsVisible="{Binding ScriptPanel.ShowResultIcon}">
-                            <TextBlock Classes="icon"
-                                       Text="&#xE73E;"
-                                       FontSize="22"
-                                       Foreground="{DynamicResource SuccessBrush}"
-                                       HorizontalAlignment="Center"
-                                       VerticalAlignment="Center"
-                                       TextAlignment="Center"
-                                       IsVisible="{Binding ScriptPanel.ShowSuccessIcon}" />
-                            <TextBlock Classes="icon"
-                                       Text="&#xE711;"
-                                       FontSize="22"
-                                       Foreground="{DynamicResource DangerBrush}"
-                                       HorizontalAlignment="Center"
-                                       VerticalAlignment="Center"
-                                       TextAlignment="Center"
-                                       IsVisible="{Binding ScriptPanel.ShowFailureIcon}" />
-                        </Grid>
-                        <TextBlock Grid.Column="1"
-                                   Classes="hint"
-                                   Text="{Binding ScriptPanel.StatusText}"
-                                   FontSize="14"
-                                   FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextPrimaryBrush}"
-                                   VerticalAlignment="Center" />
-                    </Grid>
-
-                    <Button x:Name="ClearScriptParametersButton"
-                            Grid.Row="3"
-                            Classes="toolbar"
-                            HorizontalAlignment="Left"
-                            Command="{Binding ClearScriptParametersCommand}" />
-                </Grid>
-            </Border>
-        </Border>
-    </Grid>
+    </DockPanel>
 </UserControl>

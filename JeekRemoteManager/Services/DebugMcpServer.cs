@@ -152,6 +152,7 @@ internal static partial class DebugMcpServer
         host.AddTool("terminal_font_sync_check", _ => TerminalFontSyncCheckAsync());
         host.AddTool("ai_panel_lifecycle_check", _ => AiPanelLifecycleCheckAsync());
         host.AddTool("ai_panel_auto_open_check", _ => AiPanelAutoOpenCheckAsync());
+        host.AddTool("ai_panel_compact_layout_check", _ => AiPanelCompactLayoutCheckAsync());
         host.AddTool("file_browser_session_lifecycle_check", _ => FileBrowserSessionLifecycleCheckAsync());
         host.AddTool("ai_cli_ctrl_c_check", _ => AiCliCtrlCCheckAsync());
         host.AddTool("agent_cli_locate_check", AgentCliLocateCheckAsync);

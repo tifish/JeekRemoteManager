@@ -74,6 +74,16 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     /// </summary>
     public bool ShowConnectionOptions { get; }
 
+    /// <summary>
+    /// The host shrinks the panel to its header bar while the agent runs outside it
+    /// (WT / Desktop / IDE): the body would only hold a hint. The application-wide agent
+    /// owns a whole tab, so it keeps the full layout.
+    /// </summary>
+    private readonly bool _compactWhenExternal;
+
+    /// <summary>Debug MCP layout probes switch modes without launching any agent.</summary>
+    internal bool DebugSuppressLaunch { get; set; }
+
     public AgentCliPanelViewModel(
         string workingDirectory,
         string? preferredProviderLabel = null,
@@ -83,8 +93,10 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         Func<AgentCliKind, AgentCliRunMode>? resolvePreferredRunMode = null,
         bool showConnectionOptions = true,
         Func<bool>? getAutoOpenPanel = null,
-        Action<bool>? setAutoOpenPanel = null)
+        Action<bool>? setAutoOpenPanel = null,
+        bool compactWhenExternal = false)
     {
+        _compactWhenExternal = compactWhenExternal;
         _workingDirectory = workingDirectory;
         _onHideSshTerminalChanged = onHideSshTerminalChanged;
         _resolvePreferredRunMode = resolvePreferredRunMode;
@@ -131,6 +143,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     public AgentCliRunMode RunMode => SelectedRunModeOption?.Mode ?? AgentCliRunMode.Cli;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusToolTip))]
     private string _statusText = "";
 
     [ObservableProperty]
@@ -163,6 +176,9 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     [NotifyPropertyChangedFor(nameof(ShowStartButton))]
     [NotifyPropertyChangedFor(nameof(ShowEmbeddedTerminal))]
     [NotifyPropertyChangedFor(nameof(ShowExternalHint))]
+    [NotifyPropertyChangedFor(nameof(ShowHeaderInstallIcon))]
+    [NotifyPropertyChangedFor(nameof(ShowCompactInstallButton))]
+    [NotifyPropertyChangedFor(nameof(StatusToolTip))]
     [NotifyCanExecuteChangedFor(nameof(InstallCommand))]
     private bool _isInstalling;
 
@@ -201,6 +217,26 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     /// <summary>Placeholder when the agent runs outside the side panel (WT / Desktop / IDE).</summary>
     public bool ShowExternalHint =>
         !ShowInstallPrompt && RunMode != AgentCliRunMode.Cli;
+
+    /// <summary>Header-bar-only layout: an external surface in a host that allows it.</summary>
+    public bool IsCompact => _compactWhenExternal && RunMode != AgentCliRunMode.Cli;
+
+    /// <summary>Install prompt, embedded terminal or external hint below the header.</summary>
+    public bool ShowPanelBody => !IsCompact;
+
+    /// <summary>Hiding the SSH terminal only makes sense while the agent fills the panel.</summary>
+    public bool ShowHideSshTerminalOption => ShowConnectionOptions && !IsCompact;
+
+    /// <summary>Header install icon; the compact bar shows a labelled button instead.</summary>
+    public bool ShowHeaderInstallIcon => ShowInstallPrompt && !IsCompact;
+
+    /// <summary>Labelled install button in the compact bar, which has no body for the prompt.</summary>
+    public bool ShowCompactInstallButton => ShowInstallPrompt && IsCompact;
+
+    /// <summary>The compact bar has no body, so the external hint rides on the status tooltip.</summary>
+    public string StatusToolTip => IsCompact && ShowExternalHint
+        ? $"{StatusText}\n{ExternalHintText}"
+        : StatusText;
 
     /// <summary>Localized hint for the external (WT / Desktop / IDE) surface.</summary>
     public string ExternalHintText => RunMode switch
@@ -260,7 +296,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     /// </summary>
     private void ApplySelection()
     {
-        if (_disposed || IsInstalling)
+        if (_disposed || IsInstalling || DebugSuppressLaunch)
             return;
 
         if (CanStartSelectedProvider())
@@ -305,6 +341,12 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         OnPropertyChanged(nameof(ShowEmbeddedTerminal));
         OnPropertyChanged(nameof(ShowExternalHint));
         OnPropertyChanged(nameof(ExternalHintText));
+        OnPropertyChanged(nameof(IsCompact));
+        OnPropertyChanged(nameof(ShowPanelBody));
+        OnPropertyChanged(nameof(ShowHideSshTerminalOption));
+        OnPropertyChanged(nameof(ShowHeaderInstallIcon));
+        OnPropertyChanged(nameof(ShowCompactInstallButton));
+        OnPropertyChanged(nameof(StatusToolTip));
         OnPropertyChanged(nameof(InstallActionText));
         OnPropertyChanged(nameof(InstallHelpText));
     }
@@ -413,7 +455,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     /// </summary>
     public Task EnsureStartedAsync()
     {
-        if (_disposed || IsInstalling)
+        if (_disposed || IsInstalling || DebugSuppressLaunch)
             return Task.CompletedTask;
         // Already have a live session for the current selection — do not bounce it.
         if (IsRunning && (_session is not null || _externalProcess is not null || _detachedAppActive))

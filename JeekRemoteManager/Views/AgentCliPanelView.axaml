@@ -50,7 +50,7 @@
                            MaxLines="1"
                            FontSize="11"
                            Foreground="{DynamicResource TextMutedBrush}"
-                           ToolTip.Tip="{Binding StatusText}" />
+                           ToolTip.Tip="{Binding StatusToolTip}" />
 
                 <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
                     <Button Classes="toolbar icon-button"
@@ -80,9 +80,15 @@
                             Padding="0">
                         <TextBlock Classes="icon" FontSize="12" Text="&#xE71A;" />
                     </Button>
+                    <Button Command="{Binding InstallCommand}"
+                            Content="{Binding InstallActionText}"
+                            IsVisible="{Binding ShowCompactInstallButton}"
+                            ToolTip.Tip="{Binding InstallHelpText}"
+                            MinHeight="28"
+                            Padding="10,0" />
                     <Button Classes="toolbar icon-button"
                             Command="{Binding InstallCommand}"
-                            IsVisible="{Binding ShowInstallPrompt}"
+                            IsVisible="{Binding ShowHeaderInstallIcon}"
                             ToolTip.Tip="{Binding InstallActionText}"
                             MinHeight="28"
                             MinWidth="28"
@@ -106,7 +112,7 @@
                                 <MenuItem Header="{l:Localize AiHideSshTerminal}"
                                           ToggleType="CheckBox"
                                           IsChecked="{Binding HideSshTerminal, Mode=TwoWay}"
-                                          IsVisible="{Binding ShowConnectionOptions}"
+                                          IsVisible="{Binding ShowHideSshTerminalOption}"
                                           ToolTip.Tip="{l:Localize AiHideSshTerminalHint}" />
                                 <Separator IsVisible="{Binding ShowConnectionOptions}" />
                                 <MenuItem Header="{l:Localize AiOpenWorkspaceFolder}"
@@ -141,8 +147,11 @@
             </Grid>
         </Border>
 
-        <!-- Single fill child: install prompt or terminal host. -->
-        <Grid x:Name="TerminalHost" MinHeight="120" MinWidth="160">
+        <!-- Single fill child: install prompt or terminal host. Absent in the compact bar. -->
+        <Grid x:Name="TerminalHost"
+              MinHeight="120"
+              MinWidth="160"
+              IsVisible="{Binding ShowPanelBody}">
             <!-- Not installed: prompt + one-click install. -->
             <Border IsVisible="{Binding ShowInstallPrompt}"
                     Padding="24"

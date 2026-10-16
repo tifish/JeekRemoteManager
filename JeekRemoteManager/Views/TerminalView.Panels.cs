@@ -336,15 +336,28 @@ public partial class TerminalView
     }
 
     /// <summary>
-    /// Lays out the terminal/AI columns for the current panel state. Three states: panel
+    /// Lays out the terminal/AI columns for the current panel state. Four states: panel
     /// hidden (terminal full width), side panel (terminal + splitter + fixed-width panel),
-    /// and hidden-terminal mode (the AI panel takes the whole tab above an optional
-    /// file browser).
+    /// hidden-terminal mode (the AI panel takes the whole tab above an optional file
+    /// browser), and the compact bar (header only, docked above the whole tab) while the
+    /// agent runs outside the tab.
     /// </summary>
     private void ApplyAiPanelLayout()
     {
         var show = AiPanelHost.IsVisible;
+        var compact = show && _aiViewModel?.IsCompact == true;
         var hideSshTerminal = IsSshTerminalHidden;
+
+        // One panel instance moves between the side column and the bar, so switching modes
+        // keeps its state. AiPanelHost stays visible as the open flag, empty while compact.
+        var host = compact ? AiBarHost : AiPanelHost;
+        if (!ReferenceEquals(host.Child, AiPanel))
+        {
+            (compact ? AiPanelHost : AiBarHost).Child = null;
+            host.Child = AiPanel;
+        }
+        AiBarHost.IsVisible = compact;
+        AiPanelHost.BorderThickness = compact ? default : new Thickness(0, 0, 1, 0);
 
         // Hiding the terminal area (not just collapsing the column) keeps the pty size
         // stable, so remote command output isn't rewrapped to a zero-width window.
@@ -354,12 +367,12 @@ public partial class TerminalView
             ? new GridLength(0, GridUnitType.Pixel)
             : new GridLength(1, GridUnitType.Star);
 
-        AiSplitter.IsVisible = show && !hideSshTerminal;
+        AiSplitter.IsVisible = show && !compact && !hideSshTerminal;
 
         if (show)
             Dispatcher.UIThread.Post(() => AiPanel.NotifyHostLayoutChanged(), DispatcherPriority.Loaded);
 
-        if (!show)
+        if (!show || compact)
         {
             // Collapse the column so it leaves no gap.
             AiColumn.MinWidth = 0;
@@ -440,6 +453,7 @@ public partial class TerminalView
                 if (IsLoginManualInputPending)
                     FocusTerminal();
             },
+            compactWhenExternal: true,
             preferredRunMode: preferredRunMode,
             resolvePreferredRunMode: kind =>
                 (DataContext as MainWindowViewModel)?.GetAiRunModeForKind(kind) ?? AgentCliRunMode.Cli,
@@ -463,7 +477,16 @@ public partial class TerminalView
         {
             if (DataContext is not MainWindowViewModel ownerVm)
                 return;
-            if (e.PropertyName == nameof(AgentCliPanelViewModel.SelectedProvider))
+            // IsCompact is re-raised with every layout flag; relayout only on a real change.
+            if (e.PropertyName == nameof(AgentCliPanelViewModel.IsCompact))
+            {
+                if (!ReferenceEquals(_aiViewModel, vm) || vm.IsCompact == IsAiPanelCompact)
+                    return;
+                // Leaving the side column: keep its width for when CLI mode returns.
+                PersistAiPanelWidth();
+                ApplyAiPanelLayout();
+            }
+            else if (e.PropertyName == nameof(AgentCliPanelViewModel.SelectedProvider))
                 ownerVm.AiProvider = vm.SelectedProvider.Label;
             else if (e.PropertyName is nameof(AgentCliPanelViewModel.SelectedRunModeOption)
                      or nameof(AgentCliPanelViewModel.RunMode))
