@@ -159,6 +159,13 @@ public static class DebugMcpContract
         Tool("agent_desktop_launch_check",
             "Report how each agent that offers a Desktop run mode would be opened on a workspace — protocol URI or executable command line — without launching anything, plus which desktop URI schemes Windows has registered.",
             new() { ["workspace"] = Prop("string", "Workspace folder to plan for (default the global agent workspace).") }),
+        Tool("t3code_open_check",
+            "Locate the T3 Code launcher and desktop app and verify the t3 CLI error summary. With open=true, open a workspace in T3 Code through the AI panel's real path, starting the app and waiting for it when it is not running.",
+            new()
+            {
+                ["open"] = Prop("boolean", "Actually open the workspace in T3 Code (default false)."),
+                ["workspace"] = Prop("string", "Workspace folder to open (default the global agent workspace)."),
+            }),
         Tool("agent_discovery_cache_check",
             "Verifies the agent-discovery cache serves repeated probes but expires, so an agent installed outside the app appears without restarting. Takes about six seconds.",
             new()),

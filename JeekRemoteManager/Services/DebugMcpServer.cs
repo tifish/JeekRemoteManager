@@ -155,6 +155,7 @@ internal static partial class DebugMcpServer
         host.AddTool("ai_cli_ctrl_c_check", _ => AiCliCtrlCCheckAsync());
         host.AddTool("agent_cli_locate_check", AgentCliLocateCheckAsync);
         host.AddTool("agent_desktop_launch_check", AgentDesktopLaunchCheckAsync);
+        host.AddTool("t3code_open_check", T3CodeOpenCheckAsync);
         host.AddTool("agent_discovery_cache_check", _ => AgentDiscoveryCacheCheckAsync());
         host.AddTool("agent_cli_mcp_config_check", AgentCliMcpConfigCheckAsync);
         host.AddTool("login_menu_select_check", LoginMenuSelectCheckAsync);

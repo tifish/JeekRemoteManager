@@ -265,6 +265,66 @@ public static class AgentCliLocator
     }
 
     /// <summary>
+    /// Returns the <c>t3.cmd</c> launcher the T3 Code desktop app writes into its home
+    /// (<c>%T3CODE_HOME%</c>, default <c>%USERPROFILE%\.t3</c>) on startup, or <c>null</c>.
+    /// Only that location is probed: a bare <c>t3</c> on PATH is too generic a name to trust.
+    /// </summary>
+    public static string? FindT3CodeCli()
+    {
+        foreach (var home in EnumerateT3CodeHomes())
+        {
+            var candidate = Path.Combine(home, "bin", "t3.cmd");
+            if (File.Exists(candidate))
+                return candidate;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Returns the T3 Code desktop executable, or <c>null</c> if it is not installed. The file
+    /// name carries the release channel (<c>T3 Code (Alpha).exe</c>, <c>T3 Code (Beta).exe</c>),
+    /// so the per-user install folder is searched; the <c>t3code:</c> handler covers the rest.
+    /// </summary>
+    public static string? FindT3CodeDesktop()
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var installDir = Path.Combine(localAppData, "Programs", "t3code");
+        try
+        {
+            if (Directory.Exists(installDir))
+            {
+                foreach (var candidate in Directory.EnumerateFiles(installDir, "T3 Code*.exe"))
+                    return candidate;
+            }
+        }
+        catch
+        {
+            // Fall through to the protocol handler.
+        }
+
+        // The handler command is `"<exe>" "%1"`.
+        if (FindProtocolHandler("t3code") is { } command && command.StartsWith('"'))
+        {
+            var end = command.IndexOf('"', 1);
+            if (end > 1 && command[1..end] is var exe && File.Exists(exe))
+                return exe;
+        }
+
+        return null;
+    }
+
+    private static System.Collections.Generic.IEnumerable<string> EnumerateT3CodeHomes()
+    {
+        if (Environment.GetEnvironmentVariable("T3CODE_HOME") is { Length: > 0 } configured)
+            yield return configured.Trim();
+
+        yield return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".t3");
+    }
+
+    /// <summary>
     /// Resolves symlinks and directory junctions so the CLI runs from its real install
     /// directory. The Codex standalone installer exposes codex.exe through a junction
     /// (%LOCALAPPDATA%\Programs\OpenAI\Codex\bin → ~\.codex\packages\standalone\current\bin),

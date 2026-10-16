@@ -18,6 +18,7 @@ public static class AgentCliInstaller
     private const string ClaudeDownload = "https://claude.com/download";
     private const string CursorDownload = "https://cursor.com/download";
     private const string VsCodeDownload = "https://code.visualstudio.com/Download";
+    private const string T3CodeDownload = "https://t3.codes/download";
 
     /// <summary>
     /// Official install line for one surface of an agent, shown to the user before and while it
@@ -52,6 +53,7 @@ public static class AgentCliInstaller
             // VS Code recommends its graphical Windows user installer; Zed publishes a winget package.
             (AgentCliKind.VsCode, _) => VsCodeDownload,
             (AgentCliKind.Zed, _) => "winget install -e --id ZedIndustries.Zed",
+            (AgentCliKind.T3Code, _) => T3CodeDownload,
             _ => "",
         };
 
@@ -154,6 +156,7 @@ public static class AgentCliInstaller
         (AgentCliKind.Cursor, _) => AgentCliLocator.FindCursor(),
         (AgentCliKind.VsCode, _) => AgentCliLocator.FindVsCode(),
         (AgentCliKind.Zed, _) => AgentCliLocator.FindZed(),
+        (AgentCliKind.T3Code, _) => AgentCliLocator.FindT3CodeCli() ?? AgentCliLocator.FindT3CodeDesktop(),
         _ => null,
     };
 

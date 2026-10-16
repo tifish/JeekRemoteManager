@@ -1262,16 +1262,66 @@ internal static partial class DebugMcpServer
                         ' ',
                         AgentCliCatalog.BuildDesktopArguments(descriptor.Kind, workspace))}",
                 (AgentDesktopLaunch.Executable, _) => "FAIL: executable launch with no executable",
+                (AgentDesktopLaunch.Cli, _) =>
+                    $"`t3 app` in {workspace} via {AgentCliLocator.FindT3CodeCli() ?? "(no launcher yet)"}"
+                    + $"; cold start runs {AgentCliLocator.FindT3CodeDesktop() ?? "(no desktop app)"}",
                 _ => "FAIL: offers a desktop run mode with no launch mechanism",
             };
             sb.AppendLine(
                 $"{descriptor.Label}: launch={launch} available={surface?.IsAvailable == true} -> {plan}");
         }
 
-        foreach (var scheme in new[] { "claude", "codex" })
+        foreach (var scheme in new[] { "claude", "codex", "t3code" })
             sb.AppendLine($"scheme {scheme}: registered={AgentCliLocator.IsUriSchemeRegistered(scheme)}");
 
         return Task.FromResult(ToolText(sb.ToString().TrimEnd()));
+    }
+
+    /// <summary>
+    /// Opens a workspace in T3 Code for real, through the same path the AI panel takes —
+    /// including starting the desktop app and waiting for it when it is not running — and
+    /// checks the CLI error summarizer against the shape <c>t3 app</c> prints.
+    /// </summary>
+    private static async Task<JsonObject> T3CodeOpenCheckAsync(JsonObject args)
+    {
+        var sb = new StringBuilder();
+        var passed = true;
+
+        const string sample =
+            "[11:52:50.223] ERROR (#11): DesktopAppUnreachableError: Could not reach the T3 Code desktop app.\n"
+            + "    at catch (file:///C:/x/binCli.mjs:71660:21)\n";
+        var summary = T3CodeDesktop.SummarizeError(sample);
+        var summaryOk = summary == "Could not reach the T3 Code desktop app.";
+        passed &= summaryOk;
+        sb.AppendLine($"{(summaryOk ? "PASS" : "FAIL")}: error summary -> {summary ?? "(null)"}");
+
+        sb.AppendLine($"cli: {AgentCliLocator.FindT3CodeCli() ?? "(none)"}");
+        sb.AppendLine($"desktop: {AgentCliLocator.FindT3CodeDesktop() ?? "(none)"}");
+
+        if (args["open"]?.GetValue<bool>() != true)
+        {
+            sb.AppendLine("open skipped (pass open=true to open the workspace in T3 Code).");
+            return ToolText(
+                $"{(passed ? "PASS" : "FAIL")}: T3 Code launcher.\n{sb.ToString().TrimEnd()}",
+                isError: !passed);
+        }
+
+        var workspace = args["workspace"]?.GetValue<string>() is { Length: > 0 } requested
+            ? requested
+            : Path.Combine(AgentCliWorkspace.RootPath, "_application");
+        Directory.CreateDirectory(workspace);
+
+        var watch = Stopwatch.StartNew();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        var result = await T3CodeDesktop.OpenWorkspaceAsync(workspace, cts.Token).ConfigureAwait(false);
+        passed &= result.Success;
+        sb.AppendLine(
+            $"{(result.Success ? "PASS" : "FAIL")}: open {workspace} in {watch.ElapsedMilliseconds} ms"
+            + (result.Detail is { Length: > 0 } detail ? $" — {detail}" : ""));
+
+        return ToolText(
+            $"{(passed ? "PASS" : "FAIL")}: T3 Code launcher.\n{sb.ToString().TrimEnd()}",
+            isError: !passed);
     }
 
     private static string DescribeAgentInstaller(
@@ -1353,6 +1403,16 @@ internal static partial class DebugMcpServer
             }
         }
 
+        // Hosts that run Claude themselves (Claude Desktop, T3 Code) only see this grant.
+        var claudeToolsAllowed =
+            File.Exists(claudeSettingsPath)
+            && TryParseJsonObject(File.ReadAllText(claudeSettingsPath))
+                ?["permissions"]?["allow"] is JsonArray claudeAllow
+            && claudeAllow.Any(node => string.Equals(
+                node?.GetValue<string>(),
+                $"mcp__{AgentCliWorkspace.McpServerName}",
+                StringComparison.Ordinal));
+
         var cursorPermissionsPath = Path.Combine(workspace, ".cursor", "cli.json");
         var cursorAllowed =
             File.Exists(cursorPermissionsPath)
@@ -1395,6 +1455,7 @@ internal static partial class DebugMcpServer
                               $"**Pinned connection:** `{connection}`",
                               StringComparison.Ordinal)),
             ("Claude approval", claudeApproved),
+            ("Claude tool permission", claudeToolsAllowed),
             ("Cursor CLI permission", cursorAllowed),
         };
 

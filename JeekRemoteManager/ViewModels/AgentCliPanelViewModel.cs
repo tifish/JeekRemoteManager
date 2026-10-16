@@ -36,6 +36,11 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     private bool _disposed;
     /// <summary>Bumped on every start/stop request so superseded launches dispose their process.</summary>
     private int _startGeneration;
+    /// <summary>
+    /// Cancels a desktop open that is still waiting on the app (T3 Code's cold start), so a
+    /// stop or switch does not sit behind the start gate until that open gives up.
+    /// </summary>
+    private CancellationTokenSource? _pendingOpenCts;
     private readonly object _captureGate = new();
     private FileStream? _captureStream;
 
@@ -246,7 +251,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     /// </summary>
     private async Task StopForSelectionChangeAsync()
     {
-        Interlocked.Increment(ref _startGeneration);
+        SupersedeLaunches();
         await _startGate.WaitAsync().ConfigureAwait(true);
         try
         {
@@ -520,7 +525,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             return;
 
         // Capture selection at request time; a later ComboBox change bumps generation.
-        var generation = Interlocked.Increment(ref _startGeneration);
+        var generation = SupersedeLaunches();
         var provider = SelectedProvider;
         var runMode = RunMode;
 
@@ -569,11 +574,20 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
                 if (runMode == AgentCliRunMode.Desktop)
                 {
-                    if (!TryStartDesktopApp(provider, surface))
+                    string? failure = null;
+                    var opened = desktopLaunch == AgentDesktopLaunch.Cli
+                        ? (failure = await OpenInDesktopAppViaCliAsync(provider, generation)
+                            .ConfigureAwait(true)) is null
+                        : TryStartDesktopApp(provider, surface);
+                    if (!opened)
                     {
                         if (generation != Volatile.Read(ref _startGeneration))
                             return;
-                        StatusText = L("AiCliStartFailed", L("AiCliDesktopLaunchFailed", provider.Label));
+                        StatusText = L(
+                            "AiCliStartFailed",
+                            string.IsNullOrWhiteSpace(failure)
+                                ? L("AiCliDesktopLaunchFailed", provider.Label)
+                                : L("AiCliDesktopLaunchFailedDetail", provider.Label, failure));
                         IsRunning = false;
                         NotifyLayoutFlags();
                         return;
@@ -692,6 +706,14 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         }
     }
 
+    /// <summary>Invalidates every in-flight launch and returns the new generation.</summary>
+    private int SupersedeLaunches()
+    {
+        var generation = Interlocked.Increment(ref _startGeneration);
+        Interlocked.Exchange(ref _pendingOpenCts, null)?.Cancel();
+        return generation;
+    }
+
     [RelayCommand]
     private Task RestartAsync() => StartAsync();
 
@@ -699,7 +721,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     private async Task StopAsync()
     {
         // Invalidate any in-flight StartAsync so it does not revive the session after stop.
-        Interlocked.Increment(ref _startGeneration);
+        SupersedeLaunches();
         await _startGate.WaitAsync().ConfigureAwait(true);
         try
         {
@@ -979,6 +1001,34 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     }
 
     /// <summary>
+    /// Opens the workspace in a desktop app whose own CLI does the opening (T3 Code), which can
+    /// mean starting the app and waiting for it. Returns null on success, otherwise the reason —
+    /// empty when there is nothing more specific than "could not open".
+    /// </summary>
+    private async Task<string?> OpenInDesktopAppViaCliAsync(AgentCliDescriptor provider, int generation)
+    {
+        // Not disposed: SupersedeLaunches may still be cancelling it from another thread.
+        var cts = new CancellationTokenSource();
+        Interlocked.Exchange(ref _pendingOpenCts, cts)?.Cancel();
+        // A stop that landed before the exchange would have missed this token.
+        if (generation != Volatile.Read(ref _startGeneration))
+            cts.Cancel();
+
+        StatusText = L("AiCliOpeningDesktop", provider.Label);
+        try
+        {
+            var result = await T3CodeDesktop.OpenWorkspaceAsync(_workingDirectory, cts.Token)
+                .ConfigureAwait(true);
+            _detachedAppActive = result.Success;
+            return result.Success ? null : result.Detail ?? "";
+        }
+        finally
+        {
+            Interlocked.CompareExchange(ref _pendingOpenCts, null, cts);
+        }
+    }
+
+    /// <summary>
     /// Opens the workspace folder in an editor or desktop app. That app is a long-lived window
     /// the user owns, not a session we manage: it may already be running (in which case it just
     /// opens a new window and the process we started exits at once), and stopping the panel
@@ -1151,7 +1201,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         if (_disposed)
             return;
         _disposed = true;
-        Interlocked.Increment(ref _startGeneration);
+        SupersedeLaunches();
         await _startGate.WaitAsync().ConfigureAwait(false);
         try
         {

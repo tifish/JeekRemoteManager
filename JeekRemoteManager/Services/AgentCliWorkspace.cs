@@ -331,6 +331,23 @@ public static class AgentCliWorkspace
             }
         }
 
+        // Hosts that run Claude for us (Claude Desktop, T3 Code) never see --allowedTools, so
+        // grant this one server's tools here too — the rule names the server, not local shell.
+        if (root["permissions"] is not JsonObject permissions)
+        {
+            permissions = new JsonObject();
+            root["permissions"] = permissions;
+        }
+
+        var allowRule = $"mcp__{McpServerName}";
+        var allow = permissions["allow"] as JsonArray ?? new JsonArray();
+        if (!allow.Any(node =>
+                string.Equals(node?.GetValue<string>(), allowRule, StringComparison.Ordinal)))
+        {
+            allow.Add(allowRule);
+        }
+        permissions["allow"] = allow;
+
         File.WriteAllText(
             settingsPath,
             root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n",

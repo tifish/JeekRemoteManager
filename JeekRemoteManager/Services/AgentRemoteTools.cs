@@ -94,6 +94,12 @@ public enum AgentCliKind
     /// </summary>
     Cursor,
 
+    /// <summary>
+    /// T3 Code: a desktop host that runs Claude, Codex, Cursor, and others on a project folder.
+    /// It has no terminal surface of its own, so it is offered in Desktop mode only.
+    /// </summary>
+    T3Code,
+
     /// <summary>Editors opened on the workspace folder rather than run as a CLI.</summary>
     VsCode,
     Zed,
@@ -121,6 +127,12 @@ public enum AgentDesktopLaunch
 
     /// <summary>The app's own executable, given the folder as an argument.</summary>
     Executable,
+
+    /// <summary>
+    /// The app's companion CLI asks the running app to open the folder, starting the app first
+    /// when it is not running. Asynchronous: see <see cref="T3CodeDesktop"/>.
+    /// </summary>
+    Cli,
 }
 
 /// <summary>One launchable surface of an agent: the program behind it, and how to get it.</summary>
@@ -284,6 +296,14 @@ public static class AgentCliCatalog
             [AgentSurfaceKind.Ide] = Surface(
                 AgentCliKind.Cursor, AgentSurfaceKind.Ide, AgentCliLocator.FindCursor()),
         }),
+        new(AgentCliKind.T3Code, "T3 Code", new Dictionary<AgentSurfaceKind, AgentSurface>
+        {
+            // The t3 launcher is written by the app on its first start, so the app alone is
+            // enough: opening the workspace starts it, and the launcher appears.
+            [AgentSurfaceKind.Desktop] = Surface(
+                AgentCliKind.T3Code, AgentSurfaceKind.Desktop,
+                AgentCliLocator.FindT3CodeCli() ?? AgentCliLocator.FindT3CodeDesktop()),
+        }),
         Editor(AgentCliKind.VsCode, "VS Code", AgentCliLocator.FindVsCode()),
         Editor(AgentCliKind.Zed, "Zed", AgentCliLocator.FindZed()),
     ];
@@ -326,6 +346,7 @@ public static class AgentCliCatalog
     public static IReadOnlyList<AgentCliRunMode> RunModesFor(AgentCliKind kind) => kind switch
     {
         AgentCliKind.VsCode or AgentCliKind.Zed => [AgentCliRunMode.Ide],
+        AgentCliKind.T3Code => [AgentCliRunMode.Desktop],
         AgentCliKind.Cursor =>
             [AgentCliRunMode.Cli, AgentCliRunMode.WindowsTerminal, AgentCliRunMode.Ide],
         AgentCliKind.Antigravity =>
@@ -360,8 +381,9 @@ public static class AgentCliCatalog
 
     /// <summary>
     /// How this agent's desktop surface is opened, if it has one. Claude registers a URI,
-    /// Copilot has an official hosted app launcher, and Antigravity is launched through its
-    /// executable.
+    /// Copilot has an official hosted app launcher, Antigravity is launched through its
+    /// executable, and T3 Code — whose links cannot carry a folder — through its <c>t3 app</c>
+    /// command.
     /// <para>
     /// Codex is decided at launch time. Its deep link is the only way to open a workspace:
     /// on Windows <c>codex app [PATH]</c> resolves the Start menu AppID of the MSIX package
@@ -377,6 +399,7 @@ public static class AgentCliCatalog
             ? AgentDesktopLaunch.Protocol
             : AgentDesktopLaunch.Executable,
         AgentCliKind.Antigravity => AgentDesktopLaunch.Executable,
+        AgentCliKind.T3Code => AgentDesktopLaunch.Cli,
         _ => AgentDesktopLaunch.None,
     };
 

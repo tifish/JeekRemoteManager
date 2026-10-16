@@ -1796,9 +1796,17 @@ try
           && grokDesktopUri is null
           && claudeDesktopUri.Contains("folder=", StringComparison.Ordinal)
           && codexDesktopArgs.SequenceEqual(["app", desktopPath])
-          && antigravityDesktopArgs.SequenceEqual([desktopPath]),
+          && antigravityDesktopArgs.SequenceEqual([desktopPath])
+          // T3 Code's links cannot carry a folder; its `t3 app` command opens it instead.
+          && AgentCliCatalog.DesktopLaunch(AgentCliKind.T3Code) == AgentDesktopLaunch.Cli
+          && AgentCliCatalog.RunModesFor(AgentCliKind.T3Code).SequenceEqual([AgentCliRunMode.Desktop])
+          && AgentCliCatalog.BuildDesktopProtocolUri(AgentCliKind.T3Code, desktopPath) is null
+          && T3CodeDesktop.SummarizeError(
+                 "[11:52:50.223] ERROR (#11): DesktopAppUnreachableError: Could not reach the app.\n"
+                 + "    at catch (file:///x.mjs:1:1)\n")
+             == "Could not reach the app.",
           "Desktop mode hands Claude/Codex a folder-aware URI, Copilot its launcher, "
-          + "and Antigravity executable arguments");
+          + "Antigravity executable arguments, and T3 Code its open command");
 
     var providers = AgentCliCatalog.Discover();
     var allMissingSurfacesHaveAction = providers.All(provider =>
@@ -1855,6 +1863,8 @@ try
                 "https://code.visualstudio.com/Download",
             [(AgentCliKind.Cursor, AgentSurfaceKind.Ide)] =
                 "https://cursor.com/download",
+            [(AgentCliKind.T3Code, AgentSurfaceKind.Desktop)] =
+                "https://t3.codes/download",
         };
     var commandInstallersUseExternalConsole = preferredAgentInstallActions
         .Where(pair => !AgentCliInstaller.IsDownloadPage(pair.Value))

@@ -1,6 +1,6 @@
 # AI Agent 集成
 
-涉及 `Services/AgentRemoteTools.cs`（含 `AgentCliCatalog`）、`AgentCliLocator.cs`、`AgentCliInstaller.cs`、`AgentCliWorkspace.cs`、`AgentProjectLink.cs`、`AgentMcpConfigCatalog.cs`、`ViewModels/AgentCliPanelViewModel.cs`、`Views/AgentCliPanelView.axaml.cs`。
+涉及 `Services/AgentRemoteTools.cs`（含 `AgentCliCatalog`）、`AgentCliLocator.cs`、`T3CodeDesktop.cs`、`AgentCliInstaller.cs`、`AgentCliWorkspace.cs`、`AgentProjectLink.cs`、`AgentMcpConfigCatalog.cs`、`ViewModels/AgentCliPanelViewModel.cs`、`Views/AgentCliPanelView.axaml.cs`。
 
 ## 两种 agent
 
@@ -76,17 +76,17 @@ AI 面板的选项菜单既能在资源管理器中打开工作区，也能复�
 
 `AgentCliInstaller` 跑各家官方的一行安装命令；官方推荐图形安装器的就打开下载页。安装跑在**可见的外部 PowerShell 窗口**里而不是把输出重定向进应用，让用户能直接跟提示、进度和错误互动。
 
-### 暂未集成：T3 Code
+### T3 Code
 
-T3 Code（Electron，`%LOCALAPPDATA%\Programs\t3code\T3 Code (Alpha).exe`）**没有加进 provider 列表**，因为外部无法把工作区文件夹交给它。验证过的现状（对应 0.0.38 alpha）：
+T3 Code（Electron，`%LOCALAPPDATA%\Programs\t3code\T3 Code (<渠道>).exe`）是 agent 宿主，底下跑 Claude / Codex / Cursor 等，所以它**只有 Desktop 一个 surface**，打开的就是同一个工作区。验证过的现状（对应 0.1.0 beta）：
 
-- **没有 CLI**，PATH、npm 全局目录、MSIX 包里都没有入口。
-- 它确实注册了 `t3code://`（带 `shell\open\command`），**但那是 Clerk 的 OAuth 回调**：main 进程只做 `findMatchingCallbackUrl(argv, redirectUrl)`，`second-instance` 的实现就是把主窗口带到前台，**argv 里的路径被完全忽略**。没有第二个 deep link 路由。
-- 唯一能加项目的入口是它自己的 WebSocket RPC `projects.add`（`WS_METHODS`，服务端口记在 `~/.t3/userdata/server-runtime.json`），**受环境授权保护**（`EnvironmentAuthorizationError` + `AuthEnvironmentScope`，走 Clerk token / pairing link）且未公开。为了一个"打开文件夹"去实现别家 alpha 的鉴权和帧格式，版本一动就断，不值。
-
-不过 **MCP 那一半本来就通**：T3 Code 是 agent 宿主，底下跑 Claude / Codex / Cursor / Grok，给 Claude 传的是 `--mcp-config <内联 JSON>` **追加**（`--strict-mcp-config` 只在它自己的健康检查那条路上加）。所以把 `%LOCALAPPDATA%\JeekRemoteManager\AgentWorkspaces\<连接>` 手动 Add project 加进 T3 Code，里面的 provider 就能读到工作区已经写好的 `AGENTS.md` 和 `.mcp.json` / `.codex/config.toml` / `.cursor/mcp.json`。T3 Code 会记住这个项目，只需加一次。
-
-等它出了 CLI 或能带文件夹的 deep link，再按 `Editor(...)` 那条路径加成一个 Ide surface。
+- **`t3code:` 链接带不了本地文件夹**。`t3code://new?...` 只认 `prompt` / `repo`（GitHub `owner/name`）/ `pr` / `provider` / `model`，`t3code://threads/...` 打开已有线程。
+- 唯一公开的入口是应用自带的 **`t3 app [PATH]`**：桌面应用启动时把 `t3.cmd` 写进 `%T3CODE_HOME%\bin`（默认 `~\.t3\bin`），它经应用的本地控制管道发 `open-workspace`，应用建项目（已有就复用）并打开线程。**只探测这个位置**，PATH 上裸 `t3` 名字太泛，不认。
+- **`t3 app` 只能找正在运行的桌面应用**，应用没开时半秒内报 "Could not reach the T3 Code desktop app"。所以 `T3CodeDesktop` 先试一次，失败就启动桌面 exe（已在运行时第二实例只会把窗口带到前台），再每秒重试到 45 秒。CLI 的报错措辞不是契约，所以**任何失败都走启动+重试**，不按文字判断。从没开过的安装此时还没有 `t3.cmd`，重试时再找。
+- **路径不放命令行**：`t3 app` 不带参数时打开当前目录，所以把工作区设为子进程工作目录。`t3.cmd` 是批处理，连接名里的 `&`、`%` 过不了 cmd 的参数解析。
+- 启动桌面应用时**工作目录不能是工作区**：长期进程的当前目录会让这个文件夹无法改名或删除。
+- 冷启动可能要等十几秒，这期间 Start 在 `_startGate` 里 await。停止、切换和关闭面板都会**取消这次等待**（`SupersedeLaunches`），否则它们要排在门后面等打开超时。
+- T3 Code 不会给 Claude 传 `--allowedTools`，所以工作区的 `.claude/settings.local.json` 里同时写了 `permissions.allow: ["mcp__jrm-remote"]`——只放行我们这一个服务器，Claude Desktop 同样受益。
 
 ## 远程命令执行
 

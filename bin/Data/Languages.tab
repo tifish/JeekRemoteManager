@@ -464,7 +464,9 @@ AiCliRunningDesktop	{0} opened in the desktop app.	{0} 已在桌面应用中打�
 AiCliStartFailed	Failed to start CLI: {0}	启动 CLI 失败：{0}
 AiCliWindowsTerminalMissing	Windows Terminal (wt.exe) was not found.	未找到 Windows Terminal（wt.exe）。
 AiCliDesktopLaunchFailed	Could not open the {0} desktop app (is it installed and registered?).	无法打开 {0} 桌面应用（是否已安装并注册协议？）。
-AiCliDesktopUnsupported	Desktop mode only supports Claude, Codex, and GitHub Copilot (not {0}).	Desktop 模式仅支持 Claude、Codex 和 GitHub Copilot（不支持 {0}）。
+AiCliDesktopLaunchFailedDetail	Could not open the workspace in {0}: {1}	无法在 {0} 中打开工作区：{1}
+AiCliOpeningDesktop	Opening the workspace in {0}…	正在 {0} 中打开工作区…
+AiCliDesktopUnsupported	{0} has no desktop app to open.	{0} 没有可打开的桌面应用。
 AiCliExited	{0} exited (code {1}). Click Start to run again.	{0} 已退出（代码 {1}）。点击「启动」可再次运行。
 AiCliExitedNoCode	{0} exited. Click Start to run again.	{0} 已退出。点击「启动」可再次运行。
 AiCliExitedWithDetail	{0} exited (code {1}): {2}	{0} 已退出（代码 {1}）：{2}
