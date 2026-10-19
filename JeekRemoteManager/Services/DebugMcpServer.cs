@@ -128,6 +128,7 @@ internal static partial class DebugMcpServer
         host.AddTool("script_completion_order_check", _ => ScriptCompletionOrderCheckAsync());
         host.AddTool("terminal_encoding_check", _ => TerminalEncodingCheckAsync());
         host.AddTool("terminal_session_log_check", _ => TerminalSessionLogCheckAsync());
+        host.AddTool("terminal_unresponsive_channel_check", TerminalUnresponsiveChannelCheckAsync);
         host.AddTool("terminal_find_check", _ => TerminalFindCheckAsync());
         host.AddTool("terminal_appearance_check", _ => TerminalAppearanceCheckAsync());
         host.AddTool(

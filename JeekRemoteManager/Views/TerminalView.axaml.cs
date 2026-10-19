@@ -148,6 +148,10 @@ public partial class TerminalView : UserControl
     private TaskCompletionSource<string>? _aiTransferCompletion;
     private int _connectionGeneration;
     private long _lastShellDataTicks;
+    // Debug MCP: data of this connection generation is dropped, simulating a channel the
+    // bastion stopped feeding. A reconnect starts a new generation and lifts it.
+    private int _silencedGeneration = -1;
+    private long _unresponsiveChannelReconnectCount;
     // Set while a "#input" login-command directive is waiting for the user to
     // type something (e.g. a 2FA code) and press Enter; completed from HandleUserInput.
     private TaskCompletionSource? _loginManualInputTcs;
@@ -216,6 +220,20 @@ public partial class TerminalView : UserControl
 
     private sealed class TerminalConnectionLostException()
         : InvalidOperationException("Server connection was lost during terminal command execution.");
+
+    /// <summary>
+    /// The channel is open but nothing comes back through it: not the runner's handshake,
+    /// not even a reaction to Ctrl+C. A bastion does this when its hop to the target dies
+    /// without closing our channel, so the tab still looks connected. The handshake never
+    /// completed, so the command itself was never sent.
+    /// </summary>
+    private sealed class TerminalChannelUnresponsiveException(string silentSince)
+        : InvalidOperationException(
+            $"Terminal channel stopped responding: no output {silentSince}, not even to Ctrl+C.");
+
+    // How long a channel that ignored the handshake gets to react to Ctrl+C before it is
+    // declared dead. A live shell, menu, or foreground program answers at once.
+    private static readonly TimeSpan UnresponsiveChannelProbeTimeout = TimeSpan.FromSeconds(5);
 
     // Strips ANSI escape sequences (CSI colors/cursor, OSC titles, other Fe escapes) and
     // stray control characters so captured shell output reads as plain text in the AI panel
@@ -295,6 +313,9 @@ public partial class TerminalView : UserControl
     public long AiCommandCompletionCount => Interlocked.Read(ref _aiCommandCompletionCount);
 
     public long TerminalRecoveryCount => Interlocked.Read(ref _terminalRecoveryCount);
+
+    /// <summary>Times a command found the channel dead and replaced it automatically.</summary>
+    public long UnresponsiveChannelReconnectCount => Interlocked.Read(ref _unresponsiveChannelReconnectCount);
 
     /// <summary>Latest AI-triggered automatic reconnect state, exposed for Debug MCP.</summary>
     public string AiAutoReconnectState => _aiAutoReconnectState;
@@ -1302,6 +1323,7 @@ public partial class TerminalView : UserControl
         };
         _activePayloadMonitor = monitor;
         _suppressUserInput = true;
+        var handshakeSentAt = Environment.TickCount64;
 
         try
         {
@@ -1315,6 +1337,18 @@ public partial class TerminalView : UserControl
         catch (ShellRecoveryRequestedException)
         {
             // Manual recovery already interrupted/restored or replaced the shell.
+            throw;
+        }
+        catch (TimeoutException) when (Interlocked.Read(ref _lastShellDataTicks) < handshakeSentAt)
+        {
+            // Not one byte came back for the handshake. A shell busy with a foreground
+            // program still echoes what is typed, so this is either a terminal with echo
+            // off (a stuck heredoc, a password prompt) or a channel that is dead. Ctrl+C
+            // tells them apart: anything alive reacts to it.
+            if (!await ChannelReactsToInterruptAsync(handshakeSentAt, cancellationToken).ConfigureAwait(false))
+                throw new TerminalChannelUnresponsiveException(DescribeSilence());
+
+            TryRestoreShellEcho();
             throw;
         }
         catch (OperationCanceledException)
@@ -1449,6 +1483,34 @@ public partial class TerminalView : UserControl
         {
             // Best-effort only; the shell may already be closed.
         }
+    }
+
+    /// <summary>Sends Ctrl+C and reports whether the channel produced any output since
+    /// <paramref name="sinceTicks"/> within <see cref="UnresponsiveChannelProbeTimeout"/>.</summary>
+    private async Task<bool> ChannelReactsToInterruptAsync(long sinceTicks, CancellationToken cancellationToken)
+    {
+        TryInterruptRemoteCommand();
+        var deadline = Environment.TickCount64 + (long)UnresponsiveChannelProbeTimeout.TotalMilliseconds;
+        while (true)
+        {
+            // A closed channel is not "unresponsive": the Closed handler owns that path.
+            if (_disposed || _shellClosed || Interlocked.Read(ref _lastShellDataTicks) >= sinceTicks)
+                return true;
+            if (Environment.TickCount64 >= deadline)
+                return false;
+            await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private string DescribeSilence()
+    {
+        var lastData = Interlocked.Read(ref _lastShellDataTicks);
+        if (lastData == 0)
+            return "since the channel opened";
+
+        var silentFor = TimeSpan.FromMilliseconds(Math.Max(0, Environment.TickCount64 - lastData));
+        var since = DateTime.Now - silentFor;
+        return $"since {since:MM-dd HH:mm:ss} ({(int)silentFor.TotalSeconds}s)";
     }
 
     private void RecoverShellInputInBackground(ITerminalChannel? channel)

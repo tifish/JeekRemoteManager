@@ -502,7 +502,7 @@ internal static class ProductMcpServer
     }
 
     /// <summary>Resolves a tree path such as <c>vps/bwg</c> to its file and loaded model.</summary>
-    private static (Connection Connection, string TreePath, string FilePath) LoadConnection(string treePath)
+    internal static (Connection Connection, string TreePath, string FilePath) LoadConnection(string treePath)
     {
         var root = MainVm.RootPath;
         var store = MainVm.Store;

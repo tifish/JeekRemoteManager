@@ -91,7 +91,6 @@ public partial class TerminalView
         await _scriptLock.WaitAsync(cancellationToken);
         var commandStarted = false;
         var startedAt = Environment.TickCount64;
-        CancellationTokenSource? timeoutCts = null;
         try
         {
             if (_disposed || _shellClosed || _channel is null)
@@ -101,38 +100,60 @@ public partial class TerminalView
             Interlocked.Increment(ref _aiCommandExecutionCount);
             commandStarted = true;
 
-            Dispatcher.UIThread.Post(() =>
-                FeedLine($"\r\n\u001b[35m[AI]\u001b[0m $ {AiCommandTerminalText.NormalizeForTerminalEcho(command)}"));
+            var echo = $"\r\n\u001b[35m[AI]\u001b[0m $ {AiCommandTerminalText.NormalizeForTerminalEcho(command)}";
+            Dispatcher.UIThread.Post(() => FeedLine(echo));
 
-            var runToken = cancellationToken;
-            if (timeoutSeconds is > 0)
+            var reconnected = false;
+            while (true)
             {
-                timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds.Value));
-                runToken = timeoutCts.Token;
-            }
+                // Per attempt: the time a reconnect took must not count against the retry.
+                using var timeoutCts = timeoutSeconds is > 0
+                    ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
+                    : null;
+                timeoutCts?.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds!.Value));
+                var runToken = timeoutCts?.Token ?? cancellationToken;
 
-            try
-            {
-                var result = await ExecuteRemotePayloadAsync(command, runToken);
-                await FeedCompletionLineAndRefreshPromptAsync(
-                    $"\u001b[35m[AI exit {result.ExitCode}]\u001b[0m");
+                try
+                {
+                    var result = await ExecuteRemotePayloadAsync(command, runToken);
+                    await FeedCompletionLineAndRefreshPromptAsync(
+                        $"\u001b[35m[AI exit {result.ExitCode}]\u001b[0m");
 
-                var output = CleanShellOutput(result.Output ?? string.Empty).Trim();
-                Interlocked.Increment(ref _aiCommandCompletionCount);
-                var durationMs = Environment.TickCount64 - startedAt;
-                return $"[exit {result.ExitCode}]\n[duration_ms {durationMs}]\n{output}";
-            }
-            catch (OperationCanceledException) when (
-                timeoutCts is not null
-                && timeoutCts.IsCancellationRequested
-                && !cancellationToken.IsCancellationRequested)
-            {
-                // Product-side timeout: force full recovery so the channel is usable again.
-                ForceInterruptTerminalCommand();
-                var durationMs = Environment.TickCount64 - startedAt;
-                Interlocked.Increment(ref _aiCommandCompletionCount);
-                return $"[timeout after {timeoutSeconds}s; interrupted]\n[duration_ms {durationMs}]";
+                    var output = CleanShellOutput(result.Output ?? string.Empty).Trim();
+                    Interlocked.Increment(ref _aiCommandCompletionCount);
+                    var durationMs = Environment.TickCount64 - startedAt;
+                    return $"[exit {result.ExitCode}]\n[duration_ms {durationMs}]\n{output}";
+                }
+                catch (OperationCanceledException) when (
+                    timeoutCts is not null
+                    && timeoutCts.IsCancellationRequested
+                    && !cancellationToken.IsCancellationRequested)
+                {
+                    // Product-side timeout: force full recovery so the channel is usable again.
+                    ForceInterruptTerminalCommand();
+                    var durationMs = Environment.TickCount64 - startedAt;
+                    Interlocked.Increment(ref _aiCommandCompletionCount);
+                    return $"[timeout after {timeoutSeconds}s; interrupted]\n[duration_ms {durationMs}]";
+                }
+                catch (TerminalChannelUnresponsiveException ex) when (!reconnected)
+                {
+                    // Nothing was sent past the handshake, so running the command on a
+                    // fresh channel cannot run it twice. Retrying gives callers that poll
+                    // (and the user, who would otherwise find a tab that looks connected
+                    // but swallows everything) a working terminal without intervention.
+                    reconnected = true;
+                    FeedLineOnUiThread($"\u001b[33m[AI] {ex.Message} Reconnecting the terminal ...\u001b[0m");
+                    if (await ReconnectUnresponsiveChannelAsync(cancellationToken) is { } failure)
+                        return $"[command not run: {ex.Message} Automatic reconnect: {failure}]";
+                    if (_disposed || _shellClosed || _channel is null)
+                        return "[command not run: terminal closed while reconnecting]";
+
+                    FeedLineOnUiThread(echo);
+                }
+                catch (TerminalChannelUnresponsiveException ex)
+                {
+                    return $"[command not run: {ex.Message} It was already reconnected once for this command.]";
+                }
             }
         }
         catch (OperationCanceledException)
@@ -163,7 +184,6 @@ public partial class TerminalView
         }
         finally
         {
-            timeoutCts?.Dispose();
             if (commandStarted)
                 Interlocked.Exchange(ref _isAiCommandRunning, 0);
             _scriptLock.Release();
@@ -193,6 +213,7 @@ public partial class TerminalView
             $"ai_exec_count={AiCommandExecutionCount}\n" +
             $"ai_complete_count={AiCommandCompletionCount}\n" +
             $"recovery_count={TerminalRecoveryCount}\n" +
+            $"unresponsive_reconnect_count={UnresponsiveChannelReconnectCount}\n" +
             $"is_wsl={_connection?.IsWsl == true}\n" +
             $"auto_reconnect_state={AiAutoReconnectState}";
     }
@@ -340,7 +361,10 @@ public partial class TerminalView
         }
 
         var generation = ConnectionGeneration;
-        ReconnectTerminal();
+        // MCP tools arrive on a worker thread, and the reconnect writes to the terminal
+        // model. Off the UI thread that write throws after the old channel is already
+        // gone, leaving the tab disconnected with no new attempt started.
+        await Dispatcher.UIThread.InvokeAsync(ReconnectTerminal);
         if (ConnectionGeneration == generation)
             return "[terminal reconnect was not started]";
 

@@ -94,6 +94,18 @@ T3 Code（Electron，`%LOCALAPPDATA%\Programs\t3code\T3 Code (<渠道>).exe`）�
 
 AI 面板不提供“自动执行”开关。生成的 MCP 配置和 CLI 启动参数固定为自动许可 JRM 远程工具；Pi 扩展直接转发调用，不再增加确认。客户端不支持按 MCP 服务器授权时（如 Antigravity），仍由客户端自身决定是否询问。
 
+### 静默死掉的通道
+
+堡垒机到目标那一跳断了，却不关闭我们这条 SSH channel 时（齐治就会这样，同一条传输上的其他 channel 照常工作），标签页仍显示已连接，但发进去的东西再没有任何回音。命令执行器写下握手后等 10 秒拿不到就绪标记，原本只报 "did not acknowledge"，`terminal_interrupt` 也救不回来，于是每次调用都失败，一直持续到有人手动重连。
+
+所以握手**连一个字节都没换回来**时，再发一次 Ctrl+C，给 5 秒：活着的 shell、菜单或前台程序都会有反应（readline 重绘提示符，菜单重画）；还是一片沉默，就判定通道已死（`TerminalChannelUnresponsiveException`），终端自动重连（堡垒机传输从池里借回来，只开新 channel，通常不需要再过 2FA），然后把这条命令重试一次。重试是安全的：握手没完成，命令本体从来没发出去。每条命令最多重连一次；登录卡在 `#input` 或失败时直接返回原因，不等待。
+
+判据刻意定得很窄：
+- 前台程序还开着回显时，打进去的握手文字会被回显，算"有回应"，不会挨 Ctrl+C；只有回显关着（卡住的 heredoc、密码提示）的活 shell 才会走到 Ctrl+C 这一步，而这类状态 Ctrl+C 本来就是正确的恢复手段。它恢复后只报原来的错误，不重连。
+- 握手前已在路上的一个包（例如上一条命令结束后的提示符重绘）会让这一次判为"有回应"，只是把识别推迟到下一条命令，不会误判。
+
+`terminal_status` 的 `unresponsive_reconnect_count` 统计自动重连次数；Debug MCP `terminal_unresponsive_channel_check` 在真实连接上用 `SilenceChannelForDebug`（丢弃当前世代通道的所有输出）复现。
+
 ## 面板生命周期
 
 - 面板打开时自动启动选中的 agent，不需要用户手动点 Start。

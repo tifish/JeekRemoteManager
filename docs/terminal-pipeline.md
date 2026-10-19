@@ -125,4 +125,4 @@ AI 面板另有两条独立的约束：
 
 ## 相关调试入口
 
-`terminal_output_coalescing_check`、`terminal_output_backpressure_check`、`conpty_teardown_race_check`、`ai_render_probe`、`terminal_font_sync_check`。设 `JRM_AI_CAPTURE_DIR` 可以录下嵌入式 CLI 的原始 ConPTY 字节流和 resize 侧车文件，用于离线重放渲染 bug。
+`terminal_output_coalescing_check`、`terminal_output_backpressure_check`、`terminal_unresponsive_channel_check`（静默死通道的识别与自动重连，见 `ai-agents.md`）、`conpty_teardown_race_check`、`ai_render_probe`、`terminal_font_sync_check`。设 `JRM_AI_CAPTURE_DIR` 可以录下嵌入式 CLI 的原始 ConPTY 字节流和 resize 侧车文件，用于离线重放渲染 bug。

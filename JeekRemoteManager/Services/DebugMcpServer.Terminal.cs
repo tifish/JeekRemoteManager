@@ -1881,4 +1881,121 @@ internal static partial class DebugMcpServer
             + (failures.Count == 0 ? "" : "\n" + string.Join("\n", failures.Take(10)));
         return ToolText(report, isError: !passed);
     }
+
+    /// <summary>
+    /// Opens a temporary tab on a real connection and verifies dead-channel recovery: a
+    /// command runs normally; a live shell that swallows input with echo off is reported,
+    /// not reconnected; and a channel whose output is dropped (as when a bastion loses its
+    /// hop to the target but keeps our channel open) is replaced and the command retried.
+    /// </summary>
+    private static async Task<JsonObject> TerminalUnresponsiveChannelCheckAsync(JsonObject args)
+    {
+        var path = (args["connection"]?.GetValue<string>() ?? "vps/bwg").Trim().Trim('/');
+        var failures = new List<string>();
+        var report = new StringBuilder();
+        TabItem? tab = null;
+
+        void Expect(bool condition, string what)
+        {
+            report.AppendLine($"{(condition ? "ok  " : "FAIL")} {what}");
+            if (!condition)
+                failures.Add(what);
+        }
+
+        try
+        {
+            var view = await OnUiAsync(() =>
+            {
+                var main = (Views.MainWindow)Desktop!.MainWindow!;
+                var (connection, _, filePath) = ProductMcpServer.LoadConnection(path);
+                var id = main.OpenTerminalSession(connection, filePath, duplicate: false, activate: false);
+                var session = main.EnumerateTerminalSessions().First(s => s.SessionId == id);
+                tab = session.Tab;
+                return session.View;
+            });
+
+            var readyBy = Environment.TickCount64 + 90_000;
+            while (await OnUiAsync(() => view.LoginSequenceState) != "ready")
+            {
+                if (Environment.TickCount64 > readyBy)
+                    throw new TimeoutException($"login did not finish (state {await OnUiAsync(() => view.LoginSequenceState)})");
+                await Task.Delay(250);
+            }
+
+            var first = await view.RunTerminalCommandForDebugAsync("echo JRM-UNRESP-A", 30);
+            Expect(first.StartsWith("[exit 0]", StringComparison.Ordinal) && first.Contains("JRM-UNRESP-A"),
+                $"a command runs on the fresh channel ({Shorten(first)})");
+
+            // Live but silent: echo off and a foreground program that never reads. The
+            // handshake draws nothing, but Ctrl+C must revive it without a reconnect.
+            var generation = view.ConnectionGeneration;
+            view.SendKeysForAgent("stty -echo; sleep 60\r");
+            await Task.Delay(1500);
+            var swallowed = await view.RunTerminalCommandForDebugAsync("echo JRM-UNRESP-B", 30);
+            Expect(swallowed.Contains("did not acknowledge", StringComparison.Ordinal),
+                $"a live shell that swallows input is reported, not declared dead ({Shorten(swallowed)})");
+            Expect(view.ConnectionGeneration == generation && view.UnresponsiveChannelReconnectCount == 0,
+                "a live shell is never reconnected");
+            await Task.Delay(1000);
+            var revived = await view.RunTerminalCommandForDebugAsync("echo JRM-UNRESP-C", 30);
+            Expect(revived.StartsWith("[exit 0]", StringComparison.Ordinal) && revived.Contains("JRM-UNRESP-C"),
+                $"the interrupted shell takes the next command ({Shorten(revived)})");
+
+            // Dead: the channel stays open but delivers nothing. Let the prompt redraw that
+            // follows every command land first, or it would count as an answer.
+            await Task.Delay(1500);
+            generation = view.ConnectionGeneration;
+            view.SilenceChannelForDebug();
+            var started = Environment.TickCount64;
+            var retried = await view.RunTerminalCommandForDebugAsync("echo JRM-UNRESP-D", 30);
+            var elapsed = Environment.TickCount64 - started;
+            Expect(retried.StartsWith("[exit 0]", StringComparison.Ordinal) && retried.Contains("JRM-UNRESP-D"),
+                $"a silent channel is replaced and the command retried ({Shorten(retried)}, {elapsed} ms)");
+            Expect(view.ConnectionGeneration > generation && view.UnresponsiveChannelReconnectCount == 1,
+                $"exactly one automatic reconnect (generation {generation} -> {view.ConnectionGeneration}, "
+                + $"reconnects {view.UnresponsiveChannelReconnectCount})");
+            var status = view.BuildAgentTerminalStatus();
+            Expect(status.Contains("unresponsive_reconnect_count=1", StringComparison.Ordinal),
+                "terminal_status reports the automatic reconnect");
+            var visible = await OnUiAsync(() => view.DebugVisibleTerminalText);
+            Expect(visible.Contains("stopped responding", StringComparison.Ordinal),
+                "the terminal tells the user why it reconnected");
+
+            var after = await view.RunTerminalCommandForDebugAsync("echo JRM-UNRESP-E", 30);
+            Expect(after.StartsWith("[exit 0]", StringComparison.Ordinal) && after.Contains("JRM-UNRESP-E"),
+                $"the replacement channel keeps working ({Shorten(after)})");
+
+            // terminal_reconnect arrives on a worker thread, as product MCP tools do.
+            var reconnect = await Task.Run(() =>
+                view.AgentRemoteTools.RunTerminalActionAsync(AgentTerminalAction.Reconnect));
+            var readyAgainBy = Environment.TickCount64 + 90_000;
+            while (await OnUiAsync(() => view.LoginSequenceState) != "ready"
+                   && Environment.TickCount64 < readyAgainBy)
+                await Task.Delay(250);
+            var manual = await view.RunTerminalCommandForDebugAsync("echo JRM-UNRESP-F", 30);
+            Expect(reconnect == "[terminal reconnected]"
+                   && manual.StartsWith("[exit 0]", StringComparison.Ordinal) && manual.Contains("JRM-UNRESP-F"),
+                $"terminal_reconnect from a worker thread reconnects ({reconnect}; {Shorten(manual)})");
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"{ex.GetType().Name}: {ex.Message}");
+            report.AppendLine($"FAIL {ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            if (tab is not null)
+            {
+                await OnUiAsync(() => ((Views.MainWindow)Desktop!.MainWindow!).CloseTerminalSession(tab));
+            }
+        }
+
+        var passed = failures.Count == 0;
+        return ToolText($"{(passed ? "PASS" : "FAIL")}: unresponsive terminal channel on {path}\n{report.ToString().TrimEnd()}",
+            isError: !passed);
+
+        static string Shorten(string text) => text.Replace('\n', ' ').Length <= 160
+            ? text.Replace('\n', ' ')
+            : text.Replace('\n', ' ')[..160] + "...";
+    }
 }

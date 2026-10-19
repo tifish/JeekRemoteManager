@@ -102,6 +102,58 @@ public partial class TerminalView
         BeginConnectionAttempt();
     }
 
+    /// <summary>
+    /// Debug MCP: drops everything the current channel delivers from now on while keeping
+    /// it open, the way a bastion leaves a channel whose hop to the target has died.
+    /// </summary>
+    public void SilenceChannelForDebug() => Volatile.Write(ref _silencedGeneration, ConnectionGeneration);
+
+    /// <summary>
+    /// Replaces a channel that stopped responding and waits for the new login to finish.
+    /// Returns null once the shell is ready, otherwise why the command cannot be retried.
+    /// </summary>
+    private async Task<string?> ReconnectUnresponsiveChannelAsync(CancellationToken cancellationToken)
+    {
+        var generation = ConnectionGeneration;
+        await Dispatcher.UIThread.InvokeAsync(ReconnectTerminal);
+        if (ConnectionGeneration == generation)
+            return "reconnect could not be started";
+        Interlocked.Increment(ref _unresponsiveChannelReconnectCount);
+
+        // A pooled bastion transport is borrowed back and only a new channel is opened, so
+        // this normally needs no two-factor code; give up waiting if it does.
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(90));
+        try
+        {
+            await WaitUntilConnectedAsync(deadline.Token).ConfigureAwait(false);
+            while (true)
+            {
+                if (_disposed || _shellClosed)
+                    return "the new channel closed";
+                switch (LoginSequenceState)
+                {
+                    case "ready":
+                        return null;
+                    case "waiting-input":
+                        return "the login is waiting for input in the JeekRemoteManager window";
+                    case "failed" or "template-error":
+                        return "the login sequence failed; check the terminal in the JeekRemoteManager window";
+                }
+
+                await Task.Delay(200, deadline.Token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return "still logging in after 90 seconds; retry shortly";
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return ex.GetBaseException().Message;
+        }
+    }
+
     private void BeginConnectionAttempt()
     {
         var pendingLoginInput = Interlocked.Exchange(ref _loginManualInputTcs, null);
@@ -544,7 +596,7 @@ public partial class TerminalView
 
         channel.DataReceived += data =>
         {
-            if (generation == _connectionGeneration)
+            if (generation == _connectionGeneration && generation != _silencedGeneration)
                 OnShellData(data);
         };
         channel.ErrorMessage += message => Dispatcher.UIThread.Post(() =>
