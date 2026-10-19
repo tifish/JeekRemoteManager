@@ -19,7 +19,7 @@ public static class McpPipeNames
     /// <summary>Product surface: connections, sessions, terminal tools. Shipped to users.</summary>
     public const string ProductBase = "JeekRemoteManager.Mcp";
 
-    /// <summary>Debug surface: object graph, visual tree, probes. Debug builds only.</summary>
+    /// <summary>Debug surface: object graph, visual tree, probes. Listens in every build.</summary>
     public const string DebugBase = "JeekRemoteManager.Mcp.Debug";
 
     /// <summary>

@@ -6,7 +6,7 @@
 
 这是个 GUI 应用，绝大多数机制（终端渲染、堡垒机登录、面板生命周期、AI 面板）只有在**真的跑起来**的时候才能验证。Debug MCP 让 agent 能像人一样驱动运行中的实例：读对象图、读可视树、截图、读日志，以及跑一组针对性的**探针工具**。
 
-调试面只在 Debug 构建里监听（见 [MCP 架构](mcp.md)）。
+调试面在所有构建里都监听，Release 也一样，方便排查用户安装上的问题；Release 实例走裸管道 `JeekRemoteManager.Mcp.Debug`，Debug worktree 的管道带实例 id，两者不冲突（见 [MCP 架构](mcp.md)）。
 
 ## 三类工具
 
@@ -14,7 +14,7 @@
 
 `describe`、`get_value`、`set_value`、`invoke`、`list_members`、`visual_tree`、`screenshot`、`read_logs`。根对象是 `App` / `Desktop` / `MainWindow` / `MainVm`，路径里的 `#Name` 段在可视树下按名字找控件。
 
-`invoke` 能调用进程里的任何东西——这正是调试面**绝不能**对用户的 agent 开放的原因。
+`invoke` 能调用进程里的任何东西——所以应用写给用户 agent 的配置只指向产品面，调试面要显式 `--surface debug` 才能到达。
 
 **2. `*_check` 探针**
 

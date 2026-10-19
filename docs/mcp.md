@@ -7,13 +7,13 @@
 | | 产品面 (`--surface product`) | 调试面 (`--surface debug`) |
 | --- | --- | --- |
 | 内容 | 连接、会话、终端工具 | 对象图、可视树、探针 |
-| 发布 | 随 Release 出货 | 只在 Debug 构建里监听 |
+| 发布 | 随 Release 出货 | 随 Release 出货，所有构建都监听 |
 | 管道 | `JeekRemoteManager.Mcp` | `JeekRemoteManager.Mcp.Debug` |
 | 注册位置 | `ProductMcpServer` + `ProductMcpContract` | `DebugMcpServer` + `DebugMcpContract` |
 
-**为什么必须分开**：调试面的 `invoke` 工具能调用进程里的任何东西。它绝不能出现在用户的 agent 能到达的地方。两套工具注册表分属两个端点，不共享。
+**为什么必须分开**：调试面的 `invoke` 工具能调用进程里的任何东西。两套工具注册表分属两个端点，不共享；应用替用户写进 agent 项目的配置只指向产品面，调试面只能通过显式的 `--surface debug` 到达。
 
-调试面的代码在所有配置下都编译（行为一致），只是 `ListeningEnabled` 这个运行时开关在 Release 下为 false——用运行时门而不是把整个文件包在 `#if DEBUG` 里。
+**Release 也监听调试面**，方便 agent 随时排查用户安装上的问题。这是刻意的取舍：管道 ACL 已把访问限制在运行应用的账户，而同账户的进程本来就能用 `dotnet-dump` 读内存；排查是低频需求，修复后的新版本也要重启客户端。调试面没有工具专门返回密码，但 `get_value`/`invoke` 走对象图、不按字段过滤，所以不要新增会把明文秘密挂在对象图可达处的状态。在 Release 实例上优先用只读工具（`read_logs`、`visual_tree`、`screenshot`、`get_value`、各类 snapshot）；`*_check` 探针是给测试实例写的，可能开标签页或改状态。
 
 **注册工具要改两个地方**：处理器在 Server 里，schema 在 Contract 里。**Contract 里漏掉的工具对客户端不可见。**
 
@@ -34,7 +34,7 @@
 
 ## 实例 id 与并行 worktree
 
-Release 构建用裸管道名。Debug 构建在名字后面附加一个**从可执行文件目录哈希出来的 12 位十六进制实例 id**（`McpPipeNames.InstanceId`）。适配器和应用在同一个文件夹里，所以适配器不需要被告知该找哪个实例，自己就能算出同样的值。
+Release 构建用裸管道名（产品面和调试面都是）。Debug 构建在名字后面附加一个**从可执行文件目录哈希出来的 12 位十六进制实例 id**（`McpPipeNames.InstanceId`）。适配器和应用在同一个文件夹里，所以适配器不需要被告知该找哪个实例，自己就能算出同样的值。
 
 `McpPipeNames` 这个文件被**同时编译进应用和适配器**（适配器链接了它），两端因此不可能漂移。
 
@@ -42,7 +42,7 @@ Release 构建用裸管道名。Debug 构建在名字后面附加一个**从可�
 
 ## 固定路径的适配器
 
-agent 启动的是 `%LocalAppData%\JeekRemoteManager\Mcp\JeekRemoteManagerMcp.exe`（产品配置），或者仓库根的 `JeekRemoteManagerDebugMcp.cmd`（仅 Debug，不在 `bin\` 下）。
+agent 启动的是 `%LocalAppData%\JeekRemoteManager\Mcp\JeekRemoteManagerMcp.exe`（产品配置），或者仓库根的 `JeekRemoteManagerDebugMcp.cmd`（不在 `bin\` 下）。排查 Release 安装时，用固定适配器加 `--surface debug`、不带 `--app`，它会连到裸管道 `JeekRemoteManager.Mcp.Debug`。
 
 **`bin\` 下的那个文件只是构建产物**，应用在启动时把它安装到固定路径。**agent 绝不能直接启动它**——运行中的 agent 会锁住这个文件，导致重新构建失败。所以构建步骤里也不安装固定适配器。
 

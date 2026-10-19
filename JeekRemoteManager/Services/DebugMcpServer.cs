@@ -35,14 +35,14 @@ namespace JeekRemoteManager.Services;
 /// App-specific configuration over the generic <see cref="McpHost"/> in
 /// JeekTools: object-graph roots (App/Desktop/MainWindow/MainVm), '#Name'
 /// visual-tree lookup, the Avalonia tools (visual_tree, screenshot), the app
-/// probe tools, and the instance discovery file. Compiled into all
-/// configurations so Debug and Release behave identically, but the listener
-/// only starts in Debug builds. Agents reach it through the fixed per-user
+/// probe tools, and the instance discovery file. Listens in every build, so an
+/// agent can diagnose a Release install too. Agents reach it through the fixed per-user
 /// <c>JeekRemoteManagerMcp.exe</c> (via the repo-root
 /// <c>JeekRemoteManagerDebugMcp.cmd</c> with <c>--surface debug --app</c> this
-/// worktree's exe), which forwards stdio to this instance's named pipe — the pipe
-/// name carries the worktree's instance id, so parallel Debug builds never answer
-/// for each other and there is no port to collide over. Agents must not launch
+/// worktree's exe, or plain <c>--surface debug</c> for the Release install), which
+/// forwards stdio to this instance's named pipe — Debug pipe names carry the worktree's
+/// instance id, so parallel Debug builds never answer for each other or for Release,
+/// and there is no port to collide over. Agents must not launch
 /// <c>bin\JeekRemoteManagerMcp.exe</c> directly; that path is build output
 /// (installed to the fixed path on app startup) and would lock rebuilds if an
 /// agent held it open.
@@ -50,15 +50,6 @@ namespace JeekRemoteManager.Services;
 internal static partial class DebugMcpServer
 {
     private static readonly ILogger Log = LogManager.CreateLogger(nameof(DebugMcpServer));
-
-    // Runtime gate instead of #if DEBUG around the whole file: the code
-    // compiles in every configuration, only Debug builds actually listen.
-    private static readonly bool ListeningEnabled =
-#if DEBUG
-        true;
-#else
-        false;
-#endif
 
     private static readonly JsonSerializerOptions PrettyOptions = new() { WriteIndented = true };
 
@@ -100,7 +91,6 @@ internal static partial class DebugMcpServer
             ServerTitle = "JeekRemoteManager Debug Server",
             Graph = Graph,
             GetVersion = () => $"{AutoUpdateService.GetLocalCommitCount()}",
-            Enabled = ListeningEnabled,
             // Named pipe only: no port to collide over between worktree instances, and
             // nothing for the JRM_MCP_PORT workaround to disambiguate any more.
             PipeName = DebugInstanceContext.DebugMcpPipeName,

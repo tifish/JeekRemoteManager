@@ -13,7 +13,7 @@ CI 用 `git rev-list --count HEAD` 算出提交数，作为程序集主版本号
 | `Build.cmd` | **Release 出货脚本** | 清理 `bin` 里的陈旧产物（避免 NetBeauty / 依赖变动留下孤儿 DLL），Release 构建，剥掉 PDB |
 | `Run.cmd` | **开发/agent 迭代循环** | 默认 Debug 构建然后启动 |
 
-**给 agent 做功能测试时不要用 `Build.cmd`**——Debug MCP 只在 Debug 构建里监听。
+**给 agent 做功能测试时不要用 `Build.cmd`**——只有 Debug 构建带按 worktree 区分的实例 id；Release 构建和用户已安装的实例共用裸管道名与单实例互斥体。
 
 `Run.cmd` 只杀"由本 worktree 构建出来的那个进程"（比较可执行文件完整路径），其它 worktree 的 Debug 实例**故意保留**，用于并排验证。
 

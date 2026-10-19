@@ -29,7 +29,7 @@ public static class McpAdapterRegistration
             DebugInstanceContext.InstanceId,
             appPath,
             DebugInstanceContext.ProductMcpPipeName,
-            DebugInstanceContext.IsDebugBuild ? DebugInstanceContext.DebugMcpPipeName : "",
+            DebugInstanceContext.DebugMcpPipeName,
             DebugInstanceContext.IsDebugBuild,
             DebugInstanceContext.WorkspaceRoot);
         McpAdapterRegistry.WriteInstance(registration);
@@ -49,7 +49,6 @@ public static class McpAdapterRegistration
                    Path.GetFullPath(Environment.ProcessPath ?? ""),
                    StringComparison.OrdinalIgnoreCase)
                && registered.ProductPipeName == DebugInstanceContext.ProductMcpPipeName
-               && (!DebugInstanceContext.IsDebugBuild
-                   || registered.DebugPipeName == DebugInstanceContext.DebugMcpPipeName);
+               && registered.DebugPipeName == DebugInstanceContext.DebugMcpPipeName;
     }
 }

@@ -85,7 +85,7 @@ public partial class App : Application
             ApplyStoredLanguage(settings);
             ApplyStoredTheme(settings);
 
-            // No-op in Release builds: the server only listens in Debug.
+            // Debug surface (all builds), on its own pipe, separate from the product surface.
             DebugMcpServer.Start();
             desktop.Exit += (_, _) => DebugMcpServer.Stop();
 
