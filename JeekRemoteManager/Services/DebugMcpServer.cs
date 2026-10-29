@@ -165,6 +165,7 @@ internal static partial class DebugMcpServer
         host.AddTool("bastion_tray_lifecycle_check", _ => BastionTrayLifecycleCheckAsync());
         host.AddTool("window_close_reason_check", _ => WindowCloseReasonCheckAsync());
         host.AddTool("connection_editor_switch_check", _ => ConnectionEditorSwitchCheckAsync());
+        host.AddTool("wsl_editor_selection_check", _ => WslEditorSelectionCheckAsync());
         host.AddTool("editor_reload_focus_check", _ => EditorReloadFocusCheckAsync());
         host.AddTool("login_menu_select_probe", LoginMenuSelectProbeAsync);
         host.AddTool("auto_update_stage_check", AutoUpdateStageCheckAsync);

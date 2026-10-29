@@ -170,6 +170,8 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(AvailableWslDistros))]
     private string _wslDistro = "";
 
+    private string[]? _availableWslDistros;
+
     [ObservableProperty]
     private string _wslStartDirectory = "";
 
@@ -237,9 +239,15 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         {
             var current = WslDistro ?? "";
             var names = Services.WslDistroService.ListDistros().Select(d => d.Name).ToArray();
-            return current.Length == 0 || names.Contains(current)
+            var choices = current.Length == 0 || names.Contains(current)
                 ? names
                 : names.Prepend(current).ToArray();
+            // Replacing an equal ItemsSource clears the ComboBox selection, which
+            // writes null back to WslDistro and re-evaluates this getter recursively.
+            // Keep its identity until the actual distro choices change.
+            if (_availableWslDistros is null || !_availableWslDistros.SequenceEqual(choices))
+                _availableWslDistros = choices;
+            return _availableWslDistros;
         }
     }
 
