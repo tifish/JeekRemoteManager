@@ -243,7 +243,9 @@ public partial class MainWindow
     {
         if (WindowState == WindowState.Minimized)
             WindowState = WindowState.Normal;
+        EnsureWindowPositionOnScreen();
         Show();
+        EnsureWindowPositionOnScreen();
         Activate();
     }
 

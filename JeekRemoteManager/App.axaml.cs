@@ -178,6 +178,7 @@ public partial class App : Application
         };
         window.Closing += OnMainWindowClosing;
         desktop.MainWindow = window;
+        window.EnsureWindowPositionOnScreen();
         window.Show();
 
         _vm = vm;
@@ -273,6 +274,12 @@ public partial class App : Application
 
         Dispatcher.UIThread.Post(() =>
         {
+            if (desktop.MainWindow is MainWindow main)
+            {
+                main.ActivateMainWindow();
+                return;
+            }
+
             if (desktop.MainWindow is not Window window)
                 return;
 
@@ -299,6 +306,12 @@ public partial class App : Application
             }
             else
             {
+                if (window is MainWindow main)
+                {
+                    main.ActivateMainWindow();
+                    return;
+                }
+
                 window.Show();
                 if (window.WindowState == WindowState.Minimized)
                     window.WindowState = WindowState.Normal;

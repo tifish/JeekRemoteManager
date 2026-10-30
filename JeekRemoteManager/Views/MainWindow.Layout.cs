@@ -139,6 +139,48 @@ public partial class MainWindow
         }
     }
 
+    /// <summary>
+    /// Moves a hidden or restored window back to a live work area when its saved
+    /// monitor is no longer connected. The title-bar strip is the minimum visible
+    /// area required to let the user drag the window back to a preferred location.
+    /// </summary>
+    internal bool EnsureWindowPositionOnScreen()
+    {
+        if (Screens.All.Count == 0 || IsPositionOnAnyScreen(Position.X, Position.Y))
+            return false;
+
+        var screen = Screens.Primary ?? Screens.All[0];
+        var workingArea = screen.WorkingArea;
+        var titleWidth = 160;
+        var titleHeight = 48;
+        var x = Math.Clamp(workingArea.X + 16, workingArea.X, workingArea.X + Math.Max(0, workingArea.Width - titleWidth));
+        var y = Math.Clamp(workingArea.Y + 16, workingArea.Y, workingArea.Y + Math.Max(0, workingArea.Height - titleHeight));
+        var wasMaximized = WindowState == WindowState.Maximized;
+
+        _ignoreWindowSizeChange = true;
+        try
+        {
+            // A maximized window has no meaningful normal-position bounds. Restore
+            // it while moving it, then apply maximization on the selected screen.
+            if (wasMaximized)
+                WindowState = WindowState.Normal;
+            Position = new PixelPoint(x, y);
+            if (wasMaximized)
+                WindowState = WindowState.Maximized;
+        }
+        finally
+        {
+            _ignoreWindowSizeChange = false;
+        }
+
+        if (_canPersistWindowSize && WindowState == WindowState.Normal)
+            ScheduleWindowSizeSave();
+        return true;
+    }
+
+    /// <summary>Reports whether the title bar currently intersects a live work area.</summary>
+    internal bool IsWindowPositionOnScreenForDebug => IsPositionOnAnyScreen(Position.X, Position.Y);
+
     private void OnWindowSizeChanged(object? sender, SizeChangedEventArgs e)
     {
         if (!_canPersistWindowSize

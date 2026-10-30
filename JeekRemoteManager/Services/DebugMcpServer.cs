@@ -165,6 +165,7 @@ internal static partial class DebugMcpServer
         host.AddTool("bastion_pool_lease_check", _ => BastionPoolLeaseCheckAsync());
         host.AddTool("bastion_tray_lifecycle_check", _ => BastionTrayLifecycleCheckAsync());
         host.AddTool("window_close_reason_check", _ => WindowCloseReasonCheckAsync());
+        host.AddTool("window_position_check", _ => WindowPositionCheckAsync());
         host.AddTool("connection_editor_switch_check", _ => ConnectionEditorSwitchCheckAsync());
         host.AddTool("wsl_editor_selection_check", _ => WslEditorSelectionCheckAsync());
         host.AddTool("editor_reload_focus_check", _ => EditorReloadFocusCheckAsync());
@@ -1273,6 +1274,43 @@ internal static partial class DebugMcpServer
         return ToolText(
             $"{(passed ? "PASS" : "FAIL")}: window close reasons\n{report}",
             isError: !passed);
+    });
+
+    private static Task<JsonObject> WindowPositionCheckAsync() => OnUiAsync(() =>
+    {
+        if (Desktop?.MainWindow is not Views.MainWindow main)
+            return ToolText("FAIL: MainWindow is not available.", isError: true);
+
+        var originalPosition = main.Position;
+        var originalState = main.WindowState;
+        var originalVisible = main.IsVisible;
+        var maxRight = main.Screens.All.Count == 0
+            ? originalPosition.X + 10000
+            : main.Screens.All.Max(screen => screen.WorkingArea.X + screen.WorkingArea.Width);
+        var offscreen = new PixelPoint(maxRight + 1000, originalPosition.Y);
+        var passed = false;
+        try
+        {
+            main.WindowState = WindowState.Normal;
+            main.Position = offscreen;
+            main.ActivateMainWindow();
+            passed = main.IsVisible && main.IsWindowPositionOnScreenForDebug;
+            return ToolText(
+                $"{(passed ? "PASS" : "FAIL")}: window display position\n"
+                + $"recovered={passed}; position={main.Position}; visible={main.IsVisible}",
+                isError: !passed);
+        }
+        finally
+        {
+            main.WindowState = WindowState.Normal;
+            main.Position = originalPosition;
+            if (originalState != WindowState.Normal)
+                main.WindowState = originalState;
+            if (originalVisible)
+                main.Show();
+            else
+                main.Hide();
+        }
     });
 
     private static async Task<JsonObject> AutoUpdateStageCheckAsync(JsonObject args)
