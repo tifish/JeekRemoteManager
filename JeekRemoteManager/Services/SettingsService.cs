@@ -211,6 +211,7 @@ public class SettingsService
             MainWindowY = machineSettings.MainWindowY,
             MainWindowMaximized = machineSettings.MainWindowMaximized,
             ConnectionPanelWidth = machineSettings.ConnectionPanelWidth,
+            TerminalTabMaxRows = machineSettings.TerminalTabMaxRows,
             ConnectionPanelCollapsed = machineSettings.ConnectionPanelCollapsed,
             RecentConnectionPaths = machineSettings.RecentConnectionPaths,
             LastSelectedConnectionPath = machineSettings.LastSelectedConnectionPath,
@@ -249,6 +250,7 @@ public class SettingsService
             MainWindowY = settings.MainWindowY,
             MainWindowMaximized = settings.MainWindowMaximized,
             ConnectionPanelWidth = settings.ConnectionPanelWidth,
+            TerminalTabMaxRows = settings.TerminalTabMaxRows,
             ConnectionPanelCollapsed = settings.ConnectionPanelCollapsed,
             RecentConnectionPaths = settings.RecentConnectionPaths ?? new List<string>(),
             LastSelectedConnectionPath = settings.LastSelectedConnectionPath,
@@ -301,6 +303,7 @@ public class SettingsService
         settings.MainWindowY = normalized.MainWindowY;
         settings.MainWindowMaximized = normalized.MainWindowMaximized;
         settings.ConnectionPanelWidth = normalized.ConnectionPanelWidth;
+        settings.TerminalTabMaxRows = normalized.TerminalTabMaxRows;
         settings.ConnectionPanelCollapsed = normalized.ConnectionPanelCollapsed;
         settings.RecentConnectionPaths = normalized.RecentConnectionPaths;
         settings.LastSelectedConnectionPath = normalized.LastSelectedConnectionPath;
@@ -350,6 +353,7 @@ public class SettingsService
             settings.MainWindowX = null;
             settings.MainWindowY = null;
         }
+        settings.TerminalTabMaxRows = Math.Clamp(settings.TerminalTabMaxRows, 1, 20);
         settings.ConnectionPanelWidth = double.IsFinite(settings.ConnectionPanelWidth)
             ? Math.Clamp(settings.ConnectionPanelWidth, 180, 600)
             : 306;

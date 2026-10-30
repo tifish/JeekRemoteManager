@@ -546,8 +546,11 @@ public partial class TerminalView : UserControl
     /// that are gated on the connection kind with no network activity at all: the
     /// monitor session then simply reports "waiting for a connection".
     /// </summary>
-    internal void DebugAttachConnectionWithoutConnecting(Connection connection) =>
+    internal void DebugAttachConnectionWithoutConnecting(Connection connection, string? sourcePath = null)
+    {
         _connection = connection;
+        _sourcePath = sourcePath;
+    }
 
     /// <summary>
     /// Marks a network-free probe tab as reusable so Debug MCP can exercise the

@@ -81,6 +81,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        InitializeTabPagination();
         RightTabs.Items.Remove(GlobalAgentTab);
         GlobalAgentPanel.CloseRequested += OnGlobalAgentCloseRequested;
         UpdateWindowTitle();
@@ -150,11 +151,7 @@ public partial class MainWindow : Window
             WireUp();
             BuildMoreActionsMenu();
         };
-        Localizer.LanguageChanged += (_, _) =>
-        {
-            BuildMoreActionsMenu();
-            UpdateWindowTitle();
-        };
+        Localizer.LanguageChanged += OnWindowLanguageChanged;
         SizeChanged += OnWindowSizeChanged;
         PositionChanged += OnWindowPositionChanged;
         CommandBar.LayoutUpdated += (_, _) => UpdateToolbarCompactMode();
@@ -173,6 +170,7 @@ public partial class MainWindow : Window
         // window's lifetime: existing terminals and future logins still need this pool.
         Closed += (_, _) =>
         {
+            Localizer.LanguageChanged -= OnWindowLanguageChanged;
             _bastionSessionPool.Dispose();
             if (_globalAgentViewModel is not null)
                 _ = _globalAgentViewModel.DisposeAsync();
@@ -181,6 +179,12 @@ public partial class MainWindow : Window
 
     private void UpdateWindowTitle() =>
         Title = DebugInstanceContext.DecorateTitle(Localizer.Get("WindowTitle"));
+
+    private void OnWindowLanguageChanged(object? sender, EventArgs e)
+    {
+        BuildMoreActionsMenu();
+        UpdateWindowTitle();
+    }
 
     /// <summary>Localized main-menu labels exposed for Debug MCP verification.</summary>
     public IReadOnlyList<string> MoreActionsMenuHeaders =>

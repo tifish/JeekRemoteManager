@@ -447,6 +447,20 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    public int TerminalTabMaxRows
+    {
+        get => _settings.Settings.TerminalTabMaxRows;
+        set
+        {
+            var rows = Math.Clamp(value, 1, 20);
+            if (rows == _settings.Settings.TerminalTabMaxRows)
+                return;
+            _settings.Settings.TerminalTabMaxRows = rows;
+            _settings.SaveIfChanged();
+            OnPropertyChanged(nameof(TerminalTabMaxRows));
+        }
+    }
+
     /// <summary>Persisted collapsed state of the connection tree panel.</summary>
     public bool ConnectionPanelCollapsed
     {

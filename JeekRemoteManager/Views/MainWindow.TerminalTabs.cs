@@ -198,6 +198,7 @@ public partial class MainWindow
     internal void ActivateTerminalSession(TabItem tab, TerminalView view)
     {
         RightTabs.SelectedItem = tab;
+        EnsureSelectedTabVisible();
         ActivateWindow();
         view.FocusTerminal();
     }
@@ -1004,7 +1005,8 @@ public partial class MainWindow
             if (!TryGetTabBoundsInRightTabs(tab, out var bounds))
                 continue;
 
-            if (pointerPosition.X < bounds.X + bounds.Width / 2)
+            if (pointerPosition.Y < bounds.Top || (pointerPosition.Y <= bounds.Bottom
+                && pointerPosition.X < bounds.X + bounds.Width / 2))
                 return i;
 
             fallbackIndex = i + 1;
@@ -1023,6 +1025,8 @@ public partial class MainWindow
     private bool TryGetTabBoundsInRightTabs(TabItem tab, out Rect bounds)
     {
         bounds = default;
+        if (_tabPages is not null && !_tabPages.IsOnCurrentPage(tab))
+            return false;
         var topLeft = tab.TranslatePoint(new Point(0, 0), RightTabs);
         if (topLeft is null || tab.Bounds.Width <= 0 || tab.Bounds.Height <= 0)
             return false;
@@ -1262,6 +1266,8 @@ public partial class MainWindow
         // the terminal for those would yank keyboard focus out of that list.
         if (!ReferenceEquals(e.Source, sender))
             return;
+
+        EnsureSelectedTabVisible();
 
         // Use sender, not the RightTabs field: this can fire during XAML init
         // (the TabControl auto-selects the first tab) before the field is assigned.

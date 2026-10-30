@@ -605,8 +605,32 @@
 
             <!-- Right pane: fixed editor + optional global-agent and terminal tabs added in code-behind -->
             <Border Grid.Column="2" Classes="panel" Padding="6" ClipToBounds="True">
-            <TabControl x:Name="RightTabs"
+            <Grid RowDefinitions="Auto,*">
+                <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="6" Margin="2,0,2,4">
+                    <TextBox x:Name="TabSearchBox" MinWidth="60" HorizontalAlignment="Stretch"
+                             PlaceholderText="{l:Localize TabSearch}" TextChanged="OnTabSearchChanged" KeyDown="OnTabSearchKeyDown" />
+                    <Button Grid.Column="1" x:Name="ClearTabSearchButton" Content="&#xD7;" Click="OnClearTabSearch"
+                            ToolTip.Tip="{l:Localize TabSearchClear}" />
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="{l:Localize TabMaxRows}" VerticalAlignment="Center" />
+                        <NumericUpDown x:Name="TabMaxRowsBox" Minimum="1" Maximum="20" Increment="1"
+                                       FormatString="0" Width="112" Value="{Binding TerminalTabMaxRows, Mode=TwoWay}"
+                                       ValueChanged="OnTabMaxRowsChanged" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4">
+                        <Button x:Name="PreviousTabPageButton" Content="&#x2039;" Click="OnPreviousTabPage"
+                                ToolTip.Tip="{l:Localize TabPreviousPage}" />
+                        <TextBlock x:Name="TabPageText" Text="1 / 1" MinWidth="58" TextAlignment="Center" VerticalAlignment="Center" />
+                        <Button x:Name="NextTabPageButton" Content="&#x203A;" Click="OnNextTabPage"
+                                ToolTip.Tip="{l:Localize TabNextPage}" />
+                    </StackPanel>
+                    <TextBlock Grid.Column="4" x:Name="TabSearchCount" VerticalAlignment="Center" />
+                </Grid>
+            <TabControl Grid.Row="1" x:Name="RightTabs"
                         SelectionChanged="OnRightTabsSelectionChanged">
+                <TabControl.ItemsPanel>
+                    <ItemsPanelTemplate><controls:PagedTabPanel /></ItemsPanelTemplate>
+                </TabControl.ItemsPanel>
                 <TabItem x:Name="EditorTab">
                     <TabItem.Header>
                         <Border Classes="tab-pill">
@@ -995,6 +1019,7 @@
                     <views:AgentCliPanelView x:Name="GlobalAgentPanel" />
                 </TabItem>
             </TabControl>
+            </Grid>
             </Border>
         </Grid>
     </DockPanel>

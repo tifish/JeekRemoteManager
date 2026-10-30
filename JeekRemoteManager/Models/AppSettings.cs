@@ -62,6 +62,9 @@ public class AppSettings
     /// <summary>Width of the connection tree panel, in device-independent pixels.</summary>
     public double ConnectionPanelWidth { get; set; } = 306;
 
+    /// <summary>Maximum wrapped tab-header rows per page (machine-local).</summary>
+    public int TerminalTabMaxRows { get; set; } = 5;
+
     /// <summary>Whether the connection tree panel is collapsed to a toolbar strip.</summary>
     public bool ConnectionPanelCollapsed { get; set; }
 
@@ -184,6 +187,9 @@ public class MachineAppSettings
 
     /// <summary>Width of the connection tree panel, in device-independent pixels.</summary>
     public double ConnectionPanelWidth { get; set; } = 306;
+
+    /// <summary>Maximum wrapped tab-header rows per page (machine-local).</summary>
+    public int TerminalTabMaxRows { get; set; } = 5;
 
     /// <summary>Whether the connection tree panel is collapsed to a toolbar strip.</summary>
     public bool ConnectionPanelCollapsed { get; set; }

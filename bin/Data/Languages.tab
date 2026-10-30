@@ -566,3 +566,9 @@ BatchOpenTerminal	Show terminal	查看终端
 StatusBatchScriptRunning	Running {0} on {1} servers…	正在 {1} 台服务器上运行 {0}…
 StatusBatchScriptSucceeded	{0} succeeded on all {1} servers	{0} 在全部 {1} 台服务器上运行成功
 StatusBatchScriptFailed	{0} failed on {1} servers	{0} 在 {1} 台服务器上运行失败
+
+TabSearch	Search open tabs…	搜索已开标签…
+TabSearchClear	Clear tab search	清除标签搜索
+TabMaxRows	Rows	行数
+TabPreviousPage	Previous tab page	上一页标签
+TabNextPage	Next tab page	下一页标签

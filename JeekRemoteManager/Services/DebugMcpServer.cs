@@ -109,6 +109,7 @@ internal static partial class DebugMcpServer
         host.AddTool("button_content_alignment_check", _ => ButtonContentAlignmentCheckAsync());
         host.AddTool("ai_runtime_snapshot", _ => AiRuntimeSnapshotAsync());
         host.AddTool("password_ime_check", _ => PasswordImeCheckAsync());
+        host.AddTool("terminal_tab_pagination_check", _ => TerminalTabPaginationCheckAsync());
         host.AddTool("terminal_tab_title_check", _ => TerminalTabTitleCheckAsync());
         host.AddTool("terminal_tab_focus_check", _ => TerminalTabFocusCheckAsync());
         host.AddTool("terminal_tab_lifecycle_check", _ => TerminalTabLifecycleCheckAsync());
