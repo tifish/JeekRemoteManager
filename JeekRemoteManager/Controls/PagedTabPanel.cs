@@ -21,6 +21,7 @@ public sealed class PagedTabPanel : Panel
     public int PageCount => _layout.RowsPerPage.Length;
     public int MatchingCount => _matching.Length;
     public int VisibleRows => _layout.RowsPerPage[CurrentPage];
+    public int TotalRows => _layout.RowsPerPage.Sum();
     public int MaxRows
     {
         get => _maxRows;

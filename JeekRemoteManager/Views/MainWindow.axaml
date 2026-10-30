@@ -606,7 +606,7 @@
             <!-- Right pane: fixed editor + optional global-agent and terminal tabs added in code-behind -->
             <Border Grid.Column="2" Classes="panel" Padding="6" ClipToBounds="True">
             <Grid RowDefinitions="Auto,*">
-                <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="6" Margin="2,0,2,4">
+                <Grid x:Name="TabOperationsBar" IsVisible="False" ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="6" Margin="2,0,2,4">
                     <TextBox x:Name="TabSearchBox" MinWidth="60" HorizontalAlignment="Stretch"
                              PlaceholderText="{l:Localize TabSearch}" TextChanged="OnTabSearchChanged" KeyDown="OnTabSearchKeyDown" />
                     <Button Grid.Column="1" x:Name="ClearTabSearchButton" Content="&#xD7;" Click="OnClearTabSearch"

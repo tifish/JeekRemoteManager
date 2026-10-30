@@ -64,7 +64,7 @@ public static class DebugMcpContract
             "Focuses a real password box in a throwaway window and verifies the Windows IME is closed while it holds focus and restored when focus leaves or the window closes. Skips when no IME is loaded.",
             new()),
         Tool("terminal_tab_pagination_check",
-            "Verify wrapped tab pagination, row limits, navigation, search, active-header visibility, resize and close behavior in an isolated real window without network connections.", new()),
+            "Verify wrapped tab pagination, automatic single-row toolbar hiding, row limits, navigation, search, active-header visibility, resize and close behavior in an isolated real window without network connections.", new()),
         Tool("terminal_tab_title_check",
             "Build and measure the real terminal-tab title controls, verifying long-name tail/tooltip behavior, emphasized adjacent differences, and four-digit numeric context around the actual difference.",
             new()),

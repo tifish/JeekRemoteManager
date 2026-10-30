@@ -27,9 +27,15 @@ internal static partial class DebugMcpServer
             {
                 window = new MainWindow { Width = 1000, Height = 700, ShowActivated = false };
                 tabs = window.FindControl<TabControl>("RightTabs")!;
-                created = Enumerable.Range(0, 41).Select(window.DebugCreatePaginationTab).ToArray();
                 window.Show();
-                tabs.SelectedItem = created[^1];
+                return true;
+            });
+            await Task.Delay(100);
+            await OnUiAsync(() =>
+            {
+                Check("singleRowHidesOperations", !window!.FindControl<Grid>("TabOperationsBar")!.IsVisible);
+                created = Enumerable.Range(0, 41).Select(window!.DebugCreatePaginationTab).ToArray();
+                tabs!.SelectedItem = created[^1];
                 return true;
             });
             await Task.Delay(200);
@@ -37,6 +43,7 @@ internal static partial class DebugMcpServer
             {
                 panel = tabs!.GetVisualDescendants().OfType<PagedTabPanel>().Single();
                 Check("defaultFiveRows", panel.MaxRows == 5 && panel.VisibleRows is > 0 and <= 5);
+                Check("multipleRowsShowOperations", window!.FindControl<Grid>("TabOperationsBar")!.IsVisible);
                 Check("multiplePagesAndActiveVisible", panel.PageCount > 1 && panel.IsOnCurrentPage(created[^1]));
                 Check("counter", window!.FindControl<TextBlock>("TabPageText")!.Text == $"{panel.CurrentPage + 1} / {panel.PageCount}");
                 Click("PreviousTabPageButton");
@@ -61,6 +68,7 @@ internal static partial class DebugMcpServer
             await OnUiAsync(() =>
             {
                 Check("pathSearch", panel!.MatchingCount == 1 && panel.PageCount == 1 && panel.IsOnCurrentPage(created[7]));
+                Check("singleSearchResultKeepsOperations", window!.FindControl<Grid>("TabOperationsBar")!.IsVisible);
                 tabs!.SelectedItem = created[0];
                 return true;
             });
@@ -75,6 +83,7 @@ internal static partial class DebugMcpServer
             await OnUiAsync(() =>
             {
                 Check("emptySearch", panel!.MatchingCount == 0 && panel.PageCount == 1 && window!.FindControl<TextBlock>("TabPageText")!.Text == "1 / 1");
+                Check("emptySearchKeepsOperations", window!.FindControl<Grid>("TabOperationsBar")!.IsVisible);
                 Click("ClearTabSearchButton");
                 window!.Width = 760;
                 window.Height = 500;
@@ -106,6 +115,36 @@ internal static partial class DebugMcpServer
             await OnUiAsync(() =>
             {
                 Check("closeClampsPage", panel!.CurrentPage == 0 && panel.PageCount == 1);
+                Check("closingToSingleRowHidesOperations", panel.TotalRows == 1 && !window!.FindControl<Grid>("TabOperationsBar")!.IsVisible);
+                window!.DebugCreatePaginationTab(42);
+                window.DebugCreatePaginationTab(43);
+                return true;
+            });
+            await Task.Delay(100);
+            await OnUiAsync(() =>
+            {
+                Check("openingToMultipleRowsShowsOperations", panel!.TotalRows > 1 && window!.FindControl<Grid>("TabOperationsBar")!.IsVisible);
+                window!.FindControl<NumericUpDown>("TabMaxRowsBox")!.Value = 1;
+                return true;
+            });
+            await Task.Delay(100);
+            await OnUiAsync(() =>
+            {
+                Check("oneRowPerPageKeepsOperations", panel!.VisibleRows == 1 && panel.PageCount > 1 && window!.FindControl<Grid>("TabOperationsBar")!.IsVisible);
+                window!.Width = 1800;
+                return true;
+            });
+            await Task.Delay(100);
+            await OnUiAsync(() =>
+            {
+                Check("wideningToSingleRowHidesOperations", panel!.TotalRows == 1 && !window!.FindControl<Grid>("TabOperationsBar")!.IsVisible);
+                window!.Width = 760;
+                return true;
+            });
+            await Task.Delay(100);
+            await OnUiAsync(() =>
+            {
+                Check("narrowingToMultipleRowsShowsOperations", panel!.TotalRows > 1 && window!.FindControl<Grid>("TabOperationsBar")!.IsVisible);
                 return true;
             });
             return ToolText($"{(passed ? "PASS" : "FAIL")}: tab pagination\n{report}", isError: !passed);
@@ -116,8 +155,7 @@ internal static partial class DebugMcpServer
             {
                 if (window is not null)
                 {
-                    foreach (var tab in created)
-                        window.CloseTerminalSession(tab);
+                    window.CloseAllTerminalTabs();
                     window.Close();
                 }
                 return true;

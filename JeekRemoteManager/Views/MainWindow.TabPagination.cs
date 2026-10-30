@@ -68,6 +68,9 @@ public partial class MainWindow
     {
         if (_tabPages is not { } pages)
             return;
+        // Count every page: a one-row page still needs navigation when other pages exist.
+        // Keep an active search accessible even when its results fit on one row.
+        TabOperationsBar.IsVisible = pages.TotalRows > 1 || !string.IsNullOrEmpty(TabSearchBox.Text);
         TabPageText.Text = $"{pages.CurrentPage + 1} / {pages.PageCount}";
         PreviousTabPageButton.IsEnabled = pages.CurrentPage > 0;
         NextTabPageButton.IsEnabled = pages.CurrentPage < pages.PageCount - 1;
