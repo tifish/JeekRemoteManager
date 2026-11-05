@@ -174,6 +174,7 @@ internal static partial class DebugMcpServer
         host.AddTool("editor_reload_focus_check", _ => EditorReloadFocusCheckAsync());
         host.AddTool("login_menu_select_probe", LoginMenuSelectProbeAsync);
         host.AddTool("auto_update_stage_check", AutoUpdateStageCheckAsync);
+        host.AddTool("auto_update_mirror_check", AutoUpdateMirrorCheckAsync);
         host.AddTool("ai_render_probe", AiRenderProbeAsync);
         host.AddTool("agent_project_link_check", AgentProjectLinkCheckAsync);
         host.AddTool("agent_application_link_check", AgentApplicationLinkCheckAsync);
@@ -1316,6 +1317,16 @@ internal static partial class DebugMcpServer
         }
     });
 
+    private static async Task<JsonObject> AutoUpdateMirrorCheckAsync(JsonObject args)
+    {
+        const string url = "https://github.com/tifish/JeekRemoteManager/releases/download/latest_release/JeekRemoteManager.zip";
+        var results = await GitHubMirrors.ProbeMirrorsAsync(url, userAgent: "JeekRemoteManager-Updater/1.0");
+        var best = results.Where(r => r.Ok).OrderByDescending(r => r.BytesPerSecond).ThenBy(r => r.Index).FirstOrDefault();
+        var report = string.Join("\n", results.Select(r =>
+            $"{r.Url}: usable={r.Ok}, bytes={r.Bytes}, speed={r.BytesPerSecond / (1024 * 1024):0.00} MB/s, timedOut={r.TimedOut}"));
+        return ToolText($"{(best is null ? "FAIL: no usable mirror" : "PASS: selected " + best.Url)}\n{report}", isError: best is null);
+    }
+
     private static async Task<JsonObject> AutoUpdateStageCheckAsync(JsonObject args)
     {
         // Exercises the in-app update pipeline (download -> extract -> verify)
@@ -1324,22 +1335,36 @@ internal static partial class DebugMcpServer
         // instances don't collide.
         var url = args["url"]?.GetValue<string>();
         var keep = args["keep"]?.GetValue<bool>() ?? false;
-        IReadOnlyList<string> urls = string.IsNullOrWhiteSpace(url)
-            ? AutoUpdateService.GetDefaultDownloadUrls()
+        IReadOnlyList<string>? urls = string.IsNullOrWhiteSpace(url)
+            ? null
             : [url];
+
+        // Exercise the real downloader without enabling self-updates on the Debug
+        // app or sharing the user's Release staging folder.
+        var updater = new AutoUpdater(new AutoUpdaterOptions
+        {
+            AppExeName = "JeekRemoteManager.exe",
+            ReleaseZipUrl = "https://github.com/tifish/JeekRemoteManager/releases/download/latest_release/JeekRemoteManager.zip",
+            VersionTxtUrl = "https://github.com/tifish/JeekRemoteManager/releases/download/latest_release/version.txt",
+            UserAgent = "JeekRemoteManager-Updater/1.0",
+            GetLocalVersion = () => 10,
+            UpdateRoot = Path.Combine(DebugInstanceContext.RuntimeTempRoot, "AutoUpdateProbe", "Update"),
+        });
+        if (await updater.HasUpdateAsync() == UpdateCheckOutcome.Failed)
+            return ToolText($"FAIL: version check failed: {updater.FailureReason}", isError: true);
 
         UpdateDownloadProgress? last = null;
         var progress = new SynchronousProgress<UpdateDownloadProgress>(p => Volatile.Write(ref last, p));
 
         var stopwatch = Stopwatch.StartNew();
         using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
-        var stagedDir = await AutoUpdateService.DownloadAndStageAsync(urls, progress, cts.Token);
+        var stagedDir = await updater.DownloadAndStageAsync(urls, progress, cts.Token);
         stopwatch.Stop();
 
         if (stagedDir is null)
         {
             return ToolText(
-                $"FAIL: download/stage failed after {stopwatch.Elapsed.TotalSeconds:0}s: {AutoUpdateService.FailureReason}",
+                $"FAIL: download/stage failed after {stopwatch.Elapsed.TotalSeconds:0}s: {updater.FailureReason}",
                 isError: true);
         }
 
@@ -1350,7 +1375,8 @@ internal static partial class DebugMcpServer
             $"PASS: staged at {stagedDir}\n"
             + $"Files: {fileCount}, JeekRemoteManager.exe: {exeSize} bytes\n"
             + $"Downloaded {Volatile.Read(ref last)?.ReceivedBytes ?? 0} bytes in {stopwatch.Elapsed.TotalSeconds:0.0}s "
-            + $"(mirror {(Volatile.Read(ref last)?.MirrorIndex ?? 0) + 1}/{urls.Count})";
+            + $"(mirror {(Volatile.Read(ref last)?.MirrorIndex ?? 0) + 1}/{updater.DownloadUrls.Count})\n"
+            + $"Selected URL: {updater.DownloadUrl}";
 
         if (!keep)
         {

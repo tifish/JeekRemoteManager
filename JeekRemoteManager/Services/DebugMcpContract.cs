@@ -299,7 +299,10 @@ public static class DebugMcpContract
             {
                 ["url"] = Prop("string", "Optional package URL override (default: latest release via all mirrors)."),
                 ["keep"] = Prop("boolean", "Keep the staged folder instead of cleaning it up (default false)."),
-            }));
+            }),
+        Tool("auto_update_mirror_check",
+            "Samples normal package downloads from GitHub and its mirrors, reports received bytes, throughput and timeouts, and selects the fastest usable source. Does not install updates.",
+            new()));
 
     public static JsonObject InitializeResult(string name, string title, string version, string? requestedVersion)
     {

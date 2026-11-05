@@ -2849,8 +2849,9 @@ try
           "In-app downloader abandons stalled mirror downloads");
     Check(autoUpdateService.Contains("MinimumDownloadBytesPerSecond = 512 * 1024")
           && autoUpdateService.Contains("Download speed stayed below")
-          && autoUpdateService.Contains("i < mirrors.Length - 1 ? MinimumDownloadBytesPerSecond : 0"),
-          "In-app downloader switches mirrors after sustained low download speed");
+          && autoUpdateService.Contains("fastestSlowUrl")
+          && autoUpdateService.Contains("retrySlowMirror"),
+          "In-app downloader compares slow mirrors and retries the fastest instead of keeping the last");
     Check(autoUpdateService.Contains("DownloadUrls")
           && autoUpdateService.Contains("BuildDownloadUrlsForPackageAsync")
           && autoUpdateService.Contains("GetFastestMirror")
