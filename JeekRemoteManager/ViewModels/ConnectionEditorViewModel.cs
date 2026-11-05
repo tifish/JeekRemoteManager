@@ -149,25 +149,41 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     [ObservableProperty]
     private bool _autoLogSession;
 
-    /// <summary>Tree path of the saved connection to hop through; empty dials directly.</summary>
+    /// <summary>Stable identity selected by dragging a saved SSH connection.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(JumpHostValidationMessage))]
     [NotifyPropertyChangedFor(nameof(HasJumpHostValidationMessage))]
     [NotifyPropertyChangedFor(nameof(JumpHostDisplay))]
     [NotifyPropertyChangedFor(nameof(HasJumpHost))]
-    private string _jumpHost = "";
+    private string _jumpHostConnectionId = "";
 
     private string _connectionId = "";
     private System.Collections.Generic.Dictionary<string, Connection>? _jumpConnections;
 
     private string _jumpHostDropError = "";
 
-    public bool HasJumpHost => !string.IsNullOrWhiteSpace(JumpHost);
+    public bool HasJumpHost => !string.IsNullOrWhiteSpace(JumpHostConnectionId);
 
-    public string JumpHostDisplay => _jumpConnections?.GetValueOrDefault(NormalizeJumpPath(JumpHost)) is { } jump
-        ? $"{JumpHost}  ({jump.Username}@{jump.Host}:{(jump.Port > 0 ? jump.Port : 22)})" : JumpHost;
+    private System.Collections.Generic.KeyValuePair<string, Connection>? CurrentJump =>
+        _jumpConnections?.FirstOrDefault(pair => string.Equals(pair.Value.ConnectionId, JumpHostConnectionId,
+            System.StringComparison.OrdinalIgnoreCase)) is { Value: not null } match
+            ? match : null;
 
-    partial void OnJumpHostChanged(string value) => ReportJumpHostDropError("");
+    public string JumpHostDisplay => CurrentJump is { } saved
+        ? $"{saved.Key}  ({saved.Value.Username}@{saved.Value.Host}:{(saved.Value.Port > 0 ? saved.Value.Port : 22)})" : JumpHostConnectionId;
+
+    partial void OnJumpHostConnectionIdChanged(string value) => ReportJumpHostDropError("");
+
+    private Connection? ResolveJumpReference(string id)
+    {
+        if (_jumpConnections is null)
+            return null;
+        var matches = _jumpConnections.Values.Where(connection => string.Equals(
+            connection.ConnectionId, id, System.StringComparison.OrdinalIgnoreCase)).Take(2).ToArray();
+        if (matches.Length > 1)
+            throw new System.InvalidOperationException($"Jump host identity '{id}' is ambiguous.");
+        return matches.SingleOrDefault();
+    }
 
     /// <summary>Uses the loaded tree snapshot; selecting never reads files or decrypts credentials.</summary>
     public void SetJumpHostConnections(System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<string, Connection>> connections)
@@ -186,8 +202,11 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             return L("JumpHostDropSshOnly");
         try
         {
-            SshDialer.ResolveJumpRoute(new Connection { ConnectionId = _connectionId, JumpHost = path },
-                candidate => _jumpConnections.GetValueOrDefault(NormalizeJumpPath(candidate)));
+            var jump = _jumpConnections.GetValueOrDefault(NormalizeJumpPath(path));
+            if (jump is not { IsSsh: true } || jump.ConnectionId.Length == 0)
+                return L("JumpHostDropSshOnly");
+            SshDialer.ResolveJumpRoute(new Connection { ConnectionId = _connectionId, JumpHostConnectionId = jump.ConnectionId },
+                ResolveJumpReference);
             return "";
         }
         catch (System.InvalidOperationException ex)
@@ -203,8 +222,14 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         ReportJumpHostDropError(error);
         if (error.Length > 0)
             return false;
-        JumpHost = NormalizeJumpPath(path);
+        JumpHostConnectionId = _jumpConnections![NormalizeJumpPath(path)].ConnectionId;
         return true;
+    }
+
+    public void ClearJumpHost()
+    {
+        JumpHostConnectionId = "";
+        ReportJumpHostDropError("");
     }
 
     public void ReportJumpHostDropError(string error)
@@ -220,12 +245,14 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         {
             if (_jumpHostDropError.Length > 0)
                 return _jumpHostDropError;
-            if (_jumpConnections is null || string.IsNullOrWhiteSpace(JumpHost))
+            if (_jumpConnections is null || !HasJumpHost)
                 return "";
             try
             {
-                SshDialer.ResolveJumpRoute(new Connection { ConnectionId = _connectionId, JumpHost = JumpHost },
-                    path => _jumpConnections.GetValueOrDefault(NormalizeJumpPath(path)));
+                SshDialer.ResolveJumpRoute(new Connection
+                {
+                    ConnectionId = _connectionId, JumpHostConnectionId = JumpHostConnectionId,
+                }, ResolveJumpReference);
                 return "";
             }
             catch (System.InvalidOperationException ex)
@@ -426,7 +453,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             AutoOpenMonitorPanel = c.AutoOpenMonitorPanel,
             AutoOpenFileBrowserPanel = c.AutoOpenFileBrowserPanel,
             AutoLogSession = c.AutoLogSession,
-            JumpHost = c.JumpHost,
+            JumpHostConnectionId = c.JumpHostConnectionId,
             PortForwards = c.PortForwards,
             WslDistro = c.WslDistro,
             WslStartDirectory = c.WslStartDirectory,
@@ -555,7 +582,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         c.AutoOpenMonitorPanel = AutoOpenMonitorPanel;
         c.AutoOpenFileBrowserPanel = AutoOpenFileBrowserPanel;
         c.AutoLogSession = AutoLogSession;
-        c.JumpHost = JumpHost.Trim().Replace('\\', '/').Trim('/');
+        c.JumpHostConnectionId = JumpHostConnectionId;
         c.PortForwards = PortForwards;
         c.WslDistro = WslDistro.Trim();
         c.WslStartDirectory = WslStartDirectory.Trim();

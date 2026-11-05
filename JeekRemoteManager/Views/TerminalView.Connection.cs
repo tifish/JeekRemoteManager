@@ -325,10 +325,10 @@ public partial class TerminalView
         // got there first, which costs this one connection its own login.
         _freshLoginReservation = BastionSessionPool?.TryReserveFreshLogin(connection);
 
-        var jumpPath = connection.JumpHost.Trim();
+        var jumpPath = connection.JumpHostConnectionId.Trim();
         FeedLine(jumpPath.Length == 0
             ? $"Connecting to {host}:{port} ..."
-            : $"Connecting to {host}:{port} via {jumpPath} ...");
+            : $"Connecting to {host}:{port} via SSH jump host ...");
         Volatile.Write(
             ref _bastionSessionState,
             _forceNewTcpConnection ? "new-tcp-forced" : "fresh");

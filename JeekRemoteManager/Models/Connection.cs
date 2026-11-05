@@ -123,10 +123,10 @@ public class Connection
     public bool AutoLogSession { get; set; }
 
     /// <summary>
-    /// Tree path of another saved SSH connection to hop through ("vps/bastion"), the
-    /// ProxyJump equivalent (for VNC, the SSH tunnel); empty dials directly. See <see cref="Services.SshDialer"/>.
+    /// Stable identity of another saved SSH connection to hop through (ProxyJump;
+    /// for VNC, the SSH tunnel). Empty dials directly. Renames and moves preserve the reference.
     /// </summary>
-    public string JumpHost { get; set; } = "";
+    public string JumpHostConnectionId { get; set; } = "";
 
     /// <summary>
     /// Port forwards started with each dial, one per line: "L 8080 db:5432",

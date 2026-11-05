@@ -351,7 +351,7 @@ public partial class MainWindowViewModel
             connection,
             viewer,
             new SshDialOptions(OnMismatch: ConfirmHostKeyReplacement, PromptUser: PromptUser),
-            _store.TryLoadByTreePath);
+            _store.TryLoadById);
         return true;
     }
 

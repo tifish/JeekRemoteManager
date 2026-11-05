@@ -323,7 +323,7 @@ public static class ProductMcpContract
         leading["auto_open_monitor_panel"] = Prop("boolean", "Open the server monitor after login.");
         leading["auto_open_file_browser_panel"] = Prop("boolean", "Open the file browser after login.");
         leading["jump_host"] = Prop("string",
-            "Tree path of another saved SSH connection to hop through (ProxyJump; for VNC, the SSH tunnel), e.g. 'vps/bastion'. Follows that connection's own jump host recursively; cycles are rejected. Empty dials directly.");
+            "Tree path of a saved SSH connection to use as ProxyJump (or the VNC SSH tunnel), e.g. 'vps/bastion'. Resolved and stored as its stable ConnectionId, so renames and moves are safe. Follows nested jump hosts; cycles are rejected. Empty clears the reference and dials directly.");
         leading["port_forwards"] = Prop("string",
             "Port forwards started with each connection, one per line: 'L 8080 db:5432', 'R 9000 localhost:3000', 'D 1080' (SOCKS). Local listeners bind 127.0.0.1 unless a bind address is given.");
         leading["auto_log_session"] = Prop("boolean",

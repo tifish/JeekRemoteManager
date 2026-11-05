@@ -28,11 +28,12 @@ internal static partial class DebugMcpServer
             settings.Settings.StorageLocation = StorageLocation.CustomDirectory;
             settings.Settings.CustomStoragePath = root;
             var store = new ConnectionStore(settings.ResolveConnectionsRoot());
+            var targetId = Guid.NewGuid().ToString("D");
             foreach (var connection in new[]
             {
-                new Connection { Name = "target", Host = "target.invalid", ConnectionId = "target" },
+                new Connection { Name = "target", Host = "target.invalid", ConnectionId = targetId },
                 new Connection { Name = "jump", Host = "jump.invalid", Username = "probe", ConnectionId = "jump" },
-                new Connection { Name = "cycle", Host = "cycle.invalid", JumpHost = "target", ConnectionId = "cycle" },
+                new Connection { Name = "cycle", Host = "cycle.invalid", JumpHostConnectionId = targetId, ConnectionId = "cycle" },
                 new Connection { Name = "desktop", Type = ConnectionType.Rdp },
                 new Connection { Name = "vnc", Type = ConnectionType.Vnc },
             })
@@ -71,17 +72,19 @@ internal static partial class DebugMcpServer
                 Check("folderExpanderPreservesEditor", ReferenceEquals(editor, state.Vm.Editor) && folder.IsExpanded == expanded);
                 var dragged = state.Window.DebugDragTreeNode(Node("jump"), DropPoint());
                 Check("editorPreservedOnPress", dragged.EditorPreserved && ReferenceEquals(editor, state.Vm.Editor));
-                Check("sshDrop", dragged.ValidHighlight && editor.JumpHost == "hosts/jump" && editor.JumpHostDisplay.Contains("probe@jump.invalid"));
+                Check("sshDrop", dragged.ValidHighlight && editor.JumpHostConnectionId == Node("jump").Connection!.ConnectionId
+                    && editor.JumpHostDisplay.Contains("probe@jump.invalid"));
                 foreach (var name in new[] { "target", "desktop", "cycle" })
                 {
                     var rejected = state.Window.DebugDragTreeNode(Node(name), DropPoint());
-                    Check(name + "Rejected", rejected.InvalidHighlight && editor.JumpHost == "hosts/jump" && editor.HasJumpHostValidationMessage);
+                    Check(name + "Rejected", rejected.InvalidHighlight
+                        && editor.JumpHostConnectionId == Node("jump").Connection!.ConnectionId && editor.HasJumpHostValidationMessage);
                 }
                 var clear = Zone().GetVisualParent()!.GetVisualDescendants().OfType<Button>().Single();
                 clear.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                Check("clearToDirect", editor.JumpHost == "" && !editor.HasJumpHostValidationMessage);
+                Check("clearToDirect", editor.JumpHostConnectionId == "" && !editor.HasJumpHostValidationMessage);
                 state.Window.DebugDragTreeNode(Node("jump"), new Point(state.Window.Bounds.Width - 5, 5));
-                Check("outsideDropPreservesSelection", ReferenceEquals(editor, state.Vm.Editor) && editor.JumpHost == "");
+                Check("outsideDropPreservesSelection", ReferenceEquals(editor, state.Vm.Editor) && editor.JumpHostConnectionId == "");
                 state.Window.DebugDragTreeNode(Node("jump"), default, move: false);
                 Check("plainClickSelects", state.Vm.SelectedNode == Node("jump"));
                 Check("plainClickFocuses", state.Window.GetVisualDescendants().OfType<TreeViewItem>()
@@ -95,13 +98,24 @@ internal static partial class DebugMcpServer
             await OnUiAsync(() =>
             {
                 var dropped = state.Window.DebugDragTreeNode(Node("jump"), DropPoint());
-                Check("vncDrop", dropped.ValidHighlight && state.Vm.Editor!.JumpHost == "hosts/jump");
+                Check("vncDrop", dropped.ValidHighlight && state.Vm.Editor!.JumpHostConnectionId == Node("jump").Connection!.ConnectionId);
                 state.Vm.FlushAutoSave();
                 Check("noFilesMoved", new[] { "target", "hosts/jump", "desktop", "cycle", "vnc" }
                     .All(name => File.Exists(Path.Combine(state.Store.RootPath, name + ConnectionStore.FileExtension))));
                 state.Window.DebugDragTreeNode(Node("jump"), state.Window.DebugTreeRootDropPoint);
                 Check("treeMoveStillWorks", File.Exists(Path.Combine(state.Store.RootPath, "jump.json"))
                     && !File.Exists(Path.Combine(state.Store.RootPath, "hosts", "jump.json")));
+                state.Vm.SelectedNode = Node("vnc");
+                Check("referenceFollowsMove", state.Vm.Editor!.JumpHostDisplay.StartsWith("jump  (")
+                    && !state.Vm.Editor.HasJumpHostValidationMessage);
+                var jumpNode = Node("jump");
+                var jumpId = jumpNode.Connection!.ConnectionId;
+                jumpNode.Connection.Name = "renamed-jump";
+                state.Store.Save(jumpNode.Connection, state.Store.RootPath, jumpNode.FullPath);
+                state.Vm.ReloadTreeFromDisk(Node("vnc").FullPath);
+                Check("referenceFollowsRename", state.Vm.Editor!.JumpHostConnectionId == jumpId
+                    && state.Vm.Editor.JumpHostDisplay.StartsWith("renamed-jump  (")
+                    && !state.Vm.Editor.HasJumpHostValidationMessage);
                 return true;
             });
             var passed = checks.Values.All(value => value);
@@ -135,7 +149,7 @@ internal static partial class DebugMcpServer
         Connection Make(string id, string jump = "") => new()
         {
             ConnectionId = id, Name = id, Host = host, Port = port, Username = username,
-            PrivateKeyPath = keyPath, JumpHost = jump,
+            PrivateKeyPath = keyPath, JumpHostConnectionId = jump,
         };
         var outer = Make("outer");
         var inner = Make("inner", "outer");

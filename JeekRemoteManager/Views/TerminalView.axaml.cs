@@ -795,7 +795,7 @@ public partial class TerminalView : UserControl
     public BastionSessionPool? BastionSessionPool { get; set; }
 
     /// <summary>
-    /// Looks a saved connection up by tree path — how a jump host is found at dial time,
+    /// Looks a saved connection up by ConnectionId — how a jump host is found at dial time,
     /// so an edit to it applies on the next connect. Set by the window.
     /// </summary>
     public Func<string, Connection?>? ResolveConnection { get; set; }

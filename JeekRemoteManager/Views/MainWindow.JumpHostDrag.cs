@@ -73,8 +73,7 @@ public partial class MainWindow
     {
         if (sender is Control { DataContext: ConnectionEditorViewModel editor })
         {
-            editor.ReportJumpHostDropError("");
-            editor.JumpHost = "";
+            editor.ClearJumpHost();
         }
     }
 

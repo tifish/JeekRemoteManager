@@ -381,7 +381,15 @@ internal static class ProductMcpServer
         if (args["auto_log_session"] is { } logSession)
             connection.AutoLogSession = logSession.GetValue<bool>();
         if (args["jump_host"]?.GetValue<string>() is { } jumpHost)
-            connection.JumpHost = jumpHost.Trim().Trim('/');
+        {
+            var path = jumpHost.Trim().Replace('\\', '/').Trim('/');
+            var jump = path.Length == 0 ? null : MainVm.Store.TryLoadByTreePath(path)
+                ?? throw new InvalidOperationException($"Jump host '{path}' is not a saved connection.");
+            if (jump is { IsSsh: false })
+                throw new InvalidOperationException($"Jump host '{path}' is not an SSH connection.");
+            connection.JumpHostConnectionId = jump?.ConnectionId ?? "";
+            SshDialer.ResolveJumpRoute(connection, MainVm.Store.TryLoadById);
+        }
         if (args["port_forwards"]?.GetValue<string>() is { } portForwards)
         {
             if (SshPortForwarding.Validate(portForwards) is { } problem)
@@ -482,7 +490,8 @@ internal static class ProductMcpServer
         described["autoOpenMonitorPanel"] = connection.AutoOpenMonitorPanel;
         described["autoOpenFileBrowserPanel"] = connection.AutoOpenFileBrowserPanel;
         described["autoLogSession"] = connection.AutoLogSession;
-        described["jumpHost"] = connection.JumpHost;
+        described["jumpHost"] = MainVm.Store.TryGetTreePathById(connection.JumpHostConnectionId) ?? "";
+        described["jumpHostConnectionId"] = connection.JumpHostConnectionId;
         described["portForwards"] = connection.PortForwards;
         described["wslDistro"] = connection.WslDistro;
         described["wslStartDirectory"] = connection.WslStartDirectory;

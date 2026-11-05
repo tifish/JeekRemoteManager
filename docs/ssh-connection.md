@@ -50,14 +50,14 @@ SSH.NET 没有内置的 host key 校验，默认信任所有主机。`KnownHosts
 
 **所有自己拨号的地方都走 `SshDialer.Connect`**：终端的新连接、文件浏览器的 SFTP、公钥安装。它负责组装凭据、按需经过跳板机、挂上主机密钥校验再连接，所以任何一条路径都不会漏掉校验或忽略跳板机。
 
-**跳板机（ProxyJump）。** `Connection.JumpHost` 是另一个已保存 SSH 连接的**树路径**（如 `vps/bastion`），用它自己的凭据和主机密钥。SSH.NET 不能在另一个会话的通道上跑会话，所以做法是：先连跳板机，开一个 `ForwardedPortLocal("127.0.0.1", 0 → 目标 host:port)`，再连本机那个临时端口。要点：
+**跳板机（ProxyJump）。** `Connection.JumpHostConnectionId` 保存另一个 SSH 连接已有的稳定 `ConnectionId`，不保存名称或路径。改名、移动连接或其父文件夹不会改变引用；复制生成新 ID，不会接管原连接的引用。SSH.NET 不能在另一个会话的通道上跑会话，所以做法是：先连跳板机，开一个 `ForwardedPortLocal("127.0.0.1", 0 → 目标 host:port)`，再连本机那个临时端口。要点：
 
 - **主机密钥按真实目标校验**，不是按 127.0.0.1——否则所有经跳板的主机都会共用一条 `127.0.0.1:随机端口` 记录。`Build(connection, dialHost, dialPort)` 只改实际连接的地址，提示框和 known_hosts 用的仍是真实主机名。
 - **替换密钥的回调必须携带本次受检主机的 host/port。** 同一组 `SshDialOptions` 会先用于跳板、再用于目标，终端和公钥安装不能在回调里捕获最终目标地址，否则跳板密钥变化时会以目标的名字请求用户批准。`host_key_trust_check` 检查回调收到的地址。
-- **拨号时才解析跳板机**（窗口注入的 `ResolveConnection`，就是 `ConnectionStore.TryLoadByTreePath`），改了跳板机下次连接就生效，不存解析结果。解析器在 UI 线程上捕获 store，因为它在拨号的工作线程上被调用，那里读窗口的 `DataContext` 会抛跨线程异常。
-- **逐级跟随跳板机自己的 `JumpHost`**，先连最外层，再向目标推进；字段仍然是单个已保存连接的树路径，不解析逗号分隔的 OpenSSH 参数。旧的单跳配置不变。整条链在拨号前解析完成，缺失连接、非 SSH 节点、自引用/间接循环或超过 32 跳都明确失败。循环同时按树路径、稳定 `ConnectionId` 和对象身份识别，解析器每次加载新对象也不会绕过检查。
+- **拨号时按 ID 解析跳板机**（窗口注入 `ConnectionStore.TryLoadById`），改了跳板机下次连接就生效，不缓存连接对象。当前文件树中缺失该 ID、出现重复 ID 或对应节点不再是 SSH 时明确失败，绝不按旧路径或同名节点寻找替代。解析器在 UI 线程上捕获 store，因为它在拨号的工作线程上被调用，那里读窗口的 `DataContext` 会抛跨线程异常。
+- **逐级跟随跳板机自己的 `JumpHostConnectionId`**，先连最外层，再向目标推进。整条链在拨号前解析完成，缺失连接、非 SSH 节点、自引用/间接循环或超过 32 跳都明确失败。循环按稳定 ID 识别，解析器每次加载新对象也不会绕过检查。
 - 每一跳只用于 SSH 转发，不执行它的 `LoginCommands` 或额外 `PortForwards`；交互式菜单堡垒机仍使用登录命令机制。每个目标地址在前一跳一侧解析，每层主机密钥仍按真实 host/port 校验。
-- 连接编辑器的 SSH/VNC 跳板字段通过**从左侧连接树拖入单个 SSH 连接**设置，显示完整路径和端点，不要求手输路径或浏览长下拉列表；“清除／直连”移除引用。校验使用已加载的内存快照，不读盘或解密。自身、非 SSH 节点、多选和循环引用都拒绝，错误在字段下显示，原有值保留。缺失的旧引用仍显示并报错，不能因为刷新或打开编辑器就静默直连。MCP 和存储继续使用兼容的树路径。
+- 连接编辑器的 SSH/VNC 跳板字段通过**从左侧连接树拖入单个 SSH 连接**设置，写入 ID，并从当前树动态显示完整路径和端点；“清除／直连”移除引用。校验使用已加载的内存快照，不读盘或解密。自身、非 SSH 节点、多选和循环引用都拒绝，原有值保留。删除的引用显示 ID 并报错，不能静默直连。产品 MCP 的 `jump_host` 参数接受树路径以方便选择，在写入前立即解析成 ID；返回的 `jumpHost` 是当前显示路径，`jumpHostConnectionId` 是实际存储值。旧的路径配置字段不兼容、不迁移。
 - 隧道的生命周期挂在目标连接上：终端里通过 `SharedSshClient.AddOwnedResource`，SFTP 在 `DisposeClient` 里一起释放。多跳隧道从内到外释放；中途失败也必须释放已建立的所有层，VNC 查看器退出同理。
 
 **端口转发。** `Connection.PortForwards` 每行一条：`L 8080 db:5432`（或 ssh -L 的 `L 8080:db:5432`）、`R 9000 localhost:3000`、`D 1080`（SOCKS）。
@@ -106,7 +106,7 @@ SSH 在一条已认证连接上多路复用多个 session channel。所以"复�
 - **定位只认 TigerVNC。** 顺序是卸载注册表项的 `InstallLocation`、`Program Files\TigerVNC`，最后才是 PATH。别家（RealVNC、UltraVNC）的查看器也叫 `vncviewer.exe` 但参数不同，所以 PATH 上的只有路径或版本信息带 TigerVNC 才算。
 - **密码走子进程的 `VNC_PASSWORD` / `VNC_USERNAME` 环境变量**，TigerVNC 会在弹认证框前先读它们。不放命令行（任何进程都能读到），也不写 `-passwd` 文件（那只是固定 DES 密钥的混淆，等于明文落盘）。本进程继承来的这两个变量一律先清掉，免得替别的连接应答。经典 VNC 认证只用密码的前 8 个字符，编辑器里有提示。
 - **每个选项都显式传**（`-FullScreen=0/1`、`-ViewOnly`、`-Shared`）：TigerVNC 会把上次的选项存进注册表，不传就沿用上一个连接的。服务器参数一律写成 `host::port`——单冒号是显示号（5900+N）；IPv6 加方括号。`Shared` 默认开，免得连上去就把别人的查看器挤掉。
-- **SSH 隧道复用 `JumpHost`。** VNC 通常不加密，实际用法多半是经 SSH 访问。填了跳板机就用 `SshJumpTunnel` 开一个 `127.0.0.1:0 → host:port` 的本地转发，查看器连这个本地端口；目标主机在跳板机那一侧解析，所以 `localhost` 指跳板机本身。隧道的生命周期跟着查看器进程：进程退出就关掉。这依赖 TigerVNC 一个窗口一个进程。
+- **SSH 隧道复用 `JumpHostConnectionId`。** VNC 通常不加密，实际用法多半是经 SSH 访问。填了跳板机就用 `SshJumpTunnel` 开一个 `127.0.0.1:0 → host:port` 的本地转发，查看器连这个本地端口；目标主机在跳板机那一侧解析，所以 `localhost` 指跳板机本身。隧道的生命周期跟着查看器进程：进程退出就关掉。这依赖 TigerVNC 一个窗口一个进程。
 - 产品 MCP 的 `session_open` 对 RDP/VNC 不开终端标签页，而是启动外部查看器，返回 `launched`；查看器缺失时返回 `awaiting_user`，安装与否由用户在窗口里决定。回归检查是 Debug MCP 的 `vnc_launch_check`。
 
 **WSL** 通过 `wsl.exe` 在 ConPTY 里开发行版 shell。两个坑：

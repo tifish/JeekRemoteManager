@@ -264,7 +264,7 @@ public partial class MainWindow
         {
             SessionNumber = sessionNumber,
             BastionSessionPool = _bastionSessionPool,
-            ResolveConnection = store is null ? null : store.TryLoadByTreePath,
+            ResolveConnection = store is null ? null : store.TryLoadById,
         };
         view.PanelStateChanged += (_, _) => UpdateTerminalPanelToggleStates();
         var tab = new TabItem

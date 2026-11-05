@@ -89,7 +89,7 @@ public partial class MainWindowViewModel
                 connection,
                 publicKeyText,
                 ConfirmHostKeyReplacement,
-                resolveConnection: _store.TryLoadByTreePath,
+                resolveConnection: _store.TryLoadById,
                 promptUser: PromptUser));
 
     /// <summary>

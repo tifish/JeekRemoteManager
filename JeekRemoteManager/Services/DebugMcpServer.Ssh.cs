@@ -636,9 +636,9 @@ internal static partial class DebugMcpServer
         var target = new Connection
         {
             ConnectionId = "target-probe", Name = "target", Type = ConnectionType.Ssh,
-            Host = "127.0.0.1", Port = port, Username = username, JumpHost = "_probe/jump",
+            Host = "127.0.0.1", Port = port, Username = username, JumpHostConnectionId = "jump-probe",
         };
-        Connection? Resolve(string path) => path == "_probe/jump" ? jump : null;
+        Connection? Resolve(string id) => id == "jump-probe" ? jump : null;
 
         try
         {
@@ -818,7 +818,7 @@ internal static partial class DebugMcpServer
             ConnectionId = "vnc-jump-probe", Name = "jump", Type = ConnectionType.Ssh,
             Host = host, Port = port, Username = username,
         };
-        vnc.JumpHost = "_probe/jump";
+        vnc.JumpHostConnectionId = jump.ConnectionId;
         vnc.EncryptedPassword = PasswordProtector.Encrypt(secret);
         try
         {
@@ -866,7 +866,7 @@ internal static partial class DebugMcpServer
             if (!closed)
                 failures.Add("the tunnel kept listening after the viewer exited");
 
-            vnc.JumpHost = "_probe/missing";
+            vnc.JumpHostConnectionId = "_probe/missing";
             try
             {
                 using var unexpected = await VncViewer.LaunchAsync(vnc, @"C:\TigerVNC\vncviewer.exe", new SshDialOptions(), _ => null,

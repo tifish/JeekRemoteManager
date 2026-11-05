@@ -364,6 +364,32 @@ public class ConnectionStore
         }
     }
 
+    /// <summary>Resolves the stable identity of a saved connection. Missing and duplicate
+    /// identities fail without selecting another connection at an old path.</summary>
+    public Connection? TryLoadById(string id) => FindById(id)?.Connection;
+
+    public string? TryGetTreePathById(string id) => FindById(id) is { } found
+        ? Path.GetRelativePath(RootPath, found.Path)[..^FileExtension.Length].Replace('\\', '/') : null;
+
+    private ConnectionFileSnapshot? FindById(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            return null;
+        ConnectionFileSnapshot? found = null;
+        foreach (var file in AllConnectionFiles())
+        {
+            Connection candidate;
+            try { candidate = LoadFromText(file, ReadConnectionText(new FileInfo(file))); }
+            catch { continue; }
+            if (!string.Equals(candidate.ConnectionId, id, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (found is not null)
+                throw new InvalidOperationException($"Jump host identity '{id}' is ambiguous: multiple saved connections use it.");
+            found = new ConnectionFileSnapshot(file, candidate);
+        }
+        return found;
+    }
+
     /// <summary>Whether two connections would be written to disk as the same text.</summary>
     public static bool ContentEquals(Connection a, Connection b) =>
         JsonSerializer.Serialize(a, JsonOptions) == JsonSerializer.Serialize(b, JsonOptions);

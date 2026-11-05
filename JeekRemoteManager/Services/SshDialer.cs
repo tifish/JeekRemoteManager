@@ -128,7 +128,7 @@ public sealed class SshJumpTunnel : IDisposable
 /// </summary>
 public static class SshDialer
 {
-    /// <param name="resolveConnection">Looks a saved connection up by tree path ("vps/bwg");
+    /// <param name="resolveConnection">Looks a saved connection up by its stable ConnectionId;
     /// needed only when the connection names a jump host.</param>
     /// <param name="configure">Last-chance hook on the connection info before connecting.</param>
     /// <returns>The connected client and the jump tunnel it depends on (null when direct);
@@ -179,48 +179,40 @@ public static class SshDialer
     /// <exception cref="InvalidOperationException">The jump host is named but cannot be used.</exception>
     public static Connection? ResolveJump(Connection connection, Func<string, Connection?>? resolveConnection)
     {
-        var path = connection.JumpHost.Trim();
-        if (path.Length == 0)
+        var id = connection.JumpHostConnectionId.Trim();
+        if (id.Length == 0)
             return null;
         if (resolveConnection is null)
-            throw new InvalidOperationException($"Jump host '{path}' cannot be resolved here.");
-
-        var jump = resolveConnection(path)
-                   ?? throw new InvalidOperationException($"Jump host '{path}' is not a saved connection.");
+            throw new InvalidOperationException($"Jump host '{id}' cannot be resolved here.");
+        var jump = resolveConnection(id)
+            ?? throw new InvalidOperationException($"Jump host '{id}' is not a saved connection.");
         if (!jump.IsSsh)
-            throw new InvalidOperationException($"Jump host '{path}' is not an SSH connection.");
-        if (string.Equals(jump.ConnectionId, connection.ConnectionId, StringComparison.Ordinal)
-            && connection.ConnectionId.Length > 0)
-        {
+            throw new InvalidOperationException($"Jump host '{id}' is not an SSH connection.");
+        if (!string.Equals(id, jump.ConnectionId, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"Jump host '{id}' no longer matches its saved identity.");
+        if (string.Equals(jump.ConnectionId, connection.ConnectionId, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("A connection cannot be its own jump host.");
-        }
-
         return jump;
     }
 
-    /// <summary>Resolves every jump before opening any sockets, rejecting loops and missing hops.
-    /// Returned in network order (outermost jump first). No credentials are accessed.</summary>
+    /// <summary>Resolves every jump by stable id before opening sockets, rejecting loops
+    /// and missing hops. Returned in network order (outermost jump first).</summary>
     public static System.Collections.Generic.IReadOnlyList<Connection> ResolveJumpRoute(
         Connection connection, Func<string, Connection?>? resolveConnection)
     {
         var route = new System.Collections.Generic.List<Connection>();
-        var paths = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var ids = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
-        var instances = new System.Collections.Generic.HashSet<Connection>(System.Collections.Generic.ReferenceEqualityComparer.Instance);
+        var ids = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (connection.ConnectionId.Length > 0)
             ids.Add(connection.ConnectionId);
-        instances.Add(connection);
         var current = connection;
-        while (current.JumpHost.Trim().Length > 0)
+        while (current.JumpHostConnectionId.Trim().Length > 0)
         {
-            var path = current.JumpHost.Trim().Replace('\\', '/').Trim('/');
-            if (!paths.Add(path))
-                throw new InvalidOperationException($"Jump host cycle detected at '{path}'.");
+            var id = current.JumpHostConnectionId.Trim();
+            if (!ids.Add(id))
+                throw new InvalidOperationException($"Jump host cycle detected at '{id}'.");
             if (route.Count >= 32)
                 throw new InvalidOperationException("Jump host route exceeds the maximum of 32 hops.");
             var jump = ResolveJump(current, resolveConnection)!;
-            if (!instances.Add(jump) || (jump.ConnectionId.Length > 0 && !ids.Add(jump.ConnectionId)))
-                throw new InvalidOperationException($"Jump host cycle detected at '{path}'.");
             route.Add(jump);
             current = jump;
         }

@@ -30,7 +30,7 @@ public sealed class SftpSession : IFileSystemSession
     private SshJumpTunnel? _tunnel;
     private volatile bool _disposed;
 
-    /// <param name="resolveConnection">Resolves the connection's jump host by tree path.</param>
+    /// <param name="resolveConnection">Resolves the connection's jump host by ConnectionId.</param>
     /// <param name="configure">Debug hook applied to each dial's connection info.</param>
     /// <param name="promptUser">Answers keyboard-interactive prompts (OTP) on this dial.</param>
     public SftpSession(

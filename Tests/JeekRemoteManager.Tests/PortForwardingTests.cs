@@ -46,7 +46,7 @@ public class PortForwardingTests
     [Fact]
     public void Jump_host_errors_name_the_problem()
     {
-        var connection = new Connection { ConnectionId = "a", Host = "h", Username = "u", JumpHost = "vps/jump" };
+        var connection = new Connection { ConnectionId = "a", Host = "h", Username = "u", JumpHostConnectionId = "vps/jump" };
 
         Assert.Null(SshDialer.ResolveJump(new Connection { Host = "h" }, null));
         Assert.Contains("not a saved connection",
@@ -54,6 +54,7 @@ public class PortForwardingTests
         Assert.Contains("not an SSH connection",
             Assert.Throws<InvalidOperationException>(() => SshDialer.ResolveJump(
                 connection, _ => new Connection { Type = ConnectionType.Rdp })).Message);
+        connection.JumpHostConnectionId = "a";
         Assert.Contains("its own jump host",
             Assert.Throws<InvalidOperationException>(() => SshDialer.ResolveJump(
                 connection, _ => new Connection { ConnectionId = "a" })).Message);
