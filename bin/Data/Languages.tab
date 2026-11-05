@@ -68,6 +68,7 @@ PortForwardsWatermark	one per line: L 8080 db:5432 / R 9000 localhost:3000 / D 1
 PortForwardsTip	L = local port to a host the server can reach, R = server port back to this machine, D = SOCKS proxy. Local listeners bind 127.0.0.1 unless you give an address.	L = 本地端口转到服务器能访问的主机，R = 服务器端口转回本机，D = SOCKS 代理。本地监听默认只绑定 127.0.0.1。
 PrivateKey	Private key	私钥
 PrivateKeyWatermark	optional path to key file	可选，私钥文件路径
+PrivateKeyDropTip	Enter a path, browse, or drop one local private-key file here. Only its path is saved.	可输入路径、浏览选择，或拖入一个本地私钥文件；仅保存文件路径。
 LoginCommands	Login commands	登录后执行
 LoginCommandsWatermark	one command per line; use ? for directives, sections, keys, and bastion reuse examples	每行一条命令；点击 ? 查看分段、按键和堡垒机会话复用示例
 LoginCommandsHelpTitle	Login command guide	登录命令指南

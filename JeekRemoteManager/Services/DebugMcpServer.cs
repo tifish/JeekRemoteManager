@@ -135,6 +135,7 @@ internal static partial class DebugMcpServer
         host.AddTool("ssh_jump_forward_check", SshJumpForwardCheckAsync);
         host.AddTool("ssh_jump_chain_check", SshJumpChainCheckAsync);
         host.AddTool("jump_host_editor_check", _ => JumpHostEditorCheckAsync());
+        host.AddTool("private_key_file_drop_check", _ => PrivateKeyFileDropCheckAsync());
         host.AddTool("vnc_launch_check", VncLaunchCheckAsync);
         host.AddTool("sftp_retry_policy_check", _ => SftpRetryPolicyCheckAsync());
         host.AddTool("connection_write_watcher_check", _ => ConnectionWriteWatcherCheckAsync());

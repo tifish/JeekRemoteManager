@@ -772,7 +772,13 @@
                                                           SelectedItem="{Binding TerminalEncoding, Mode=TwoWay}" />
 
                                                 <TextBlock Grid.Row="2" Grid.Column="0" Classes="label" Text="{l:Localize PrivateKey}" />
-                                                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding PrivateKeyPath, Mode=TwoWay}"
+                                                <TextBox x:Name="PrivateKeyPathBox" Grid.Row="2" Grid.Column="1"
+                                                         Text="{Binding PrivateKeyPath, Mode=TwoWay}"
+                                                         DragDrop.AllowDrop="True"
+                                                         DragDrop.DragOver="OnPrivateKeyFileDragOver"
+                                                         DragDrop.DragLeave="OnPrivateKeyFileDragLeave"
+                                                         DragDrop.Drop="OnPrivateKeyFileDrop"
+                                                         ToolTip.Tip="{l:Localize PrivateKeyDropTip}"
                                                          PlaceholderText="{l:Localize PrivateKeyWatermark}" />
                                                 <Button Grid.Row="2" Grid.Column="2" Content="{l:Localize Browse}"
                                                         Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).BrowseKeyCommand}" />
