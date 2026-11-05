@@ -33,26 +33,64 @@ public sealed class SshJumpTunnel : IDisposable
 {
     private readonly SshClient _jumpClient;
     private readonly ForwardedPortLocal _forward;
+    private readonly SshJumpTunnel? _upstream;
 
-    private SshJumpTunnel(SshClient jumpClient, ForwardedPortLocal forward)
+    private SshJumpTunnel(SshClient jumpClient, ForwardedPortLocal forward, SshJumpTunnel? upstream)
     {
         _jumpClient = jumpClient;
         _forward = forward;
+        _upstream = upstream;
     }
 
     public string JumpHost => _jumpClient.ConnectionInfo.Host;
 
     public int LocalPort => (int)_forward.BoundPort;
 
+    /// <summary>Loopback listeners owned by this route, exposed for Debug MCP cleanup checks.</summary>
+    internal System.Collections.Generic.IReadOnlyList<int> LocalPortsForDebug =>
+        _upstream is null ? [LocalPort] : [LocalPort, .. _upstream.LocalPortsForDebug];
+
     public static SshJumpTunnel Open(
         Connection jump,
         string targetHost,
         int targetPort,
+        SshDialOptions options) => Open([jump], targetHost, targetPort, options);
+
+    /// <summary>Opens a validated route in network order, from the outermost jump inward.</summary>
+    public static SshJumpTunnel Open(
+        System.Collections.Generic.IReadOnlyList<Connection> jumps,
+        string targetHost,
+        int targetPort,
         SshDialOptions options)
+    {
+        if (jumps.Count == 0)
+            throw new ArgumentException("A jump route must contain at least one SSH connection.", nameof(jumps));
+        SshJumpTunnel? tunnel = null;
+        try
+        {
+            for (var i = 0; i < jumps.Count; i++)
+            {
+                var nextHost = i + 1 < jumps.Count ? jumps[i + 1].Host.Trim() : targetHost;
+                var nextPort = i + 1 < jumps.Count ? (jumps[i + 1].Port > 0 ? jumps[i + 1].Port : 22) : targetPort;
+                tunnel = OpenHop(jumps[i], nextHost, nextPort, options, tunnel);
+            }
+            return tunnel!;
+        }
+        catch
+        {
+            tunnel?.Dispose();
+            throw;
+        }
+    }
+
+    private static SshJumpTunnel OpenHop(
+        Connection jump, string targetHost, int targetPort, SshDialOptions options, SshJumpTunnel? upstream)
     {
         var jumpHost = jump.Host.Trim();
         var jumpPort = jump.Port > 0 ? jump.Port : 22;
-        var client = new SshClient(SshConnectionFactory.Build(jump, options.PromptUser));
+        var client = new SshClient(upstream is null
+            ? SshConnectionFactory.Build(jump, options.PromptUser)
+            : SshConnectionFactory.Build(jump, options.PromptUser, "127.0.0.1", upstream.LocalPort));
         try
         {
             SshHostKey.Attach(client, jumpHost, jumpPort, options);
@@ -63,7 +101,7 @@ public sealed class SshJumpTunnel : IDisposable
             var forward = new ForwardedPortLocal("127.0.0.1", 0, targetHost, (uint)targetPort);
             client.AddForwardedPort(forward);
             forward.Start();
-            return new SshJumpTunnel(client, forward);
+            return new SshJumpTunnel(client, forward, upstream);
         }
         catch
         {
@@ -78,6 +116,7 @@ public sealed class SshJumpTunnel : IDisposable
         try { _forward.Dispose(); } catch { /* ignore */ }
         try { _jumpClient.Disconnect(); } catch { /* ignore */ }
         try { _jumpClient.Dispose(); } catch { /* ignore */ }
+        _upstream?.Dispose();
     }
 }
 
@@ -109,9 +148,10 @@ public static class SshDialer
         try
         {
             ConnectionInfo info;
-            if (ResolveJump(connection, resolveConnection) is { } jump)
+            var jumps = ResolveJumpRoute(connection, resolveConnection);
+            if (jumps.Count > 0)
             {
-                tunnel = SshJumpTunnel.Open(jump, host, port, options);
+                tunnel = SshJumpTunnel.Open(jumps, host, port, options);
                 info = SshConnectionFactory.Build(connection, options.PromptUser, "127.0.0.1", tunnel.LocalPort);
             }
             else
@@ -134,8 +174,7 @@ public static class SshDialer
     }
 
     /// <summary>
-    /// The saved connection named as this one's jump host, or null for a direct dial. Only
-    /// one hop: the jump host's own jump setting is not followed.
+    /// The saved connection named as this one's immediate jump host, or null for a direct dial.
     /// </summary>
     /// <exception cref="InvalidOperationException">The jump host is named but cannot be used.</exception>
     public static Connection? ResolveJump(Connection connection, Func<string, Connection?>? resolveConnection)
@@ -157,5 +196,35 @@ public static class SshDialer
         }
 
         return jump;
+    }
+
+    /// <summary>Resolves every jump before opening any sockets, rejecting loops and missing hops.
+    /// Returned in network order (outermost jump first). No credentials are accessed.</summary>
+    public static System.Collections.Generic.IReadOnlyList<Connection> ResolveJumpRoute(
+        Connection connection, Func<string, Connection?>? resolveConnection)
+    {
+        var route = new System.Collections.Generic.List<Connection>();
+        var paths = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var ids = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+        var instances = new System.Collections.Generic.HashSet<Connection>(System.Collections.Generic.ReferenceEqualityComparer.Instance);
+        if (connection.ConnectionId.Length > 0)
+            ids.Add(connection.ConnectionId);
+        instances.Add(connection);
+        var current = connection;
+        while (current.JumpHost.Trim().Length > 0)
+        {
+            var path = current.JumpHost.Trim().Replace('\\', '/').Trim('/');
+            if (!paths.Add(path))
+                throw new InvalidOperationException($"Jump host cycle detected at '{path}'.");
+            if (route.Count >= 32)
+                throw new InvalidOperationException("Jump host route exceeds the maximum of 32 hops.");
+            var jump = ResolveJump(current, resolveConnection)!;
+            if (!instances.Add(jump) || (jump.ConnectionId.Length > 0 && !ids.Add(jump.ConnectionId)))
+                throw new InvalidOperationException($"Jump host cycle detected at '{path}'.");
+            route.Add(jump);
+            current = jump;
+        }
+        route.Reverse();
+        return route;
     }
 }

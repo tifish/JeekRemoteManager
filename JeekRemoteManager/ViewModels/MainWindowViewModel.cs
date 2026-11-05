@@ -770,6 +770,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 _editingNode.Connection!,
                 _store.BastionProfiles)
             : null;
+        RefreshJumpHostChoices();
         _editorHasPendingChanges = false;
         _scriptContext = null;
         ScriptPanel = null;
@@ -815,7 +816,10 @@ public partial class MainWindowViewModel : ViewModelBase
                           or nameof(ConnectionEditorViewModel.HasPassword)
                           or nameof(ConnectionEditorViewModel.SupportsScripts)
                           or nameof(ConnectionEditorViewModel.ShowNoWslDistrosHint)
-                          or nameof(ConnectionEditorViewModel.AvailableWslDistros))
+                          or nameof(ConnectionEditorViewModel.AvailableWslDistros)
+                          or nameof(ConnectionEditorViewModel.AvailableJumpHosts)
+                          or nameof(ConnectionEditorViewModel.JumpHostValidationMessage)
+                          or nameof(ConnectionEditorViewModel.HasJumpHostValidationMessage))
         {
             RunSelectedScriptBindingCommand.NotifyCanExecuteChanged();
             return;

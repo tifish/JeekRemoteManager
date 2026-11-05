@@ -164,6 +164,29 @@ public partial class MainWindowViewModel
         // which was ignored above; settle the editor on the final selection.
         if (SelectedNode is null && Editor is not null)
             OnSelectedNodeChanged(null);
+        RefreshJumpHostChoices();
+    }
+
+    private void RefreshJumpHostChoices()
+    {
+        if (Editor is null)
+            return;
+        IEnumerable<KeyValuePair<string, Connection>> Enumerate(IEnumerable<TreeNodeViewModel> nodes)
+        {
+            foreach (var node in nodes)
+            {
+                if (node.IsRecent)
+                    continue;
+                if (node.Connection is { } connection)
+                {
+                    var relative = Path.GetRelativePath(_store.RootPath, node.FullPath);
+                    yield return new(relative[..^ConnectionStore.FileExtension.Length].Replace('\\', '/'), connection);
+                }
+                foreach (var pair in Enumerate(node.Children))
+                    yield return pair;
+            }
+        }
+        Editor.SetJumpHostConnections(Enumerate(Nodes));
     }
 
     /// <summary>True while <see cref="ReloadTree"/> swaps the nodes out, so the

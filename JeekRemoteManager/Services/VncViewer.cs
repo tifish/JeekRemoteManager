@@ -253,10 +253,11 @@ public static class VncViewer
         SshJumpTunnel? tunnel = null;
         try
         {
-            if (SshDialer.ResolveJump(connection, resolveConnection) is { } jump)
+            var jumps = SshDialer.ResolveJumpRoute(connection, resolveConnection);
+            if (jumps.Count > 0)
             {
                 // The dial blocks (ssh-agent IPC, network) and must stay off the UI thread.
-                tunnel = await Task.Run(() => SshJumpTunnel.Open(jump, host, port, options)).ConfigureAwait(false);
+                tunnel = await Task.Run(() => SshJumpTunnel.Open(jumps, host, port, options)).ConfigureAwait(false);
             }
 
             var startInfo = tunnel is null

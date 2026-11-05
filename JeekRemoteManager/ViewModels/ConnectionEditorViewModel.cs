@@ -151,7 +151,57 @@ public partial class ConnectionEditorViewModel : ViewModelBase
 
     /// <summary>Tree path of the saved connection to hop through; empty dials directly.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(JumpHostValidationMessage))]
+    [NotifyPropertyChangedFor(nameof(HasJumpHostValidationMessage))]
     private string _jumpHost = "";
+
+    private string _connectionId = "";
+    private System.Collections.Generic.Dictionary<string, Connection>? _jumpConnections;
+
+    [ObservableProperty]
+    private string[] _availableJumpHosts = [];
+
+    /// <summary>Uses the loaded tree snapshot; typing never reads files or decrypts credentials.</summary>
+    public void SetJumpHostConnections(System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<string, Connection>> connections)
+    {
+        _jumpConnections = connections.ToDictionary(pair => NormalizeJumpPath(pair.Key), pair => pair.Value,
+            System.StringComparer.OrdinalIgnoreCase);
+        var choices = _jumpConnections.Where(pair => pair.Value.IsSsh
+                && (_connectionId.Length == 0 || pair.Value.ConnectionId != _connectionId))
+            .Select(pair => pair.Key).OrderBy(path => path, System.StringComparer.OrdinalIgnoreCase).ToArray();
+        if (!AvailableJumpHosts.SequenceEqual(choices))
+            AvailableJumpHosts = choices;
+        OnPropertyChanged(nameof(JumpHostValidationMessage));
+        OnPropertyChanged(nameof(HasJumpHostValidationMessage));
+    }
+
+    public string JumpHostValidationMessage
+    {
+        get
+        {
+            if (_jumpConnections is null || string.IsNullOrWhiteSpace(JumpHost))
+                return "";
+            try
+            {
+                SshDialer.ResolveJumpRoute(new Connection { ConnectionId = _connectionId, JumpHost = JumpHost },
+                    path => _jumpConnections.GetValueOrDefault(NormalizeJumpPath(path)));
+                return "";
+            }
+            catch (System.InvalidOperationException ex)
+            {
+                return ex.Message;
+            }
+        }
+    }
+
+    public bool HasJumpHostValidationMessage => JumpHostValidationMessage.Length > 0;
+
+    private static string NormalizeJumpPath(string path)
+    {
+        var normalized = path.Trim().Replace('\\', '/').Trim('/');
+        return normalized.EndsWith(ConnectionStore.FileExtension, System.StringComparison.OrdinalIgnoreCase)
+            ? normalized[..^ConnectionStore.FileExtension.Length] : normalized;
+    }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(PortForwardsValidationMessage))]
@@ -313,6 +363,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         var profile = c.ResolvedBastionProfile;
         var vm = new ConnectionEditorViewModel
         {
+            _connectionId = c.ConnectionId,
             _bastionProfiles = bastionProfiles,
             Type = c.Type,
             Name = c.Name,

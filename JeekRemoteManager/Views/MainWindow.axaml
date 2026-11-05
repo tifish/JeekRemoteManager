@@ -851,11 +851,18 @@
                                                 </StackPanel>
 
                                                 <TextBlock Grid.Row="7" Grid.Column="0" Classes="label" Text="{l:Localize JumpHost}" />
-                                                <TextBox x:Name="JumpHostBox"
-                                                         Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2"
-                                                         Text="{Binding JumpHost, Mode=TwoWay}"
-                                                         ToolTip.Tip="{l:Localize JumpHostTip}"
-                                                         PlaceholderText="{l:Localize JumpHostWatermark}" />
+                                                <StackPanel Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2" Spacing="4">
+                                                    <AutoCompleteBox x:Name="JumpHostBox"
+                                                                     ItemsSource="{Binding AvailableJumpHosts}"
+                                                                     Text="{Binding JumpHost, Mode=TwoWay}"
+                                                                     MinimumPrefixLength="0" FilterMode="ContainsOrdinal"
+                                                                     IsTextCompletionEnabled="False"
+                                                                     ToolTip.Tip="{l:Localize JumpHostTip}"
+                                                                     PlaceholderText="{l:Localize JumpHostWatermark}" />
+                                                    <TextBlock Text="{Binding JumpHostValidationMessage}"
+                                                               IsVisible="{Binding HasJumpHostValidationMessage}"
+                                                               TextWrapping="Wrap" Foreground="#D97706" FontSize="11" />
+                                                </StackPanel>
 
                                                 <TextBlock Grid.Row="8" Grid.Column="0" Classes="label"
                                                            Text="{l:Localize PortForwards}" VerticalAlignment="Top" Margin="0,6,0,0" />
@@ -951,11 +958,18 @@
 
                                             <Grid ColumnDefinitions="128,*" RowDefinitions="Auto,Auto" RowSpacing="10">
                                                 <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="{l:Localize VncTunnel}" />
-                                                <TextBox x:Name="VncTunnelBox"
-                                                         Grid.Row="0" Grid.Column="1"
-                                                         Text="{Binding JumpHost, Mode=TwoWay}"
-                                                         ToolTip.Tip="{l:Localize VncTunnelTip}"
-                                                         PlaceholderText="{l:Localize JumpHostWatermark}" />
+                                                <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+                                                    <AutoCompleteBox x:Name="VncTunnelBox"
+                                                                     ItemsSource="{Binding AvailableJumpHosts}"
+                                                                     Text="{Binding JumpHost, Mode=TwoWay}"
+                                                                     MinimumPrefixLength="0" FilterMode="ContainsOrdinal"
+                                                                     IsTextCompletionEnabled="False"
+                                                                     ToolTip.Tip="{l:Localize VncTunnelTip}"
+                                                                     PlaceholderText="{l:Localize JumpHostWatermark}" />
+                                                    <TextBlock Text="{Binding JumpHostValidationMessage}"
+                                                               IsVisible="{Binding HasJumpHostValidationMessage}"
+                                                               TextWrapping="Wrap" Foreground="#D97706" FontSize="11" />
+                                                </StackPanel>
                                                 <TextBlock Grid.Row="1" Grid.Column="1" Classes="hint"
                                                            Text="{l:Localize VncCredentialsHint}"
                                                            TextWrapping="Wrap" />

@@ -55,8 +55,10 @@ SSH.NET 没有内置的 host key 校验，默认信任所有主机。`KnownHosts
 - **主机密钥按真实目标校验**，不是按 127.0.0.1——否则所有经跳板的主机都会共用一条 `127.0.0.1:随机端口` 记录。`Build(connection, dialHost, dialPort)` 只改实际连接的地址，提示框和 known_hosts 用的仍是真实主机名。
 - **替换密钥的回调必须携带本次受检主机的 host/port。** 同一组 `SshDialOptions` 会先用于跳板、再用于目标，终端和公钥安装不能在回调里捕获最终目标地址，否则跳板密钥变化时会以目标的名字请求用户批准。`host_key_trust_check` 检查回调收到的地址。
 - **拨号时才解析跳板机**（窗口注入的 `ResolveConnection`，就是 `ConnectionStore.TryLoadByTreePath`），改了跳板机下次连接就生效，不存解析结果。解析器在 UI 线程上捕获 store，因为它在拨号的工作线程上被调用，那里读窗口的 `DataContext` 会抛跨线程异常。
-- 只支持一跳：跳板机自己的 `JumpHost` 不跟随。
-- 隧道的生命周期挂在目标连接上：终端里通过 `SharedSshClient.AddOwnedResource`，SFTP 在 `DisposeClient` 里一起释放。
+- **逐级跟随跳板机自己的 `JumpHost`**，先连最外层，再向目标推进；字段仍然是单个已保存连接的树路径，不解析逗号分隔的 OpenSSH 参数。旧的单跳配置不变。整条链在拨号前解析完成，缺失连接、非 SSH 节点、自引用/间接循环或超过 32 跳都明确失败。循环同时按树路径、稳定 `ConnectionId` 和对象身份识别，解析器每次加载新对象也不会绕过检查。
+- 每一跳只用于 SSH 转发，不执行它的 `LoginCommands` 或额外 `PortForwards`；交互式菜单堡垒机仍使用登录命令机制。每个目标地址在前一跳一侧解析，每层主机密钥仍按真实 host/port 校验。
+- 连接编辑器的 SSH/VNC 跳板字段可以搜索已加载连接树中的 SSH 路径，排除自身和“最近”快捷方式；仍允许手输路径，留空直连。缺失连接和完整链的错误在字段下提示。候选来自内存快照，输入时不读盘或解密；树重载和编辑对象切换不能把当前路径清空。
+- 隧道的生命周期挂在目标连接上：终端里通过 `SharedSshClient.AddOwnedResource`，SFTP 在 `DisposeClient` 里一起释放。多跳隧道从内到外释放；中途失败也必须释放已建立的所有层，VNC 查看器退出同理。
 
 **端口转发。** `Connection.PortForwards` 每行一条：`L 8080 db:5432`（或 ssh -L 的 `L 8080:db:5432`）、`R 9000 localhost:3000`、`D 1080`（SOCKS）。
 
@@ -65,7 +67,7 @@ SSH.NET 没有内置的 host key 校验，默认信任所有主机。`KnownHosts
 - **一条失败不影响其它条，也不影响会话**：端口被占用、服务器禁止远端转发，都只在终端里打一行黄色提示。格式错误在编辑器里就提示；通过产品 MCP 写入时直接报错。
 - 校验也接受输入中的中间状态（如 `-`、`--`）：必须返回带行号的格式错误，不能在判断长度前索引空字符串。Debug MCP 的 `ssh_port_forward_validate` 暴露同一校验入口。
 
-回归检查是 Debug MCP 的 `ssh_jump_forward_check`（经跳板执行命令，L/D/R 三种转发各真实传一次数据，释放后端口关闭）。
+编辑器回归检查是 `jump_host_editor_check`；`ssh_jump_chain_check` 在真实测试 sshd 上验证两跳 SSH/SFTP、真实主机密钥地址及监听端口释放，并使用临时 known_hosts 文件。路由解析和循环检测由 `JumpHostTests` 覆盖。端口转发回归检查是 Debug MCP 的 `ssh_jump_forward_check`（经跳板执行命令，L/D/R 三种转发各真实传一次数据，释放后端口关闭）。
 
 ## 传输复用：SharedSshClient
 
