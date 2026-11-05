@@ -63,6 +63,9 @@ public partial class MainWindowViewModel
         }
     }
 
+    /// <summary>Stops an isolated probe's watcher before its temporary storage is removed.</summary>
+    internal void StopWatchingForDebug() => StopWatching();
+
     private void StopWatching()
     {
         if (_watcher is null)

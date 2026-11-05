@@ -55,6 +55,8 @@ public partial class MainWindow : Window
     private Point _treeDragStart;
     private bool _isTreeDragging;
     private TreeNodeViewModel? _treeDropTarget;
+    private TreeNodeViewModel? _deferredTreeClick;
+    private Border? _jumpHostDropTarget;
     private AgentCliPanelViewModel? _globalAgentViewModel;
     private readonly BastionSessionPool _bastionSessionPool = new();
 
@@ -72,6 +74,7 @@ public partial class MainWindow : Window
     private const double TerminalTabDragThreshold = 6;
     private const double TreeDragThreshold = 6;
     private static readonly Cursor TreeDragMoveCursor = new(StandardCursorType.DragMove);
+    private static readonly Cursor TreeDragLinkCursor = new(StandardCursorType.DragLink);
     private static readonly Cursor TreeDragNoDropCursor = new(StandardCursorType.No);
     private static readonly TimeSpan ShowPasswordIdleTimeout = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan WindowSizeSaveDelay = TimeSpan.FromMilliseconds(500);
@@ -120,6 +123,7 @@ public partial class MainWindow : Window
             OnTreeDragPointerReleased,
             RoutingStrategies.Tunnel,
             handledEventsToo: true);
+        Tree.PointerCaptureLost += (_, _) => ClearTreeDragState();
         RightTabs.AddHandler(
             InputElement.PointerMovedEvent,
             OnTerminalTabDragPointerMoved,

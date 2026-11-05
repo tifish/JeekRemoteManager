@@ -63,7 +63,7 @@ public class JumpHostTests
     }
 
     [Fact]
-    public void Editor_offers_only_other_ssh_connections_preserves_text_and_reports_broken_routes()
+    public void Tree_drop_validates_the_route_and_preserves_the_old_value_on_rejection()
     {
         var editor = ConnectionEditorViewModel.FromConnection(new Connection { ConnectionId = "self", JumpHost = "missing" });
         var saved = new Dictionary<string, Connection>
@@ -74,19 +74,22 @@ public class JumpHostTests
             ["desktop"] = new() { Type = ConnectionType.Rdp },
         };
         editor.SetJumpHostConnections(saved);
-        var choices = editor.AvailableJumpHosts;
         editor.SetJumpHostConnections(saved);
-
-        Assert.Same(choices, editor.AvailableJumpHosts);
-        Assert.Equal(new[] { "vps/inner", "vps/outer" }, choices);
         Assert.Equal("missing", editor.JumpHost);
         Assert.True(editor.HasJumpHostValidationMessage);
-        editor.JumpHost = "VPS\\inner.json";
+        Assert.True(editor.TrySetJumpHostFromTree("VPS\\inner.json"));
         Assert.False(editor.HasJumpHostValidationMessage);
+        Assert.Equal("VPS/inner", editor.JumpHost);
+        Assert.False(editor.TrySetJumpHostFromTree("desktop"));
+        Assert.False(editor.TrySetJumpHostFromTree("self"));
+        Assert.Equal("VPS/inner", editor.JumpHost);
         saved["vps/outer"].JumpHost = "self";
         editor.SetJumpHostConnections(saved);
+        Assert.False(editor.TrySetJumpHostFromTree("vps/outer"));
+        Assert.Equal("VPS/inner", editor.JumpHost);
         Assert.Contains("cycle", editor.JumpHostValidationMessage);
         editor.JumpHost = "";
         Assert.False(editor.HasJumpHostValidationMessage);
+        Assert.False(editor.HasJumpHost);
     }
 }

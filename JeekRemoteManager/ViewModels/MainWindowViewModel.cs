@@ -817,7 +817,8 @@ public partial class MainWindowViewModel : ViewModelBase
                           or nameof(ConnectionEditorViewModel.SupportsScripts)
                           or nameof(ConnectionEditorViewModel.ShowNoWslDistrosHint)
                           or nameof(ConnectionEditorViewModel.AvailableWslDistros)
-                          or nameof(ConnectionEditorViewModel.AvailableJumpHosts)
+                          or nameof(ConnectionEditorViewModel.JumpHostDisplay)
+                          or nameof(ConnectionEditorViewModel.HasJumpHost)
                           or nameof(ConnectionEditorViewModel.JumpHostValidationMessage)
                           or nameof(ConnectionEditorViewModel.HasJumpHostValidationMessage))
         {

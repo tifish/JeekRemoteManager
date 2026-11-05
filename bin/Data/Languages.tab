@@ -58,7 +58,11 @@ TerminalEncoding	Encoding	编码
 TerminalEncodingTip	Character encoding of the remote shell. Choose GBK or GB18030 for servers whose locale is not UTF-8.	远程 shell 的字符编码。服务器的 locale 不是 UTF-8 时选择 GBK 或 GB18030。
 JumpHost	Jump host	跳板机
 JumpHostWatermark	Search or enter a saved SSH connection path; empty connects directly	搜索或输入已保存的 SSH 连接路径；留空直连
-JumpHostTip	Choose a saved SSH connection (like ssh -J). Its own jump host is followed too; each hop uses its own credentials and host key. Clear to connect directly.	选择已保存的 SSH 连接（相当于 ssh -J）；如果它也配置了跳板机，会逐级跳转。每一跳使用各自的凭据和主机密钥，清空则直连。
+JumpHostTip	Drag a saved SSH connection from the left tree here. Each hop uses its own credentials and host key. Clear to connect directly.	将左侧连接树中的 SSH 连接拖到此处。每一跳使用各自的凭据和主机密钥，清除后直连。
+JumpHostDragHint	Drag an SSH connection from the left tree here	将左侧 SSH 连接拖到此处设置跳板机
+JumpHostClear	Clear / direct	清除／直连
+JumpHostDropSshOnly	Drag a saved SSH connection here, not a folder or another connection type.	请拖入已保存的 SSH 连接，不能使用文件夹或其他类型的连接。
+JumpHostDropSingle	Drag one SSH connection at a time.	每次只能拖入一个 SSH 连接。
 PortForwards	Port forwarding	端口转发
 PortForwardsWatermark	one per line: L 8080 db:5432 / R 9000 localhost:3000 / D 1080	每行一条：L 8080 db:5432 / R 9000 localhost:3000 / D 1080
 PortForwardsTip	L = local port to a host the server can reach, R = server port back to this machine, D = SOCKS proxy. Local listeners bind 127.0.0.1 unless you give an address.	L = 本地端口转到服务器能访问的主机，R = 服务器端口转回本机，D = SOCKS 代理。本地监听默认只绑定 127.0.0.1。

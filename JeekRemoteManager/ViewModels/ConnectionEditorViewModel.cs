@@ -153,24 +153,63 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(JumpHostValidationMessage))]
     [NotifyPropertyChangedFor(nameof(HasJumpHostValidationMessage))]
+    [NotifyPropertyChangedFor(nameof(JumpHostDisplay))]
+    [NotifyPropertyChangedFor(nameof(HasJumpHost))]
     private string _jumpHost = "";
 
     private string _connectionId = "";
     private System.Collections.Generic.Dictionary<string, Connection>? _jumpConnections;
 
-    [ObservableProperty]
-    private string[] _availableJumpHosts = [];
+    private string _jumpHostDropError = "";
 
-    /// <summary>Uses the loaded tree snapshot; typing never reads files or decrypts credentials.</summary>
+    public bool HasJumpHost => !string.IsNullOrWhiteSpace(JumpHost);
+
+    public string JumpHostDisplay => _jumpConnections?.GetValueOrDefault(NormalizeJumpPath(JumpHost)) is { } jump
+        ? $"{JumpHost}  ({jump.Username}@{jump.Host}:{(jump.Port > 0 ? jump.Port : 22)})" : JumpHost;
+
+    partial void OnJumpHostChanged(string value) => ReportJumpHostDropError("");
+
+    /// <summary>Uses the loaded tree snapshot; selecting never reads files or decrypts credentials.</summary>
     public void SetJumpHostConnections(System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<string, Connection>> connections)
     {
         _jumpConnections = connections.ToDictionary(pair => NormalizeJumpPath(pair.Key), pair => pair.Value,
             System.StringComparer.OrdinalIgnoreCase);
-        var choices = _jumpConnections.Where(pair => pair.Value.IsSsh
-                && (_connectionId.Length == 0 || pair.Value.ConnectionId != _connectionId))
-            .Select(pair => pair.Key).OrderBy(path => path, System.StringComparer.OrdinalIgnoreCase).ToArray();
-        if (!AvailableJumpHosts.SequenceEqual(choices))
-            AvailableJumpHosts = choices;
+        OnPropertyChanged(nameof(JumpHostDisplay));
+        OnPropertyChanged(nameof(JumpHostValidationMessage));
+        OnPropertyChanged(nameof(HasJumpHostValidationMessage));
+    }
+
+    /// <summary>Validates a proposed tree drop without changing the current route.</summary>
+    public string ValidateJumpHostDrop(string path)
+    {
+        if (_jumpConnections is null)
+            return L("JumpHostDropSshOnly");
+        try
+        {
+            SshDialer.ResolveJumpRoute(new Connection { ConnectionId = _connectionId, JumpHost = path },
+                candidate => _jumpConnections.GetValueOrDefault(NormalizeJumpPath(candidate)));
+            return "";
+        }
+        catch (System.InvalidOperationException ex)
+        {
+            return ex.Message;
+        }
+    }
+
+    /// <summary>Assigns only a validated saved SSH connection; invalid drops preserve the old value.</summary>
+    public bool TrySetJumpHostFromTree(string path)
+    {
+        var error = ValidateJumpHostDrop(path);
+        ReportJumpHostDropError(error);
+        if (error.Length > 0)
+            return false;
+        JumpHost = NormalizeJumpPath(path);
+        return true;
+    }
+
+    public void ReportJumpHostDropError(string error)
+    {
+        _jumpHostDropError = error;
         OnPropertyChanged(nameof(JumpHostValidationMessage));
         OnPropertyChanged(nameof(HasJumpHostValidationMessage));
     }
@@ -179,6 +218,8 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     {
         get
         {
+            if (_jumpHostDropError.Length > 0)
+                return _jumpHostDropError;
             if (_jumpConnections is null || string.IsNullOrWhiteSpace(JumpHost))
                 return "";
             try

@@ -852,13 +852,18 @@
 
                                                 <TextBlock Grid.Row="7" Grid.Column="0" Classes="label" Text="{l:Localize JumpHost}" />
                                                 <StackPanel Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2" Spacing="4">
-                                                    <AutoCompleteBox x:Name="JumpHostBox"
-                                                                     ItemsSource="{Binding AvailableJumpHosts}"
-                                                                     Text="{Binding JumpHost, Mode=TwoWay}"
-                                                                     MinimumPrefixLength="0" FilterMode="ContainsOrdinal"
-                                                                     IsTextCompletionEnabled="False"
-                                                                     ToolTip.Tip="{l:Localize JumpHostTip}"
-                                                                     PlaceholderText="{l:Localize JumpHostWatermark}" />
+                                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                                        <Border x:Name="JumpHostDropZone" Tag="jump-host-drop" Classes="jump-host-drop"
+                                                                ToolTip.Tip="{l:Localize JumpHostTip}">
+                                                            <StackPanel Spacing="3">
+                                                                <TextBlock Text="{Binding JumpHostDisplay}" IsVisible="{Binding HasJumpHost}"
+                                                                           TextWrapping="Wrap" />
+                                                                <TextBlock Text="{l:Localize JumpHostDragHint}" Classes="hint" TextWrapping="Wrap" />
+                                                            </StackPanel>
+                                                        </Border>
+                                                        <Button Grid.Column="1" Content="{l:Localize JumpHostClear}"
+                                                                IsEnabled="{Binding HasJumpHost}" Click="OnClearJumpHostClick" />
+                                                    </Grid>
                                                     <TextBlock Text="{Binding JumpHostValidationMessage}"
                                                                IsVisible="{Binding HasJumpHostValidationMessage}"
                                                                TextWrapping="Wrap" Foreground="#D97706" FontSize="11" />
@@ -959,13 +964,18 @@
                                             <Grid ColumnDefinitions="128,*" RowDefinitions="Auto,Auto" RowSpacing="10">
                                                 <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="{l:Localize VncTunnel}" />
                                                 <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
-                                                    <AutoCompleteBox x:Name="VncTunnelBox"
-                                                                     ItemsSource="{Binding AvailableJumpHosts}"
-                                                                     Text="{Binding JumpHost, Mode=TwoWay}"
-                                                                     MinimumPrefixLength="0" FilterMode="ContainsOrdinal"
-                                                                     IsTextCompletionEnabled="False"
-                                                                     ToolTip.Tip="{l:Localize VncTunnelTip}"
-                                                                     PlaceholderText="{l:Localize JumpHostWatermark}" />
+                                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                                        <Border x:Name="VncJumpHostDropZone" Tag="jump-host-drop" Classes="jump-host-drop"
+                                                                ToolTip.Tip="{l:Localize VncTunnelTip}">
+                                                            <StackPanel Spacing="3">
+                                                                <TextBlock Text="{Binding JumpHostDisplay}" IsVisible="{Binding HasJumpHost}"
+                                                                           TextWrapping="Wrap" />
+                                                                <TextBlock Text="{l:Localize JumpHostDragHint}" Classes="hint" TextWrapping="Wrap" />
+                                                            </StackPanel>
+                                                        </Border>
+                                                        <Button Grid.Column="1" Content="{l:Localize JumpHostClear}"
+                                                                IsEnabled="{Binding HasJumpHost}" Click="OnClearJumpHostClick" />
+                                                    </Grid>
                                                     <TextBlock Text="{Binding JumpHostValidationMessage}"
                                                                IsVisible="{Binding HasJumpHostValidationMessage}"
                                                                TextWrapping="Wrap" Foreground="#D97706" FontSize="11" />

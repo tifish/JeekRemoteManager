@@ -114,7 +114,7 @@ public static class DebugMcpContract
             "Dials a real SFTP session (default: the local WSL sshd rig at jrmtest@127.0.0.1:2222) and verifies a planted mismatched host key is rejected, a forgotten host is trusted on first use, and a client ranking another key family first still negotiates the remembered one. Restores the host's original known-hosts entry.",
             new() { ["host"] = Prop("string", "Test server host (default 127.0.0.1)."), ["port"] = Prop("integer", "Test server port (default 2222)."), ["username"] = Prop("string", "User with key auth (default jrmtest).") }),
         Tool("jump_host_editor_check",
-            "Checks the real SSH and VNC editor templates: saved SSH jump choices, selection, missing-path validation, refresh and editor switching without overwriting text, and clearing to dial directly. Uses isolated models; never changes saved connections.",
+            "Drags saved SSH connections from an isolated connection tree into the real SSH/VNC editor drop areas. Checks the destination editor stays selected, invalid drops preserve its route, clearing dials directly, ordinary clicks still select, and drops outside the tree never move files. Never changes user connections.",
             new()),
         Tool("ssh_jump_chain_check",
             "Against a test sshd, dials SSH and SFTP through two nested saved jump hosts, runs echo via-jump-chain, verifies loopback listeners close and host keys use the real endpoint. Uses a temporary known-hosts store.",

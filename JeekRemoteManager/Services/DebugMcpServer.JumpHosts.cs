@@ -5,11 +5,15 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia;
+using Avalonia.Interactivity;
 using Avalonia.LogicalTree;
+using Avalonia.VisualTree;
 using JeekRemoteManager.Models;
 using JeekRemoteManager.ViewModels;
 using JeekRemoteManager.Views;
 using Renci.SshNet;
+using JeekTools;
 
 namespace JeekRemoteManager.Services;
 
@@ -17,67 +21,104 @@ internal static partial class DebugMcpServer
 {
     private static async Task<JsonObject> JumpHostEditorCheckAsync()
     {
+        var root = Path.Combine(Path.GetTempPath(), "jrm-jump-drag-" + Guid.NewGuid().ToString("N"));
         var state = await OnUiAsync(() =>
         {
-            var editor = ConnectionEditorViewModel.FromConnection(new Connection
+            var settings = new SettingsService(Path.Combine(root, "machine.json"), Path.Combine(root, "roaming.json"));
+            settings.Settings.StorageLocation = StorageLocation.CustomDirectory;
+            settings.Settings.CustomStoragePath = root;
+            var store = new ConnectionStore(settings.ResolveConnectionsRoot());
+            foreach (var connection in new[]
             {
-                ConnectionId = "target", JumpHost = "vps/inner",
-            });
-            var saved = new Dictionary<string, Connection>
+                new Connection { Name = "target", Host = "target.invalid", ConnectionId = "target" },
+                new Connection { Name = "jump", Host = "jump.invalid", Username = "probe", ConnectionId = "jump" },
+                new Connection { Name = "cycle", Host = "cycle.invalid", JumpHost = "target", ConnectionId = "cycle" },
+                new Connection { Name = "desktop", Type = ConnectionType.Rdp },
+                new Connection { Name = "vnc", Type = ConnectionType.Vnc },
+            })
+                store.Save(connection, connection.Name == "jump" ? Path.Combine(store.RootPath, "hosts") : store.RootPath);
+            var vm = new MainWindowViewModel(store, new ConnectionLauncher(), settings);
+            var window = new MainWindow
             {
-                ["target"] = new() { ConnectionId = "target" },
-                ["vps/outer"] = new() { ConnectionId = "outer" },
-                ["vps/inner"] = new() { ConnectionId = "inner", JumpHost = "vps/outer" },
-                ["desktop"] = new() { Type = ConnectionType.Rdp },
-            };
-            editor.SetJumpHostConnections(saved);
-            var main = (MainWindow)ResolveRoot("MainWindow")!;
-            var template = main.GetLogicalDescendants().OfType<ContentControl>()
-                .SelectMany(control => control.DataTemplates).First(item => item.Match(editor));
-            var view = template.Build(editor)!;
-            view.DataContext = editor;
-            var window = new Window
-            {
-                Content = view, Width = 850, Height = 700,
-                ShowInTaskbar = false, ShowActivated = false, Title = "Jump host editor probe",
+                DataContext = vm, Width = 1150, Height = 950, ShowActivated = false,
+                ShowInTaskbar = false, Title = "Jump host drag probe",
             };
             window.Show();
-            return (Editor: editor, Saved: saved, View: view, Window: window);
+            vm.SelectedNode = vm.Nodes.Single(node => node.Name == "target");
+            window.FindControl<TabItem>("EditorTab")!.IsSelected = true;
+            return (Vm: vm, Store: store, Window: window);
         });
+        var checks = new Dictionary<string, bool>();
+        Border Zone() => state.Window.GetVisualDescendants().OfType<Border>()
+            .First(border => Equals(border.Tag, "jump-host-drop") && border.IsEffectivelyVisible);
+        Point DropPoint() => Zone().TranslatePoint(Zone().Bounds.Center, state.Window)!.Value;
+        IEnumerable<TreeNodeViewModel> Flatten(IEnumerable<TreeNodeViewModel> nodes) =>
+            nodes.Where(node => !node.IsRecent).SelectMany(node => new[] { node }.Concat(Flatten(node.Children)));
+        TreeNodeViewModel Node(string name) => Flatten(state.Vm.Nodes).Single(node => node.Name == name);
+        void Check(string name, bool passed) => checks[name] = passed;
         try
         {
-            var selectors = await OnUiAsync(() => state.View.GetLogicalDescendants().OfType<AutoCompleteBox>()
-                .Where(box => box.Name is "JumpHostBox" or "VncTunnelBox").ToArray());
-            var initialized = await ActThenReadAsync(() => { }, () => selectors.Length == 2
-                && selectors.All(box => box.Text == "vps/inner"
-                    && ReferenceEquals(box.ItemsSource, state.Editor.AvailableJumpHosts))
-                && state.Editor.AvailableJumpHosts.SequenceEqual(new[] { "vps/inner", "vps/outer" }));
-            var selected = await ActThenReadAsync(
-                () => selectors.Single(box => box.Name == "JumpHostBox").SelectedItem = "vps/outer",
-                () => state.Editor.JumpHost == "vps/outer" && !state.Editor.HasJumpHostValidationMessage);
-            var invalid = await ActThenReadAsync(
-                () => selectors.Single(box => box.Name == "JumpHostBox").Text = "missing/path",
-                () => state.Editor.JumpHost == "missing/path" && state.Editor.HasJumpHostValidationMessage);
-            var refreshed = await ActThenReadAsync(() =>
+            await Task.Delay(150);
+            await OnUiAsync(() => { Zone().BringIntoView(); return true; });
+            await Task.Delay(100);
+            await OnUiAsync(() =>
             {
-                state.Saved["new/jump"] = new Connection { ConnectionId = "new" };
-                state.Editor.SetJumpHostConnections(state.Saved);
-            }, () => state.Editor.JumpHost == "missing/path" && selectors.All(box => box.Text == "missing/path"));
-            var next = ConnectionEditorViewModel.FromConnection(new Connection { JumpHost = "vps/inner", Type = ConnectionType.Vnc });
-            next.SetJumpHostConnections(state.Saved);
-            var rebound = await ActThenReadAsync(() => state.View.DataContext = next,
-                () => next.JumpHost == "vps/inner" && selectors.All(box => box.Text == "vps/inner"
-                    && ReferenceEquals(box.ItemsSource, next.AvailableJumpHosts)));
-            var cleared = await ActThenReadAsync(
-                () => selectors.Single(box => box.Name == "VncTunnelBox").Text = "",
-                () => next.JumpHost == "" && !next.HasJumpHostValidationMessage);
-            var passed = initialized && selected && invalid && refreshed && rebound && cleared;
-            return ToolText($"{(passed ? "PASS" : "FAIL")}: jump host editor\ninitialized={initialized}\nselected={selected}"
-                + $"\ninvalidPath={invalid}\nrefreshPreservedText={refreshed}\neditorRebound={rebound}\ncleared={cleared}", !passed);
+                var editor = state.Vm.Editor!;
+                var folder = Node("hosts");
+                var expanded = folder.IsExpanded;
+                state.Window.DebugDragTreeNode(folder, default, move: false, expander: true);
+                state.Window.DebugDragTreeNode(folder, default, move: false, expander: true);
+                Check("folderExpanderPreservesEditor", ReferenceEquals(editor, state.Vm.Editor) && folder.IsExpanded == expanded);
+                var dragged = state.Window.DebugDragTreeNode(Node("jump"), DropPoint());
+                Check("editorPreservedOnPress", dragged.EditorPreserved && ReferenceEquals(editor, state.Vm.Editor));
+                Check("sshDrop", dragged.ValidHighlight && editor.JumpHost == "hosts/jump" && editor.JumpHostDisplay.Contains("probe@jump.invalid"));
+                foreach (var name in new[] { "target", "desktop", "cycle" })
+                {
+                    var rejected = state.Window.DebugDragTreeNode(Node(name), DropPoint());
+                    Check(name + "Rejected", rejected.InvalidHighlight && editor.JumpHost == "hosts/jump" && editor.HasJumpHostValidationMessage);
+                }
+                var clear = Zone().GetVisualParent()!.GetVisualDescendants().OfType<Button>().Single();
+                clear.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Check("clearToDirect", editor.JumpHost == "" && !editor.HasJumpHostValidationMessage);
+                state.Window.DebugDragTreeNode(Node("jump"), new Point(state.Window.Bounds.Width - 5, 5));
+                Check("outsideDropPreservesSelection", ReferenceEquals(editor, state.Vm.Editor) && editor.JumpHost == "");
+                state.Window.DebugDragTreeNode(Node("jump"), default, move: false);
+                Check("plainClickSelects", state.Vm.SelectedNode == Node("jump"));
+                Check("plainClickFocuses", state.Window.GetVisualDescendants().OfType<TreeViewItem>()
+                    .Any(item => ReferenceEquals(item.DataContext, Node("jump")) && item.IsFocused));
+                state.Vm.SelectedNode = Node("vnc");
+                return true;
+            });
+            await Task.Delay(100);
+            await OnUiAsync(() => { Zone().BringIntoView(); return true; });
+            await Task.Delay(100);
+            await OnUiAsync(() =>
+            {
+                var dropped = state.Window.DebugDragTreeNode(Node("jump"), DropPoint());
+                Check("vncDrop", dropped.ValidHighlight && state.Vm.Editor!.JumpHost == "hosts/jump");
+                state.Vm.FlushAutoSave();
+                Check("noFilesMoved", new[] { "target", "hosts/jump", "desktop", "cycle", "vnc" }
+                    .All(name => File.Exists(Path.Combine(state.Store.RootPath, name + ConnectionStore.FileExtension))));
+                state.Window.DebugDragTreeNode(Node("jump"), state.Window.DebugTreeRootDropPoint);
+                Check("treeMoveStillWorks", File.Exists(Path.Combine(state.Store.RootPath, "jump.json"))
+                    && !File.Exists(Path.Combine(state.Store.RootPath, "hosts", "jump.json")));
+                return true;
+            });
+            var passed = checks.Values.All(value => value);
+            return ToolText($"{(passed ? "PASS" : "FAIL")}: tree drag to jump host\n"
+                + string.Join("\n", checks.Select(pair => $"{pair.Key}={pair.Value}")), !passed);
         }
         finally
         {
-            await OnUiAsync(() => { state.Window.Close(); state.Window.Content = null; return true; });
+            await OnUiAsync(() =>
+            {
+                state.Vm.FlushAutoSave();
+                state.Vm.StopWatchingForDebug();
+                state.Window.Close();
+                state.Window.DataContext = null;
+                return true;
+            });
+            try { Directory.Delete(root, recursive: true); } catch { /* ignore */ }
         }
     }
 

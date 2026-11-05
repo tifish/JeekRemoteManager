@@ -446,10 +446,27 @@ public partial class MainWindow
             _isTreeDragging = false;
         }
 
+        // Keep the destination editor visible while a source connection is pressed.
+        // A plain click still selects it on release; a drag links it to the open editor.
+        if (hitNode is { IsRecent: false, IsConnection: true }
+            && e.GetCurrentPoint(Tree).Properties.IsLeftButtonPressed
+            && vm.ShowConnectionEditor && EditorTab.IsSelected)
+        {
+            _deferredTreeClick = hitNode;
+            e.Pointer.Capture(Tree);
+            e.Handled = true;
+            return;
+        }
+
         if (TryToggleFolderFromSource(e, out var toggledNode) && toggledNode is not null)
         {
             RememberFolderToggle(toggledNode);
-            vm.SelectedNode = toggledNode;
+            // Expanding folders to find a jump host must not dismiss the destination
+            // editor. Clicking the folder row still selects it as before.
+            var expanderClick = e.Source is Visual visual
+                && visual.FindAncestorOfType<ToggleButton>(includeSelf: true) is not null;
+            if (!expanderClick || !vm.ShowConnectionEditor || !EditorTab.IsSelected)
+                vm.SelectedNode = toggledNode;
             e.Handled = true;
             return;
         }
@@ -543,18 +560,24 @@ public partial class MainWindow
         }
 
         var wasDragging = _isTreeDragging;
+        var deferredClick = _deferredTreeClick;
         var dragNodes = _treeDragNodes
             ?? new System.Collections.Generic.List<TreeNodeViewModel> { node };
         string? dropPath = null;
-        if (wasDragging && TryResolveTreeDrop(dragNodes, e.GetPosition(Tree), out _, out var targetPath))
+        var jumpHostDrop = wasDragging && TryDropJumpHost(dragNodes, e.GetPosition(this));
+        if (wasDragging && !jumpHostDrop && TryResolveTreeDrop(dragNodes, e.GetPosition(Tree), out _, out var targetPath))
             dropPath = targetPath;
 
         ResetTreeDrag(e);
 
         if (!wasDragging)
         {
-            if (collapseTarget is not null)
-                CollapseSelectionTo(collapseTarget);
+            if ((deferredClick ?? collapseTarget) is { } clicked)
+            {
+                CollapseSelectionTo(clicked);
+                if (deferredClick is not null)
+                    FindTreeViewItem(Tree, clicked)?.Focus();
+            }
             return;
         }
 
@@ -576,6 +599,21 @@ public partial class MainWindow
 
     private void UpdateTreeDropTarget(Point position)
     {
+        var windowPosition = Tree.TranslatePoint(position, this);
+        if (windowPosition is { } point && TryFindJumpHostDropTarget(point, out var zone, out var editor))
+        {
+            SetJumpHostDropTarget(zone);
+            var error = ValidateJumpHostNodes(editor, _treeDragNodes ?? [_treeDragNode!], out _);
+            zone.Classes.Set("drop-valid", error.Length == 0);
+            zone.Classes.Set("drop-invalid", error.Length > 0);
+            zone.Cursor = error.Length == 0 ? TreeDragLinkCursor : TreeDragNoDropCursor;
+            Tree.Cursor = zone.Cursor;
+            if (_treeDropTarget is not null)
+                _treeDropTarget.IsDragOver = false;
+            _treeDropTarget = null;
+            return;
+        }
+        SetJumpHostDropTarget(null);
         TreeNodeViewModel? target = null;
         var valid = _treeDragNode is { } node
             && TryResolveTreeDrop(
@@ -616,6 +654,8 @@ public partial class MainWindow
 
         if (DataContext is not MainWindowViewModel vm)
             return false;
+        if (!new Rect(Tree.Bounds.Size).Contains(position))
+            return false;
 
         TreeNodeViewModel? targetFolder = null;
         var hit = Tree.InputHitTest(position) as Visual;
@@ -652,6 +692,12 @@ public partial class MainWindow
 
     private void ResetTreeDrag(PointerEventArgs e)
     {
+        ClearTreeDragState();
+        e.Pointer.Capture(null);
+    }
+
+    private void ClearTreeDragState()
+    {
         if (_treeDropTarget is not null)
             _treeDropTarget.IsDragOver = false;
 
@@ -659,9 +705,10 @@ public partial class MainWindow
         _treeDragNode = null;
         _treeDragNodes = null;
         _pendingCollapseToNode = null;
+        _deferredTreeClick = null;
         _isTreeDragging = false;
         Tree.Cursor = Cursor.Default;
-        e.Pointer.Capture(null);
+        SetJumpHostDropTarget(null);
     }
 
     private static bool IsTreeNameEditorSource(object? source) =>
