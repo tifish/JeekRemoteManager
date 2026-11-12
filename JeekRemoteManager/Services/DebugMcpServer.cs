@@ -117,6 +117,7 @@ internal static partial class DebugMcpServer
         host.AddTool("terminal_connection_actions_check", _ => TerminalConnectionActionsCheckAsync());
         host.AddTool("terminal_output_coalescing_check", _ => TerminalOutputCoalescingCheckAsync());
         host.AddTool("script_completion_order_check", _ => ScriptCompletionOrderCheckAsync());
+        host.AddTool("builtin_scripts_snapshot", _ => BuiltInScriptsSnapshotAsync());
         host.AddTool("terminal_encoding_check", _ => TerminalEncodingCheckAsync());
         host.AddTool("terminal_session_log_check", _ => TerminalSessionLogCheckAsync());
         host.AddTool("terminal_unresponsive_channel_check", TerminalUnresponsiveChannelCheckAsync);

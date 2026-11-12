@@ -8,6 +8,18 @@
 
 有两个根：应用内置的套件和用户自己的套件。
 
+## Reality 内置套件
+
+`bin/Data/Scripts` 中同时提供 `sing-box reality server/client` 和 `xray reality server/client`，目录名就是套件及参数绑定的身份。运行时文件直接在这里维护，不从源目录复制。
+
+Xray 套件面向 Linux + systemd + root，使用 [Xray 官方安装器](https://github.com/XTLS/Xray-install) 的 `/usr/local/bin/xray`、`/usr/local/etc/xray/config.json` 和 `xray.service`。server 的参数是 `PORT`（默认 443）与 `SNI`；安装时生成 VLESS + Vision + REALITY 配置和分享链接，`show-link.sh` 可再次读取链接，BBR 尽力启用。重复安装会备份旧配置并重新生成身份，因此需要更新客户端链接。
+
+client 接受 `SERVER_LINK_1` 至 `SERVER_LINK_9` 中填写的 tcp/raw REALITY 链接，包括 sing-box server 输出的链接；空行跳过，按填写顺序从 `LISTEN_PORT`（默认 1080）连续分配 SOCKS/HTTP 代理端口，每个端口对应一个上游。`ALLOW_EXTERNAL` 默认关闭，`UPDATE_XRAY` 默认开启。内网地址直连，其他流量按入站路由到对应上游；该套件不配置 TUN 或系统路由。链接字段先限制字符和范围，生成配置通过 `xray run -test` 后才替换正式配置，私钥配置只允许 root 和服务组读取。
+
+同一台机器上的 Xray server/client 共用一个服务和配置，二者是替代部署方式；sing-box 使用独立服务与配置，但监听端口仍不可冲突。卸载备份配置、移除 Xray 二进制及默认服务，保留备份、geodata、日志和 BBR 设置。已有自定义 Xray 多配置部署不属于这些套件的管理范围。
+
+Debug MCP 的 `builtin_scripts_snapshot` 读取当前程序实际发布目录中的内置套件名称、参数名称/类型、脚本列表和解析错误，不读取用户绑定值，也不运行远程脚本。
+
 ## 在交互式 shell 里跑非交互式脚本
 
 这是本机制最微妙的部分。脚本必须在**已经登录好的交互式 shell** 上跑（堡垒机场景下没有别的通道能到达目标），但交互式 shell 会回显命令、打印提示符、还可能启动分页器——这些噪音会混进脚本输出，也会让"退出标记"的检测失效。

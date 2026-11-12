@@ -86,6 +86,8 @@ public static class DebugMcpContract
         Tool("script_completion_order_check",
             "Check that a script's \"[script exit N]\" line renders after the script's own last output "
             + "instead of overtaking the pending output frame.", new()),
+        Tool("builtin_scripts_snapshot",
+            "Read bundled script suite names, parameter names/types, script names and parse errors from this running instance. Does not read user suites or saved parameter values, and does not execute scripts.", new()),
         Tool("connection_tree_load_check",
             "Reads a generated connection tree in an isolated temp root and verifies the read runs off the UI thread, returns the whole tree, and leaves the dispatcher responsive while a reload is in flight.",
             new()),

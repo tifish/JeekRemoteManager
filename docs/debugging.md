@@ -50,6 +50,8 @@
 
 它在一个隔离的临时根目录下工作，不碰用户的真实数据。
 
+Reality shell 套件还可用 `python Tests/Scripts/test_xray_reality.py --xray <官方发行包中的 xray.exe>` 验证（Windows 需要 Git Bash，可用 `--shell` 指定路径）。测试隔离系统路径并替代 systemd、下载和防火墙操作，通过真实 Xray 核心校验脚本生成的配置，覆盖链接互通、IPv6、多上游、备份及失败路径；不代表已验证真实 Linux 安装或端到端代理流量。运行中的内置套件发现使用 Debug MCP 的 `builtin_scripts_snapshot`。
+
 **注意**：`dotnet run` 跑 SmokeTest 会重新构建 `JeekRemoteManager`，所以必须先停掉运行中的应用（见 [构建与发布](build-release.md)）。
 
 ## 迭代流程

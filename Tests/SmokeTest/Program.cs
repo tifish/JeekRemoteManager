@@ -2999,6 +2999,30 @@ try
           && runtimeSingBoxUninstall.Contains("BBR settings were left unchanged")
           && !runtimeSingBoxUninstall.Contains("built-in BBR disable script"),
           "Bundled sing-box reality server uninstall script cleans local state without disabling BBR");
+    var runtimeXrayServer = RemoteScriptStore.LoadSuite(
+        Path.Combine(FindRepoRoot(), "bin", "Data", "Scripts", "xray reality server"), RemoteScriptSuiteSource.BuiltIn);
+    var runtimeXrayClient = RemoteScriptStore.LoadSuite(
+        Path.Combine(FindRepoRoot(), "bin", "Data", "Scripts", "xray reality client"), RemoteScriptSuiteSource.BuiltIn);
+    Check(runtimeXrayServer.Errors.Count == 0 && runtimeXrayServer.Name == "xray reality server"
+          && runtimeXrayServer.RelativePath == "xray reality server"
+          && runtimeXrayServer.Scripts.Select(s => s.Name).Order().SequenceEqual(new[] { "install.sh", "show-link.sh", "uninstall.sh" }),
+          "Bundled xray reality server install, show-link and uninstall scripts are discoverable");
+    Check(runtimeXrayServer.Parameters.Count == 2
+          && runtimeXrayServer.Parameters[0] is { Name: "PORT", Type: RemoteScriptParameterType.Number, DefaultValue: "443" }
+          && runtimeXrayServer.Parameters[1] is { Name: "SNI", Type: RemoteScriptParameterType.String },
+          "Bundled xray reality server exposes PORT and SNI");
+    Check(runtimeXrayClient.Errors.Count == 0 && runtimeXrayClient.Name == "xray reality client"
+          && runtimeXrayClient.RelativePath == "xray reality client"
+          && runtimeXrayClient.Scripts.Select(s => s.Name).Order().SequenceEqual(new[] { "install.sh", "uninstall.sh" }),
+          "Bundled xray reality client install and uninstall scripts are discoverable");
+    Check(runtimeXrayClient.Parameters.Count == 12
+          && Enumerable.Range(1, 9).All(i => runtimeXrayClient.Parameters.Any(p => p.Name == $"SERVER_LINK_{i}" && p.Type == RemoteScriptParameterType.String))
+          && runtimeXrayClient.Parameters.Any(p => p is { Name: "LISTEN_PORT", Type: RemoteScriptParameterType.Number, DefaultValue: "1080" })
+          && runtimeXrayClient.Parameters.Any(p => p is { Name: "ALLOW_EXTERNAL", Type: RemoteScriptParameterType.Bool, DefaultValue: "false" })
+          && runtimeXrayClient.Parameters.Any(p => p is { Name: "UPDATE_XRAY", Type: RemoteScriptParameterType.Bool, DefaultValue: "true" }),
+          "Bundled xray reality client exposes nine links, listen port, external access and update toggle");
+    Check(DebugMcpContract.BuildToolList().OfType<JsonObject>().Any(t => t["name"]?.GetValue<string>() == "builtin_scripts_snapshot"),
+          "Debug MCP advertises the bundled script snapshot");
     var runtimeSingBoxClientDir = Path.Combine(FindRepoRoot(), "bin", "Data", "Scripts", "sing-box reality client");
     var runtimeSingBoxClientSuite = RemoteScriptStore.LoadSuite(runtimeSingBoxClientDir, RemoteScriptSuiteSource.BuiltIn);
     var runtimeSingBoxClientInstallPath = Path.Combine(runtimeSingBoxClientDir, "install.sh");
