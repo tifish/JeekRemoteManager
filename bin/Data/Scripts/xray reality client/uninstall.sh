@@ -39,8 +39,9 @@ if [ -f "$config_file" ]; then
     printf 'Xray config backed up to %s\n' "$backup_file"
 fi
 rm -f "$config_file" /usr/local/etc/xray/jeekremote-reality-link.conf
-rm -f /usr/local/bin/xray /etc/systemd/system/xray.service
+rm -f /usr/local/bin/xray /etc/systemd/system/xray.service /etc/systemd/system/xray@.service
 rm -f /etc/systemd/system/xray.service.d/10-donot_touch_single_conf.conf
-rmdir /etc/systemd/system/xray.service.d /usr/local/etc/xray 2>/dev/null || true
+rm -f /etc/systemd/system/xray@.service.d/10-donot_touch_single_conf.conf
+rmdir /etc/systemd/system/xray.service.d /etc/systemd/system/xray@.service.d /usr/local/etc/xray 2>/dev/null || true
 systemctl daemon-reload
 printf 'Xray uninstall completed. Backups, geodata, logs and BBR settings were left unchanged.\n'

@@ -16,7 +16,7 @@ Xray 套件面向 Linux + systemd + root，使用 [Xray 官方安装器](https:/
 
 client 接受 `SERVER_LINK_1` 至 `SERVER_LINK_9` 中填写的 tcp/raw REALITY 链接，包括 sing-box server 输出的链接；空行跳过，按填写顺序从 `LISTEN_PORT`（默认 1080）连续分配 SOCKS/HTTP 代理端口，每个端口对应一个上游。`ALLOW_EXTERNAL` 默认关闭，`UPDATE_XRAY` 默认开启。内网地址直连，其他流量按入站路由到对应上游；该套件不配置 TUN 或系统路由。链接字段先限制字符和范围，生成配置通过 `xray run -test` 后才替换正式配置，私钥配置只允许 root 和服务组读取。
 
-同一台机器上的 Xray server/client 共用一个服务和配置，二者是替代部署方式；sing-box 使用独立服务与配置，但监听端口仍不可冲突。卸载备份配置、移除 Xray 二进制及默认服务，保留备份、geodata、日志和 BBR 设置。已有自定义 Xray 多配置部署不属于这些套件的管理范围。
+同一台机器上的 Xray server/client 共用一个服务和配置，二者是替代部署方式；sing-box 使用独立服务与配置，但监听端口仍不可冲突。卸载备份配置、移除 Xray 二进制、默认服务及官方安装器创建的 `xray@.service` 模板和单配置覆盖文件，保留备份、geodata、日志和 BBR 设置。已有自定义 Xray 多配置部署不属于这些套件的管理范围。
 
 Debug MCP 的 `builtin_scripts_snapshot` 读取当前程序实际发布目录中的内置套件名称、参数名称/类型、脚本列表和解析错误，不读取用户绑定值，也不运行远程脚本。
 

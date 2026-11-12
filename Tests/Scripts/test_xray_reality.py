@@ -175,6 +175,18 @@ curl() {
         self.assertFalse((self.root / "usr/local/etc/xray/jeekremote-reality-link.conf").exists())
         self.assertEqual(next((self.root / "root").glob("xray-config-backup-*.json")).read_text(), original)
 
+    def test_both_uninstallers_remove_official_service_templates(self):
+        for suite in ("server", "client"):
+            with self.subTest(suite=suite):
+                systemd = self.root / "etc/systemd/system"
+                for name in ("xray.service", "xray@.service"):
+                    (systemd / name).write_text("official service")
+                    dropins = systemd / (name + ".d")
+                    dropins.mkdir()
+                    (dropins / "10-donot_touch_single_conf.conf").write_text("official override")
+                self.assertEqual(self.run_script(suite, "uninstall.sh"), 0, self.output)
+                self.assertEqual(list(systemd.glob("xray*")), [])
+
 
 if __name__ == "__main__":
     unittest.main(argv=[__file__], verbosity=2)
