@@ -31,6 +31,8 @@ public static class DebugMcpContract
         "Examples: MainVm.Nodes[0].Name, MainWindow.#Tree.SelectedItem";
 
     public static JsonArray BuildToolList() => new(
+        Tool("background_port_forward_snapshot", "Read actual owner-scoped background forward states; no credentials, reconnect or lease renewal.", new()),
+        Tool("background_port_forward_check", "Verify background-forward lease bookkeeping using isolated real loopback listener fixtures: idempotency, owner/target isolation, disconnect, rebind, expiry and cleanup. Does not dial SSH or touch saved connections or terminals.", new()),
         Tool("describe", "Overview of the running app: instance, windows, roots, path syntax, and log file. Start here.", new()),
         Tool("get_value", "Read a value from the app's object graph. " + PathHelp,
             new() { ["path"] = Prop("string", "Object path to read."), ["depth"] = Prop("integer", "Nested expansion depth, 0-5 (default 1).") }, ["path"]),

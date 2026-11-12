@@ -19,6 +19,49 @@
 
 ## 传输：命名管道，不是回环 HTTP
 
+### 后台 SSH 回环转发工具
+
+产品面增加三项工具，完整 JSON Schema 以 `ProductMcpContract.cs` 为准。
+所有字段均必填，没有 local bind/remote host 参数；两端固定 `127.0.0.1`，本地端口由 OS 分配。
+
+| 工具 | 参数 |
+| --- | --- |
+| `port_forward_ensure` | `connection: string`（精确树路径）、`owner: string`（非空 GUID）、`remote_loopback_port: integer`（1..65535）、`expected_host: string`（必须等于保存的 SSH host） |
+| `port_forward_status` | `forward_id: string`、`owner: string` |
+| `port_forward_close` | `forward_id: string`、`owner: string` |
+
+三者结果均为 MCP text content 中的 JSON 对象（绝不返回凭据）：
+
+```json
+{
+  "forward_id": "opaque-id",
+  "state": "ready",
+  "local_host": "127.0.0.1",
+  "local_port": 49152,
+  "remote_host": "127.0.0.1",
+  "remote_port": 28190,
+  "host": "110.43.37.79",
+  "connection_id": "saved-stable-id",
+  "host_key_verified": true,
+  "error": "",
+  "lease_expires_at": "2026-11-12T12:02:00.0000000+00:00"
+}
+```
+
+state 为 `ready/closed/failed/awaiting_user`。端口只是示例，调用方必须使用实际返回值，且仅 ready 可用。
+示例调用（PROD 使用独立 owner 和对应路径/host）：
+
+```json
+{"name":"port_forward_ensure","arguments":{"connection":"AI-Router/Proxy/PP-Proxy-1","owner":"4cf0cdd8-07d9-4f2c-b422-af963fc05fd5","remote_loopback_port":28190,"expected_host":"110.43.37.79"}}
+{"name":"port_forward_status","arguments":{"forward_id":"opaque-id","owner":"4cf0cdd8-07d9-4f2c-b422-af963fc05fd5"}}
+{"name":"port_forward_close","arguments":{"forward_id":"opaque-id","owner":"4cf0cdd8-07d9-4f2c-b422-af963fc05fd5"}}
+```
+
+ensure/status 续租 120 秒，建议 30 秒续租。断线后 ensure 恢复；应用重启或 ID 过期后重新 ensure。
+未知 ID 或 owner 不匹配、无效参数、saved host 不匹配返回 MCP isError，不产生转发。
+所有权为同账户 MCP 调用方的资源隔离约定，不是新的安全认证边界。
+生命周期、严格 host-key 校验及无写请求重放约束见 [SSH 连接](ssh-connection.md)。
+
 原来是回环 HTTP，现在全部改成 Windows 命名管道。理由是一串连锁的：
 
 - **没有端口要分配**，所以管道名永远稳定，可以直接写死在用户的项目配置里。HTTP 端口每次启动都可能不同，配置就会过期。

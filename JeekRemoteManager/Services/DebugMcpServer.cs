@@ -134,6 +134,9 @@ internal static partial class DebugMcpServer
         host.AddTool("host_key_trust_check", _ => Task.FromResult(HostKeyTrustCheck()));
         host.AddTool("sftp_host_key_check", SftpHostKeyCheckAsync);
         host.AddTool("ssh_jump_forward_check", SshJumpForwardCheckAsync);
+        host.AddTool("background_port_forward_snapshot", _ => Task.FromResult(ToolText(
+            ProductMcpServer.PortForwardsForDebug().ToJsonString(PrettyOptions))));
+        host.AddTool("background_port_forward_check", _ => BackgroundPortForwardCheckAsync());
         host.AddTool("ssh_jump_chain_check", SshJumpChainCheckAsync);
         host.AddTool("jump_host_editor_check", _ => JumpHostEditorCheckAsync());
         host.AddTool("private_key_file_drop_check", _ => PrivateKeyFileDropCheckAsync());

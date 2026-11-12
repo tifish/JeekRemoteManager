@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -24,14 +25,18 @@ public static class KeyboardInteractiveDialog
     /// called off the UI thread (SSH connect runs on a background thread).
     /// Returns the entered text, or null when the user cancels.
     /// </summary>
-    public static string? Prompt(SshConnectionFactory.KeyboardInteractiveChallenge challenge)
+    public static string? Prompt(SshConnectionFactory.KeyboardInteractiveChallenge challenge) =>
+        Prompt(challenge, CancellationToken.None);
+
+    public static string? Prompt(SshConnectionFactory.KeyboardInteractiveChallenge challenge,
+        CancellationToken cancellationToken)
     {
         var tcs = new TaskCompletionSource<string?>();
         Dispatcher.UIThread.Post(async () =>
         {
             try
             {
-                tcs.SetResult(await ShowAsync(OwnerWindow(), challenge));
+                tcs.SetResult(await ShowAsync(OwnerWindow(), challenge, cancellationToken));
             }
             catch
             {
@@ -59,7 +64,8 @@ public static class KeyboardInteractiveDialog
 
     public static Task<string?> ShowAsync(
         Window? owner,
-        SshConnectionFactory.KeyboardInteractiveChallenge challenge)
+        SshConnectionFactory.KeyboardInteractiveChallenge challenge,
+        CancellationToken cancellationToken = default)
     {
         var tcs = new TaskCompletionSource<string?>();
 
@@ -146,6 +152,14 @@ public static class KeyboardInteractiveDialog
         };
         dialog.Closed += (_, _) => tcs.TrySetResult(null);
         dialog.Opened += (_, _) => box.Focus();
+
+        var cancellation = cancellationToken.Register(() => Dispatcher.UIThread.Post(() => dialog.Close()));
+        dialog.Closed += (_, _) => cancellation.Dispose();
+        if (cancellationToken.IsCancellationRequested)
+        {
+            cancellation.Dispose();
+            return Task.FromResult<string?>(null);
+        }
 
         if (owner is null)
             dialog.Show();

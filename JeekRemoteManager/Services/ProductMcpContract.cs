@@ -28,6 +28,28 @@ public static class ProductMcpContract
         "and session_open to start one.";
 
     public static JsonArray BuildToolList() => new(
+        Tool("port_forward_ensure",
+            "Ensure an owner-scoped background SSH forward, without a terminal or shell. Fixed 127.0.0.1:OS-port to remote 127.0.0.1:remote_loopback_port. "
+            + "Requires an exact saved SSH connection path, expected host and previously trusted host keys at every hop. "
+            + "Same owner/connection/target is idempotent. Renews a 120-second lease; poll status every 30 seconds. "
+            + "Returns forward_id, state (ready/closed/failed/awaiting_user), local_host/local_port, remote_host/remote_port, host, connection_id, host_key_verified, error, lease_expires_at. "
+            + "awaiting_user may mean authentication or a pending SSH dial (see error); complete prompts in JRM. Only ready is usable. "
+            + "After failure call ensure again and use its actual port, which may change. No HTTP requests are replayed.",
+            new()
+            {
+                ["connection"] = Prop("string", "Exact tree path from connection_list."),
+                ["owner"] = new JsonObject { ["type"] = "string", ["format"] = "uuid", ["description"] = "Stable non-empty caller/task GUID, distinct per independently managed forward." },
+                ["remote_loopback_port"] = new JsonObject { ["type"] = "integer", ["minimum"] = 1, ["maximum"] = 65535 },
+                ["expected_host"] = Prop("string", "Must equal the saved SSH host; prevents forwarding to a different target."),
+            }, ["connection", "owner", "remote_loopback_port", "expected_host"]),
+        Tool("port_forward_status",
+            "Read actual SSH/listener state and renew this owner's 120-second lease. Same response as port_forward_ensure. "
+            + "Does not reconnect, create terminals or replay requests. Closed forwards stay closed; app exit/restart closes all forwards.",
+            ForwardReferenceFields(), ["forward_id", "owner"]),
+        Tool("port_forward_close",
+            "Idempotently close only the given owner's background forward and release its dedicated SSH transport/listener. "
+            + "Leaves user terminals and other owners alone. Same response as port_forward_ensure. Closed IDs remain readable for ten minutes.",
+            ForwardReferenceFields(), ["forward_id", "owner"]),
         // --- Directory and metadata (read-only) ---
         Tool("connection_list",
             "List saved connections. Returns tree path, name, type (SSH/WSL/RDP/VNC), and target for each. Never returns credentials.",
@@ -375,6 +397,12 @@ public static class ProductMcpContract
         ["timeout_seconds"] = Prop("integer", "Per-connection auto-interrupt timeout."),
         ["open_missing"] = Prop("boolean", "Open sessions for connections that have none (default true)."),
         ["max_parallel"] = Prop("integer", "Maximum simultaneous commands (default 4, range 1-16)."),
+    };
+
+    private static JsonObject ForwardReferenceFields() => new()
+    {
+        ["forward_id"] = Prop("string", "Opaque identifier returned by port_forward_ensure."),
+        ["owner"] = new JsonObject { ["type"] = "string", ["format"] = "uuid", ["description"] = "The same caller/task GUID used by ensure." },
     };
 
     private static JsonObject Tool(string name, string description, JsonObject properties, string[]? required = null)

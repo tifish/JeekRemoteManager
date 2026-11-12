@@ -22,6 +22,21 @@ public sealed class KnownHostsTests : IDisposable
     }
 
     [Fact]
+    public void Background_trust_requires_an_existing_match_and_never_calls_replace()
+    {
+        Assert.False(SshHostKey.Evaluate(_store, "background", 22, "ssh-ed25519", "first", requireKnownHost: true));
+        Assert.False(_store.TryGet("background", 22, out _));
+        _store.Trust("background", 22, "first", "ssh-ed25519");
+        Assert.True(SshHostKey.Evaluate(_store, "background", 22, "ssh-ed25519", "first", requireKnownHost: true));
+        var replaced = false;
+        Assert.False(SshHostKey.Evaluate(_store, "background", 22, "ssh-ed25519", "changed",
+            onMismatch: (_, _, _, _, _) => replaced = true, requireKnownHost: true));
+        Assert.False(replaced);
+        Assert.True(_store.TryGet("background", 22, out var fingerprint));
+        Assert.Equal("first", fingerprint);
+    }
+
+    [Fact]
     public void First_key_is_trusted_silently_and_a_change_needs_confirmation()
     {
         var prompted = false;

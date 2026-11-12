@@ -31,7 +31,7 @@ namespace JeekRemoteManager.Services;
 /// passwords are write-only, so no encrypted blob or clear text can leak through a field
 /// added to the model later.
 /// </summary>
-internal static class ProductMcpServer
+internal static partial class ProductMcpServer
 {
     private static readonly ILogger Log = LogManager.CreateLogger(nameof(ProductMcpServer));
     private static readonly JsonSerializerOptions PrettyOptions = new() { WriteIndented = true };
@@ -45,7 +45,11 @@ internal static class ProductMcpServer
             Log.ZLogInformation($@"Product MCP listening on \\.\pipe\{Host.PipeName}");
     }
 
-    public static void Stop() => Host.Stop();
+    public static void Stop()
+    {
+        Host.Stop();
+        BackgroundForwards.Dispose();
+    }
 
     /// <summary>Pipe currently accepting product sessions ("" when stopped).</summary>
     public static string PipeName => Host.PipeName;
@@ -74,6 +78,9 @@ internal static class ProductMcpServer
         });
 
         host.AddTool("connection_list", ConnectionListAsync);
+        host.AddTool("port_forward_ensure", PortForwardEnsureAsync);
+        host.AddTool("port_forward_status", args => PortForwardReadAsync(args, close: false));
+        host.AddTool("port_forward_close", args => PortForwardReadAsync(args, close: true));
         host.AddTool("connection_get", ConnectionGetAsync);
         host.AddTool("connection_create", ConnectionCreateAsync);
         host.AddTool("connection_update", ConnectionUpdateAsync);

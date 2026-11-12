@@ -18,7 +18,8 @@ public sealed record SshDialOptions(
     Action<string>? OnRejected = null,
     Action<string>? OnTrusted = null,
     Func<SshConnectionFactory.KeyboardInteractiveChallenge, string?>? PromptUser = null,
-    KnownHostsStore? KnownHosts = null)
+    KnownHostsStore? KnownHosts = null,
+    bool RequireKnownHost = false)
 {
     public KnownHostsStore Store => KnownHosts ?? KnownHostsStore.Default;
 }

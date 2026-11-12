@@ -69,6 +69,36 @@ SSH.NET 没有内置的 host key 校验，默认信任所有主机。`KnownHosts
 
 编辑器回归检查是 `jump_host_editor_check`；`ssh_jump_chain_check` 在真实测试 sshd 上验证两跳 SSH/SFTP、真实主机密钥地址及监听端口释放，并使用临时 known_hosts 文件。路由解析和循环检测由 `JumpHostTests` 覆盖。端口转发回归检查是 Debug MCP 的 `ssh_jump_forward_check`（经跳板执行命令，L/D/R 三种转发各真实传一次数据，释放后端口关闭）。
 
+## 后台回环转发
+
+`BackgroundPortForwards.cs`、`ProductMcpServer.PortForwards.cs` 提供不依赖标签页的最小转发管理。
+产品 MCP 的 `port_forward_ensure/status/close` 使用独立 `SshDialer` 传输和
+`ForwardedPortLocal("127.0.0.1", 0, "127.0.0.1", port)`，不打开 session channel、PTY、shell，
+不执行 `LoginCommands` 或保存连接中的 `PortForwards`。关闭终端不影响后台转发，后台关闭不释放任何终端传输。
+
+后台拨号对目标及每一级跳板设置 `RequireKnownHost`：只接受已保存且匹配的主机密钥，
+首次信任和变更确认由用户在正常 GUI 连接路径完成；后台不 TOFU、不替换密钥。
+凭据继续经已有主密码保护和 `SshConnectionFactory`，MFA 仍由 JRM GUI 输入。
+关闭或租约过期会取消该转发的认证对话框；晚到的连接不得复活已关闭的监听。
+
+相同 owner GUID、稳定连接 ID、目标 host 和远端端口共用同一后台转发；不同 owner/目标各有独立资源。
+saved host 必须等于 `expected_host`，连接必须使用 `connection_list` 的完整树路径；
+活动转发的 SSH 路由身份变化时要求先关闭旧转发，不能悄悄复用到另一目标。
+每次 ensure/status 续 120 秒租约，客户端建议每 30 秒 status；停止续租后最多额外 5 秒清理。
+close 幂等且只关闭匹配 owner 的 ID，关闭记录保留至原租约结束后十分钟。
+应用退出/重启释放全部后台监听，ID 不跨进程持久化。
+
+`ready` 表示当前 SSH 已连接且本地转发监听已启动，并不保证远端 HTTP 服务可用。
+断线/监听停止变为 `failed`；status 不重连，客户端需再次 ensure，恢复时本地端口可能改变。
+`awaiting_user` 的 `error` 区分 `ssh_connecting`（拨号尚未完成）、
+`complete_authentication_in_jrm` 和 `host_key_requires_user`。
+只有 ready 的 endpoint 可用；JRM 只转发字节，绝不解释或重放 HTTP 写请求。
+API Bearer、业务授权、lease 和 request_id 均由调用方/daemon 保持。
+
+Debug MCP `background_port_forward_snapshot` 只读实际状态且不续租；
+`background_port_forward_check` 用隔离的本地监听夹具检查幂等、隔离、冲突、断线和释放，
+不拨生产 SSH、不创建终端。单元测试还覆盖认证期间关闭的竞态和严格主机密钥策略。
+
 ## 传输复用：SharedSshClient
 
 SSH 在一条已认证连接上多路复用多个 session channel。所以"复制标签页"应该在同一个传输上开一条新的 shell 通道，而不是重新拨号 + 重新认证（对堡垒机来说还意味着重新过一遍 2FA）。

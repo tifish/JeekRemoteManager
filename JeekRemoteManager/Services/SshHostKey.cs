@@ -34,7 +34,8 @@ public static class SshHostKey
                 e.FingerPrintSHA256,
                 options.OnMismatch,
                 options.OnRejected,
-                options.OnTrusted);
+                options.OnTrusted,
+                options.RequireKnownHost);
         };
     }
 
@@ -69,9 +70,18 @@ public static class SshHostKey
         string fingerprint,
         Func<string, int, string, string, string, bool>? onMismatch = null,
         Action<string>? onRejected = null,
-        Action<string>? onTrusted = null)
+        Action<string>? onTrusted = null,
+        bool requireKnownHost = false)
     {
-        switch (store.Check(host, port, keyType, fingerprint))
+        var status = store.Check(host, port, keyType, fingerprint);
+        // Background forwarding cannot establish or replace trust, even if a caller
+        // accidentally supplied an interactive replacement callback.
+        if (requireKnownHost && status != KnownHostsStore.Status.Match)
+        {
+            onRejected?.Invoke("host_key_requires_user");
+            return false;
+        }
+        switch (status)
         {
             case KnownHostsStore.Status.Match:
                 return true;
