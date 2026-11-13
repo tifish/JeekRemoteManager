@@ -114,6 +114,7 @@ internal static partial class DebugMcpServer
         host.AddTool("terminal_tab_focus_check", _ => TerminalTabFocusCheckAsync());
         host.AddTool("terminal_tab_lifecycle_check", _ => TerminalTabLifecycleCheckAsync());
         host.AddTool("terminal_bulk_close_check", _ => TerminalBulkCloseCheckAsync());
+        host.AddTool("terminal_tab_side_close_check", _ => TerminalTabSideCloseCheckAsync());
         host.AddTool("terminal_connection_actions_check", _ => TerminalConnectionActionsCheckAsync());
         host.AddTool("terminal_output_coalescing_check", _ => TerminalOutputCoalescingCheckAsync());
         host.AddTool("script_completion_order_check", _ => ScriptCompletionOrderCheckAsync());

@@ -514,6 +514,22 @@ public partial class MainWindow
         };
         closeOthers.Click += (_, _) => CloseOtherTerminalTabs(tab);
 
+        var closeRight = new MenuItem
+        {
+            Name = "TerminalTabCloseRightItem",
+            Header = Localizer.Get("CloseTabsToRight"),
+            Icon = CreateMenuIcon("\uE76C", "danger"),
+        };
+        closeRight.Click += (_, _) => CloseTerminalTabsOnSide(tab, before: false);
+
+        var closeLeft = new MenuItem
+        {
+            Name = "TerminalTabCloseLeftItem",
+            Header = Localizer.Get("CloseTabsToLeft"),
+            Icon = CreateMenuIcon("\uE76B", "danger"),
+        };
+        closeLeft.Click += (_, _) => CloseTerminalTabsOnSide(tab, before: true);
+
         var closeAll = new MenuItem
         {
             Header = Localizer.Get("CloseAll"),
@@ -540,6 +556,8 @@ public partial class MainWindow
         menu.Items.Add(new Separator());
         menu.Items.Add(close);
         menu.Items.Add(closeOthers);
+        menu.Items.Add(closeRight);
+        menu.Items.Add(closeLeft);
         menu.Items.Add(closeAll);
         return menu;
     }
@@ -1236,6 +1254,17 @@ public partial class MainWindow
     /// </summary>
     internal void CloseOtherTerminalTabs(TabItem keep) =>
         CloseTerminalTabs(EnumerateTerminalTabs().Where(t => !ReferenceEquals(t, keep)).ToList(), keep);
+
+    private void CloseTerminalTabsOnSide(TabItem anchor, bool before)
+    {
+        var index = RightTabs.Items.IndexOf(anchor);
+        if (index < 0)
+            return;
+
+        // Use the current full tab order, including tabs outside the page/search.
+        var side = before ? RightTabs.Items.Take(index) : RightTabs.Items.Skip(index + 1);
+        CloseTerminalTabs(side.OfType<TabItem>().Where(t => t.Content is TerminalView).ToList(), anchor);
+    }
 
     /// <summary>
     /// Closes every terminal tab. Permanent tabs (editor, global agent) stay open.
