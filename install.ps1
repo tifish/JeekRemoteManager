@@ -19,11 +19,11 @@ $ShortcutPath = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\$A
 # (api.github.com is rate-limited and unreachable from mainland China).
 $DownloadUrl = "https://github.com/tifish/$AppName/releases/latest/download/$ZipName"
 
-# Same mirror list as GitHubMirrors in JeekTools.NET.
+# Try mirrors first, then GitHub directly, matching Install.cmd.
 $Mirrors = @(
-    $DownloadUrl,
     ($DownloadUrl -replace '^https://github\.com/', 'https://ghfast.top/https://github.com/'),
-    ($DownloadUrl -replace '^https://github\.com/', 'https://gh-proxy.com/github.com/')
+    ($DownloadUrl -replace '^https://github\.com/', 'https://gh-proxy.com/github.com/'),
+    $DownloadUrl
 )
 
 # Abandon a mirror whose average speed over the last 10 seconds stays below

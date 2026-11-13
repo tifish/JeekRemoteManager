@@ -61,6 +61,8 @@ push 到 `main` 时：算提交数 → Release 构建 → **单元测试 → Smo
 
 `install.ps1` 装到 `%LOCALAPPDATA%\Programs\JeekRemoteManager` 并建开始菜单快捷方式，**不写任何注册表项**。卸载 = 退出应用 + 删目录 + 删快捷方式。
 
+`Install.cmd` 下载入口脚本时，按 `ghfast.top` → `gh-proxy.com` → GitHub 原始地址依次尝试，每次请求超时为 30 秒。空内容、HTML 响应和 PowerShell 语法错误也会切换到下一个源；所有源失败时返回非零退出码。成功下载后只执行一次安装脚本，安装过程自身失败不重复安装。`install.ps1` 下载发布包也使用同样的镜像顺序，最后的 GitHub 直连允许低速完成。
+
 安装时镜像同步发布包，但保留根目录下的 `Config`、`Connections`、`Scripts`、`Logs` 用户数据。`robocopy /XD` 必须使用源和目标根目录下的完整路径，不能使用裸目录名：裸名会递归排除同名目录，导致内置的 `Data/Scripts` 无法安装或更新。`Data/Scripts` 属于发布内容，必须随包同步并清理过时文件。
 
 ## 子模块
