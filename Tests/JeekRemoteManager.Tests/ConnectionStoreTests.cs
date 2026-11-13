@@ -19,6 +19,60 @@ public sealed class ConnectionStoreTests : IDisposable
         folder.Connections.Concat(folder.Folders.SelectMany(All));
 
     [Fact]
+    public void Folder_case_only_renames_change_the_disk_name_and_preserve_contents()
+    {
+        var folder = _store.CreateFolder(_root, "group");
+        var connection = new Connection { Name = "child", Host = "child.invalid" };
+        _store.Save(connection, folder);
+        _store.ReadTree();
+
+        foreach (var name in new[] { "GROUP", "Group", "group" })
+        {
+            folder = _store.RenameFolder(folder, name);
+
+            Assert.Equal(Path.Combine(_root, name), folder);
+            Assert.Equal(name, Path.GetFileName(Assert.Single(Directory.GetDirectories(_root))));
+            Assert.Null(_store.KnownSignature);
+            var child = Assert.Single(All(_store.ReadTree()));
+            Assert.Equal(connection.ConnectionId, child.Connection.ConnectionId);
+            Assert.Equal("child.invalid", child.Connection.Host);
+        }
+    }
+
+    [Fact]
+    public void Folder_rename_keeps_same_name_and_disambiguates_a_different_existing_folder()
+    {
+        var source = _store.CreateFolder(_root, "source");
+        var target = _store.CreateFolder(_root, "target");
+        File.WriteAllText(Path.Combine(source, "source.txt"), "source");
+        File.WriteAllText(Path.Combine(target, "target.txt"), "target");
+
+        Assert.Equal(source, _store.RenameFolder(source, "source"));
+        var renamed = _store.RenameFolder(source, "TARGET");
+
+        Assert.False(string.Equals(renamed, target, StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("source", File.ReadAllText(Path.Combine(renamed, "source.txt")));
+        Assert.Equal("target", File.ReadAllText(Path.Combine(target, "target.txt")));
+        Assert.Equal(2, Directory.GetDirectories(_root).Length);
+    }
+
+    [Fact]
+    public void Connection_case_only_rename_changes_the_disk_name_and_preserves_identity()
+    {
+        var connection = new Connection { Name = "server", Host = "server.invalid" };
+        var path = _store.Save(connection, _root);
+        connection.Name = "SERVER";
+
+        var renamed = _store.Save(connection, _root, path);
+
+        Assert.Equal(Path.Combine(_root, "SERVER.json"), renamed);
+        Assert.Equal("SERVER.json", Path.GetFileName(Assert.Single(Directory.GetFiles(_root, "*.json"))));
+        var loaded = Assert.Single(All(_store.ReadTree())).Connection;
+        Assert.Equal("SERVER", loaded.Name);
+        Assert.Equal(connection.ConnectionId, loaded.ConnectionId);
+    }
+
+    [Fact]
     public void Only_a_tree_read_confirms_the_state_after_own_writes()
     {
         _store.ReadTree();

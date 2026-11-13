@@ -526,8 +526,26 @@ public class ConnectionStore
         using var lease = SharedDataFile.Acquire(RootPath);
         var parent = Path.GetDirectoryName(folderPath)!;
         var target = Path.Combine(parent, SanitizeName(newName));
-        if (PathsEqual(target, folderPath))
+        if (string.Equals(Path.GetFullPath(target), Path.GetFullPath(folderPath), StringComparison.Ordinal))
             return folderPath;
+
+        if (PathsEqual(target, folderPath))
+        {
+            // Directory.Move rejects paths differing only by case on Windows.
+            // Use a sibling on the same volume, restoring the source if step two fails.
+            var temporary = Path.Combine(parent, ".jrm-rename-" + Guid.NewGuid().ToString("N"));
+            OwnWrite(() =>
+            {
+                Directory.Move(folderPath, temporary);
+                try { Directory.Move(temporary, target); }
+                catch
+                {
+                    Directory.Move(temporary, folderPath);
+                    throw;
+                }
+            });
+            return target;
+        }
 
         if (Directory.Exists(target))
             target = UniqueFolderPath(parent, SanitizeName(newName));

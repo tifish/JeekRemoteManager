@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Automation.Peers;
@@ -10,6 +11,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Input.Raw;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml.MarkupExtensions;
@@ -71,6 +73,28 @@ public partial class MainWindow
     private static bool IsTreeNavigationKey(Key key) =>
         key is Key.Up or Key.Down or Key.Home or Key.End or Key.PageUp or Key.PageDown;
 
+    /// <summary>Runs raw keyboard routing, including KeyBindings, in an isolated Debug MCP window.</summary>
+    internal string DebugRaiseFocusedTreeKey(Key key)
+    {
+        if (FocusManager?.GetFocusedElement() is InputElement focused)
+        {
+            // RaiseEvent alone skips Avalonia's KeyBinding dispatch, which happens
+            // in KeyboardDevice before the routed KeyDown event is raised.
+            var keyboard = (KeyboardDevice)typeof(KeyboardDevice)
+                .GetProperty("Instance", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+            // These private platform APIs are omitted from Avalonia's reference assembly.
+            var inputRoot = typeof(TopLevel).GetProperty("InputRoot", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(this);
+            var e = typeof(RawKeyEventArgs).GetConstructors().Single().Invoke(
+                [keyboard, 0UL, inputRoot, RawKeyEventType.KeyDown, key, RawInputModifiers.None,
+                    PhysicalKey.None, null, KeyDeviceType.Keyboard]);
+            typeof(KeyboardDevice).GetMethod("ProcessRawEvent")!.Invoke(keyboard, [e]);
+            var handled = typeof(RawKeyEventArgs).GetProperty("Handled")!.GetValue(e);
+            return $"{key}: focus={focused.GetType().Name}, inTree={IsTreeSource(focused)}, handled={handled}";
+        }
+        return $"{key}: no focused control";
+    }
+
     private static int FindVisibleTreeNodeIndex(
         System.Collections.Generic.IReadOnlyList<TreeNodeViewModel> visibleNodes,
         TreeNodeViewModel? node)
@@ -125,6 +149,10 @@ public partial class MainWindow
         Dispatcher.UIThread.Post(() =>
         {
             var item = node ?? Tree.SelectedItem as TreeNodeViewModel;
+            // A queued restore from the previous action must not take focus away
+            // after F2 has already opened the inline editor.
+            if ((DataContext as MainWindowViewModel)?.SelectedNode?.IsNameEditing == true)
+                return;
             if (item != null)
             {
                 if (_pendingTreeFocusPath is not null
@@ -210,6 +238,8 @@ public partial class MainWindow
     {
         Dispatcher.UIThread.Post(() =>
         {
+            if (!node.IsNameEditing)
+                return;
             foreach (var visual in Tree.GetVisualDescendants())
             {
                 if (visual is TextBox editor
@@ -466,7 +496,16 @@ public partial class MainWindow
             var expanderClick = e.Source is Visual visual
                 && visual.FindAncestorOfType<ToggleButton>(includeSelf: true) is not null;
             if (!expanderClick || !vm.ShowConnectionEditor || !EditorTab.IsSelected)
+            {
                 vm.SelectedNode = toggledNode;
+                // This tunnel handler consumes the press, so TreeViewItem's
+                // normal pointer handler never gets to focus the selected row.
+                hitItem?.Focus();
+            }
+            else
+            {
+                Tree.Focus();
+            }
             e.Handled = true;
             return;
         }
