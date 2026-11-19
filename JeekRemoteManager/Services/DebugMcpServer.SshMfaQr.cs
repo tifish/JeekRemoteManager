@@ -16,11 +16,12 @@ internal static partial class DebugMcpServer
         if (!DebugInstanceContext.IsDebugBuild)
             return ToolText("Run this probe in a Debug instance.", true);
 
-        // Synthetic Google Authenticator export with two TOTP accounts, one HOTP,
+        // Synthetic Google Authenticator export with three TOTP accounts, one HOTP,
         // one unsupported algorithm, and the metadata for page 2 of 3.
-        const string batch = "CjgKFDEyMzQ1Njc4OTAxMjM0NTY3ODkwEhFqdW1wQGV4YW1wbGUudGVzdBoHRml4dHVyZSABKAEwAgon"
-            + "CglvYXRoLW9ubHkSC0hPVFAgc2FtcGxlGgdGaXh0dXJlIAEoATABCjkKIDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5"
-            + "MDEyEgZEZXBsb3kaB0ZpeHR1cmUgAigCMAIKIAoDYmFkEgpNRDUgc2FtcGxlGgdGaXh0dXJlIAQoATACEAEYAyABKNVM";
+        const string batch = "CjgKFDEyMzQ1Njc4OTAxMjM0NTY3ODkwEhFqdW1wQGV4YW1wbGUudGVzdBoHRml4dHVyZSABKAEwAgonCglvYXRoLW9u"
+            + "bHkSC0hPVFAgc2FtcGxlGgdGaXh0dXJlIAEoATABCjkKIDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyEgZE"
+            + "ZXBsb3kaB0ZpeHR1cmUgAigCMAIKIAoDYmFkEgpNRDUgc2FtcGxlGgdGaXh0dXJlIAQoATACCigKC2FiY2QxMjM0eHl6"
+            + "EgpVbnNlbGVjdGVkGgdGaXh0dXJlIAEoATACEAEYAyABKNVM";
         var writer = new ZXing.SkiaSharp.BarcodeWriter
         {
             Format = BarcodeFormat.QR_CODE,
@@ -57,33 +58,46 @@ internal static partial class DebugMcpServer
 
             var checks = await OnUiAsync(() =>
             {
-                var choices = Find<ComboBox>("SshMfaQrAccounts");
+                var choices = Find<StackPanel>("SshMfaQrImportChoices").Children.OfType<CheckBox>().ToArray();
+                var save = Find<Button>("SshMfaSaveButton");
                 var results = new Dictionary<string, bool>
                 {
-                    ["twoSupportedAccounts"] = choices.Items.OfType<string>()
-                        .SequenceEqual(["Fixture: jump@example.test", "Fixture: Deploy"]),
-                    ["requiresExplicitSelection"] = choices.SelectedIndex < 0 && !Find<Button>("SshMfaSaveButton").IsEnabled,
+                    ["onlySupportedAccounts"] = choices.Select(check => (check.Content as TextBlock)?.Text)
+                        .SequenceEqual(["Fixture: jump@example.test", "Fixture: Deploy", "Fixture: Unselected"]),
+                    ["requiresExplicitSelection"] = choices.All(check => check.IsChecked != true) && !save.IsEnabled,
                     ["seedBoxIsEmpty"] = string.IsNullOrEmpty(Find<TextBox>("SshMfaSeedBox").Text),
                     ["noProfileBeforeConfirmation"] = store.List().Count == 0,
                 };
-                if (!results["twoSupportedAccounts"])
+                if (!results["onlySupportedAccounts"])
                     return results;
-                choices.SelectedIndex = 1;
-                results["suggestsSelectedAccountName"] = Find<TextBox>("SshMfaNameBox").Text == "Fixture: Deploy";
+                choices[0].SetCurrentValue(CheckBox.IsCheckedProperty, true);
+                results["oneSelectionEnablesImport"] = save.IsEnabled;
+                choices[0].SetCurrentValue(CheckBox.IsCheckedProperty, false);
+                results["clearingSelectionDisablesImport"] = !save.IsEnabled;
+                choices[0].SetCurrentValue(CheckBox.IsCheckedProperty, true);
+                choices[1].SetCurrentValue(CheckBox.IsCheckedProperty, true);
                 Click("SshMfaSaveButton");
                 return results;
             });
 
-            if (checks["twoSupportedAccounts"])
+            if (checks["onlySupportedAccounts"])
             {
                 var id = await state.Result.WaitAsync(TimeSpan.FromSeconds(3));
-                var profile = store.Read().SingleOrDefault();
-                checks["onlySelectedProfileSaved"] = id.HasValue && profile is not null && profile.Id == id
-                    && profile.Name == "Fixture: Deploy" && MasterKeyService.IsPasswordBlob(profile.EncryptedCredential);
-                var setup = PasswordProtector.Decrypt(profile?.EncryptedCredential);
-                var valid = SshTotp.TryParse(setup, out var totp);
-                using (totp)
-                    checks["selectedTotpMatches"] = valid && totp!.Generate(DateTimeOffset.FromUnixTimeSeconds(59)) == "46119246";
+                var profiles = store.Read().ToDictionary(profile => profile.Name, StringComparer.Ordinal);
+                checks["onlySelectedProfilesSaved"] = id.HasValue && profiles.Count == 2
+                    && profiles.TryGetValue("Fixture: jump@example.test", out var first) && first.Id == id
+                    && profiles.ContainsKey("Fixture: Deploy")
+                    && profiles.Values.All(profile => MasterKeyService.IsPasswordBlob(profile.EncryptedCredential));
+
+                bool CheckCode(string profileName, string expected)
+                {
+                    var setup = PasswordProtector.Decrypt(profiles.GetValueOrDefault(profileName)?.EncryptedCredential);
+                    var valid = SshTotp.TryParse(setup, out var totp);
+                    using (totp)
+                        return valid && totp!.Generate(DateTimeOffset.FromUnixTimeSeconds(59)) == expected;
+                }
+                checks["selectedTotpCodesMatch"] = CheckCode("Fixture: jump@example.test", "287082")
+                    && CheckCode("Fixture: Deploy", "46119246");
             }
 
             var passed = checks.Values.All(value => value);

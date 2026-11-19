@@ -84,6 +84,8 @@ SshMfaQrPaste	Paste QR image	粘贴二维码图片
 SshMfaQrImages	Image files	图片文件
 SshMfaQrAccount	TOTP account in QR code	二维码中的 TOTP 账号
 SshMfaQrChoose	Choose an account	选择账号
+SshMfaQrChooseMultiple	Select the TOTP accounts to import	勾选要导入的 TOTP 账号
+SshMfaQrImportSelected	Import selected accounts	导入所选账号
 SshMfaQrUnnamed	TOTP account {0}	TOTP 账号 {0}
 SshMfaQrUseKey	Use a setup key instead	改为输入设置密钥
 SshMfaQrUnreadable	Could not read a QR code from this image.	无法从这张图片识别二维码。

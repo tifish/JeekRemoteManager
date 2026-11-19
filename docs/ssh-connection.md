@@ -35,7 +35,7 @@ ssh-agent 查询跑在有超时的工作线程上：agent 缺失或无响应不�
 
 接受 Base32 设置密钥和 `otpauth://totp/` 链接。[RFC 6238](https://www.rfc-editor.org/rfc/rfc6238.html) 的默认值是 SHA-1 和 30 秒步长，纯 Base32 使用 6 位验证码。链接可指定 SHA-1、SHA-256、SHA-512、6 或 8 位以及生成周期。[设置链接格式](https://github.com/google/google-authenticator/wiki/Key-Uri-Format)
 
-添加或编辑配置时可以打开二维码图片，也可以直接粘贴截图。应用在本地识别单账号的设置二维码和 Google Authenticator 的迁移二维码。迁移二维码含多个 TOTP 账号时，用户从账号列表中选择并保存一项。分成多张的导出可逐张打开，每张包含的账号可独立导入。HOTP 条目会从选择列表中略过。[Google Authenticator 账号转移说明](https://support.google.com/accounts/answer/1066447)
+添加或编辑配置时可以打开二维码图片，也可以直接粘贴截图。应用在本地识别单账号的设置二维码和 Google Authenticator 的迁移二维码。添加时遇到含多个 TOTP 账号的二维码，可以勾选任意几项并一次导入。编辑已有配置时，从二维码中选择一个账号更新该配置的密钥。分成多张的导出可逐张打开，每张包含的账号可独立导入。HOTP 条目会从选择列表中略过。[Google Authenticator 账号转移说明](https://support.google.com/accounts/answer/1066447)
 
 配置启用后，常见 TOTP 措辞对应的单个隐藏提示才会自动应答。未知或回显提示、明确的短信／邮件／推送／恢复码提示、同一轮的多个候选，以及服务器再次询问的验证码都交给 GUI。配置缺失、读取失败或密钥无法解密时也可手动输入。已选择配置的连接只对明确的密码提示自动填密码，避免把主凭据发给措辞不明的二次验证提示。
 

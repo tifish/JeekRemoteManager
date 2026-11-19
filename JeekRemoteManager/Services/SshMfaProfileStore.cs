@@ -49,6 +49,42 @@ internal sealed class SshMfaProfileStore(string configRoot)
         return profile.Id;
     }
 
+    internal IReadOnlyList<Guid> AddBatch(IReadOnlyList<(string Name, string EncryptedCredential)> accounts)
+    {
+        if (accounts.Any(account => string.IsNullOrWhiteSpace(account.Name)
+            || !MasterKeyService.IsPasswordBlob(account.EncryptedCredential)))
+        {
+            throw new ArgumentException("Each imported account needs a name and an encrypted credential.", nameof(accounts));
+        }
+
+        using var lease = AcquireWriteLock();
+        var names = Read().Select(profile => profile.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var pending = new List<Profile>(accounts.Count);
+        foreach (var account in accounts)
+        {
+            var name = account.Name;
+            var suffix = 2;
+            while (!names.Add(name))
+                name = $"{account.Name} ({suffix++})";
+            pending.Add(new Profile(Guid.NewGuid(), name, account.EncryptedCredential));
+        }
+
+        var written = 0;
+        try
+        {
+            for (; written < pending.Count; written++)
+                Write(pending[written]);
+        }
+        catch
+        {
+            foreach (var profile in pending.Take(written))
+                File.Delete(ProfilePath(profile.Id));
+            throw;
+        }
+
+        return pending.Select(profile => profile.Id).ToArray();
+    }
+
     public void Remove(Guid id)
     {
         using var lease = AcquireWriteLock();

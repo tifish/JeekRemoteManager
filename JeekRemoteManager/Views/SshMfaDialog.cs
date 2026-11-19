@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
 using Avalonia.Input.Platform;
 using Avalonia.Layout;
@@ -117,26 +118,74 @@ internal static class SshMfaDialog
             PlaceholderText = Localizer.Get("SshMfaQrChoose"),
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
+        var checkList = new StackPanel { Name = "SshMfaQrImportChoices", Spacing = 4 };
+        var checkScroll = new ScrollViewer
+        {
+            MaxHeight = 230,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Content = checkList,
+        };
+        var nameField = new StackPanel
+        {
+            Spacing = 6,
+            Children = { new TextBlock { Text = Localizer.Get("Name"), Classes = { "label" } }, name },
+        };
         var manual = new StackPanel
         {
             Spacing = 6,
             Children = { new TextBlock { Text = Localizer.Get("SshMfaHint"), TextWrapping = TextWrapping.Wrap }, seed },
         };
+        var accountLabel = new TextBlock { Classes = { "label" } };
         var selection = new StackPanel
         {
             Spacing = 6, IsVisible = false,
-            Children = { new TextBlock { Text = Localizer.Get("SshMfaQrAccount"), Classes = { "label" } }, accounts, useKey },
+            Children = { accountLabel, accounts, checkScroll, useKey },
         };
         var dialog = CreateWindow(profile is null ? "SshMfaAdd" : "SshMfaEditTitle",
-            new TextBlock { Text = Localizer.Get("Name"), Classes = { "label" } }, name,
-            manual, Buttons(openQr, pasteQr), selection, error, Buttons(save, cancel));
+            nameField, manual, Buttons(openQr, pasteQr), selection, error, Buttons(save, cancel));
 
         IReadOnlyList<SshMfaQrReader.Account> imported = [];
+        string[] labels = [];
+        CheckBox[] checks = [];
         var suggestedName = "";
         var isReadingQr = false;
+        bool IsBatchImport() => profile is null && imported.Count > 1;
 
         void UpdateSaveAvailability() =>
-            save.IsEnabled = !isReadingQr && (imported.Count == 0 || accounts.SelectedIndex >= 0);
+            save.IsEnabled = !isReadingQr && (IsBatchImport()
+                ? checks.Any(check => check.IsChecked == true)
+                : imported.Count == 0 || accounts.SelectedIndex >= 0);
+
+        void ShowQrAccounts()
+        {
+            var batch = IsBatchImport();
+            checkList.Children.Clear();
+            checks = [];
+            if (batch)
+            {
+                checks = labels.Select(label => new CheckBox
+                {
+                    Content = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap },
+                }).ToArray();
+                foreach (var check in checks)
+                    check.IsCheckedChanged += (_, _) => UpdateSaveAvailability();
+                checkList.Children.AddRange(checks);
+            }
+
+            accounts.IsVisible = !batch;
+            accounts.ItemsSource = batch ? null : labels;
+            accounts.SelectedIndex = imported.Count == 1 ? 0 : -1;
+            checkScroll.IsVisible = batch;
+            nameField.IsVisible = !batch;
+            manual.IsVisible = false;
+            selection.IsVisible = true;
+            accountLabel.Text = Localizer.Get(batch ? "SshMfaQrChooseMultiple" : "SshMfaQrAccount");
+            save.Content = Localizer.Get(batch ? "SshMfaQrImportSelected" : "DialogOk");
+            if (batch)
+                checks[0].Focus();
+            else
+                accounts.Focus();
+        }
 
         async Task ReadQrAsync(Func<Task<Stream?>> open, string? emptyError = null)
         {
@@ -165,18 +214,15 @@ internal static class SshMfaDialog
                 }
 
                 imported = result;
-                var labels = imported.Select((account, index) => account.Name.Length == 0
+                var names = imported.Select((account, index) => account.Name.Length == 0
                     ? string.Format(Localizer.Get("SshMfaQrUnnamed"), index + 1) : account.Name).ToArray();
-                var duplicates = labels.GroupBy(label => label, StringComparer.OrdinalIgnoreCase)
+                var duplicates = names.GroupBy(label => label, StringComparer.OrdinalIgnoreCase)
                     .Where(group => group.Count() > 1).Select(group => group.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                accounts.ItemsSource = labels.Select((label, index) =>
+                labels = names.Select((label, index) =>
                     duplicates.Contains(label) ? $"{label} ({index + 1})" : label).ToArray();
-                accounts.SelectedIndex = imported.Count == 1 ? 0 : -1;
                 seed.Clear();
-                manual.IsVisible = false;
-                selection.IsVisible = true;
                 error.IsVisible = false;
-                accounts.Focus();
+                ShowQrAccounts();
             }
             catch (InvalidOperationException) when (MasterKeyService.Current is not { IsUnlocked: true })
             {
@@ -208,9 +254,14 @@ internal static class SshMfaDialog
         useKey.Click += (_, _) =>
         {
             imported = [];
+            checks = [];
+            labels = [];
             accounts.ItemsSource = null;
+            checkList.Children.Clear();
             selection.IsVisible = false;
             manual.IsVisible = true;
+            nameField.IsVisible = true;
+            save.Content = Localizer.Get("DialogOk");
             if (name.Text == suggestedName)
                 name.Clear();
             suggestedName = "";
@@ -221,8 +272,25 @@ internal static class SshMfaDialog
 
         save.Click += (_, _) =>
         {
-            if (isReadingQr || (imported.Count > 0 && accounts.SelectedIndex < 0))
+            if (!save.IsEnabled)
                 return;
+
+            if (IsBatchImport())
+            {
+                var selected = Enumerable.Range(0, checks.Length)
+                    .Where(index => checks[index].IsChecked == true)
+                    .Select(index => (labels[index], imported[index].EncryptedCredential))
+                    .ToArray();
+                try
+                {
+                    dialog.Close(store.AddBatch(selected)[0]);
+                }
+                catch (Exception ex) when (IsStoreError(ex))
+                {
+                    ShowError(error, "SshMfaStoreError");
+                }
+                return;
+            }
 
             var profileName = name.Text?.Trim() ?? "";
             if (profileName.Length == 0)
@@ -271,7 +339,9 @@ internal static class SshMfaDialog
         dialog.Closed += (_, _) =>
         {
             imported = [];
+            checks = [];
             accounts.ItemsSource = null;
+            checkList.Children.Clear();
             seed.Clear();
         };
         return dialog;

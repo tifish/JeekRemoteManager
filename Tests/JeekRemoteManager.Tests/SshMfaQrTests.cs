@@ -40,6 +40,35 @@ public sealed class SshMfaQrTests
         Assert.Null(SshMfaQrReader.Read(image, _ => throw new InvalidOperationException()));
     }
 
+    [Fact]
+    public void Batch_import_adds_distinct_profiles_and_preserves_an_existing_match()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "jrm-mfa-qr-batch-" + Guid.NewGuid().ToString("N"));
+        var store = new SshMfaProfileStore(root);
+        var original = MasterKeyService.EncryptWithPassword("fixture", "original");
+        var imported = MasterKeyService.EncryptWithPassword("fixture", "imported");
+        try
+        {
+            var existingId = store.Save(null, "Deploy", original)!.Value;
+            var ids = store.AddBatch([("deploy", imported), ("Deploy", imported)]);
+            var profiles = store.Read().ToDictionary(profile => profile.Id);
+
+            Assert.Equal(3, profiles.Count);
+            Assert.Equal(original, profiles[existingId].EncryptedCredential);
+            Assert.Equal("deploy (2)", profiles[ids[0]].Name);
+            Assert.Equal("Deploy (3)", profiles[ids[1]].Name);
+            Assert.All(ids, id => Assert.Equal(imported, profiles[id].EncryptedCredential));
+
+            Assert.Throws<ArgumentException>(() => store.AddBatch([("Valid", imported), ("Invalid", "")]));
+            Assert.Equal(3, store.List().Count);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static MemoryStream Qr(string payload, SKEncodedImageFormat format = SKEncodedImageFormat.Png)
     {
         var writer = new ZXing.SkiaSharp.BarcodeWriter
