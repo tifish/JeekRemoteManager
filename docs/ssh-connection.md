@@ -35,7 +35,7 @@ ssh-agent 查询跑在有超时的工作线程上：agent 缺失或无响应不�
 
 接受 Base32 设置密钥和 `otpauth://totp/` 链接。[RFC 6238](https://www.rfc-editor.org/rfc/rfc6238.html) 的默认值是 SHA-1 和 30 秒步长，纯 Base32 使用 6 位验证码。链接可指定 SHA-1、SHA-256、SHA-512、6 或 8 位以及生成周期。[设置链接格式](https://github.com/google/google-authenticator/wiki/Key-Uri-Format)
 
-双击管理窗口中的配置条目可直接编辑。管理窗口显示所选配置的当前验证码和刷新倒计时。点击「复制」时按当时的验证码周期重新生成，再写入剪贴板。
+管理窗口显示所选配置的当前验证码和刷新倒计时。双击配置条目或点击「复制」时，按当时的验证码周期重新生成并写入剪贴板。点击「编辑」可修改选中的配置。
 
 添加或编辑配置时可以打开二维码图片，也可以直接粘贴截图。应用在本地识别单账号的设置二维码和 Google Authenticator 的迁移二维码。添加时遇到含多个 TOTP 账号的二维码，可以勾选任意几项并一次导入。编辑已有配置时，从二维码中选择一个账号更新该配置的密钥。分成多张的导出可逐张打开，每张包含的账号可独立导入。HOTP 条目会从选择列表中略过。[Google Authenticator 账号转移说明](https://support.google.com/accounts/answer/1066447)
 

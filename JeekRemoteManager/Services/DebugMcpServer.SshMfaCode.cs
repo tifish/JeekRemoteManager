@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json.Nodes;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
 using Jeek.Avalonia.Localization;
@@ -26,6 +27,7 @@ internal static partial class DebugMcpServer
         var locked = store.Save(null, "Unreadable", MasterKeyService.EncryptWithPassword("different fixture master", seed));
         var clock = new MfaCodeProbeClock { Now = DateTimeOffset.FromUnixTimeSeconds(59) };
         string? copied = null;
+        var copyCount = 0;
         var state = await OnUiAsync(() =>
         {
             var owner = new Window { Width = 480, Height = 300, ShowInTaskbar = false };
@@ -33,6 +35,7 @@ internal static partial class DebugMcpServer
             var closed = SshMfaDialog.ShowManagerAsync(owner, store, (_, _, _) => Task.FromResult(false), clock, value =>
             {
                 copied = value;
+                copyCount++;
                 return Task.CompletedTask;
             });
             return (Owner: owner, Manager: owner.OwnedWindows.Single(), Closed: closed);
@@ -47,6 +50,14 @@ internal static partial class DebugMcpServer
         TextBlock Code() => Find<TextBlock>(SshMfaDialog.CurrentCodeElementName);
         Button CopyButton() => Find<Button>("SshMfaCopyCodeButton");
         string Remaining() => Find<TextBlock>("SshMfaCodeRemaining").Text ?? "";
+        void DoubleTap(Control source)
+        {
+            var pointer = new Pointer(0, PointerType.Mouse, true);
+            var pressed = new PointerPressedEventArgs(source, pointer, state.Manager, default, 1,
+                new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed),
+                KeyModifiers.None, 2);
+            source.RaiseEvent(new TappedEventArgs(InputElement.DoubleTappedEvent, pressed));
+        }
 
         var checks = new Dictionary<string, bool>();
         try
@@ -88,8 +99,25 @@ internal static partial class DebugMcpServer
                 Select(custom);
                 checks["supportsEightDigitsAndCustomPeriods"] = Code().Text == "46119246"
                     && Remaining() == string.Format(Localizer.Get("SshMfaCodeRemaining"), 1);
-                Select(locked);
-                checks["unreadableProfileClearsCodeAndDisablesCopy"] = Code().Text == "—" && !CopyButton().IsEnabled;
+
+                var list = Find<ListBox>("SshMfaProfileList");
+                TextBlock Row(string name) => list.GetVisualDescendants().OfType<TextBlock>().Single(text => text.Text == name);
+                DoubleTap(list);
+                checks["doubleTapOnListBackgroundDoesNotCopy"] = copyCount == 1;
+
+                clock.Now = DateTimeOffset.FromUnixTimeSeconds(120);
+                DoubleTap(Row("Custom"));
+                checks["doubleTapCopiesTheNewPeriodAndShowsFeedback"] = copied == "30882438"
+                    && Code().Text == copied && Find<TextBlock>("SshMfaCopyFeedback").IsVisible
+                    && state.Manager.OwnedWindows.Count == 0;
+
+                DoubleTap(Row("Standard"));
+                checks["doubleTapCopiesTheTappedProfile"] = copied == "338314" && copyCount == 3
+                    && list.SelectedItem is SshMfaProfileChoice profile && profile.Id == standard;
+
+                DoubleTap(Row("Unreadable"));
+                checks["unreadableProfileClearsCodeAndDisablesCopy"] = Code().Text == "—" && !CopyButton().IsEnabled
+                    && list.SelectedItem is SshMfaProfileChoice unreadable && unreadable.Id == locked && copyCount == 3;
                 return true;
             });
             var passed = checks.Values.All(value => value);

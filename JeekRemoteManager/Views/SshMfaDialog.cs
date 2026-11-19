@@ -137,15 +137,9 @@ internal static class SshMfaDialog
                 Reload(id);
         }
 
-        list.SelectionChanged += (_, _) =>
+        async Task CopyCurrentCodeAsync()
         {
-            edit.IsEnabled = remove.IsEnabled = list.SelectedItem is not null;
-            feedback.IsVisible = false;
-            ShowCode(ReadCode(SelectedId()));
-        };
-        copy.Click += async (_, _) =>
-        {
-            if (isCopying || !copy.IsEnabled)
+            if (isCopying)
                 return;
 
             var selectedId = SelectedId();
@@ -182,7 +176,15 @@ internal static class SshMfaDialog
                     feedback.IsVisible = true;
                 }
             }
+        }
+
+        list.SelectionChanged += (_, _) =>
+        {
+            edit.IsEnabled = remove.IsEnabled = list.SelectedItem is not null;
+            feedback.IsVisible = false;
+            ShowCode(ReadCode(SelectedId()));
         };
+        copy.Click += async (_, _) => await CopyCurrentCodeAsync();
         add.Click += async (_, _) => await EditAsync(null);
         edit.Click += async (_, _) =>
         {
@@ -198,7 +200,8 @@ internal static class SshMfaDialog
             }
 
             e.Handled = true;
-            await EditAsync(profile);
+            list.SelectedItem = profile;
+            await CopyCurrentCodeAsync();
         };
         remove.Click += async (_, _) =>
         {

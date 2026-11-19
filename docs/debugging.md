@@ -30,7 +30,7 @@
 
 `ssh_mfa_input_check` 验证立即输入、分包提示匹配、第一个 `#input` 的跳过、后续手动输入以及写入失败的回退。也检查回显星号和重复验证提示会阻止后续登录命令，直至手动提交后收到远端回应，以及快速关闭并重开标签页会等到下一期验证码。可用回环 SSH 夹具验证 shell 请求完成前发出的提示。
 
-`ssh_mfa_code_check` 用合成配置、可控时钟和测试剪贴板检查验证码显示、周期切换、复制和可视树摘要。
+`ssh_mfa_code_check` 用合成配置、可控时钟和测试剪贴板检查验证码显示、周期切换、按钮复制、双击条目复制和可视树摘要。
 
 `ssh_mfa_pool_check` 使用每条 TCP 连接限制两个 shell 通道的回环 SSH 夹具，验证首次自动认证、复用无需重复输入，以及通道用满后新 TCP 再次自动认证。探针使用隔离的配置、信任记录和会话池。在安装了 Paramiko 的 Python 环境运行 `python Tests/Scripts/ssh_mfa_pool_fixture.py`，将它输出的端口传给 `loopback_port`。
 
