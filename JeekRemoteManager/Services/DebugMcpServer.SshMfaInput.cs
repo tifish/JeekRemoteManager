@@ -22,9 +22,9 @@ internal static partial class DebugMcpServer
         var checks = new Dictionary<string, bool>();
 
         Task ProbeAsync(SshMfaInput input, string commands, Func<TerminalView, MfaProbeChannel, Task> check,
-            bool alreadySubmitted = false, bool failWrite = false)
+            bool alreadySubmitted = false, bool failWrite = false, string totpReply = "\r\n1: fixture-host\r\n")
         {
-            var channel = new MfaProbeChannel(failWrite);
+            var channel = new MfaProbeChannel(failWrite, totpReply);
             var attempt = new SshMfaAttempt(new(Guid.NewGuid(), "Fixture", encrypted, input))
             {
                 CodeSubmitted = alreadySubmitted,
@@ -76,6 +76,8 @@ internal static partial class DebugMcpServer
             await Task.Delay(150);
             checks["ignoresOlderLinesAndPartialPrompt"] = channel.Writes.IsEmpty;
             channel.Feed("ssword:\u001b[0m");
+            await Task.Delay(120);
+            checks["waitsForMatchingPromptToSettle"] = channel.Writes.IsEmpty;
             checks["preservesImmediateMenuOutputAfterTotp"] =
                 await WaitForAsync(() => channel.Writes.Contains("1\r"));
             checks["onlyFirstInputIsSatisfiedByTotp"] = await WaitForAsync(() => view.IsLoginManualInputPending)
@@ -115,6 +117,22 @@ internal static partial class DebugMcpServer
             checks["matchesPromptWithNoLoginCommands"] = await WaitForAsync(() => view.LoginSequenceState == "ready")
                 && channel.Writes.TryPeek(out var input) && MfaProbeChannel.IsTotp(input);
         });
+
+        await ProbeAsync(match, "#input\nfinish", async (view, channel) =>
+        {
+            channel.Feed("2nd Password:");
+            var sent = await WaitForAsync(() => channel.Writes.Any(MfaProbeChannel.IsTotp));
+            await Task.Delay(700); // The masked echo arrives well before the server's answer.
+            checks["maskedEchoDoesNotCompleteMfa"] = sent && view.LoginSequenceState == "running"
+                && !channel.Writes.Contains("finish\r");
+            channel.Feed("\r\n2nd Password:");
+            checks["repeatedPromptWaitsForManualInput"] = await WaitForAsync(() => view.IsLoginManualInputPending)
+                && !channel.Writes.Contains("finish\r") && channel.Writes.Count(MfaProbeChannel.IsTotp) == 1;
+            checks["manualRetryResumesLoginAfterServerReply"] =
+                await OnUiAsync(() => view.DebugSubmitLoginInput("manual"))
+                && await WaitForAsync(() => view.LoginSequenceState == "ready")
+                && channel.Writes.Contains("finish\r");
+        }, totpReply: "******\r\n");
 
         if (port.HasValue)
         {
@@ -172,7 +190,7 @@ internal static partial class DebugMcpServer
             + string.Join("\n", checks.Select(check => $"{check.Key}={check.Value}")), !passed);
     }
 
-    private sealed class MfaProbeChannel(bool failWrite) : ITerminalChannel
+    private sealed class MfaProbeChannel(bool failWrite, string totpReply) : ITerminalChannel
     {
         public event Action<byte[]>? DataReceived;
         public event Action<string>? ErrorMessage { add { } remove { } }
@@ -190,7 +208,7 @@ internal static partial class DebugMcpServer
             if (IsTotp(text) && failWrite)
                 throw new IOException("Fixture write failed.");
             Writes.Enqueue(text);
-            Feed(IsTotp(text) ? "\r\n1: fixture-host\r\n" : "\r\nOK\r\n");
+            Feed(IsTotp(text) ? totpReply : "\r\nOK\r\n");
         }
 
         public void Resize(uint cols, uint rows) { }

@@ -1121,16 +1121,22 @@ public partial class TerminalView
         long mustBeAfterTicks = 0;
         var firstInputHandled = false;
         var attemptedShellMfa = false;
+        var awaitingShellMfaReply = false;
+        const int mfaPromptQuietMs = 300;
         const int quietMs = 500;
         const int timeoutMs = 30000;
         // Set by "#pagekey"; long menus are paged with it until the wanted entry shows up.
         string? pageKey = null;
 
+        bool IsStableMfaPrompt(SshMfaInput input) =>
+            input.Mode == SshMfaInputMode.MatchPrompt
+            && Environment.TickCount64 - Interlocked.Read(ref _lastShellDataTicks) >= mfaPromptQuietMs
+            && input.MatchesShellOutput(_loginOutputCapture.Snapshot());
+
         bool TrySubmitShellMfa(bool immediate = false)
         {
             if (mfa is null || mfa.CodeSubmitted || attemptedShellMfa || firstInputHandled
-                || (!immediate && (mfa.Input.Mode != SshMfaInputMode.MatchPrompt
-                    || !mfa.Input.MatchesShellOutput(_loginOutputCapture.Snapshot()))))
+                || (!immediate && !IsStableMfaPrompt(mfa.Input)))
             {
                 return false;
             }
@@ -1147,7 +1153,7 @@ public partial class TerminalView
                 var code = mfa.GenerateCode();
                 if (code is null)
                     return false;
-                if (!immediate && !mfa.Input.MatchesShellOutput(_loginOutputCapture.Snapshot()))
+                if (!immediate && !IsStableMfaPrompt(mfa.Input))
                 {
                     attemptedShellMfa = false;
                     return false;
@@ -1160,6 +1166,7 @@ public partial class TerminalView
                 {
                     channel.Write(input);
                     mfa.CodeSubmitted = true;
+                    awaitingShellMfaReply = true;
                     return true;
                 }
                 catch
@@ -1173,9 +1180,6 @@ public partial class TerminalView
             }
         }
 
-        if (mfa?.Input.Mode == SshMfaInputMode.OnShellOpen)
-            TrySubmitShellMfa(immediate: true);
-
         if (mfa is { CodeSubmitted: false, Input.Mode: SshMfaInputMode.MatchPrompt or SshMfaInputMode.OnShellOpen }
             && !lines.Any(LoginCommandSequence.IsManualInputDirective))
         {
@@ -1184,8 +1188,41 @@ public partial class TerminalView
             lines = [LoginCommandSequence.ManualInputDirective, .. lines];
         }
 
+        if (mfa?.Input.Mode == SshMfaInputMode.OnShellOpen)
+            TrySubmitShellMfa(immediate: true);
+
+        async Task<bool> WaitForLoginInputAsync(bool allowAutomaticMfa)
+        {
+            var manualInput = new TaskCompletionSource<long>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Interlocked.Exchange(ref _loginManualInputTcs, manualInput)?.TrySetCanceled();
+            Volatile.Write(ref _loginSequenceState, "waiting-input");
+            RefreshLoginManualInputLayout(generation);
+            try
+            {
+                while (!manualInput.Task.IsCompleted)
+                {
+                    if (_disposed || _shellClosed || generation != _connectionGeneration)
+                        return false;
+                    if (allowAutomaticMfa && TrySubmitShellMfa())
+                        return true;
+                    await Task.Delay(50);
+                }
+                if (!manualInput.Task.IsCompletedSuccessfully)
+                    return false;
+                mustBeAfterTicks = manualInput.Task.Result;
+                return true;
+            }
+            finally
+            {
+                Interlocked.CompareExchange(ref _loginManualInputTcs, null, manualInput);
+                if (!_disposed && generation == _connectionGeneration)
+                    Volatile.Write(ref _loginSequenceState, "running");
+                RefreshLoginManualInputLayout(generation);
+            }
+        }
+
         // Waits for the remote to answer the previous key and then go quiet. False means
-        // the session went away — the caller must stop typing into it.
+        // the session went away or did not respond to MFA — stop sending login commands.
         async Task<bool> WaitForOutputQuietAsync()
         {
             var startedAt = Environment.TickCount64;
@@ -1200,10 +1237,31 @@ public partial class TerminalView
                 // ">=" not ">": on a low-latency link the echo can land in the
                 // same TickCount64 tick as the send that provoked it.
                 if (lastData != 0 && lastData >= mustBeAfterTicks && now - lastData >= quietMs)
-                    return true;
+                {
+                    if (!awaitingShellMfaReply)
+                        return true;
+
+                    var output = _loginOutputCapture.Snapshot();
+                    // Some bastions echo the masked digits before checking the code.
+                    if (LoginMenuSelection.CleanPtyText(output).Trim().Trim('*').Length > 0)
+                    {
+                        var isMfaPrompt = mfa!.Input.Mode == SshMfaInputMode.MatchPrompt
+                            ? mfa.Input.MatchesShellOutput(output)
+                            : BastionLanding.Classify(output) == BastionLandingKind.AuthPrompt;
+                        if (!isMfaPrompt)
+                        {
+                            awaitingShellMfaReply = false;
+                            return true;
+                        }
+
+                        if (!await WaitForLoginInputAsync(allowAutomaticMfa: false))
+                            return false;
+                        startedAt = Environment.TickCount64;
+                    }
+                }
                 // Don't stall forever on a server that prints nothing.
                 if (now - startedAt >= timeoutMs)
-                    return true;
+                    return !awaitingShellMfaReply;
                 await Task.Delay(50);
             }
         }
@@ -1231,40 +1289,10 @@ public partial class TerminalView
             if (LoginCommandSequence.IsManualInputDirective(line))
             {
                 var answered = !firstInputHandled && mfa?.CodeSubmitted == true;
-                if (!answered)
-                {
-                    var manualInput = new TaskCompletionSource<long>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    Interlocked.Exchange(ref _loginManualInputTcs, manualInput)?.TrySetCanceled();
-                    Volatile.Write(ref _loginSequenceState, "waiting-input");
-                    RefreshLoginManualInputLayout(generation);
-                    try
-                    {
-                        while (!manualInput.Task.IsCompleted)
-                        {
-                            if (_disposed || _shellClosed || generation != _connectionGeneration)
-                                return false;
-                            if (TrySubmitShellMfa())
-                            {
-                                answered = true;
-                                break;
-                            }
-                            await Task.Delay(50);
-                        }
-                        if (!answered)
-                        {
-                            if (!manualInput.Task.IsCompletedSuccessfully)
-                                return false;
-                            mustBeAfterTicks = manualInput.Task.Result;
-                        }
-                    }
-                    finally
-                    {
-                        Interlocked.CompareExchange(ref _loginManualInputTcs, null, manualInput);
-                        if (!_disposed && generation == _connectionGeneration)
-                            Volatile.Write(ref _loginSequenceState, "running");
-                        RefreshLoginManualInputLayout(generation);
-                    }
-                }
+                if (!answered && !await WaitForLoginInputAsync(allowAutomaticMfa: true))
+                    return false;
+                if (awaitingShellMfaReply && !await WaitForOutputQuietAsync())
+                    return false;
                 firstInputHandled = true;
 
                 // 2FA is done; keep the authenticated transport even if a later
