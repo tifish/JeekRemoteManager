@@ -66,8 +66,17 @@ internal static partial class DebugMcpServer
         var checks = new Dictionary<string, bool>();
         try
         {
+            await SettleUiAsync();
             var profileId = await OnUiAsync(() =>
             {
+                var config = Find<Button>(state.Window, "ConnectionPanelMfaButton");
+                var actions = Find<Button>(state.Window, "ConnectionPanelActionsButton");
+                checks["configurationIconIsLeftOfMenu"] = config.Parent == actions.Parent
+                    && config.Bounds.Width > 0 && actions.Bounds.Width > 0
+                    && config.Bounds.Right <= actions.Bounds.Left
+                    && Math.Abs(config.Bounds.Top - actions.Bounds.Top) < 1;
+                checks["configurationButtonHasIconAndTooltip"] = config.Content is TextBlock { Text: "\uE72E" }
+                    && ToolTip.GetTip(config) is string { Length: > 0 };
                 var withoutSelection = state.Vm.SelectedNode is null;
                 checks["connectionPanelButtonAvailableWithoutSelection"] =
                     OpenFromConnectionPanel() && withoutSelection;
