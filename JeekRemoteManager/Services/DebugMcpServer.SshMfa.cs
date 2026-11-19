@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Avalonia.Input;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
@@ -133,8 +134,23 @@ internal static partial class DebugMcpServer
             await OnUiAsync(() =>
             {
                 var manager = state.Window.OwnedWindows.Single();
-                Click(manager, "SshMfaEditButton");
+                var list = Find<ListBox>(manager, "SshMfaProfileList");
+                var pointer = new Pointer(0, PointerType.Mouse, true);
+                void DoubleTap(Control source)
+                {
+                    var pressed = new PointerPressedEventArgs(source, pointer, manager, default, 1,
+                        new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed),
+                        KeyModifiers.None, 2);
+                    source.RaiseEvent(new TappedEventArgs(InputElement.DoubleTappedEvent, pressed));
+                }
+
+                DoubleTap(list);
+                checks["doubleTapOnListBackgroundIsInert"] = manager.OwnedWindows.Count == 0;
+                var rowText = list.GetVisualDescendants().OfType<TextBlock>()
+                    .Single(text => text.Text == "Renamed fixture");
+                DoubleTap(rowText);
                 var editor = manager.OwnedWindows.Single();
+                checks["doubleTapOnProfileOpensItsEditor"] = Find<TextBox>(editor, "SshMfaNameBox").Text == "Renamed fixture";
                 checks["customTriggerReloads"] = Find<ComboBox>(editor, "SshMfaInputMode").SelectedIndex
                     == (int)SshMfaInputMode.MatchPrompt && Find<TextBox>(editor, "SshMfaInputPrompt").Text == "2nd Password:";
                 Find<ComboBox>(editor, "SshMfaInputMode").SelectedIndex = (int)SshMfaInputMode.OnShellOpen;

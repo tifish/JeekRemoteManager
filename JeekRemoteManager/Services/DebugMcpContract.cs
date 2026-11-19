@@ -115,7 +115,7 @@ public static class DebugMcpContract
             "Runs the keyboard-interactive prompt filler against localized, multi-prompt, OTP, and echoed sshd challenges, verifies leftover OTP prompts are asked of the user rather than filled with the password, and verifies a configured but missing private key file is named in the failure.",
             new()),
         Tool("ssh_mfa_check",
-            "Opens shared SSH TOTP profiles from the standalone connection panel button with and without a selection, then exercises creation, use by two connections, rename, replacement, and confirmed removal. An optional loopback fixture port verifies real keyboard-interactive authentication with test credentials.",
+            "Opens shared SSH TOTP profiles from the standalone connection panel button, then exercises creation, use by two connections, rename, double-click editing, and confirmed removal. An optional loopback fixture port verifies real keyboard-interactive authentication with test credentials.",
             new() { ["loopback_port"] = Prop("integer", "Port of a local SSH MFA test fixture.") }),
         Tool("ssh_mfa_code_check",
             "Checks current TOTP display, expiry refresh, and the copy button in an isolated MFA dialog with synthetic profiles and a test clipboard. Returns checks without codes.",

@@ -9,6 +9,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Jeek.Avalonia.Localization;
 using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
@@ -187,6 +188,17 @@ internal static class SshMfaDialog
         {
             if (list.SelectedItem is SshMfaProfileChoice profile)
                 await EditAsync(profile);
+        };
+        list.DoubleTapped += async (_, e) =>
+        {
+            if (e.Source is not Visual source
+                || source.FindAncestorOfType<ListBoxItem>(includeSelf: true)?.DataContext is not SshMfaProfileChoice profile)
+            {
+                return;
+            }
+
+            e.Handled = true;
+            await EditAsync(profile);
         };
         remove.Click += async (_, _) =>
         {
