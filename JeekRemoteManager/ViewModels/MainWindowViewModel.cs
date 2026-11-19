@@ -103,6 +103,7 @@ public partial class MainWindowViewModel : ViewModelBase
             OnPropertyChanged(nameof(VersionDisplay));
             OnPropertyChanged(nameof(PlaceholderHint));
             OnPropertyChanged(nameof(EditorTabTitle));
+            RefreshSshMfaProfileChoices();
             if (_recentGroup != null)
                 _recentGroup.Name = L("RecentGroup");
         };
@@ -771,6 +772,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 _store.BastionProfiles)
             : null;
         RefreshJumpHostChoices();
+        RefreshSshMfaProfileChoices();
         _editorHasPendingChanges = false;
         _scriptContext = null;
         ScriptPanel = null;
@@ -819,6 +821,7 @@ public partial class MainWindowViewModel : ViewModelBase
                           or nameof(ConnectionEditorViewModel.AvailableWslDistros)
                           or nameof(ConnectionEditorViewModel.JumpHostDisplay)
                           or nameof(ConnectionEditorViewModel.HasJumpHost)
+                          or nameof(ConnectionEditorViewModel.SelectedSshMfaProfile)
                           or nameof(ConnectionEditorViewModel.JumpHostValidationMessage)
                           or nameof(ConnectionEditorViewModel.HasJumpHostValidationMessage))
         {
@@ -827,6 +830,19 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         ScheduleAutoSave();
+    }
+
+    internal void RefreshSshMfaProfileChoices()
+    {
+        if (Editor is not { } editor)
+            return;
+        IReadOnlyList<SshMfaProfileChoice> profiles;
+        try { profiles = _store.SshMfaProfiles.List(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            profiles = [];
+        }
+        editor.SetSshMfaProfileChoices(profiles);
     }
 
     private void ScheduleAutoSave()

@@ -529,7 +529,7 @@ public partial class MainWindowViewModel
 
     /// <summary>
     /// Switches the master password by re-encrypting every stored secret on every
-    /// connection — the login password, the private-key passphrase, and any
+    /// connection — the login password, the private-key passphrase, SSH TOTP, and any
     /// script-binding secret parameters — each decrypted with the current master
     /// password and re-encrypted as a fresh jrm1 blob under <paramref name="newPassword"/>.
     /// If any secret on a connection cannot be decrypted, the whole change aborts
@@ -544,6 +544,20 @@ public partial class MainWindowViewModel
 
             var current = MasterKeyService.Current
                           ?? throw new InvalidOperationException("Master password not initialised.");
+
+            var mfaStore = _store.SshMfaProfiles;
+            using var mfaLease = mfaStore.AcquireWriteLock();
+            var originalMfaProfiles = mfaStore.Read();
+            var migratedMfaProfiles = new List<SshMfaProfileStore.Profile>(originalMfaProfiles.Count);
+            foreach (var profile in originalMfaProfiles)
+            {
+                if (!current.TryDecryptPassword(profile.EncryptedCredential, out var credential))
+                    throw new InvalidOperationException(L("SshMfaMasterChangeFailed"));
+                migratedMfaProfiles.Add(profile with
+                {
+                    EncryptedCredential = MasterKeyService.EncryptWithPassword(newPassword, credential),
+                });
+            }
 
             var pending = new List<(
                 string File,
@@ -622,21 +636,36 @@ public partial class MainWindowViewModel
             if (unreadable > 0)
                 throw new InvalidOperationException(L("MasterChangeUnreadablePasswords", unreadable));
 
-            _store.RunBatch(() =>
+            var mfaWrites = 0;
+            try
             {
-                foreach (var item in pending)
+                foreach (var profile in migratedMfaProfiles)
                 {
-                    if (item.ClearPassword is not null)
-                        item.Connection.EncryptedPassword =
-                            MasterKeyService.EncryptWithPassword(newPassword, item.ClearPassword);
-                    if (item.ClearPassphrase is not null)
-                        item.Connection.EncryptedPrivateKeyPassphrase =
-                            MasterKeyService.EncryptWithPassword(newPassword, item.ClearPassphrase);
-                    foreach (var (param, clear) in item.ScriptSecrets)
-                        param.Value = MasterKeyService.EncryptWithPassword(newPassword, clear);
-                    _store.SaveInPlace(item.Connection, item.File);
+                    mfaStore.Write(profile);
+                    mfaWrites++;
                 }
-            });
+                _store.RunBatch(() =>
+                {
+                    foreach (var item in pending)
+                    {
+                        if (item.ClearPassword is not null)
+                            item.Connection.EncryptedPassword =
+                                MasterKeyService.EncryptWithPassword(newPassword, item.ClearPassword);
+                        if (item.ClearPassphrase is not null)
+                            item.Connection.EncryptedPrivateKeyPassphrase =
+                                MasterKeyService.EncryptWithPassword(newPassword, item.ClearPassphrase);
+                        foreach (var (param, clear) in item.ScriptSecrets)
+                            param.Value = MasterKeyService.EncryptWithPassword(newPassword, clear);
+                        _store.SaveInPlace(item.Connection, item.File);
+                    }
+                });
+            }
+            catch
+            {
+                foreach (var original in originalMfaProfiles.Take(mfaWrites))
+                    mfaStore.Write(original);
+                throw;
+            }
 
             current.SetPassword(newPassword);
             StatusMessage = L("StatusMasterChanged");

@@ -69,6 +69,24 @@ PortForwardsTip	L = local port to a host the server can reach, R = server port b
 PrivateKey	Private key	私钥
 PrivateKeyWatermark	optional path to key file	可选，私钥文件路径
 PrivateKeyDropTip	Enter a path, browse, or drop one local private-key file here. Only its path is saved.	可输入路径、浏览选择，或拖入一个本地私钥文件；仅保存文件路径。
+SshMfaTitle	SSH MFA	SSH 二次验证
+SshMfaManage	Manage…	管理…
+SshMfaManagerTitle	SSH MFA profiles	SSH 二次验证配置
+SshMfaNone	None (enter codes manually)	无（手动输入验证码）
+SshMfaMissing	Profile unavailable (enter codes manually)	配置不可用（手动输入验证码）
+SshMfaAdd	Add profile…	添加配置…
+SshMfaEditTitle	Edit SSH MFA profile	编辑 SSH 二次验证配置
+SshMfaSeedPlaceholder	Base32 setup key or otpauth://totp/ URI	Base32 设置密钥或 otpauth://totp/ 链接
+SshMfaKeepSeedPlaceholder	Leave blank to keep the saved setup key	留空保留现有设置密钥
+SshMfaHint	Enter the Base32 setup key or otpauth://totp/ link issued when setting up your authenticator.	输入配置身份验证器时获得的 Base32 设置密钥或 otpauth://totp/ 链接。
+SshMfaInvalidSeed	Enter a valid Base32 setup key or TOTP setup link.	请输入有效的 Base32 设置密钥或 TOTP 设置链接。
+SshMfaEncryptionFailed	The setup key could not be encrypted. Check that the master password is unlocked.	无法加密设置密钥，请确认主密码已解锁。
+SshMfaNameRequired	Enter a name for this profile.	请输入配置名称。
+SshMfaNameConflict	The name is already in use, or the profile was removed in another window.	配置名称已被使用，或该配置已在其他窗口中删除。
+SshMfaStoreError	The SSH MFA profiles could not be read or saved.	无法读取或保存 SSH 二次验证配置。
+SshMfaMasterChangeFailed	An SSH MFA setup key could not be decrypted.	有 SSH 二次验证设置密钥无法解密。
+SshMfaRemove	Remove	移除
+SshMfaRemovePrompt	Remove the MFA profile '{0}'? SSH connections using it will ask for codes manually.	移除二次验证配置“{0}”？使用该配置的 SSH 连接将改为手动输入验证码。
 LoginCommands	Login commands	登录后执行
 LoginCommandsWatermark	one command per line; use ? for directives, sections, keys, and bastion reuse examples	每行一条命令；点击 ? 查看分段、按键和堡垒机会话复用示例
 LoginCommandsHelpTitle	Login command guide	登录命令指南

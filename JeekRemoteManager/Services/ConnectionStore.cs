@@ -45,6 +45,7 @@ public class ConnectionStore
     {
         RootPath = rootPath ?? SettingsService.ResolveConnectionsRoot(StorageLocation.UserDirectory);
         BastionProfiles = new BastionLoginProfileStore(RootPath);
+        SshMfaProfiles = CreateSshMfaProfileStore(RootPath);
         Directory.CreateDirectory(RootPath);
     }
 
@@ -52,6 +53,12 @@ public class ConnectionStore
     public string RootPath { get; private set; }
 
     public BastionLoginProfileStore BastionProfiles { get; }
+
+    internal SshMfaProfileStore SshMfaProfiles { get; private set; }
+
+    private static SshMfaProfileStore CreateSshMfaProfileStore(string connectionsRoot) =>
+        new(Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(connectionsRoot)))
+            ?? Path.GetFullPath(connectionsRoot));
 
     /// <summary>
     /// Fingerprint of the last stable tree read. Writes invalidate it: adopting the entire
@@ -150,6 +157,7 @@ public class ConnectionStore
         RootPath = newRoot;
         Directory.CreateDirectory(RootPath);
         BastionProfiles.SetRoot(RootPath);
+        SshMfaProfiles = CreateSshMfaProfileStore(RootPath);
         KnownSignature = null;
     }
 
@@ -179,7 +187,7 @@ public class ConnectionStore
 
     /// <summary>
     /// Rewrites a connection back to its existing file without renaming or moving it.
-    /// Used by re-encryption sweeps that only change the EncryptedPassword field.
+    /// Used by re-encryption sweeps that only change credentials.
     /// </summary>
     public void SaveInPlace(Connection connection, string filePath) =>
         OwnWrite(() => WriteInPlace(connection, filePath));
@@ -200,6 +208,9 @@ public class ConnectionStore
     /// </summary>
     public IEnumerable<string> EnumerateStoredPasswordBlobs()
     {
+        foreach (var profile in ReadSshMfaProfilesForUnlock())
+            yield return profile.EncryptedCredential;
+
         foreach (var file in AllConnectionFiles())
         {
             Connection? connection;
@@ -219,6 +230,15 @@ public class ConnectionStore
 
             if (!string.IsNullOrEmpty(connection?.EncryptedPassword))
                 yield return connection.EncryptedPassword;
+        }
+    }
+
+    private IReadOnlyList<SshMfaProfileStore.Profile> ReadSshMfaProfilesForUnlock()
+    {
+        try { return SshMfaProfiles.Read(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return [];
         }
     }
 
@@ -409,6 +429,7 @@ public class ConnectionStore
         if (EnsureConnectionId(connection))
             WriteInPlace(connection, filePath);
         BastionProfiles.Resolve(connection);
+        connection.SshMfaProfiles = SshMfaProfiles;
         return connection;
     }
 

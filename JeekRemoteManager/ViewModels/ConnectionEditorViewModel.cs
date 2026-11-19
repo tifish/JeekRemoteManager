@@ -88,6 +88,51 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     private bool _passphraseEdited;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SelectedSshMfaProfile))]
+    private Guid? _sshMfaProfileId;
+
+    public ObservableCollection<SshMfaProfileChoice> SshMfaProfileChoices { get; } = [];
+
+    public SshMfaProfileChoice? SelectedSshMfaProfile
+    {
+        get => SshMfaProfileChoices.FirstOrDefault(profile => profile.Id == SshMfaProfileId);
+        set
+        {
+            // The ComboBox temporarily clears selection when the list is refreshed.
+            if (value is not null)
+                SshMfaProfileId = value.Id;
+        }
+    }
+
+    internal void SetSshMfaProfileChoices(IReadOnlyList<SshMfaProfileChoice> profiles)
+    {
+        List<SshMfaProfileChoice> choices = [new(null, L("SshMfaNone")), .. profiles];
+        if (SshMfaProfileId is { } id && choices.All(profile => profile.Id != id))
+            choices.Add(new(id, L("SshMfaMissing")));
+
+        // Retain items by ID so a label change doesn't drop the ComboBox selection.
+        for (var index = 0; index < choices.Count; index++)
+        {
+            var choice = choices[index];
+            var existing = SshMfaProfileChoices.Skip(index).FirstOrDefault(item => item.Id == choice.Id);
+            if (existing is null)
+            {
+                SshMfaProfileChoices.Insert(index, choice);
+                continue;
+            }
+
+            existing.Name = choice.Name;
+            var existingIndex = SshMfaProfileChoices.IndexOf(existing);
+            if (existingIndex != index)
+                SshMfaProfileChoices.Move(existingIndex, index);
+        }
+
+        while (SshMfaProfileChoices.Count > choices.Count)
+            SshMfaProfileChoices.RemoveAt(SshMfaProfileChoices.Count - 1);
+        OnPropertyChanged(nameof(SelectedSshMfaProfile));
+    }
+
+    [ObservableProperty]
     private string _loginCommands = "";
 
     [ObservableProperty]
@@ -433,6 +478,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         {
             _connectionId = c.ConnectionId,
             _bastionProfiles = bastionProfiles,
+            SshMfaProfileId = c.SshMfaProfileId,
             Type = c.Type,
             Name = c.Name,
             ShortName = c.ShortName,
@@ -573,6 +619,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
             ? _originalEncryptedPassword
             : PasswordProtector.Encrypt(Password);
         c.PrivateKeyPath = PrivateKeyPath.Trim();
+        c.SshMfaProfileId = SshMfaProfileId;
         // Same preserve-on-undecryptable rule as the password above.
         var preserveExistingPassphrase = !_passphraseEdited || (PassphraseDecryptFailed && PrivateKeyPassphrase.Length == 0);
         c.EncryptedPrivateKeyPassphrase = preserveExistingPassphrase

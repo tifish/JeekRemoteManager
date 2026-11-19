@@ -132,6 +132,7 @@ internal static partial class DebugMcpServer
             "zmodem_detector_latency_check",
             _ => Task.FromResult(ZmodemDetectorLatencyCheck()));
         host.AddTool("ssh_auth_prompt_check", _ => Task.Run(SshAuthPromptCheck));
+        host.AddTool("ssh_mfa_check", SshMfaCheckAsync);
         host.AddTool("host_key_trust_check", _ => Task.FromResult(HostKeyTrustCheck()));
         host.AddTool("sftp_host_key_check", SftpHostKeyCheckAsync);
         host.AddTool("ssh_jump_forward_check", SshJumpForwardCheckAsync);

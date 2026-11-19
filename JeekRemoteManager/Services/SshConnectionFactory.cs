@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using JeekRemoteManager.Models;
 using JeekTools;
@@ -17,8 +18,8 @@ namespace JeekRemoteManager.Services;
 /// <summary>
 /// Builds an SSH.NET <see cref="ConnectionInfo"/> from a <see cref="Connection"/>,
 /// authenticating programmatically with the master-password-decrypted credentials
-/// so the user never has to type a password. A keyboard-interactive OTP or other
-/// second factor is answered in the GUI through the prompt the caller passes to <see cref="Build"/>. Shared by
+/// so the user never has to type a password. A configured TOTP answers a matching
+/// keyboard-interactive challenge automatically. Other prompts go to the caller's GUI. Shared by
 /// the interactive terminal and the non-interactive script runner so both use
 /// one auth path.
 /// </summary>
@@ -129,14 +130,22 @@ public static class SshConnectionFactory
         }
 
         // Keyboard-interactive last so a working key or password is tried first.
-        // Jump hosts then ask for an OTP on a later KI round (or as extra prompts
-        // in the same round); those are answered in the GUI, never with the
-        // stored password.
+        // A later KI round can ask for an OTP, or it can accompany the password
+        // in the same round. Decrypt the TOTP seed only when it is needed.
         var keyboard = new KeyboardInteractiveAuthenticationMethod(user);
         var conversation = new KeyboardInteractiveConversation();
         var context = new KeyboardInteractiveChallenge(host, port, user, "", false, "");
+        var profiles = connection.SshMfaProfiles;
+        Func<string?>? generateTotp = connection.SshMfaProfileId is not { } profileId ? null : () =>
+        {
+            var encryptedTotp = profiles?.TryGetEncryptedCredential(profileId);
+            if (!SshTotp.TryParse(PasswordProtector.Decrypt(encryptedTotp), out var credential))
+                return null;
+            using (credential)
+                return credential.Generate(DateTimeOffset.UtcNow);
+        };
         keyboard.AuthenticationPrompt += (_, e) =>
-            HandleAuthenticationPrompt(e, password, conversation, context, promptUser);
+            HandleAuthenticationPrompt(e, password, conversation, context, promptUser, generateTotp);
         methods.Add(keyboard);
 
         return new ConnectionInfo(dialHost ?? host, dialPort ?? port, user, methods.ToArray());
@@ -161,11 +170,13 @@ public static class SshConnectionFactory
     internal sealed class KeyboardInteractiveConversation
     {
         public bool PasswordSupplied { get; set; }
+        public bool TotpSupplied { get; set; }
     }
 
     /// <summary>
     /// Connect-time keyboard-interactive handler: fill password prompts from the
-    /// stored secret, then ask the user for anything left (OTP, second factor).
+    /// stored secret, generate a configured TOTP when the challenge matches, and
+    /// ask the user for the remaining responses.
     /// Throws instead of returning with a null <see cref="AuthenticationPrompt.Response"/>,
     /// which SSH.NET otherwise surfaces as an unreadable ArgumentNullException.
     /// </summary>
@@ -174,53 +185,53 @@ public static class SshConnectionFactory
         string password,
         KeyboardInteractiveConversation conversation,
         KeyboardInteractiveChallenge context,
-        Func<KeyboardInteractiveChallenge, string?>? askUser)
+        Func<KeyboardInteractiveChallenge, string?>? askUser,
+        Func<string?>? generateTotp = null)
     {
         if (!string.IsNullOrEmpty(password))
-            AnswerPasswordPrompts(e, password, conversation);
+            AnswerPasswordPrompts(e, password, conversation, allowUnlabelled: generateTotp is null);
 
-        CompleteRemainingPrompts(
-            e,
-            context with { Instruction = e.Instruction ?? "" },
-            askUser);
-    }
-
-    /// <summary>
-    /// Fills every still-unanswered prompt through <paramref name="askUser"/>.
-    /// A null return (or a missing callback) cancels the login with a message
-    /// that names the server's prompt, rather than leaving Response null.
-    /// </summary>
-    internal static void CompleteRemainingPrompts(
-        AuthenticationPromptEventArgs e,
-        KeyboardInteractiveChallenge context,
-        Func<KeyboardInteractiveChallenge, string?>? askUser)
-    {
+        context = context with { Instruction = e.Instruction ?? "" };
+        AuthenticationPrompt? totpPrompt = null;
+        if (generateTotp is not null && !conversation.TotpSupplied
+            && !OtherFactorWording.IsMatch(context.Instruction))
+        {
+            var candidates = e.Prompts.Where(prompt => prompt.Response is null && !prompt.IsEchoed
+                && LooksLikeTotpPrompt(prompt.Request) && !OtherFactorWording.IsMatch(prompt.Request)).Take(2).ToArray();
+            if (candidates.Length == 1)
+                totpPrompt = candidates[0];
+        }
         foreach (var prompt in e.Prompts)
         {
-            if (prompt.Response is not null)
-                continue;
-
-            var request = prompt.Request ?? "";
-            if (askUser is null)
-            {
-                throw new InvalidOperationException(
-                    $"The server asked for \"{request.Trim()}\" during SSH authentication.");
-            }
-
-            var response = askUser(
-                context with
-                {
-                    Request = request,
-                    IsEchoed = prompt.IsEchoed,
-                });
-            if (response is null)
-            {
-                throw new InvalidOperationException(
-                    $"SSH authentication cancelled ({request.Trim()}).");
-            }
-
-            prompt.Response = response;
+            if (prompt.Response is null && !ReferenceEquals(prompt, totpPrompt))
+                AskForResponse(prompt, context, askUser);
         }
+
+        // Generate just before replying, since another prompt in the round may have
+        // blocked on the GUI. A server that asks again gets the manual prompt.
+        if (totpPrompt is null)
+            return;
+        if (generateTotp!() is { } code)
+        {
+            totpPrompt.Response = code;
+            conversation.TotpSupplied = true;
+        }
+        else
+        {
+            AskForResponse(totpPrompt, context, askUser);
+        }
+    }
+
+    private static void AskForResponse(AuthenticationPrompt prompt, KeyboardInteractiveChallenge context,
+        Func<KeyboardInteractiveChallenge, string?>? askUser)
+    {
+        var request = prompt.Request ?? "";
+        if (askUser is null)
+            throw new InvalidOperationException(
+                $"The server asked for \"{request.Trim()}\" during SSH authentication.");
+
+        prompt.Response = askUser(context with { Request = request, IsEchoed = prompt.IsEchoed })
+            ?? throw new InvalidOperationException($"SSH authentication cancelled ({request.Trim()}).");
     }
 
     /// <summary>
@@ -244,7 +255,8 @@ public static class SshConnectionFactory
     internal static void AnswerPasswordPrompts(
         AuthenticationPromptEventArgs e,
         string password,
-        KeyboardInteractiveConversation conversation)
+        KeyboardInteractiveConversation conversation,
+        bool allowUnlabelled = true)
     {
         var prompts = e.Prompts.ToArray();
         var answered = false;
@@ -269,7 +281,7 @@ public static class SshConnectionFactory
 
         // The password has already gone out, so a further unlabelled hidden prompt is
         // the next factor, not a retry of the first one.
-        if (conversation.PasswordSupplied)
+        if (!allowUnlabelled || conversation.PasswordSupplied)
             return;
 
         var hidden = prompts
@@ -305,29 +317,17 @@ public static class SshConnectionFactory
     /// a bare "code" would also match "passcode", and mis-classifying the first-round
     /// password prompt would break plain password logins.
     /// </summary>
-    private static readonly string[] SecondFactorPromptKeywords =
+    private static readonly string[] TotpPromptKeywords =
     [
         "verification code",
         "verify code",
-        "one-time",
-        "one time",
-        "onetime",
-        "otp",
-        "passcode",
         "security code",
-        "authenticator",
-        "two-factor",
-        "two factor",
-        "second factor",
-        "2fa",
-        "duo",
-        "yubikey",
-        "token:",             // "Token:" as a whole prompt, not "token" inside prose
-        "验证码",              // Simplified/Traditional Chinese
-        "二次验证",            // "二次验证密码" also contains 密码; this must win
+        "验证码",
+        "驗證碼",
         "动态口令",
+        "動態口令",
         "动态码",
-        "令牌",
+        "動態碼",
         "確認コード",           // Japanese
         "ワンタイム",
         "인증 코드",            // Korean
@@ -341,9 +341,30 @@ public static class SshConnectionFactory
         "одноразов",
     ];
 
-    private static bool LooksLikeSecondFactorPrompt(string request) =>
-        SecondFactorPromptKeywords.Any(keyword =>
+    private static readonly Regex TotpWording = new(
+        @"\b(?:(?:totp|otp)(?:[\s_-]*code)?|authenticator|mfa[\s_-]+(?:(?:auth(?:entication)?|verification)[\s_-]+)?code|one[- ]?time\s+(?:code|password|passcode))\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private static readonly Regex OtherFactorWording = new(
+        @"\b(?:(?:sms|duo|yubikey)\w*|e-mail|email|text message|sent to|push|recovery|backup|scratch)\b|短信|简讯|短訊|邮件|郵件|推送|恢复码|復原碼|备份码|備份碼",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // Some server prompts join or punctuate these terms, for example "DuoPush".
+    // Use them to guard the stored password without assuming they stand for TOTP.
+    private static readonly string[] AdditionalSecondFactorKeywords =
+    [
+        "mfa", "2fa", "two-factor", "two factor", "second factor", "2nd password",
+        "one-time", "one time", "onetime", "otp", "passcode", "authenticator",
+        "duo", "yubikey", "token:", "二次验证", "二次驗證", "令牌",
+    ];
+
+    private static bool LooksLikeTotpPrompt(string request) =>
+        TotpWording.IsMatch(request) || TotpPromptKeywords.Any(keyword =>
             request.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+
+    private static bool LooksLikeSecondFactorPrompt(string request) =>
+        LooksLikeTotpPrompt(request) || OtherFactorWording.IsMatch(request)
+        || AdditionalSecondFactorKeywords.Any(keyword => request.Contains(keyword, StringComparison.OrdinalIgnoreCase));
 
     private static PrivateKeyFile? TryLoadKey(string path, string? passphrase)
     {

@@ -284,6 +284,9 @@ public partial class MainWindow : Window
                 if (vm.OpenSettingsCommand.CanExecute(null))
                     vm.OpenSettingsCommand.Execute(null);
                 break;
+            case ApplicationMenuAction.ManageSshMfa:
+                _ = ManageSshMfaAsync();
+                break;
             case ApplicationMenuAction.LinkApplicationToProject:
                 _ = ShowApplicationMcpLinkDialogAsync();
                 break;

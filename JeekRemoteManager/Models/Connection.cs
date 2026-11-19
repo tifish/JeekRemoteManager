@@ -70,6 +70,13 @@ public class Connection
     /// </summary>
     public string EncryptedPrivateKeyPassphrase { get; set; } = "";
 
+    /// <summary>Optional stable reference to a shared SSH MFA profile.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public Guid? SshMfaProfileId { get; set; }
+
+    // The active profile store is attached when the connection is loaded.
+    internal Services.SshMfaProfileStore? SshMfaProfiles { get; set; }
+
     /// <summary>
     /// Commands typed into the shell automatically after login, one per line.
     /// Each line is sent only after the remote output has gone quiet, so bastion

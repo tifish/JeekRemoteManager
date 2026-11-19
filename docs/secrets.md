@@ -20,6 +20,8 @@ jrm1:Base64(salt || nonce || cipher || tag)
 
 AES-256-GCM（salt 16 字节、nonce 12 字节、tag 16 字节），密钥从主密码 + blob 自带的随机 salt 用 PBKDF2 派生，210,000 次迭代。**salt 存在 blob 内部**，这就是可移植性的来源：同一个 blob 在任何机器上都能用同一个主密码解开。
 
+SSH MFA 配置的 TOTP 设置密钥沿用同一信封。连接文件只保存配置 ID，迁移单条使用 MFA 的连接时，需要一并带上对应的共享配置文件。设置密钥只在配置对话框输入，编辑时输入框为空。已存密钥参与启动解锁校验和主密码变更，在收到匹配的 SSH 认证提示时按需解密。
+
 ## 主密码与 DPAPI 缓存
 
 主密码材料本身缓存在 `%LOCALAPPDATA%` 下，用 DPAPI（当前用户）保护，附加一段绑定应用/缓存版本的额外熵。这份缓存是纯本地的加速器：
@@ -40,7 +42,7 @@ AES-256-GCM（salt 16 字节、nonce 12 字节、tag 16 字节），密钥从主
 
 校验函数 `CanReadStoredPasswords` 在**第一个成功**处停下，所以常见情况只付一次密钥派生的代价；一个 blob 都没有（全新安装）时直接算通过。
 
-`EnumerateStoredPasswordBlobs` 刻意不走 `Load`：`Load` 还会解析堡垒机模板并给缺 id 的文件回写 id，而几秒后连接树就要把每个文件读一遍，这是白做的工作。文本里没有 blob 的文件根本不解析。
+`EnumerateStoredPasswordBlobs` 先读取 MFA 配置中的密文。扫描连接文件时刻意不走 `Load`，因为 `Load` 还会解析堡垒机模板并给缺 id 的文件回写 id。文本里没有 blob 的连接文件无需解析。
 
 ## 并发：为什么密钥材料从不离开锁
 

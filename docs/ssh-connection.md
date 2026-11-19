@@ -20,7 +20,7 @@ ssh-agent 查询跑在有超时的工作线程上：agent 缺失或无响应不�
 
 ### keyboard-interactive 的安全规则
 
-这是整个认证里最需要小心的部分。匹配英文单词 "password" 只是启发式——非英文 locale 的服务器会问"密码"或"Passwort"，提示文本完全取决于 PAM 怎么配。所以：关键词是强线索，**未标注的单个隐藏提示也会用密码回答**。
+这是整个认证里最需要小心的部分。匹配英文单词 "password" 只是启发式——非英文 locale 的服务器会问"密码"或"Passwort"，提示文本完全取决于 PAM 怎么配。关键词是强线索。未选择自动 TOTP 的连接还允许用密码回答单个未标注的隐藏提示。
 
 但有两类提示**永远不用密码回答**：
 
@@ -29,7 +29,15 @@ ssh-agent 查询跑在有超时的工作线程上：agent 缺失或无响应不�
 
 二次因子的措辞列表是**刻意具体**的：只写 "code" 会连 "passcode" 一起匹配，把第一轮的密码提示误分类会直接搞坏普通密码登录。
 
-答不上来的提示（OTP、额外 PAM 字段）通过调用方传入的 `SshDialOptions.PromptUser` 交给 GUI 对话框（原先是一个由主窗口设置的静态属性，谁先拨号谁用，测试里也无法替换）。**必须抛异常而不是返回 null 的 Response**，否则 SSH.NET 会冒出一个无法阅读的 `ArgumentNullException`。
+### 共享 TOTP 配置
+
+在应用菜单的「SSH 二次验证配置」维护名称和设置密钥，在各 SSH 连接的「SSH 二次验证」下拉框选择配置。多个连接可以引用同一个配置 ID，改名和替换密钥无需改写连接。复制连接会保留这个引用。连接与每一级跳板机分别使用自己选定的配置；已有认证传输继续复用，验证码在下一次新拨号时生成。
+
+接受 Base32 设置密钥和 `otpauth://totp/` 链接。[RFC 6238](https://www.rfc-editor.org/rfc/rfc6238.html) 的默认值是 SHA-1 和 30 秒步长，纯 Base32 使用 6 位验证码。链接可指定 SHA-1、SHA-256、SHA-512、6 或 8 位以及生成周期。[设置链接格式](https://github.com/google/google-authenticator/wiki/Key-Uri-Format)
+
+配置启用后，常见 TOTP 措辞对应的单个隐藏提示才会自动应答。未知或回显提示、明确的短信／邮件／推送／恢复码提示、同一轮的多个候选，以及服务器再次询问的验证码都交给 GUI。配置缺失、读取失败或密钥无法解密时也可手动输入。已选择配置的连接只对明确的密码提示自动填密码，避免把主凭据发给措辞不明的二次验证提示。
+
+未自动应答的提示通过调用方传入的 `SshDialOptions.PromptUser` 交给 GUI 对话框。**必须抛异常而不是返回 null 的 Response**，否则 SSH.NET 会冒出一个无法阅读的 `ArgumentNullException`。Debug MCP 的 `ssh_mfa_check` 使用隔离编辑器和可选的回环 SSH 夹具验证共享配置及认证流程。
 
 ## 主机密钥信任
 
@@ -78,7 +86,7 @@ SSH.NET 没有内置的 host key 校验，默认信任所有主机。`KnownHosts
 
 后台拨号对目标及每一级跳板设置 `RequireKnownHost`：只接受已保存且匹配的主机密钥，
 首次信任和变更确认由用户在正常 GUI 连接路径完成；后台不 TOFU、不替换密钥。
-凭据继续经已有主密码保护和 `SshConnectionFactory`，MFA 仍由 JRM GUI 输入。
+凭据继续经已有主密码保护和 `SshConnectionFactory`。可匹配的已配置 TOTP 提示由工厂应答，其余二次验证由 JRM GUI 输入。
 关闭或租约过期会取消该转发的认证对话框；晚到的连接不得复活已关闭的监听。
 
 相同 owner GUID、稳定连接 ID、目标 host 和远端端口共用同一后台转发；不同 owner/目标各有独立资源。

@@ -756,6 +756,23 @@
                                             IsVisible="{Binding IsSsh}">
                                         <StackPanel Spacing="12">
                                             <TextBlock Classes="section-title" Text="{l:Localize SshOptions}" />
+                                            <Grid ColumnDefinitions="128,*,Auto" ColumnSpacing="10">
+                                                <TextBlock Classes="label" Text="{l:Localize SshMfaTitle}" />
+                                                <ComboBox x:Name="SshMfaProfileCombo" Grid.Column="1"
+                                                          HorizontalAlignment="Stretch"
+                                                          ItemsSource="{Binding SshMfaProfileChoices}"
+                                                          SelectedItem="{Binding SelectedSshMfaProfile, Mode=TwoWay}"
+                                                          DropDownOpened="OnSshMfaProfileDropDownOpened">
+                                                    <ComboBox.ItemTemplate>
+                                                        <DataTemplate x:DataType="models:SshMfaProfileChoice">
+                                                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                                        </DataTemplate>
+                                                    </ComboBox.ItemTemplate>
+                                                </ComboBox>
+                                                <Button x:Name="SshMfaManageButton" Grid.Column="2"
+                                                        Content="{l:Localize SshMfaManage}"
+                                                        Click="OnSshMfaManageClick" />
+                                            </Grid>
                                             <Grid ColumnDefinitions="128,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                                                 <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="{l:Localize TerminalType}" />
                                                 <ComboBox Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2"

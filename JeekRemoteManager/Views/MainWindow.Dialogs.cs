@@ -29,7 +29,9 @@ namespace JeekRemoteManager.Views;
 /// <summary>Modal dialogs other than settings: confirmation, prompts, login-command help and the bastion template editor.</summary>
 public partial class MainWindow
 {
-    private Task<bool> ConfirmAsync(string title, string message)
+    private Task<bool> ConfirmAsync(string title, string message) => ConfirmAsync(this, title, message);
+
+    private static Task<bool> ConfirmAsync(Window owner, string title, string message)
     {
         var tcs = new TaskCompletionSource<bool>();
 
@@ -78,7 +80,7 @@ public partial class MainWindow
         no.Click += (_, _) => { tcs.TrySetResult(false); dialog.Close(); };
         dialog.Closed += (_, _) => tcs.TrySetResult(false);
 
-        dialog.ShowDialog(this);
+        dialog.ShowDialog(owner);
         return tcs.Task;
     }
 
@@ -87,6 +89,21 @@ public partial class MainWindow
 
     private async void OnEditBastionTemplateClick(object? sender, RoutedEventArgs e) =>
         await ShowBastionTemplateEditorAsync();
+
+    private void OnSshMfaProfileDropDownOpened(object? sender, EventArgs e) =>
+        (DataContext as MainWindowViewModel)?.RefreshSshMfaProfileChoices();
+
+    private async void OnSshMfaManageClick(object? sender, RoutedEventArgs e) =>
+        await ManageSshMfaAsync();
+
+    private async Task ManageSshMfaAsync()
+    {
+        if (DataContext is not MainWindowViewModel vm)
+            return;
+
+        await SshMfaDialog.ShowManagerAsync(this, vm.Store.SshMfaProfiles, ConfirmAsync);
+        vm.RefreshSshMfaProfileChoices();
+    }
 
     private void OnLoginCommandsLostFocus(object? sender, RoutedEventArgs e)
     {

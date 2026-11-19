@@ -24,6 +24,8 @@
 
 自动更新可用 `auto_update_mirror_check` 对照 GitHub 和代理镜像的真实下载采样，包含超时前已收到的数据；`auto_update_stage_check` 使用实例隔离的 updater 完成下载、解压、校验并清理，不依赖被禁用的 Debug 自更新服务。低速源兜底选择与测速超时回归在 `AutoUpdaterTests` 中通过受控 HTTP 流验证。
 
+`ssh_mfa_check` 在隔离窗口维护共享 TOTP 配置，并通过真实下拉框让两个 SSH 连接引用它。可提供仅监听回环地址的测试 SSH 端口，检查同轮和分轮的 keyboard-interactive 登录。探针只返回验证结果。
+
 `login_menu_select_probe`（open / status / close，支持 single / paged / switch 三种场景）和 `ai_render_probe`（open / status / hide / close）会开出一个真实但不联网的场景，供多步验证。
 
 ## 为测试而暴露的接口是一等公民

@@ -74,6 +74,7 @@ try
     Check(ApplicationMenuDefinition.Items.Select(item => item.Action).SequenceEqual(
           [
               ApplicationMenuAction.Settings,
+              ApplicationMenuAction.ManageSshMfa,
               ApplicationMenuAction.LinkApplicationToProject,
               ApplicationMenuAction.ImportFromFinalShell,
               ApplicationMenuAction.ImportFromSecureCrt,
