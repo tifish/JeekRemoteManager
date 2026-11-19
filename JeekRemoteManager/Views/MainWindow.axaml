@@ -277,7 +277,7 @@
                         <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
                             <TextBlock Classes="page-title" Text="{l:Localize Connection}" />
                         </StackPanel>
-                        <Button x:Name="ConnectionPanelActionsButton" Grid.Column="1"
+                        <Button Grid.Column="1"
                                 VerticalAlignment="Center"
                                 ToolTip.Tip="{l:Localize MoreActions}"
                                 Classes="toolbar icon-button">
@@ -321,13 +321,6 @@
                                               IsVisible="{Binding IsShellSelectionContext}">
                                         <MenuItem.Icon>
                                             <TextBlock Classes="menu-icon script" Text="&#xE756;" />
-                                        </MenuItem.Icon>
-                                    </MenuItem>
-                                    <MenuItem x:Name="SshMfaManageMenuItem"
-                                              Header="{l:Localize SshMfaManagerTitle}"
-                                              Click="OnSshMfaManageClick">
-                                        <MenuItem.Icon>
-                                            <TextBlock Classes="menu-icon" Text="&#xE72E;" />
                                         </MenuItem.Icon>
                                     </MenuItem>
                                     <Separator />
@@ -412,6 +405,20 @@
                             </Button.Flyout>
                         </Button>
                     </Grid>
+
+                    <Button x:Name="ConnectionPanelMfaButton"
+                            DockPanel.Dock="Top"
+                            Margin="2,0,2,8"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Left"
+                            AutomationProperties.Name="{l:Localize SshMfaManagerTitle}"
+                            Click="OnSshMfaManageClick">
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                            <TextBlock Classes="icon" Text="&#xE72E;" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="1" Text="{l:Localize SshMfaManagerTitle}"
+                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                        </Grid>
+                    </Button>
 
                     <TreeView x:Name="Tree"
                               ItemsSource="{Binding Nodes}"

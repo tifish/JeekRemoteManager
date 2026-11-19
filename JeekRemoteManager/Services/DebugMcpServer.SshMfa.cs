@@ -30,6 +30,7 @@ internal static partial class DebugMcpServer
             var settings = new SettingsService(Path.Combine(root, "machine.json"), Path.Combine(root, "roaming.json"));
             settings.Settings.StorageLocation = StorageLocation.CustomDirectory;
             settings.Settings.CustomStoragePath = root;
+            settings.Settings.ConnectionPanelWidth = 180;
             var store = new ConnectionStore(settings.ResolveConnectionsRoot());
             var files = new[] { "same-round", "two-round" }.Select(name =>
                 store.Save(new Connection
@@ -53,13 +54,11 @@ internal static partial class DebugMcpServer
 
         bool OpenFromConnectionPanel()
         {
-            var button = Find<Button>(state.Window, "ConnectionPanelActionsButton");
-            var menu = (MenuFlyout)button.Flyout!;
-            menu.ShowAt(button);
-            var item = menu.Items.OfType<MenuItem>().Single(entry => entry.Name == "SshMfaManageMenuItem");
-            var available = menu.IsOpen && item.IsVisible && item.IsEnabled;
-            item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
-            menu.Hide();
+            var panel = Find<Border>(state.Window, "TreePanel");
+            var button = Find<Button>(state.Window, "ConnectionPanelMfaButton");
+            var available = button.IsEffectivelyVisible && button.IsEnabled && button.Flyout is null
+                && button.GetVisualAncestors().Contains(panel);
+            button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             return available;
         }
 
@@ -69,7 +68,7 @@ internal static partial class DebugMcpServer
             var profileId = await OnUiAsync(() =>
             {
                 var withoutSelection = state.Vm.SelectedNode is null;
-                checks["connectionPanelMenuAvailableWithoutSelection"] =
+                checks["connectionPanelButtonAvailableWithoutSelection"] =
                     OpenFromConnectionPanel() && withoutSelection;
                 var manager = state.Window.OwnedWindows.Single();
                 Click(manager, "SshMfaAddButton");
@@ -112,7 +111,7 @@ internal static partial class DebugMcpServer
 
                 var original = state.Store.SshMfaProfiles.TryGetEncryptedCredential(profileId);
                 var selectedNode = state.Vm.SelectedNode;
-                checks["connectionPanelMenuKeepsSelection"] =
+                checks["connectionPanelButtonKeepsSelection"] =
                     OpenFromConnectionPanel() && ReferenceEquals(state.Vm.SelectedNode, selectedNode);
                 var manager = state.Window.OwnedWindows.Single();
                 var list = Find<ListBox>(manager, "SshMfaProfileList");
