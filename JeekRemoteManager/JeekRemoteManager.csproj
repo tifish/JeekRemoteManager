@@ -75,6 +75,7 @@
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.2" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.2" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="Google.Protobuf" Version="3.36.2" />
     <PackageReference Include="Jeek.Avalonia.Localization" Version="12.0.2" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.11" />
     <PackageReference Include="SSH.NET" Version="2026.0.0" />
@@ -82,6 +83,7 @@
     <PackageReference Include="SvcSystems.UI.Terminal" Version="1.1.4" />
     <!-- Override transitive 1.0.14: IL/DL used absolute ScrollBottom without YBase. -->
     <PackageReference Include="XTerm.NET" Version="1.2.0" />
+    <PackageReference Include="ZXing.Net.Bindings.SkiaSharp" Version="0.16.22" />
     <PackageReference Include="nulastudio.NetBeauty" Version="2.1.5" />
   </ItemGroup>
 

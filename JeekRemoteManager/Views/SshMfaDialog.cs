@@ -1,8 +1,12 @@
+using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
+using Avalonia.Input.Platform;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform.Storage;
 using Jeek.Avalonia.Localization;
 using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
@@ -84,7 +88,8 @@ internal static class SshMfaDialog
         return manager.ShowDialog(owner);
     }
 
-    private static Window CreateEditor(SshMfaProfileStore store, SshMfaProfileChoice? profile)
+    internal static Window CreateEditor(SshMfaProfileStore store, SshMfaProfileChoice? profile,
+        Func<Task<Stream?>>? pickQrImage = null)
     {
         var name = new TextBox { Name = "SshMfaNameBox", Text = profile?.Name };
         var seed = new TextBox
@@ -103,13 +108,122 @@ internal static class SshMfaDialog
             Classes = { "accent" },
         };
         var cancel = new Button { Content = Localizer.Get("DialogCancel"), IsCancel = true };
+        var openQr = new Button { Name = "SshMfaOpenQrButton", Content = Localizer.Get("SshMfaQrOpen") };
+        var pasteQr = new Button { Content = Localizer.Get("SshMfaQrPaste") };
+        var useKey = new Button { Content = Localizer.Get("SshMfaQrUseKey") };
+        var accounts = new ComboBox
+        {
+            Name = "SshMfaQrAccounts",
+            PlaceholderText = Localizer.Get("SshMfaQrChoose"),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var manual = new StackPanel
+        {
+            Spacing = 6,
+            Children = { new TextBlock { Text = Localizer.Get("SshMfaHint"), TextWrapping = TextWrapping.Wrap }, seed },
+        };
+        var selection = new StackPanel
+        {
+            Spacing = 6, IsVisible = false,
+            Children = { new TextBlock { Text = Localizer.Get("SshMfaQrAccount"), Classes = { "label" } }, accounts, useKey },
+        };
         var dialog = CreateWindow(profile is null ? "SshMfaAdd" : "SshMfaEditTitle",
             new TextBlock { Text = Localizer.Get("Name"), Classes = { "label" } }, name,
-            new TextBlock { Text = Localizer.Get("SshMfaHint"), TextWrapping = TextWrapping.Wrap },
-            seed, error, Buttons(save, cancel));
+            manual, Buttons(openQr, pasteQr), selection, error, Buttons(save, cancel));
+
+        IReadOnlyList<SshMfaQrReader.Account> imported = [];
+        var suggestedName = "";
+        var isReadingQr = false;
+
+        void UpdateSaveAvailability() =>
+            save.IsEnabled = !isReadingQr && (imported.Count == 0 || accounts.SelectedIndex >= 0);
+
+        async Task ReadQrAsync(Func<Task<Stream?>> open, string? emptyError = null)
+        {
+            if (isReadingQr)
+                return;
+            isReadingQr = true;
+            openQr.IsEnabled = pasteQr.IsEnabled = useKey.IsEnabled = false;
+            UpdateSaveAvailability();
+            try
+            {
+                using var image = await open();
+                if (image is null)
+                {
+                    if (emptyError is not null && dialog.IsVisible)
+                        ShowError(error, emptyError);
+                    return;
+                }
+
+                var result = await Task.Run(() => SshMfaQrReader.Read(image, PasswordProtector.Encrypt));
+                if (!dialog.IsVisible)
+                    return;
+                if (result is not { Count: > 0 })
+                {
+                    ShowError(error, result is null ? "SshMfaQrUnreadable" : "SshMfaQrNoAccounts");
+                    return;
+                }
+
+                imported = result;
+                var labels = imported.Select((account, index) => account.Name.Length == 0
+                    ? string.Format(Localizer.Get("SshMfaQrUnnamed"), index + 1) : account.Name).ToArray();
+                var duplicates = labels.GroupBy(label => label, StringComparer.OrdinalIgnoreCase)
+                    .Where(group => group.Count() > 1).Select(group => group.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                accounts.ItemsSource = labels.Select((label, index) =>
+                    duplicates.Contains(label) ? $"{label} ({index + 1})" : label).ToArray();
+                accounts.SelectedIndex = imported.Count == 1 ? 0 : -1;
+                seed.Clear();
+                manual.IsVisible = false;
+                selection.IsVisible = true;
+                error.IsVisible = false;
+                accounts.Focus();
+            }
+            catch (InvalidOperationException) when (MasterKeyService.Current is not { IsUnlocked: true })
+            {
+                if (dialog.IsVisible)
+                    ShowError(error, "SshMfaEncryptionFailed");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException
+                or InvalidDataException or InvalidOperationException or COMException or TimeoutException)
+            {
+                if (dialog.IsVisible)
+                    ShowError(error, "SshMfaQrUnreadable");
+            }
+            finally
+            {
+                isReadingQr = false;
+                openQr.IsEnabled = pasteQr.IsEnabled = useKey.IsEnabled = true;
+                UpdateSaveAvailability();
+            }
+        }
+
+        accounts.SelectionChanged += (_, _) =>
+        {
+            UpdateSaveAvailability();
+            if (accounts.SelectedItem is string label && (string.IsNullOrWhiteSpace(name.Text) || name.Text == suggestedName))
+                name.Text = suggestedName = label;
+        };
+        openQr.Click += async (_, _) => await ReadQrAsync(pickQrImage ?? (() => PickQrImageAsync(dialog)));
+        pasteQr.Click += async (_, _) => await ReadQrAsync(() => ReadClipboardImageAsync(dialog), "SshMfaQrClipboardEmpty");
+        useKey.Click += (_, _) =>
+        {
+            imported = [];
+            accounts.ItemsSource = null;
+            selection.IsVisible = false;
+            manual.IsVisible = true;
+            if (name.Text == suggestedName)
+                name.Clear();
+            suggestedName = "";
+            error.IsVisible = false;
+            UpdateSaveAvailability();
+            seed.Focus();
+        };
 
         save.Click += (_, _) =>
         {
+            if (isReadingQr || (imported.Count > 0 && accounts.SelectedIndex < 0))
+                return;
+
             var profileName = name.Text?.Trim() ?? "";
             if (profileName.Length == 0)
             {
@@ -117,9 +231,10 @@ internal static class SshMfaDialog
                 return;
             }
 
-            string? encrypted = null;
+            string? encrypted = accounts.SelectedIndex >= 0
+                ? imported[accounts.SelectedIndex].EncryptedCredential : null;
             var input = seed.Text?.Trim() ?? "";
-            if (profile is null || input.Length > 0)
+            if (encrypted is null && (profile is null || input.Length > 0))
             {
                 if (!SshTotp.TryParse(input, out var credential))
                 {
@@ -153,8 +268,55 @@ internal static class SshMfaDialog
         };
         cancel.Click += (_, _) => dialog.Close();
         dialog.Opened += (_, _) => name.Focus();
-        dialog.Closed += (_, _) => seed.Clear();
+        dialog.Closed += (_, _) =>
+        {
+            imported = [];
+            accounts.ItemsSource = null;
+            seed.Clear();
+        };
         return dialog;
+    }
+
+    private static async Task<Stream?> PickQrImageAsync(Window dialog)
+    {
+        var files = await dialog.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = Localizer.Get("SshMfaQrOpen"),
+            FileTypeFilter = [new FilePickerFileType(Localizer.Get("SshMfaQrImages"))
+            {
+                Patterns = ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.webp", "*.gif"],
+            }],
+        });
+        using var file = files.FirstOrDefault();
+        return file is null ? null : await file.OpenReadAsync();
+    }
+
+    private static async Task<Stream?> ReadClipboardImageAsync(Window dialog)
+    {
+        if (dialog.Clipboard is not { } clipboard)
+            return null;
+
+        using var bitmap = await clipboard.TryGetBitmapAsync();
+        if (bitmap is null)
+            return null;
+        if (!SshMfaQrReader.IsSupportedSize(bitmap.PixelSize.Width, bitmap.PixelSize.Height))
+            throw new InvalidDataException();
+
+        return await Task.Run(() =>
+        {
+            var image = new MemoryStream();
+            try
+            {
+                bitmap.Save(image, PngBitmapEncoderOptions.Default);
+                image.Position = 0;
+                return image;
+            }
+            catch
+            {
+                image.Dispose();
+                throw;
+            }
+        });
     }
 
     private static Window CreateWindow(string title, params Control[] controls)

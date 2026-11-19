@@ -26,6 +26,8 @@
 
 `ssh_mfa_check` 在隔离窗口维护共享 TOTP 配置，并通过真实下拉框让两个 SSH 连接引用它。可提供仅监听回环地址的测试 SSH 端口，检查同轮和分轮的 keyboard-interactive 登录。探针只返回验证结果。
 
+`ssh_mfa_qr_check` 通过真实配置对话框导入合成的 Google Authenticator 二维码，检查多账号选择、加密保存和选中账号的验证码。探针只接触合成凭据。
+
 `login_menu_select_probe`（open / status / close，支持 single / paged / switch 三种场景）和 `ai_render_probe`（open / status / hide / close）会开出一个真实但不联网的场景，供多步验证。
 
 ## 为测试而暴露的接口是一等公民

@@ -8,6 +8,8 @@ namespace JeekRemoteManager.Services;
 /// <summary>A decoded RFC 6238 credential, kept only while validating or generating a code.</summary>
 internal sealed class SshTotp(byte[] key, string algorithm, int digits, int period) : IDisposable
 {
+    private const string Base32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
     public static bool TryParse(string input, [NotNullWhen(true)] out SshTotp? credential)
     {
         credential = null;
@@ -81,12 +83,35 @@ internal sealed class SshTotp(byte[] key, string algorithm, int digits, int peri
 
     public void Dispose() => CryptographicOperations.ZeroMemory(key);
 
+    internal static string EncodeBase32(ReadOnlySpan<byte> key)
+    {
+        var encoded = new char[(key.Length * 8 + 4) / 5];
+        var pending = 0;
+        var bits = 0;
+        var written = 0;
+        foreach (var value in key)
+        {
+            pending = (pending << 8) | value;
+            bits += 8;
+            while (bits >= 5)
+            {
+                bits -= 5;
+                encoded[written++] = Base32Alphabet[(pending >> bits) & 31];
+            }
+            pending &= (1 << bits) - 1;
+        }
+        if (bits > 0)
+            encoded[written] = Base32Alphabet[pending << (5 - bits)];
+        var result = new string(encoded);
+        Array.Clear(encoded);
+        return result;
+    }
+
     private static bool TryParseNumber(string value, out int number) =>
         int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out number);
 
     private static byte[]? DecodeBase32(string secret)
     {
-        const string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
         var compact = string.Concat(secret.Where(c => !char.IsWhiteSpace(c)));
         var unpadded = compact.AsSpan().TrimEnd('=');
         var byteCount = unpadded.Length * 5 / 8;
@@ -103,7 +128,7 @@ internal sealed class SshTotp(byte[] key, string algorithm, int digits, int peri
         var written = 0;
         foreach (var symbol in unpadded)
         {
-            var value = char.IsAscii(symbol) ? alphabet.IndexOf(char.ToUpperInvariant(symbol)) : -1;
+            var value = char.IsAscii(symbol) ? Base32Alphabet.IndexOf(char.ToUpperInvariant(symbol)) : -1;
             if (value < 0)
                 break;
             pending = (pending << 5) | value;

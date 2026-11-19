@@ -51,6 +51,12 @@
         "resolved": "8.4.2",
         "contentHash": "WadCzGEc2U+3e20avRLng4qNtt4zoOGWrdUISqJWrHe3/FSnrYjuM5Sb4yQb09LhkBXrrI4Zt3dLKgRMbItsrg=="
       },
+      "Google.Protobuf": {
+        "type": "Direct",
+        "requested": "[3.36.2, )",
+        "resolved": "3.36.2",
+        "contentHash": "Ci1q1iJg74qAE5riTA2FbMS0wPbpruPQI/JQ9DrAsRo2VsSxgt1e/pmxGxgrci+pXJEgrSYg2vPl8rrStZkclQ=="
+      },
       "Jeek.Avalonia.Localization": {
         "type": "Direct",
         "requested": "[12.0.2, )",
@@ -109,6 +115,16 @@
         "dependencies": {
           "Unicode.net": "2.0.0",
           "Wcwidth": "3.0.0"
+        }
+      },
+      "ZXing.Net.Bindings.SkiaSharp": {
+        "type": "Direct",
+        "requested": "[0.16.22, )",
+        "resolved": "0.16.22",
+        "contentHash": "jdlarXJKukpYjnNf6bS7/ncRSZQh7v4uwUMFsaIc3MPZtY+fcQS0ONGXI4BSEEcNhxb8UfrULtRuL9ToLPhn1g==",
+        "dependencies": {
+          "SkiaSharp": "3.119.1",
+          "ZXing.Net": "0.16.11"
         }
       },
       "Avalonia.Angle.Windows.Natives": {
@@ -348,6 +364,11 @@
           "System.IO.Hashing": "8.0.0",
           "Utf8StringInterpolation": "1.3.1"
         }
+      },
+      "ZXing.Net": {
+        "type": "Transitive",
+        "resolved": "0.16.11",
+        "contentHash": "OZfAVu88hl87BffQ+rlWCj/vLvAhhCK4QnFaoveeF/MY8SjHNSYBQ3qyUEWlPKNgBQGh1syXhCDg10vUnCsqkg=="
       },
       "jeektools": {
         "type": "Project",

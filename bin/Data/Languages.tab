@@ -78,7 +78,17 @@ SshMfaAdd	Add profile…	添加配置…
 SshMfaEditTitle	Edit SSH MFA profile	编辑 SSH 二次验证配置
 SshMfaSeedPlaceholder	Base32 setup key or otpauth://totp/ URI	Base32 设置密钥或 otpauth://totp/ 链接
 SshMfaKeepSeedPlaceholder	Leave blank to keep the saved setup key	留空保留现有设置密钥
-SshMfaHint	Enter the Base32 setup key or otpauth://totp/ link issued when setting up your authenticator.	输入配置身份验证器时获得的 Base32 设置密钥或 otpauth://totp/ 链接。
+SshMfaHint	Enter a setup key or import a QR image from your authenticator.	输入设置密钥，或导入身份验证器的二维码图片。
+SshMfaQrOpen	Open QR image…	打开二维码图片…
+SshMfaQrPaste	Paste QR image	粘贴二维码图片
+SshMfaQrImages	Image files	图片文件
+SshMfaQrAccount	TOTP account in QR code	二维码中的 TOTP 账号
+SshMfaQrChoose	Choose an account	选择账号
+SshMfaQrUnnamed	TOTP account {0}	TOTP 账号 {0}
+SshMfaQrUseKey	Use a setup key instead	改为输入设置密钥
+SshMfaQrUnreadable	Could not read a QR code from this image.	无法从这张图片识别二维码。
+SshMfaQrNoAccounts	No supported TOTP accounts were found in this QR code.	二维码中没有可导入的 TOTP 账号。
+SshMfaQrClipboardEmpty	Copy an image to the clipboard, then try again.	请先复制二维码图片，再重新粘贴。
 SshMfaInvalidSeed	Enter a valid Base32 setup key or TOTP setup link.	请输入有效的 Base32 设置密钥或 TOTP 设置链接。
 SshMfaEncryptionFailed	The setup key could not be encrypted. Check that the master password is unlocked.	无法加密设置密钥，请确认主密码已解锁。
 SshMfaNameRequired	Enter a name for this profile.	请输入配置名称。

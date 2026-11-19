@@ -11,7 +11,7 @@ Built with .NET 10 and Avalonia. Windows only.
 - Manage SSH, RDP, and VNC connections in a folder tree
 - VNC opens in the TigerVNC viewer (installed through winget on first use), optionally through an SSH tunnel
 - Built-in SSH terminal with tabs, drag-to-reorder, and ZMODEM (rz/sz) file transfer
-- Shared SSH MFA profiles available from the application menu, with automatic TOTP entry for connections that select a profile
+- Shared SSH MFA profiles with Google Authenticator QR import and automatic TOTP entry for connections that select a profile
 - Integrated AI agents: use Claude, Codex, Grok, GitHub Copilot, OpenCode, Pi, OMP, Cursor CLI, or Antigravity to operate the current SSH terminal, or use the global AI Agent to manage the application and work across multiple connections; Copilot also supports its desktop app, and generated workspaces open in VS Code, Cursor, Zed, or Antigravity IDE
 - SFTP file browser for remote hosts
 - WSL support: open terminals and browse files in local WSL distros
