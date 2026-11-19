@@ -154,7 +154,8 @@ public partial class TerminalView : UserControl
     private long _unresponsiveChannelReconnectCount;
     // Set while a "#input" login-command directive is waiting for the user to
     // type something (e.g. a 2FA code) and press Enter; completed from HandleUserInput.
-    private TaskCompletionSource? _loginManualInputTcs;
+    private TaskCompletionSource<long>? _loginManualInputTcs;
+    private int _lastUserInputGeneration = -1;
     // Captures the output produced since the last login command so a "#select" directive
     // can match the bastion menu on screen; only fed while a login sequence is running.
     private readonly LoginMenuOutputCapture _loginOutputCapture = new();
@@ -1053,12 +1054,25 @@ public partial class TerminalView : UserControl
             return;
         }
 
-        SendToShell(data);
+        lock (_shellWriteGate)
+        {
+            if (_channel is not null && !data.IsEmpty)
+                _lastUserInputGeneration = _connectionGeneration;
 
-        // A pending "#input" login directive resumes once the user presses Enter
-        // (or pastes text ending with a newline).
-        if (_loginManualInputTcs is { } manualInput && ContainsEnter(data))
-            manualInput.TrySetResult();
+            // A pending "#input" resumes on the user's Enter or pasted newline.
+            // Reset before writing so an immediate echo or menu remains available.
+            if (_loginManualInputTcs is { Task.IsCompleted: false } manualInput && ContainsEnter(data))
+            {
+                var sentAt = Environment.TickCount64;
+                _loginOutputCapture.Reset();
+                SendToShell(data);
+                manualInput.TrySetResult(sentAt);
+            }
+            else
+            {
+                SendToShell(data);
+            }
+        }
     }
 
     private bool CanReconnectFromInput(ReadOnlyMemory<byte> data) =>

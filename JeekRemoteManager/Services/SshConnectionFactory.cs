@@ -56,7 +56,11 @@ public static class SshConnectionFactory
         Connection connection,
         Func<KeyboardInteractiveChallenge, string?>? promptUser = null,
         string? dialHost = null,
-        int? dialPort = null)
+        int? dialPort = null) => Build(connection, promptUser, dialHost, dialPort, null);
+
+    internal static ConnectionInfo Build(Connection connection,
+        Func<KeyboardInteractiveChallenge, string?>? promptUser, string? dialHost, int? dialPort,
+        SshMfaAttempt? mfa)
     {
         if (string.IsNullOrWhiteSpace(connection.Host))
             throw new InvalidOperationException("Host is empty.");
@@ -135,17 +139,15 @@ public static class SshConnectionFactory
         var keyboard = new KeyboardInteractiveAuthenticationMethod(user);
         var conversation = new KeyboardInteractiveConversation();
         var context = new KeyboardInteractiveChallenge(host, port, user, "", false, "");
-        var profiles = connection.SshMfaProfiles;
-        Func<string?>? generateTotp = connection.SshMfaProfileId is not { } profileId ? null : () =>
-        {
-            var encryptedTotp = profiles?.TryGetEncryptedCredential(profileId);
-            if (!SshTotp.TryParse(PasswordProtector.Decrypt(encryptedTotp), out var credential))
-                return null;
-            using (credential)
-                return credential.Generate(DateTimeOffset.UtcNow);
-        };
+        mfa ??= SshMfaAttempt.Load(connection);
+        Func<string?>? generateTotp = mfa is null ? null : mfa.GenerateCode;
+        Func<string, bool>? matchTotp = mfa is { Input.Mode: SshMfaInputMode.MatchPrompt } ? mfa.Input.MatchesPrompt : null;
         keyboard.AuthenticationPrompt += (_, e) =>
-            HandleAuthenticationPrompt(e, password, conversation, context, promptUser, generateTotp);
+        {
+            HandleAuthenticationPrompt(e, password, conversation, context, promptUser, generateTotp, matchTotp);
+            if (mfa is not null && (conversation.TotpSupplied || conversation.TotpAnsweredManually))
+                mfa.CodeSubmitted = true;
+        };
         methods.Add(keyboard);
 
         return new ConnectionInfo(dialHost ?? host, dialPort ?? port, user, methods.ToArray());
@@ -171,6 +173,7 @@ public static class SshConnectionFactory
     {
         public bool PasswordSupplied { get; set; }
         public bool TotpSupplied { get; set; }
+        public bool TotpAnsweredManually { get; set; }
     }
 
     /// <summary>
@@ -186,25 +189,39 @@ public static class SshConnectionFactory
         KeyboardInteractiveConversation conversation,
         KeyboardInteractiveChallenge context,
         Func<KeyboardInteractiveChallenge, string?>? askUser,
-        Func<string?>? generateTotp = null)
+        Func<string?>? generateTotp = null,
+        Func<string, bool>? matchTotp = null)
     {
         if (!string.IsNullOrEmpty(password))
-            AnswerPasswordPrompts(e, password, conversation, allowUnlabelled: generateTotp is null);
+            AnswerPasswordPrompts(e, password, conversation, allowUnlabelled: generateTotp is null, matchTotp);
 
         context = context with { Instruction = e.Instruction ?? "" };
+        var otherFactorInstruction = OtherFactorWording.IsMatch(context.Instruction);
+        void AskForPrompt(AuthenticationPrompt prompt)
+        {
+            AskForResponse(prompt, context, askUser);
+            if (generateTotp is not null && !string.IsNullOrWhiteSpace(prompt.Response) && !otherFactorInstruction
+                && !OtherFactorWording.IsMatch(prompt.Request)
+                && (LooksLikeTotpPrompt(prompt.Request) || matchTotp?.Invoke(prompt.Request) == true))
+            {
+                conversation.TotpAnsweredManually = true;
+            }
+        }
+
         AuthenticationPrompt? totpPrompt = null;
         if (generateTotp is not null && !conversation.TotpSupplied
-            && !OtherFactorWording.IsMatch(context.Instruction))
+            && !conversation.TotpAnsweredManually && !otherFactorInstruction)
         {
             var candidates = e.Prompts.Where(prompt => prompt.Response is null && !prompt.IsEchoed
-                && LooksLikeTotpPrompt(prompt.Request) && !OtherFactorWording.IsMatch(prompt.Request)).Take(2).ToArray();
+                && (matchTotp ?? LooksLikeTotpPrompt)(prompt.Request)
+                && !OtherFactorWording.IsMatch(prompt.Request)).Take(2).ToArray();
             if (candidates.Length == 1)
                 totpPrompt = candidates[0];
         }
         foreach (var prompt in e.Prompts)
         {
             if (prompt.Response is null && !ReferenceEquals(prompt, totpPrompt))
-                AskForResponse(prompt, context, askUser);
+                AskForPrompt(prompt);
         }
 
         // Generate just before replying, since another prompt in the round may have
@@ -218,7 +235,7 @@ public static class SshConnectionFactory
         }
         else
         {
-            AskForResponse(totpPrompt, context, askUser);
+            AskForPrompt(totpPrompt);
         }
     }
 
@@ -256,14 +273,16 @@ public static class SshConnectionFactory
         AuthenticationPromptEventArgs e,
         string password,
         KeyboardInteractiveConversation conversation,
-        bool allowUnlabelled = true)
+        bool allowUnlabelled = true,
+        Func<string, bool>? matchTotp = null)
     {
+        bool IsSecondFactor(string request) => LooksLikeSecondFactorPrompt(request) || matchTotp?.Invoke(request) == true;
         var prompts = e.Prompts.ToArray();
         var answered = false;
         foreach (var prompt in prompts)
         {
             if (prompt.IsEchoed
-                || LooksLikeSecondFactorPrompt(prompt.Request)
+                || IsSecondFactor(prompt.Request)
                 || !LooksLikePasswordPrompt(prompt.Request))
             {
                 continue;
@@ -285,9 +304,9 @@ public static class SshConnectionFactory
             return;
 
         var hidden = prompts
-            .Where(prompt => !prompt.IsEchoed && !LooksLikeSecondFactorPrompt(prompt.Request))
+            .Where(prompt => !prompt.IsEchoed && !IsSecondFactor(prompt.Request))
             .ToArray();
-        if (hidden.Length != 1 || prompts.Any(prompt => LooksLikeSecondFactorPrompt(prompt.Request)))
+        if (hidden.Length != 1 || prompts.Any(prompt => IsSecondFactor(prompt.Request)))
             return;
 
         hidden[0].Response = password;

@@ -22,6 +22,7 @@ public sealed record SshDialOptions(
     bool RequireKnownHost = false)
 {
     public KnownHostsStore Store => KnownHosts ?? KnownHostsStore.Default;
+    internal SshMfaAttempt? TargetMfa { get; init; }
 }
 
 /// <summary>
@@ -153,11 +154,11 @@ public static class SshDialer
             if (jumps.Count > 0)
             {
                 tunnel = SshJumpTunnel.Open(jumps, host, port, options);
-                info = SshConnectionFactory.Build(connection, options.PromptUser, "127.0.0.1", tunnel.LocalPort);
+                info = SshConnectionFactory.Build(connection, options.PromptUser, "127.0.0.1", tunnel.LocalPort, options.TargetMfa);
             }
             else
             {
-                info = SshConnectionFactory.Build(connection, options.PromptUser);
+                info = SshConnectionFactory.Build(connection, options.PromptUser, null, null, options.TargetMfa);
             }
 
             configure?.Invoke(info);

@@ -121,6 +121,10 @@ internal static partial class DebugMcpServer
                 var editor = manager.OwnedWindows.Single();
                 checks["savedSeedIsNotPrefilled"] = string.IsNullOrEmpty(Find<TextBox>(editor, "SshMfaSeedBox").Text);
                 Find<TextBox>(editor, "SshMfaNameBox").Text = "Renamed fixture";
+                Find<ComboBox>(editor, "SshMfaInputMode").SelectedIndex = (int)SshMfaInputMode.MatchPrompt;
+                Click(editor, "SshMfaSaveButton");
+                checks["customTriggerRequiresText"] = editor.IsVisible && Find<TextBlock>(editor, "SshMfaError").IsVisible;
+                Find<TextBox>(editor, "SshMfaInputPrompt").Text = "2nd Password:";
                 Click(editor, "SshMfaSaveButton");
                 checks["renameKeepsTheCredential"] = state.Store.SshMfaProfiles.TryGetEncryptedCredential(profileId) == original;
                 return connections;
@@ -132,6 +136,9 @@ internal static partial class DebugMcpServer
                 var manager = state.Window.OwnedWindows.Single();
                 Click(manager, "SshMfaEditButton");
                 var editor = manager.OwnedWindows.Single();
+                checks["customTriggerReloads"] = Find<ComboBox>(editor, "SshMfaInputMode").SelectedIndex
+                    == (int)SshMfaInputMode.MatchPrompt && Find<TextBox>(editor, "SshMfaInputPrompt").Text == "2nd Password:";
+                Find<ComboBox>(editor, "SshMfaInputMode").SelectedIndex = (int)SshMfaInputMode.OnShellOpen;
                 Find<TextBox>(editor, "SshMfaSeedBox").Text = updatedSeed;
                 Click(editor, "SshMfaSaveButton");
                 manager.Close();

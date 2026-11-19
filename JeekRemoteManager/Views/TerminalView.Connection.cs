@@ -345,6 +345,7 @@ public partial class TerminalView
         }
 
         SharedSshClient client;
+        SshMfaAttempt? mfa = null;
         var forwardReport = new List<string>();
         try
         {
@@ -353,13 +354,14 @@ public partial class TerminalView
             // would freeze the whole window.
             client = await Task.Run(() =>
             {
+                mfa = SshMfaAttempt.Load(connection);
                 var (sshClient, tunnel) = SshDialer.Connect(
                     connection,
                     info => new SshClient(info) { KeepAliveInterval = TimeSpan.FromSeconds(30) },
                     new SshDialOptions(
                         OnMismatch: HostKeyDialog.PromptReplace,
                         OnRejected: message => Dispatcher.UIThread.Post(() => FeedLine($"\r\n\u001b[31m[{message}]\u001b[0m\r\n")),
-                        PromptUser: KeyboardInteractiveDialog.Prompt),
+                        PromptUser: KeyboardInteractiveDialog.Prompt) { TargetMfa = mfa },
                     ResolveConnection);
                 var shared = new SharedSshClient(sshClient);
                 if (tunnel is not null)
@@ -406,7 +408,8 @@ public partial class TerminalView
                 generation,
                 reportFailure: true,
                 [LoginCommandSequence.Select(effectiveLoginCommands, LoginCommandSection.Fresh)],
-                registerFreshInPool: true))
+                registerFreshInPool: true,
+                mfa: mfa))
         {
             ReleaseFreshLoginReservation();
             client.Release();
@@ -496,6 +499,15 @@ public partial class TerminalView
             loginPhases);
     }
 
+    // Attach a controlled channel to the production login runner without dialing.
+    internal void DebugStartMfaLogin(ITerminalChannel channel, string loginCommands, SshMfaAttempt? mfa)
+    {
+        _connection = new Connection { Type = ConnectionType.Wsl, LoginCommands = loginCommands };
+        var generation = Interlocked.Increment(ref _connectionGeneration);
+        ApplyTerminalEncoding(TerminalEncoding.Utf8);
+        AttachChannel(channel, generation, (80, 24), mfa: mfa);
+    }
+
     /// <summary>
     /// Opens the shell channel on <paramref name="client"/> and wires it to the
     /// terminal. Returns false without taking ownership when the channel cannot be
@@ -510,7 +522,8 @@ public partial class TerminalView
         bool reportFailure,
         IReadOnlyList<string[]> loginPhases,
         BastionSessionPool.BastionSessionLease? pooledLease = null,
-        bool registerFreshInPool = false)
+        bool registerFreshInPool = false,
+        SshMfaAttempt? mfa = null)
     {
         var connection = _connection!;
         var cols = (uint)Math.Max(20, _model.Terminal.Cols);
@@ -573,7 +586,8 @@ public partial class TerminalView
             (cols, rows),
             loginPhases,
             pooledLease,
-            registerFreshInPool);
+            registerFreshInPool,
+            mfa);
         return true;
     }
 
@@ -588,8 +602,11 @@ public partial class TerminalView
         (uint Cols, uint Rows) initialSize,
         IReadOnlyList<string[]>? loginPhases = null,
         BastionSessionPool.BastionSessionLease? pooledLease = null,
-        bool registerFreshInPool = false)
+        bool registerFreshInPool = false,
+        SshMfaAttempt? mfa = null)
     {
+        _loginOutputCapture.Reset();
+        _loginCaptureActive = true;
         _channel = channel;
         _lastSentWindowSize = initialSize;
         Interlocked.Exchange(ref _lastShellDataTicks, 0);
@@ -634,18 +651,23 @@ public partial class TerminalView
             });
         };
 
-        _connected?.TrySetResult(true);
+        if (channel is SshTerminalChannel sshChannel)
+            sshChannel.StartReading();
+
         _connectInProgress = false;
 
         // Push the current (laid-out) size in case SizeChanged fired before connect.
         SyncWindowSize();
         StartLoginCommands(
             _connection!,
+            channel,
             generation,
             loginPhases
             ?? [LoginCommandSequence.Select(_connection!.EffectiveLoginCommands, _isDuplicatedSession)],
             pooledLease,
-            registerFreshInPool);
+            registerFreshInPool,
+            mfa);
+        _connected?.TrySetResult(true);
     }
 
     private async Task CompleteAiAutoReconnectAsync(TaskCompletionSource<bool> completion)
@@ -760,13 +782,13 @@ public partial class TerminalView
     /// </summary>
     private void StartLoginCommands(
         Connection connection,
+        ITerminalChannel channel,
         int generation,
         IReadOnlyList<string[]> phases,
         BastionSessionPool.BastionSessionLease? pooledLease,
-        bool registerFreshInPool)
+        bool registerFreshInPool,
+        SshMfaAttempt? mfa)
     {
-        _loginOutputCapture.Reset();
-        _loginCaptureActive = true;
         Volatile.Write(ref _loginSequenceState, "running");
         var clientAtStart = _client;
 
@@ -804,7 +826,9 @@ public partial class TerminalView
                 {
                     if (!await RunLoginCommandsAsync(
                             selectedPhases[phaseIndex],
+                            channel,
                             generation,
+                            mfa: phaseIndex == 0 ? mfa : null,
                             waitForTrailingOutput: phaseIndex < selectedPhases.Count - 1,
                             registerAfterInput: registerFreshInPool,
                             registerClient: clientAtStart,
@@ -908,8 +932,11 @@ public partial class TerminalView
             }
             finally
             {
-                _loginCaptureActive = false;
-                _loginOutputCapture.Reset();
+                if (generation == _connectionGeneration)
+                {
+                    _loginCaptureActive = false;
+                    _loginOutputCapture.Reset();
+                }
                 pooledLease?.Dispose();
                 // However this ended, nobody should keep waiting on this login.
                 ReleaseFreshLoginReservation();
@@ -1080,23 +1107,82 @@ public partial class TerminalView
 
     private async Task<bool> RunLoginCommandsAsync(
         string[] lines,
+        ITerminalChannel channel,
         int generation,
+        SshMfaAttempt? mfa = null,
         bool waitForTrailingOutput = false,
         bool registerAfterInput = false,
         SharedSshClient? registerClient = null,
         Connection? registerConnection = null)
     {
-        if (lines.Length == 0)
-            return true;
-
         // Output older than this tick doesn't count as the response to the
         // previous command; the PTY echoes every typed line, so waiting for
         // newer data never stalls on a command with no output of its own.
         long mustBeAfterTicks = 0;
+        var firstInputHandled = false;
+        var attemptedShellMfa = false;
         const int quietMs = 500;
         const int timeoutMs = 30000;
         // Set by "#pagekey"; long menus are paged with it until the wanted entry shows up.
         string? pageKey = null;
+
+        bool TrySubmitShellMfa(bool immediate = false)
+        {
+            if (mfa is null || mfa.CodeSubmitted || attemptedShellMfa || firstInputHandled
+                || (!immediate && (mfa.Input.Mode != SshMfaInputMode.MatchPrompt
+                    || !mfa.Input.MatchesShellOutput(_loginOutputCapture.Snapshot()))))
+            {
+                return false;
+            }
+
+            lock (_shellWriteGate)
+            {
+                if (_disposed || _shellClosed || generation != _connectionGeneration
+                    || !ReferenceEquals(_channel, channel) || _lastUserInputGeneration == generation)
+                {
+                    return false;
+                }
+
+                attemptedShellMfa = true;
+                var code = mfa.GenerateCode();
+                if (code is null)
+                    return false;
+                if (!immediate && !mfa.Input.MatchesShellOutput(_loginOutputCapture.Snapshot()))
+                {
+                    attemptedShellMfa = false;
+                    return false;
+                }
+
+                mustBeAfterTicks = Environment.TickCount64;
+                _loginOutputCapture.Reset();
+                var input = _terminalEncoding.GetBytes(code + "\r");
+                try
+                {
+                    channel.Write(input);
+                    mfa.CodeSubmitted = true;
+                    return true;
+                }
+                catch
+                {
+                    return false; // Keep the manual input step available.
+                }
+                finally
+                {
+                    System.Security.Cryptography.CryptographicOperations.ZeroMemory(input);
+                }
+            }
+        }
+
+        if (mfa?.Input.Mode == SshMfaInputMode.OnShellOpen)
+            TrySubmitShellMfa(immediate: true);
+
+        if (mfa is { CodeSubmitted: false, Input.Mode: SshMfaInputMode.MatchPrompt or SshMfaInputMode.OnShellOpen }
+            && !lines.Any(LoginCommandSequence.IsManualInputDirective))
+        {
+            // A prompt can also be the entire login workflow. Offer the same manual
+            // fallback and keep subsequent commands behind that input.
+            lines = [LoginCommandSequence.ManualInputDirective, .. lines];
+        }
 
         // Waits for the remote to answer the previous key and then go quiet. False means
         // the session went away — the caller must stop typing into it.
@@ -1108,6 +1194,7 @@ public partial class TerminalView
                 if (_disposed || _shellClosed || generation != _connectionGeneration)
                     return false;
 
+                TrySubmitShellMfa();
                 var lastData = Interlocked.Read(ref _lastShellDataTicks);
                 var now = Environment.TickCount64;
                 // ">=" not ">": on a low-latency link the echo can land in the
@@ -1143,27 +1230,42 @@ public partial class TerminalView
         {
             if (LoginCommandSequence.IsManualInputDirective(line))
             {
-                var manualInput = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                Interlocked.Exchange(ref _loginManualInputTcs, manualInput)?.TrySetCanceled();
-                Volatile.Write(ref _loginSequenceState, "waiting-input");
-                RefreshLoginManualInputLayout(generation);
-                try
+                var answered = !firstInputHandled && mfa?.CodeSubmitted == true;
+                if (!answered)
                 {
-                    // No timeout: fetching a 2FA code can take as long as it takes.
-                    while (!manualInput.Task.IsCompleted)
+                    var manualInput = new TaskCompletionSource<long>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    Interlocked.Exchange(ref _loginManualInputTcs, manualInput)?.TrySetCanceled();
+                    Volatile.Write(ref _loginSequenceState, "waiting-input");
+                    RefreshLoginManualInputLayout(generation);
+                    try
                     {
-                        if (_disposed || _shellClosed || generation != _connectionGeneration)
-                            return false;
-                        await Task.Delay(50);
+                        while (!manualInput.Task.IsCompleted)
+                        {
+                            if (_disposed || _shellClosed || generation != _connectionGeneration)
+                                return false;
+                            if (TrySubmitShellMfa())
+                            {
+                                answered = true;
+                                break;
+                            }
+                            await Task.Delay(50);
+                        }
+                        if (!answered)
+                        {
+                            if (!manualInput.Task.IsCompletedSuccessfully)
+                                return false;
+                            mustBeAfterTicks = manualInput.Task.Result;
+                        }
+                    }
+                    finally
+                    {
+                        Interlocked.CompareExchange(ref _loginManualInputTcs, null, manualInput);
+                        if (!_disposed && generation == _connectionGeneration)
+                            Volatile.Write(ref _loginSequenceState, "running");
+                        RefreshLoginManualInputLayout(generation);
                     }
                 }
-                finally
-                {
-                    Interlocked.CompareExchange(ref _loginManualInputTcs, null, manualInput);
-                    if (!_disposed && generation == _connectionGeneration)
-                        Volatile.Write(ref _loginSequenceState, "running");
-                    RefreshLoginManualInputLayout(generation);
-                }
+                firstInputHandled = true;
 
                 // 2FA is done; keep the authenticated transport even if a later
                 // menu step fails, so the next target does not ask again. The shell
@@ -1179,10 +1281,6 @@ public partial class TerminalView
                         "fresh-pooled-entry");
                 }
 
-                // The next command must wait for output produced after the
-                // user's Enter, not for what was already on screen.
-                mustBeAfterTicks = Environment.TickCount64;
-                _loginOutputCapture.Reset();
                 continue;
             }
 

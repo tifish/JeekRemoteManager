@@ -92,6 +92,8 @@ internal static class SshMfaDialog
     internal static Window CreateEditor(SshMfaProfileStore store, SshMfaProfileChoice? profile,
         Func<Task<Stream?>>? pickQrImage = null)
     {
+        var savedInput = profile?.Id is { } id ? store.TryGetProfile(id)?.Input : null;
+        var savedMode = savedInput?.Mode ?? SshMfaInputMode.SshAuthentication;
         var name = new TextBox { Name = "SshMfaNameBox", Text = profile?.Name };
         var seed = new TextBox
         {
@@ -130,6 +132,32 @@ internal static class SshMfaDialog
             Spacing = 6,
             Children = { new TextBlock { Text = Localizer.Get("Name"), Classes = { "label" } }, name },
         };
+        var inputMode = new ComboBox
+        {
+            Name = "SshMfaInputMode",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            ItemsSource = new[] { Localizer.Get("SshMfaInputAuthentication"),
+                Localizer.Get("SshMfaInputMatchPrompt"), Localizer.Get("SshMfaInputOnShellOpen") },
+            SelectedIndex = Enum.IsDefined(savedMode) ? (int)savedMode : 0,
+        };
+        var inputPrompt = new TextBox
+        {
+            Name = "SshMfaInputPrompt",
+            Text = savedInput?.Prompt,
+            PlaceholderText = Localizer.Get("SshMfaInputPromptPlaceholder"),
+            IsVisible = savedMode == SshMfaInputMode.MatchPrompt,
+        };
+        inputMode.SelectionChanged += (_, _) =>
+            inputPrompt.IsVisible = inputMode.SelectedIndex == (int)SshMfaInputMode.MatchPrompt;
+        var inputField = new StackPanel
+        {
+            Spacing = 6,
+            Children =
+            {
+                new TextBlock { Text = Localizer.Get("SshMfaInputMode"), Classes = { "label" } },
+                inputMode, inputPrompt,
+            },
+        };
         var manual = new StackPanel
         {
             Spacing = 6,
@@ -142,7 +170,7 @@ internal static class SshMfaDialog
             Children = { accountLabel, accounts, checkScroll, useKey },
         };
         var dialog = CreateWindow(profile is null ? "SshMfaAdd" : "SshMfaEditTitle",
-            nameField, manual, Buttons(openQr, pasteQr), selection, error, Buttons(save, cancel));
+            nameField, manual, Buttons(openQr, pasteQr), selection, inputField, error, Buttons(save, cancel));
 
         IReadOnlyList<SshMfaQrReader.Account> imported = [];
         string[] labels = [];
@@ -275,6 +303,16 @@ internal static class SshMfaDialog
             if (!save.IsEnabled)
                 return;
 
+            var mode = inputMode.SelectedIndex < 0 ? SshMfaInputMode.SshAuthentication : (SshMfaInputMode)inputMode.SelectedIndex;
+            var promptText = mode == SshMfaInputMode.MatchPrompt ? inputPrompt.Text?.Trim() ?? "" : "";
+            if (mode == SshMfaInputMode.MatchPrompt && promptText.Length == 0)
+            {
+                ShowError(error, "SshMfaInputPromptRequired");
+                inputPrompt.Focus();
+                return;
+            }
+            var inputSettings = new SshMfaInput(mode, promptText);
+
             if (IsBatchImport())
             {
                 var selected = Enumerable.Range(0, checks.Length)
@@ -283,7 +321,7 @@ internal static class SshMfaDialog
                     .ToArray();
                 try
                 {
-                    dialog.Close(store.AddBatch(selected)[0]);
+                    dialog.Close(store.AddBatch(selected, inputSettings)[0]);
                 }
                 catch (Exception ex) when (IsStoreError(ex))
                 {
@@ -324,8 +362,8 @@ internal static class SshMfaDialog
             }
             try
             {
-                if (store.Save(profile?.Id, profileName, encrypted) is { } id)
-                    dialog.Close(id);
+                if (store.Save(profile?.Id, profileName, encrypted, inputSettings) is { } savedId)
+                    dialog.Close(savedId);
                 else
                     ShowError(error, "SshMfaNameConflict");
             }

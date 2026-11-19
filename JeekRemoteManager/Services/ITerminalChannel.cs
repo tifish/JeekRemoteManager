@@ -1,5 +1,6 @@
 using System;
 using Renci.SshNet;
+using Renci.SshNet.Common;
 
 namespace JeekRemoteManager.Services;
 
@@ -36,12 +37,12 @@ public sealed class SshTerminalChannel : ITerminalChannel
 {
     private readonly SharedShellStreamLease _lease;
     private readonly ShellStream _shell;
+    private readonly object _readGate = new();
 
     public SshTerminalChannel(SharedShellStreamLease lease)
     {
         _lease = lease;
         _shell = lease.Stream;
-        _shell.DataReceived += (_, e) => DataReceived?.Invoke(e.Data);
         _shell.ErrorOccurred += (_, e) => ErrorMessage?.Invoke(e.Exception.Message);
         _shell.Closed += (_, _) => Closed?.Invoke();
     }
@@ -51,6 +52,34 @@ public sealed class SshTerminalChannel : ITerminalChannel
     public event Action? Closed;
 
     public bool SupportsBinaryTransfers => true;
+
+    // Drain SSH.NET's ordered read buffer so output produced while the shell
+    // request was completing is delivered along with subsequent output.
+    internal void StartReading()
+    {
+        _shell.DataReceived += OnShellDataReceived;
+        _ = Task.Run(DrainReceivedData);
+    }
+
+    private void OnShellDataReceived(object? sender, ShellDataEventArgs e) => DrainReceivedData();
+
+    private void DrainReceivedData()
+    {
+        lock (_readGate)
+        {
+            int available;
+            while ((available = (int)Math.Min(_shell.Length, 32 * 1024)) > 0)
+            {
+                var data = new byte[available];
+                var read = _shell.Read(data, 0, data.Length);
+                if (read == 0)
+                    break;
+                if (read != data.Length)
+                    Array.Resize(ref data, read);
+                DataReceived?.Invoke(data);
+            }
+        }
+    }
 
     public void Write(byte[] data)
     {
@@ -62,6 +91,7 @@ public sealed class SshTerminalChannel : ITerminalChannel
 
     public void Dispose()
     {
+        _shell.DataReceived -= OnShellDataReceived;
         _lease.Dispose();
     }
 }

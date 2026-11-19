@@ -54,6 +54,32 @@ public sealed class SshMfaTests
             ("Verification code: ", false)));
     }
 
+    [Fact]
+    public void A_custom_keyboard_interactive_prompt_with_password_wording_receives_only_the_totp()
+    {
+        var input = new SshMfaInput(SshMfaInputMode.MatchPrompt, "2nd Password:");
+        var prompts = new List<AuthenticationPrompt>
+        {
+            new(0, false, "Password:"),
+            new(1, false, "2ND PASSWORD:"),
+        };
+        var challenge = new AuthenticationPromptEventArgs("fixture", "", "en", prompts);
+        var conversation = new SshConnectionFactory.KeyboardInteractiveConversation();
+        SshConnectionFactory.HandleAuthenticationPrompt(challenge, "password-fixture", conversation,
+            new("test.invalid", 22, "fixture", "", false, ""), _ => throw new InvalidOperationException(),
+            () => "012345", input.MatchesPrompt);
+        Assert.Equal("password-fixture", prompts[0].Response);
+        Assert.Equal("012345", prompts[1].Response);
+        Assert.True(conversation.TotpSupplied);
+    }
+
+    [Theory]
+    [InlineData("\u001b[31m2nd Password:\u001b[0m", true)]
+    [InlineData("2nd Password:\r\nWelcome!", false)]
+    [InlineData("2nd Pass", false)]
+    public void Shell_prompt_matching_uses_the_latest_visible_line(string output, bool matches) =>
+        Assert.Equal(matches, new SshMfaInput(SshMfaInputMode.MatchPrompt, "2nd Password:").MatchesShellOutput(output));
+
     [Theory]
     [InlineData("OTP code:", true, "")]
     [InlineData("Passcode:", false, "")]
@@ -140,7 +166,8 @@ public sealed class SshMfaTests
             settings.Settings.CustomStoragePath = root;
             var store = new ConnectionStore(settings.ResolveConnectionsRoot());
             var credential = master.EncryptPassword(RfcSeed);
-            var id = store.SshMfaProfiles.Save(null, "Shared", credential)!.Value;
+            var input = new SshMfaInput(SshMfaInputMode.MatchPrompt, "2nd Password:");
+            var id = store.SshMfaProfiles.Save(null, "Shared", credential, input)!.Value;
             var unreadableId = store.SshMfaProfiles.Save(null, "Unreadable",
                 MasterKeyService.EncryptWithPassword("different-fixture", RfcSeed))!.Value;
             var file = store.Save(new Connection { Name = "fixture", SshMfaProfileId = id,
@@ -157,6 +184,7 @@ public sealed class SshMfaTests
             Assert.True(master.VerifyPassword("new-fixture"));
             Assert.Equal(RfcSeed, MasterKeyService.DecryptWithPassword("new-fixture", migrated));
             Assert.Null(MasterKeyService.DecryptWithPassword("old-fixture", migrated));
+            Assert.Equal(input, store.SshMfaProfiles.TryGetProfile(id)!.Input);
             var connection = store.Load(file);
             Assert.Equal(id, connection.SshMfaProfileId);
             Assert.Equal("ssh-fixture", master.DecryptPassword(connection.EncryptedPassword));

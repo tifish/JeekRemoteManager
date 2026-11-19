@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using JeekRemoteManager.Models;
 using JeekTools;
 
@@ -10,18 +11,21 @@ internal sealed class SshMfaProfileStore(string configRoot)
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private string ProfileDirectory => Path.Combine(configRoot, "SshMfaProfiles");
 
-    internal sealed record Profile(Guid Id, string Name, string EncryptedCredential);
+    internal sealed record Profile(Guid Id, string Name, string EncryptedCredential,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SshMfaInput? Input = null);
 
     public IReadOnlyList<SshMfaProfileChoice> List() => Read()
         .OrderBy(profile => profile.Name, StringComparer.CurrentCultureIgnoreCase)
         .Select(profile => new SshMfaProfileChoice(profile.Id, profile.Name))
         .ToArray();
 
-    public string? TryGetEncryptedCredential(Guid id)
+    public string? TryGetEncryptedCredential(Guid id) => TryGetProfile(id)?.EncryptedCredential;
+
+    internal Profile? TryGetProfile(Guid id)
     {
         try
         {
-            return ReadProfile(id)?.EncryptedCredential;
+            return ReadProfile(id);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
@@ -29,7 +33,7 @@ internal sealed class SshMfaProfileStore(string configRoot)
         }
     }
 
-    public Guid? Save(Guid? id, string name, string? encryptedCredential)
+    public Guid? Save(Guid? id, string name, string? encryptedCredential, SshMfaInput? input = null)
     {
         using var lease = AcquireWriteLock();
         var profiles = Read();
@@ -44,12 +48,14 @@ internal sealed class SshMfaProfileStore(string configRoot)
         if (string.IsNullOrWhiteSpace(name) || !MasterKeyService.IsPasswordBlob(credential))
             return null;
 
-        var profile = new Profile(id ?? Guid.NewGuid(), name, credential);
+        var profile = new Profile(id ?? Guid.NewGuid(), name, credential,
+            input ?? (index >= 0 ? profiles[index].Input : null));
         Write(profile);
         return profile.Id;
     }
 
-    internal IReadOnlyList<Guid> AddBatch(IReadOnlyList<(string Name, string EncryptedCredential)> accounts)
+    internal IReadOnlyList<Guid> AddBatch(IReadOnlyList<(string Name, string EncryptedCredential)> accounts,
+        SshMfaInput? input = null)
     {
         if (accounts.Any(account => string.IsNullOrWhiteSpace(account.Name)
             || !MasterKeyService.IsPasswordBlob(account.EncryptedCredential)))
@@ -66,7 +72,7 @@ internal sealed class SshMfaProfileStore(string configRoot)
             var suffix = 2;
             while (!names.Add(name))
                 name = $"{account.Name} ({suffix++})";
-            pending.Add(new Profile(Guid.NewGuid(), name, account.EncryptedCredential));
+            pending.Add(new Profile(Guid.NewGuid(), name, account.EncryptedCredential, input));
         }
 
         var written = 0;

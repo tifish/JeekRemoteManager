@@ -14,6 +14,8 @@
 - `LocalConPtyTerminalChannel` —— 本地进程（AI CLI 等）
 - `WslTerminalChannel` —— WSL 发行版
 
+SSH 通道在终端订阅后按顺序读取 `ShellStream` 已缓冲的数据。服务端可能在 shell 请求刚发出时就发送二次验证提示，订阅前收到的字节也要进入登录捕获。
+
 **关键属性 `SupportsBinaryTransfers`。** 只有 SSH 是 8 位透明的。ConPTY 会重新合成 VT 输出，二进制协议（ZMODEM）经过它必然被破坏。所以这个属性不是性能开关，是正确性开关：为 false 的通道上必须完全跳过 ZMODEM 检测。
 
 ## ConPtySession 的三条硬约束
