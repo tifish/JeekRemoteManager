@@ -133,6 +133,7 @@ internal static partial class DebugMcpServer
             _ => Task.FromResult(ZmodemDetectorLatencyCheck()));
         host.AddTool("ssh_auth_prompt_check", _ => Task.Run(SshAuthPromptCheck));
         host.AddTool("ssh_mfa_check", SshMfaCheckAsync);
+        host.AddTool("ssh_mfa_code_check", _ => SshMfaCodeCheckAsync());
         host.AddTool("ssh_mfa_input_check", SshMfaInputCheckAsync);
         host.AddTool("ssh_mfa_qr_check", _ => SshMfaQrCheckAsync());
         host.AddTool("host_key_trust_check", _ => Task.FromResult(HostKeyTrustCheck()));
@@ -691,6 +692,8 @@ internal static partial class DebugMcpServer
 
         switch (visual)
         {
+            case TextBlock { Name: Views.SshMfaDialog.CurrentCodeElementName }:
+                break;
             case TextBlock { Text.Length: > 0 } textBlock:
                 sb.Append($" Text=\"{ObjectGraph.Truncate(textBlock.Text, 80)}\"");
                 break;

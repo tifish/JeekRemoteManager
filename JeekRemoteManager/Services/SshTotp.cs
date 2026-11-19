@@ -10,6 +10,22 @@ internal sealed class SshTotp(byte[] key, string algorithm, int digits, int peri
 {
     private const string Base32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
+    internal sealed class TimedCode(string value, long validFrom, long expiresAt)
+    {
+        internal string Value { get; } = value;
+        internal long ValidFrom { get; } = validFrom;
+        internal long ExpiresAt { get; } = expiresAt;
+    }
+
+    internal static TimedCode? ReadCurrentCode(string? encryptedCredential, TimeProvider? clock = null)
+    {
+        if (!TryParse(PasswordProtector.Decrypt(encryptedCredential), out var credential))
+            return null;
+
+        using (credential)
+            return credential.GenerateTimedCode((clock ?? TimeProvider.System).GetUtcNow());
+    }
+
     public static bool TryParse(string input, [NotNullWhen(true)] out SshTotp? credential)
     {
         credential = null;
@@ -79,6 +95,12 @@ internal sealed class SshTotp(byte[] key, string algorithm, int digits, int peri
         CryptographicOperations.ZeroMemory(hash);
         return (value % (digits == 8 ? 100_000_000u : 1_000_000u))
             .ToString(digits == 8 ? "D8" : "D6", CultureInfo.InvariantCulture);
+    }
+
+    internal TimedCode GenerateTimedCode(DateTimeOffset now)
+    {
+        var start = now.ToUnixTimeSeconds() / period * period;
+        return new TimedCode(Generate(now), start, start + period);
     }
 
     public void Dispose() => CryptographicOperations.ZeroMemory(key);

@@ -72,6 +72,12 @@ PrivateKeyDropTip	Enter a path, browse, or drop one local private-key file here.
 SshMfaTitle	SSH MFA	SSH 二次验证
 SshMfaManage	Manage…	管理…
 SshMfaManagerTitle	SSH MFA profiles	SSH 二次验证配置
+SshMfaCurrentCode	Current verification code	当前验证码
+SshMfaCodeRemaining	Refreshes in {0} s	{0} 秒后刷新
+SshMfaCodeChooseProfile	Select a profile to view its code.	选中配置后显示验证码。
+SshMfaCodeUnavailable	The code is unavailable.	当前无法生成验证码。
+SshMfaCodeCopied	Verification code copied.	已复制验证码。
+SshMfaCodeCopyFailed	Could not copy the verification code.	无法复制验证码。
 SshMfaInputMode	When to enter the code	验证码输入时机
 SshMfaInputAuthentication	Standard SSH authentication prompt	标准 SSH 认证提示
 SshMfaInputMatchPrompt	When prompt text matches	匹配指定提示文本时

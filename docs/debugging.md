@@ -30,6 +30,8 @@
 
 `ssh_mfa_input_check` 验证立即输入、分包提示匹配、第一个 `#input` 的跳过、后续手动输入以及写入失败的回退。可用回环 SSH 夹具验证 shell 请求完成前发出的提示。
 
+`ssh_mfa_code_check` 用合成配置、可控时钟和测试剪贴板检查验证码显示、周期切换、复制和可视树摘要。
+
 `login_menu_select_probe`（open / status / close，支持 single / paged / switch 三种场景）和 `ai_render_probe`（open / status / hide / close）会开出一个真实但不联网的场景，供多步验证。
 
 ## 为测试而暴露的接口是一等公民

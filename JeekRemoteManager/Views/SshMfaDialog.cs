@@ -8,6 +8,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using Jeek.Avalonia.Localization;
 using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
@@ -16,9 +17,13 @@ namespace JeekRemoteManager.Views;
 
 internal static class SshMfaDialog
 {
+    internal const string CurrentCodeElementName = "SshMfaCurrentCode";
+
     internal static Task ShowManagerAsync(Window owner, SshMfaProfileStore store,
-        Func<Window, string, string, Task<bool>> confirm)
+        Func<Window, string, string, Task<bool>> confirm, TimeProvider? clock = null,
+        Func<string, Task>? writeClipboard = null)
     {
+        clock ??= TimeProvider.System;
         var list = new ListBox
         {
             Name = "SshMfaProfileList",
@@ -32,7 +37,77 @@ internal static class SshMfaDialog
         var edit = new Button { Name = "SshMfaEditButton", Content = Localizer.Get("Edit"), IsEnabled = false };
         var remove = new Button { Name = "SshMfaRemoveButton", Content = Localizer.Get("SshMfaRemove"), IsEnabled = false };
         var close = new Button { Content = Localizer.Get("Close"), IsCancel = true };
-        var manager = CreateWindow("SshMfaManagerTitle", list, error, Buttons(add, edit, remove, close));
+        var codeText = new TextBlock
+        {
+            Name = CurrentCodeElementName,
+            FontFamily = new FontFamily("Consolas, monospace"),
+            FontSize = 24,
+        };
+        var remaining = new TextBlock { Name = "SshMfaCodeRemaining", Classes = { "hint" }, TextWrapping = TextWrapping.Wrap };
+        var feedback = new TextBlock { Name = "SshMfaCopyFeedback", Classes = { "hint" }, IsVisible = false };
+        var copy = new Button { Name = "SshMfaCopyCodeButton", Content = Localizer.Get("Copy"), IsEnabled = false };
+        var codePanel = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+            ColumnSpacing = 12,
+            Children =
+            {
+                new StackPanel
+                {
+                    Spacing = 4,
+                    Children =
+                    {
+                        new TextBlock { Text = Localizer.Get("SshMfaCurrentCode"), Classes = { "label" } },
+                        codeText, remaining, feedback,
+                    },
+                },
+                copy,
+            },
+        };
+        Grid.SetColumn(copy, 1);
+        copy.VerticalAlignment = VerticalAlignment.Center;
+        var manager = CreateWindow("SshMfaManagerTitle", list, codePanel, error, Buttons(add, edit, remove, close));
+
+        (long ValidFrom, long ExpiresAt)? displayedWindow = null;
+        var isCopying = false;
+        Guid? SelectedId() => (list.SelectedItem as SshMfaProfileChoice)?.Id;
+        SshTotp.TimedCode? ReadCode(Guid? id) =>
+            id is { } profileId ? SshTotp.ReadCurrentCode(store.TryGetEncryptedCredential(profileId), clock) : null;
+        void ShowRemaining(long seconds) =>
+            remaining.Text = string.Format(Localizer.Get("SshMfaCodeRemaining"), seconds);
+
+        void ShowCode(SshTotp.TimedCode? code)
+        {
+            displayedWindow = code is null ? null : (code.ValidFrom, code.ExpiresAt);
+            codeText.Text = code?.Value ?? "—";
+            copy.IsEnabled = code is not null && !isCopying;
+            if (code is not null)
+                ShowRemaining(code.ExpiresAt - clock.GetUtcNow().ToUnixTimeSeconds());
+            else
+                remaining.Text = Localizer.Get(SelectedId().HasValue ? "SshMfaCodeUnavailable" : "SshMfaCodeChooseProfile");
+        }
+
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        timer.Tick += (_, _) =>
+        {
+            if (displayedWindow is not { } window)
+                return;
+            var now = clock.GetUtcNow().ToUnixTimeSeconds();
+            if (now < window.ValidFrom || now >= window.ExpiresAt)
+            {
+                feedback.IsVisible = false;
+                ShowCode(ReadCode(SelectedId()));
+            }
+            else
+                ShowRemaining(window.ExpiresAt - now);
+        };
+        manager.Opened += (_, _) => timer.Start();
+        manager.Closed += (_, _) =>
+        {
+            timer.Stop();
+            displayedWindow = null;
+            codeText.Text = "";
+        };
 
         void Reload(Guid? selectedId = null)
         {
@@ -40,7 +115,9 @@ internal static class SshMfaDialog
             {
                 var profiles = store.List();
                 list.ItemsSource = profiles;
-                list.SelectedItem = profiles.FirstOrDefault(profile => profile.Id == selectedId);
+                list.SelectedItem = selectedId is null && profiles.Count == 1
+                    ? profiles[0]
+                    : profiles.FirstOrDefault(profile => profile.Id == selectedId);
                 error.IsVisible = false;
                 add.IsEnabled = true;
             }
@@ -59,7 +136,52 @@ internal static class SshMfaDialog
                 Reload(id);
         }
 
-        list.SelectionChanged += (_, _) => edit.IsEnabled = remove.IsEnabled = list.SelectedItem is not null;
+        list.SelectionChanged += (_, _) =>
+        {
+            edit.IsEnabled = remove.IsEnabled = list.SelectedItem is not null;
+            feedback.IsVisible = false;
+            ShowCode(ReadCode(SelectedId()));
+        };
+        copy.Click += async (_, _) =>
+        {
+            if (isCopying || !copy.IsEnabled)
+                return;
+
+            var selectedId = SelectedId();
+            var code = ReadCode(selectedId);
+            isCopying = true;
+            ShowCode(code);
+            feedback.IsVisible = false;
+            string? feedbackKey = null;
+            try
+            {
+                if (code is null)
+                    return;
+                if (writeClipboard is not null)
+                    await writeClipboard(code.Value);
+                else if (manager.Clipboard is { } clipboard)
+                    await clipboard.SetTextAsync(code.Value);
+                else
+                    throw new InvalidOperationException("Clipboard is unavailable.");
+
+                feedbackKey = "SshMfaCodeCopied";
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or COMException or TimeoutException)
+            {
+                feedbackKey = "SshMfaCodeCopyFailed";
+            }
+            finally
+            {
+                isCopying = false;
+                copy.IsEnabled = displayedWindow.HasValue;
+                if (feedbackKey is not null && code is not null && manager.IsVisible
+                    && SelectedId() == selectedId && displayedWindow == (code.ValidFrom, code.ExpiresAt))
+                {
+                    feedback.Text = Localizer.Get(feedbackKey);
+                    feedback.IsVisible = true;
+                }
+            }
+        };
         add.Click += async (_, _) => await EditAsync(null);
         edit.Click += async (_, _) =>
         {
@@ -85,6 +207,7 @@ internal static class SshMfaDialog
             }
         };
         close.Click += (_, _) => manager.Close();
+        ShowCode(null);
         Reload();
         return manager.ShowDialog(owner);
     }

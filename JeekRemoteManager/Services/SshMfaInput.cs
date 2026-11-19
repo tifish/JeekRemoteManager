@@ -35,11 +35,5 @@ internal sealed class SshMfaAttempt(SshMfaProfileStore.Profile? profile)
     internal static SshMfaAttempt? Load(Connection connection) =>
         connection.SshMfaProfileId is { } id ? new(connection.SshMfaProfiles?.TryGetProfile(id)) : null;
 
-    internal string? GenerateCode()
-    {
-        if (!SshTotp.TryParse(PasswordProtector.Decrypt(profile?.EncryptedCredential), out var credential))
-            return null;
-        using (credential)
-            return credential.Generate(DateTimeOffset.UtcNow);
-    }
+    internal string? GenerateCode() => SshTotp.ReadCurrentCode(profile?.EncryptedCredential)?.Value;
 }
