@@ -40,7 +40,7 @@ internal static partial class DebugMcpServer
             var vm = new MainWindowViewModel(store, new ConnectionLauncher(), settings);
             var window = new MainWindow { DataContext = vm, ShowInTaskbar = false, Width = 1100, Height = 900 };
             window.Show();
-            vm.SelectedNode = vm.Nodes.Single(node => node.Name == "same-round");
+            vm.SelectedNode = null;
             window.FindControl<TabItem>("EditorTab")!.IsSelected = true;
             return (Window: window, Vm: vm, Store: store, Files: files);
         });
@@ -51,12 +51,26 @@ internal static partial class DebugMcpServer
             Find<Button>(window, name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Task<bool> SettleUiAsync() => Dispatcher.UIThread.InvokeAsync(() => true, DispatcherPriority.Background).GetTask();
 
+        bool OpenFromConnectionPanel()
+        {
+            var button = Find<Button>(state.Window, "ConnectionPanelActionsButton");
+            var menu = (MenuFlyout)button.Flyout!;
+            menu.ShowAt(button);
+            var item = menu.Items.OfType<MenuItem>().Single(entry => entry.Name == "SshMfaManageMenuItem");
+            var available = menu.IsOpen && item.IsVisible && item.IsEnabled;
+            item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            menu.Hide();
+            return available;
+        }
+
         var checks = new Dictionary<string, bool>();
         try
         {
             var profileId = await OnUiAsync(() =>
             {
-                Click(state.Window, "SshMfaManageButton");
+                var withoutSelection = state.Vm.SelectedNode is null;
+                checks["connectionPanelMenuAvailableWithoutSelection"] =
+                    OpenFromConnectionPanel() && withoutSelection;
                 var manager = state.Window.OwnedWindows.Single();
                 Click(manager, "SshMfaAddButton");
                 var editor = manager.OwnedWindows.Single();
@@ -72,6 +86,11 @@ internal static partial class DebugMcpServer
                 checks["credentialEncrypted"] = MasterKeyService.IsPasswordBlob(profile.EncryptedCredential)
                     && PasswordProtector.Decrypt(profile.EncryptedCredential) == initialSeed;
                 return profile.Id;
+            });
+            await OnUiAsync(() =>
+            {
+                state.Vm.SelectedNode = state.Vm.Nodes.Single(node => node.Name == "same-round");
+                return true;
             });
             await SettleUiAsync();
 
@@ -92,7 +111,9 @@ internal static partial class DebugMcpServer
                     && state.Files.All(file => !File.ReadAllText(file).Contains(initialSeed, StringComparison.Ordinal));
 
                 var original = state.Store.SshMfaProfiles.TryGetEncryptedCredential(profileId);
-                state.Window.ExecuteApplicationMenuAction(ApplicationMenuAction.ManageSshMfa);
+                var selectedNode = state.Vm.SelectedNode;
+                checks["connectionPanelMenuKeepsSelection"] =
+                    OpenFromConnectionPanel() && ReferenceEquals(state.Vm.SelectedNode, selectedNode);
                 var manager = state.Window.OwnedWindows.Single();
                 var list = Find<ListBox>(manager, "SshMfaProfileList");
                 list.SelectedItem = list.Items.OfType<SshMfaProfileChoice>().Single();

@@ -277,7 +277,7 @@
                         <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
                             <TextBlock Classes="page-title" Text="{l:Localize Connection}" />
                         </StackPanel>
-                        <Button Grid.Column="1"
+                        <Button x:Name="ConnectionPanelActionsButton" Grid.Column="1"
                                 VerticalAlignment="Center"
                                 ToolTip.Tip="{l:Localize MoreActions}"
                                 Classes="toolbar icon-button">
@@ -321,6 +321,13 @@
                                               IsVisible="{Binding IsShellSelectionContext}">
                                         <MenuItem.Icon>
                                             <TextBlock Classes="menu-icon script" Text="&#xE756;" />
+                                        </MenuItem.Icon>
+                                    </MenuItem>
+                                    <MenuItem x:Name="SshMfaManageMenuItem"
+                                              Header="{l:Localize SshMfaManagerTitle}"
+                                              Click="OnSshMfaManageClick">
+                                        <MenuItem.Icon>
+                                            <TextBlock Classes="menu-icon" Text="&#xE72E;" />
                                         </MenuItem.Icon>
                                     </MenuItem>
                                     <Separator />

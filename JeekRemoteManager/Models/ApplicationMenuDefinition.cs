@@ -5,7 +5,6 @@ namespace JeekRemoteManager.Models;
 public enum ApplicationMenuAction
 {
     Settings,
-    ManageSshMfa,
     LinkApplicationToProject,
     ImportFromFinalShell,
     ImportFromSecureCrt,
@@ -39,7 +38,6 @@ public static class ApplicationMenuDefinition
             "Settings",
             "\uE713",
             ToolTipLocalizationKey: "SettingsTooltip"),
-        new(ApplicationMenuAction.ManageSshMfa, "SshMfaManagerTitle", "\uE72E"),
         new(
             ApplicationMenuAction.LinkApplicationToProject,
             "AiLinkApplicationProject",
