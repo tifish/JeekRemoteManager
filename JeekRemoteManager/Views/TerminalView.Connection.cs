@@ -18,6 +18,7 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Jeek.Avalonia.Localization;
 using JeekRemoteManager.Models;
 using JeekRemoteManager.Services;
 using JeekRemoteManager.ViewModels;
@@ -1121,6 +1122,7 @@ public partial class TerminalView
         long mustBeAfterTicks = 0;
         var firstInputHandled = false;
         var attemptedShellMfa = false;
+        var waitingForFreshCode = false;
         var awaitingShellMfaReply = false;
         const int mfaPromptQuietMs = 300;
         const int quietMs = 500;
@@ -1133,13 +1135,13 @@ public partial class TerminalView
             && Environment.TickCount64 - Interlocked.Read(ref _lastShellDataTicks) >= mfaPromptQuietMs
             && input.MatchesShellOutput(_loginOutputCapture.Snapshot());
 
-        bool TrySubmitShellMfa(bool immediate = false)
+        bool TrySubmitShellMfa()
         {
-            if (mfa is null || mfa.CodeSubmitted || attemptedShellMfa || firstInputHandled
-                || (!immediate && !IsStableMfaPrompt(mfa.Input)))
-            {
+            if (mfa is null || mfa.CodeSubmitted || attemptedShellMfa || firstInputHandled)
                 return false;
-            }
+            var immediate = mfa.Input.Mode == SshMfaInputMode.OnShellOpen;
+            if (!immediate && !IsStableMfaPrompt(mfa.Input))
+                return false;
 
             lock (_shellWriteGate)
             {
@@ -1149,19 +1151,26 @@ public partial class TerminalView
                     return false;
                 }
 
-                attemptedShellMfa = true;
-                var code = mfa.GenerateCode();
+                var code = mfa.ReserveShellCode(out var waitForNextPeriod);
                 if (code is null)
+                {
+                    if (waitForNextPeriod && !waitingForFreshCode)
+                        FeedBytesDirect(_terminalEncoding.GetBytes($"\r\n[JeekRemoteManager] {Localizer.Get("SshMfaWaitingForFreshCode")}\r\n"));
+                    waitingForFreshCode = waitForNextPeriod;
+                    attemptedShellMfa = !waitForNextPeriod;
                     return false;
+                }
                 if (!immediate && !IsStableMfaPrompt(mfa.Input))
                 {
-                    attemptedShellMfa = false;
+                    mfa.ReleaseUnusedShellCode(code);
                     return false;
                 }
 
+                attemptedShellMfa = true;
+                waitingForFreshCode = false;
                 mustBeAfterTicks = Environment.TickCount64;
                 _loginOutputCapture.Reset();
-                var input = _terminalEncoding.GetBytes(code + "\r");
+                var input = _terminalEncoding.GetBytes(code.Value + "\r");
                 try
                 {
                     channel.Write(input);
@@ -1189,7 +1198,7 @@ public partial class TerminalView
         }
 
         if (mfa?.Input.Mode == SshMfaInputMode.OnShellOpen)
-            TrySubmitShellMfa(immediate: true);
+            TrySubmitShellMfa();
 
         async Task<bool> WaitForLoginInputAsync(bool allowAutomaticMfa)
         {
@@ -1210,6 +1219,12 @@ public partial class TerminalView
                 if (!manualInput.Task.IsCompletedSuccessfully)
                     return false;
                 mustBeAfterTicks = manualInput.Task.Result;
+                if (waitingForFreshCode)
+                {
+                    waitingForFreshCode = false;
+                    awaitingShellMfaReply = true;
+                    mfa!.CodeSubmitted = true;
+                }
                 return true;
             }
             finally
@@ -1232,6 +1247,12 @@ public partial class TerminalView
                     return false;
 
                 TrySubmitShellMfa();
+                if (waitingForFreshCode)
+                {
+                    if (!await WaitForLoginInputAsync(allowAutomaticMfa: true))
+                        return false;
+                    startedAt = Environment.TickCount64;
+                }
                 var lastData = Interlocked.Read(ref _lastShellDataTicks);
                 var now = Environment.TickCount64;
                 // ">=" not ">": on a low-latency link the echo can land in the

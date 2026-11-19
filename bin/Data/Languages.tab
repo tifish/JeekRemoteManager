@@ -84,6 +84,7 @@ SshMfaInputMatchPrompt	When prompt text matches	匹配指定提示文本时
 SshMfaInputOnShellOpen	As soon as the SSH terminal opens	SSH 终端打开后立即输入
 SshMfaInputPromptPlaceholder	Prompt text, e.g. 2nd Password:	提示文本，例如 2nd Password:
 SshMfaInputPromptRequired	Enter the prompt text that should trigger the code.	请输入触发验证码输入的提示文本。
+SshMfaWaitingForFreshCode	Code already sent. Waiting for the next code…	本期验证码已提交，正在等待下一期验证码…
 SshMfaNone	None (enter codes manually)	无（手动输入验证码）
 SshMfaMissing	Profile unavailable (enter codes manually)	配置不可用（手动输入验证码）
 SshMfaAdd	Add profile…	添加配置…

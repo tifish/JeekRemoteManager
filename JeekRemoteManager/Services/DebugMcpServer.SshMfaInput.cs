@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json.Nodes;
 using Avalonia.Controls;
+using Jeek.Avalonia.Localization;
 using JeekRemoteManager.Models;
 using JeekRemoteManager.Views;
 using Renci.SshNet;
@@ -133,6 +134,42 @@ internal static partial class DebugMcpServer
                 && await WaitForAsync(() => view.LoginSequenceState == "ready")
                 && channel.Writes.Contains("finish\r");
         }, totpReply: "******\r\n");
+
+        foreach (var inputMode in new[] { match, immediate })
+        {
+            var profile = new SshMfaProfileStore.Profile(Guid.NewGuid(), "Fixture", encrypted, inputMode);
+            var clock = new MfaCodeProbeClock { Now = DateTimeOffset.FromUnixTimeSeconds(59) };
+            var firstChannel = new MfaProbeChannel(false, "\r\n1: fixture-host\r\n");
+            await ProbeChannelAsync(firstChannel, "#input", new(profile, clock), async view =>
+            {
+                if (inputMode == match)
+                    firstChannel.Feed("2nd Password:");
+                checks[$"{inputMode.Mode}FirstTabSendsCurrentCode"] =
+                    await WaitForAsync(() => view.LoginSequenceState == "ready")
+                    && firstChannel.Writes.SequenceEqual(["287082\r"]);
+            });
+
+            var reopenedChannel = new MfaProbeChannel(false, "\r\n1: fixture-host\r\n");
+            await ProbeChannelAsync(reopenedChannel, "#input\nfinish", new(profile, clock), async view =>
+            {
+                if (inputMode == match)
+                    reopenedChannel.Feed("2nd Password:");
+                var waitingMessage = Localizer.Get("SshMfaWaitingForFreshCode");
+                var deadline = Environment.TickCount64 + 3_000;
+                var waiting = false;
+                while (!waiting && Environment.TickCount64 < deadline)
+                {
+                    waiting = await OnUiAsync(() => view.IsLoginManualInputPending
+                        && view.DebugVisibleTerminalText.Contains(waitingMessage, StringComparison.Ordinal));
+                    await Task.Delay(25);
+                }
+                checks[$"{inputMode.Mode}ReopenedTabWaitsForNewCode"] = waiting && reopenedChannel.Writes.IsEmpty;
+                clock.Now = DateTimeOffset.FromUnixTimeSeconds(60);
+                checks[$"{inputMode.Mode}ReopenedTabSendsNextCodeAndContinues"] =
+                    await WaitForAsync(() => view.LoginSequenceState == "ready")
+                    && reopenedChannel.Writes.SequenceEqual(["359152\r", "finish\r"]);
+            });
+        }
 
         if (port.HasValue)
         {
