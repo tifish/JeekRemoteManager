@@ -536,8 +536,7 @@ public partial class MainWindow : Window
         var (view, tab) = CreateTerminalTab(connection, sourcePath, select);
         if (duplicateSource is { } source)
         {
-            var shared = LoginCommandSequence.HasStructuredReuseWorkflow(
-                connection.EffectiveLoginCommands)
+            var shared = BastionSessionPool.IsEligible(connection)
                 ? null
                 : source.View.ShareClientForDuplicate();
             view.Start(

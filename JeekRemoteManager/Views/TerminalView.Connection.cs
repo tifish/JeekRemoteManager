@@ -224,12 +224,28 @@ public partial class TerminalView
         }
 
         BastionSessionPool.BastionSessionLease? pooledLease = null;
+        async Task<BastionSessionPool.BastionSessionLease?> BorrowAvailableTransportAsync(BastionSessionPool pool)
+        {
+            // Route switches are serialized. Size the wait for the queue already ahead.
+            var waitSeconds = Math.Min(BastionPoolWaitCapSeconds,
+                BastionPoolWaitTimeoutSeconds * (1 + pool.PendingBorrowCount(connection)));
+            using var waitTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(waitSeconds));
+            try
+            {
+                return await pool.TryAcquireAsync(connection, waitTimeout.Token);
+            }
+            catch (OperationCanceledException) when (waitTimeout.IsCancellationRequested)
+            {
+                Volatile.Write(ref _bastionSessionState, "pooled-wait-timeout");
+                FeedLine(BastionPoolWaitTimeoutMessage(waitSeconds));
+                return null;
+            }
+        }
+
         var reconnectHold = Interlocked.Exchange(ref _reconnectHold, null);
         try
         {
-            // Normal connects may automatically borrow a matching structured-bastion
-            // transport. A new TCP connection must bypass the pool as well as the
-            // direct duplicate path above.
+            // "Open new TCP connection" also bypasses automatic pooling.
             if (!_forceNewTcpConnection && BastionSessionPool is not null)
             {
                 var hasKnownSession = BastionSessionPool.HasKnownSession(connection);
@@ -245,26 +261,7 @@ public partial class TerminalView
                     FeedLine(BastionPoolFullMessage);
                 }
 
-                // Everyone borrowing this transport switches routes one at a time, so
-                // wait out the queue that is ahead instead of giving up mid-line and
-                // paying for a whole fresh login.
-                var waitSeconds = Math.Min(
-                    BastionPoolWaitCapSeconds,
-                    BastionPoolWaitTimeoutSeconds
-                    * (1 + BastionSessionPool.PendingBorrowCount(connection)));
-                using var waitTimeout = new CancellationTokenSource(
-                    TimeSpan.FromSeconds(waitSeconds));
-                try
-                {
-                    pooledLease = await BastionSessionPool.TryAcquireAsync(
-                        connection,
-                        waitTimeout.Token);
-                }
-                catch (OperationCanceledException) when (waitTimeout.IsCancellationRequested)
-                {
-                    Volatile.Write(ref _bastionSessionState, "pooled-wait-timeout");
-                    FeedLine(BastionPoolWaitTimeoutMessage(waitSeconds));
-                }
+                pooledLease = await BorrowAvailableTransportAsync(BastionSessionPool);
 
                 // Nothing to borrow yet, but another connection to this same bastion is
                 // authenticating right now. Waiting for it is the whole point of the
@@ -284,8 +281,13 @@ public partial class TerminalView
             reconnectHold?.Release();
         }
 
-        if (pooledLease is not null)
+        while (pooledLease is not null)
         {
+            if (_disposed || generation != _connectionGeneration)
+            {
+                pooledLease.Dispose();
+                return;
+            }
             var reuseStart = pooledLease.ReuseStart;
             var phases = BastionLanding.SelectReusePhases(
                 reuseStart,
@@ -313,12 +315,27 @@ public partial class TerminalView
                 return;
             }
 
+            var failedClient = pooledLease.Client;
             pooledLease.Dispose();
             if (_disposed || generation != _connectionGeneration)
                 return;
+            if (BastionSessionPool is { } pool
+                && (!failedClient.IsConnected || !failedClient.HasShellChannelCapacity))
+            {
+                // Opening the shell can reveal a lower limit than the pool knew about.
+                // Try the other authenticated transports before starting another login.
+                pooledLease = await BorrowAvailableTransportAsync(pool)
+                    ?? await BorrowAfterPendingLoginAsync(connection);
+                if (pooledLease is not null)
+                    continue;
+            }
             FeedLine(
                 $"\u001b[33m{BastionReuseFallbackMessage}\u001b[0m");
+            break;
         }
+
+        if (_disposed || generation != _connectionGeneration)
+            return;
 
         // Claim this bastion identity's fresh login, so connections started while this
         // one authenticates wait for it instead of dialing their own transport and
@@ -362,7 +379,8 @@ public partial class TerminalView
                     new SshDialOptions(
                         OnMismatch: HostKeyDialog.PromptReplace,
                         OnRejected: message => Dispatcher.UIThread.Post(() => FeedLine($"\r\n\u001b[31m[{message}]\u001b[0m\r\n")),
-                        PromptUser: KeyboardInteractiveDialog.Prompt) { TargetMfa = mfa },
+                        PromptUser: KeyboardInteractiveDialog.Prompt,
+                        KnownHosts: DebugSshKnownHosts) { TargetMfa = mfa },
                     ResolveConnection);
                 var shared = new SharedSshClient(sshClient);
                 if (tunnel is not null)
@@ -416,6 +434,8 @@ public partial class TerminalView
             client.Release();
         }
     }
+
+    internal KnownHostsStore? DebugSshKnownHosts { get; set; }
 
     /// <summary>
     /// Starts the connection's WSL distribution under a ConPTY and wires it to the
@@ -792,6 +812,11 @@ public partial class TerminalView
     {
         Volatile.Write(ref _loginSequenceState, "running");
         var clientAtStart = _client;
+        var hasStructuredWorkflow = LoginCommandSequence.HasStructuredReuseWorkflow(connection.EffectiveLoginCommands);
+
+        bool CanKeepFailedFreshLogin() => hasStructuredWorkflow
+            && (mfa?.Input.Mode is not (SshMfaInputMode.MatchPrompt or SshMfaInputMode.OnShellOpen)
+                || BastionSessionState == "fresh-pooled-entry");
 
         _ = Task.Run(async () =>
         {
@@ -807,11 +832,21 @@ public partial class TerminalView
                     // screen that is about to be replaced, so wait for the landing to
                     // settle and let it correct the phases the route implied.
                     var landing = await DetectBastionLandingAsync(generation);
+                    var configuredMfa = SshMfaAttempt.Load(connection);
+                    if (configuredMfa?.Input.MatchesShellOutput(_loginOutputCapture.Snapshot()) == true)
+                    {
+                        // A reused shell normally needs no code. A real configured
+                        // prompt still needs an answer before running any commands.
+                        landing = BastionLandingKind.AuthPrompt;
+                        mfa = configuredMfa;
+                    }
                     selectedPhases = BastionLanding.SelectReusePhases(
                         landing,
                         pooledLease.ReuseStart,
                         pooledLease.SourceRoute.LoginCommands,
                         connection.EffectiveLoginCommands);
+                    if (!hasStructuredWorkflow && landing == BastionLandingKind.AuthPrompt && mfa is null)
+                        selectedPhases = [[LoginCommandSequence.ManualInputDirective]];
                     Volatile.Write(
                         ref _bastionSessionState,
                         landing switch
@@ -831,7 +866,7 @@ public partial class TerminalView
                             generation,
                             mfa: phaseIndex == 0 ? mfa : null,
                             waitForTrailingOutput: phaseIndex < selectedPhases.Count - 1,
-                            registerAfterInput: registerFreshInPool,
+                            registerAfterInput: registerFreshInPool && hasStructuredWorkflow,
                             registerClient: clientAtStart,
                             registerConnection: connection))
                     {
@@ -888,7 +923,7 @@ public partial class TerminalView
                         // A shell the user closed is not a failed reuse.
                         reuseFailed = !_shellClosed;
                     }
-                    else if (registerFreshInPool && clientAtStart is not null)
+                    else if (registerFreshInPool && clientAtStart is not null && CanKeepFailedFreshLogin())
                     {
                         // Stopped somewhere between the bastion menu and the target:
                         // keep the authenticated transport, but do not claim it arrived.
@@ -918,7 +953,7 @@ public partial class TerminalView
 
                     reuseFailed = !_shellClosed;
                 }
-                else if (registerFreshInPool && clientAtStart is not null)
+                else if (registerFreshInPool && clientAtStart is not null && CanKeepFailedFreshLogin())
                 {
                     TryRegisterFresh(
                         clientAtStart,
@@ -1057,7 +1092,7 @@ public partial class TerminalView
     private bool UsesManagedBastionPool =>
         BastionSessionPool is not null
         && _connection is not null
-        && LoginCommandSequence.HasStructuredReuseWorkflow(_connection.EffectiveLoginCommands);
+        && Services.BastionSessionPool.IsEligible(_connection);
 
     /// <summary>
     /// Takes an extra reference on this tab's live pooled transport before the tab lets
@@ -1219,11 +1254,12 @@ public partial class TerminalView
                 if (!manualInput.Task.IsCompletedSuccessfully)
                     return false;
                 mustBeAfterTicks = manualInput.Task.Result;
-                if (waitingForFreshCode)
+                if (allowAutomaticMfa && !firstInputHandled
+                    && mfa is { Input.Mode: SshMfaInputMode.MatchPrompt or SshMfaInputMode.OnShellOpen })
                 {
                     waitingForFreshCode = false;
                     awaitingShellMfaReply = true;
-                    mfa!.CodeSubmitted = true;
+                    mfa.CodeSubmitted = true;
                 }
                 return true;
             }

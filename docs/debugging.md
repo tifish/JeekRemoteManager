@@ -32,6 +32,8 @@
 
 `ssh_mfa_code_check` 用合成配置、可控时钟和测试剪贴板检查验证码显示、周期切换、复制和可视树摘要。
 
+`ssh_mfa_pool_check` 使用每条 TCP 连接限制两个 shell 通道的回环 SSH 夹具，验证首次自动认证、复用无需重复输入，以及通道用满后新 TCP 再次自动认证。探针使用隔离的配置、信任记录和会话池。在安装了 Paramiko 的 Python 环境运行 `python Tests/Scripts/ssh_mfa_pool_fixture.py`，将它输出的端口传给 `loopback_port`。
+
 `login_menu_select_probe`（open / status / close，支持 single / paged / switch 三种场景）和 `ai_render_probe`（open / status / hide / close）会开出一个真实但不联网的场景，供多步验证。
 
 ## 为测试而暴露的接口是一等公民

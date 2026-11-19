@@ -135,6 +135,7 @@ internal static partial class DebugMcpServer
         host.AddTool("ssh_mfa_check", SshMfaCheckAsync);
         host.AddTool("ssh_mfa_code_check", _ => SshMfaCodeCheckAsync());
         host.AddTool("ssh_mfa_input_check", SshMfaInputCheckAsync);
+        host.AddTool("ssh_mfa_pool_check", SshMfaPoolCheckAsync);
         host.AddTool("ssh_mfa_qr_check", _ => SshMfaQrCheckAsync());
         host.AddTool("host_key_trust_check", _ => Task.FromResult(HostKeyTrustCheck()));
         host.AddTool("sftp_host_key_check", SftpHostKeyCheckAsync);

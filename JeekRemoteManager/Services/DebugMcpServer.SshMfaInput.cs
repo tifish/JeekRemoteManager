@@ -227,6 +227,112 @@ internal static partial class DebugMcpServer
             + string.Join("\n", checks.Select(check => $"{check.Key}={check.Value}")), !passed);
     }
 
+    private static async Task<JsonObject> SshMfaPoolCheckAsync(JsonObject args)
+    {
+        if (!DebugInstanceContext.IsDebugBuild)
+            return ToolText("Run this probe in a Debug instance.", true);
+        var port = args["loopback_port"]?.GetValue<int>();
+        if (port is not (>= 1 and <= 65535))
+            return ToolText("Invalid loopback fixture port.", true);
+
+        var root = Path.Combine(Path.GetTempPath(), "jrm-mfa-pool-" + Guid.NewGuid().ToString("N"));
+        var profiles = new SshMfaProfileStore(root);
+        var hosts = new KnownHostsStore(Path.Combine(root, "known_hosts.json"));
+        var profile = profiles.Save(null, "Fixture",
+            PasswordProtector.Encrypt("otpauth://totp/Fixture?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&period=5"),
+            new(SshMfaInputMode.MatchPrompt, "2nd Password:"));
+        if (profile is null)
+            return ToolText("Could not save the synthetic MFA fixture profile.", true);
+
+        using var pool = new BastionSessionPool();
+        var windows = new List<(Window Window, TerminalView View)>();
+        Connection CreateConnection(string username) => new()
+        {
+            ConnectionId = Guid.NewGuid().ToString(),
+            Name = "MFA fixture",
+            Host = "127.0.0.1",
+            Port = port.Value,
+            Username = username,
+            EncryptedPassword = PasswordProtector.Encrypt("jrm-test-password"),
+            SshMfaProfileId = profile,
+            SshMfaProfiles = profiles,
+        };
+
+        async Task<(string SessionId, string PoolState, bool FreshMfa, bool Reused)> OpenAsync()
+        {
+            var view = await OnUiAsync(() =>
+            {
+                var terminal = new TerminalView { BastionSessionPool = pool, DebugSshKnownHosts = hosts };
+                var window = new Window { Width = 720, Height = 400, ShowInTaskbar = false, Content = terminal };
+                windows.Add((window, terminal));
+                window.Show();
+                terminal.Start(CreateConnection("mfa-pool"), sourcePath: null);
+                return terminal;
+            });
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            await view.WaitUntilConnectedAsync(timeout.Token);
+            while (view.LoginSequenceState is not ("ready" or "failed"))
+                await Task.Delay(25, timeout.Token);
+
+            return await OnUiAsync(() =>
+            {
+                var client = view.ShareClientForDuplicate();
+                try
+                {
+                    var output = view.DebugVisibleTerminalText;
+                    return (client?.SessionId ?? "", view.BastionSessionState,
+                        output.Contains("Fixture MFA accepted", StringComparison.Ordinal),
+                        output.Contains("Fixture reused", StringComparison.Ordinal));
+                }
+                finally
+                {
+                    client?.Release();
+                }
+            });
+        }
+
+        try
+        {
+            var first = await OpenAsync();
+            var second = await OpenAsync();
+            var overflow = await OpenAsync();
+            var fourth = await OpenAsync();
+            var checks = new Dictionary<string, bool>
+            {
+                ["freshAuthenticatesAndRegisters"] = first.SessionId.Length > 0
+                    && first.FreshMfa && first.PoolState == "fresh-pooled",
+                ["secondShellReusesWithoutMfa"] = second.SessionId == first.SessionId
+                    && second.Reused && !second.FreshMfa && second.PoolState == "pooled-ready",
+                ["fullTransportOpensAnotherWithMfa"] = overflow.SessionId.Length > 0
+                    && overflow.SessionId != first.SessionId && overflow.FreshMfa && overflow.PoolState == "fresh-pooled",
+                ["nextShellUsesAvailableTransport"] = fourth.SessionId == overflow.SessionId
+                    && fourth.Reused && !fourth.FreshMfa && fourth.PoolState == "pooled-ready" && pool.SessionCount == 2,
+                ["anotherSshIdentityCannotBorrow"] = !pool.HasKnownSession(CreateConnection("mfa-pool/another-target")),
+            };
+            var passed = checks.Values.All(value => value);
+            return ToolText($"{(passed ? "PASS" : "FAIL")}: SSH MFA TCP pooling\n"
+                + string.Join("\n", checks.Select(check => $"{check.Key}={check.Value}")), !passed);
+        }
+        catch (Exception ex)
+        {
+            return ToolText($"FAIL: SSH MFA TCP pooling fixture ({ex.GetType().Name}).", true);
+        }
+        finally
+        {
+            await OnUiAsync(() =>
+            {
+                foreach (var (window, view) in windows)
+                {
+                    view.Close();
+                    window.Close();
+                }
+                return true;
+            });
+            if (Directory.Exists(root))
+                try { Directory.Delete(root, recursive: true); } catch (IOException) { }
+        }
+    }
+
     private sealed class MfaProbeChannel(bool failWrite, string totpReply) : ITerminalChannel
     {
         public event Action<byte[]>? DataReceived;

@@ -110,7 +110,7 @@ public sealed class BastionSessionPool : IDisposable
         lock (_gate)
         {
             return !_disposed
-                   && _entries.TryGetValue(BuildKey(target), out var entries)
+                   && _entries.TryGetValue(BuildTransportKey(target), out var entries)
                    && entries.Any(entry =>
                        entry.Client.IsConnected && entry.Client.HasShellChannelCapacity);
         }
@@ -126,7 +126,7 @@ public sealed class BastionSessionPool : IDisposable
         lock (_gate)
         {
             return !_disposed
-                   && _entries.TryGetValue(BuildKey(target), out var entries)
+                   && _entries.TryGetValue(BuildTransportKey(target), out var entries)
                    && entries.Any(entry => entry.Client.IsConnected);
         }
     }
@@ -143,14 +143,14 @@ public sealed class BastionSessionPool : IDisposable
 
         lock (_gate)
         {
-            return _disposed || !_entries.TryGetValue(BuildKey(target), out var entries)
+            return _disposed || !_entries.TryGetValue(BuildTransportKey(target), out var entries)
                 ? 0
                 : entries.Sum(entry => entry.ActiveLeases);
         }
     }
 
     /// <summary>
-    /// Tries to borrow an authenticated transport for a structured bastion workflow.
+    /// Tries to borrow an authenticated transport for a structured workflow or direct MFA login.
     /// The returned lease owns one client reference and serializes route transitions.
     /// </summary>
     public async Task<BastionSessionLease?> TryAcquireAsync(
@@ -160,7 +160,8 @@ public sealed class BastionSessionPool : IDisposable
         if (!IsEligible(target))
             return null;
 
-        var key = BuildKey(target);
+        var key = BuildTransportKey(target);
+        var directMfa = IsDirectMfa(target, target.EffectiveLoginCommands);
         var targetRoute = BastionRoute.FromConnection(target);
         var skipped = new HashSet<Entry>();
 
@@ -196,7 +197,7 @@ public sealed class BastionSessionPool : IDisposable
             }
 
             if (entry.Client.IsConnected && entry.Client.HasShellChannelCapacity)
-                return new BastionSessionLease(this, entry, targetRoute);
+                return new BastionSessionLease(this, entry, targetRoute, directMfa);
 
             skipped.Add(entry);
             var disconnected = !entry.Client.IsConnected;
@@ -218,7 +219,7 @@ public sealed class BastionSessionPool : IDisposable
         if (!IsEligible(target))
             return null;
 
-        var key = BuildKey(target);
+        var key = BuildTransportKey(target);
         lock (_gate)
         {
             if (_disposed || _freshLogins.ContainsKey(key))
@@ -240,7 +241,7 @@ public sealed class BastionSessionPool : IDisposable
             return false;
 
         lock (_gate)
-            return !_disposed && _freshLogins.ContainsKey(BuildKey(target));
+            return !_disposed && _freshLogins.ContainsKey(BuildTransportKey(target));
     }
 
     /// <summary>
@@ -257,7 +258,7 @@ public sealed class BastionSessionPool : IDisposable
         TaskCompletionSource? pending;
         lock (_gate)
         {
-            if (_disposed || !_freshLogins.TryGetValue(BuildKey(target), out pending))
+            if (_disposed || !_freshLogins.TryGetValue(BuildTransportKey(target), out pending))
                 return false;
         }
 
@@ -298,7 +299,7 @@ public sealed class BastionSessionPool : IDisposable
             return false;
         }
 
-        var key = BuildKey(routeConnection);
+        var key = BuildTransportKey(routeConnection);
         var entry = new Entry(
             this,
             key,
@@ -498,9 +499,26 @@ public sealed class BastionSessionPool : IDisposable
     /// <summary>Safe hash-only identity exposed to SmokeTest/Debug MCP verification.</summary>
     public static string PoolKeyForDebug(Connection connection) => BuildKey(connection);
 
-    private static bool IsEligible(Connection connection) =>
-        LoginCommandSequence.HasStructuredReuseWorkflow(connection.EffectiveLoginCommands)
-        && LoginCommandSequence.Validate(connection.EffectiveLoginCommands).Count == 0;
+    private static string BuildTransportKey(Connection connection)
+    {
+        var key = BuildKey(connection);
+        if (!IsDirectMfa(connection, connection.EffectiveLoginCommands))
+            return key;
+
+        // Direct logins encode the destination in the SSH identity. The new shell
+        // inherits the transport's jump path and port forwarding as well.
+        var material = $"direct\n{key}\n{connection.SshMfaProfileId}\n{connection.JumpHostConnectionId.Trim()}\n{connection.PortForwards.Trim()}";
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material)));
+    }
+
+    internal static bool IsEligible(Connection connection) =>
+        connection.TryResolveLoginCommands(out var commands, out _)
+        && (IsDirectMfa(connection, commands)
+            || (LoginCommandSequence.HasStructuredReuseWorkflow(commands)
+                && LoginCommandSequence.Validate(commands).Count == 0));
+
+    internal static bool IsDirectMfa(Connection connection, string commands) =>
+        connection.SshMfaProfileId.HasValue && string.IsNullOrWhiteSpace(commands);
 
     private static string BuildEndpointLabel(Connection connection)
     {
@@ -572,14 +590,16 @@ public sealed class BastionSessionPool : IDisposable
     public sealed class BastionSessionLease : IDisposable
     {
         private readonly BastionSessionPool _owner;
+        private readonly bool _directMfa;
         private int _disposed;
         private bool _clientTaken;
 
-        internal BastionSessionLease(BastionSessionPool owner, Entry entry, BastionRoute targetRoute)
+        internal BastionSessionLease(BastionSessionPool owner, Entry entry, BastionRoute targetRoute, bool directMfa)
         {
             _owner = owner;
             Entry = entry;
             TargetRoute = targetRoute;
+            _directMfa = directMfa;
         }
 
         internal Entry Entry { get; }
@@ -592,7 +612,7 @@ public sealed class BastionSessionPool : IDisposable
         /// wanted target. Only a route that is both known and identical may skip
         /// straight to the post-arrival commands.
         /// </summary>
-        public BastionReuseStart ReuseStart =>
+        public BastionReuseStart ReuseStart => _directMfa ? BastionReuseStart.Duplicate :
             SourceRoute.Position switch
             {
                 BastionRoutePosition.Entry => BastionReuseStart.Enter,

@@ -72,7 +72,7 @@ public partial class MainWindow
                 && PathEquals(s.View.SourcePath!, sourcePath!)) is { View: { } source })
         {
             // Piggyback on the authenticated transport, like the tab's own Duplicate command.
-            var shared = LoginCommandSequence.HasStructuredReuseWorkflow(connection.EffectiveLoginCommands)
+            var shared = BastionSessionPool.IsEligible(connection)
                 ? null
                 : source.ShareClientForDuplicate();
             (view, _) = CreateTerminalTab(connection, sourcePath, activate);
@@ -305,7 +305,7 @@ public partial class MainWindow
         if (sourceTab.Content is not TerminalView source || source.Connection is not { } connection)
             return;
 
-        var shared = LoginCommandSequence.HasStructuredReuseWorkflow(connection.EffectiveLoginCommands)
+        var shared = BastionSessionPool.IsEligible(connection)
             ? null
             : source.ShareClientForDuplicate();
         var (view, _) = CreateTerminalTab(connection, source.SourcePath);
