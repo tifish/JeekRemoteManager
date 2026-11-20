@@ -331,6 +331,8 @@ internal static partial class DebugMcpServer
 
         var pipeName = "jrm-concurrency-check-" + Guid.NewGuid().ToString("N");
         var failures = new List<string>();
+        var eofRequestStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var eofRequestCancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var host = new McpHost(new McpHostOptions
         {
             ServerName = "jrm-concurrency-check",
@@ -347,6 +349,20 @@ internal static partial class DebugMcpServer
         {
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
             return ToolText("unexpected completion");
+        });
+        host.AddTool("wait_for_eof", async (_, cancellationToken) =>
+        {
+            eofRequestStarted.TrySetResult();
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
+                return ToolText("unexpected completion");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                eofRequestCancelled.TrySetResult();
+                throw;
+            }
         });
 
         var sessions = new List<NamedPipeClientStream>();
@@ -405,6 +421,17 @@ internal static partial class DebugMcpServer
                 await pipe.ConnectAsync(3000, timeout.Token).ConfigureAwait(false);
                 sessions.Add(pipe);
             }
+
+            await adapter.StandardInput.WriteLineAsync(
+                """{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"wait_for_eof","arguments":{}}}""")
+                .ConfigureAwait(false);
+            await adapter.StandardInput.FlushAsync().ConfigureAwait(false);
+            await eofRequestStarted.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
+            adapter.StandardInput.Close();
+            await adapter.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+            if (adapter.ExitCode != 0)
+                failures.Add($"closing stdin with a pending request exited with code {adapter.ExitCode}");
+            await eofRequestCancelled.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

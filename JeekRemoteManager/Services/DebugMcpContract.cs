@@ -298,7 +298,7 @@ public static class DebugMcpContract
             "Connects to the app's own MCP named pipe as a client and runs initialize + tools/list plus a second concurrent session, verifying the pipe transport, its ACL, and the line framing.",
             new()),
         Tool("mcp_concurrency_check",
-            "Runs the real stdio adapter against a temporary MCP pipe host. Verifies a ping overtakes a blocked tool call, notifications/cancelled cancels that request, more sessions than the old 32-instance cap can connect, and a quiet session stays open instead of being timed out.",
+            "Runs the real stdio adapter against a temporary MCP pipe host. Verifies request concurrency and cancellation, adapter exit and request cancellation on stdin EOF, more than 32 connected sessions, and idle session persistence.",
             new()),
         Tool("mcp_reconnect_check",
             "Disconnects the real adapter with 20 requests in flight and verifies every retry returns its matching response on one replacement pipe; repeats five times.",

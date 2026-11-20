@@ -28,15 +28,19 @@ using JeekRemoteManager.Services;
 var options = AdapterOptions.Parse(args);
 
 using var stdin = new StreamReader(Console.OpenStandardInput(), AdapterText.Utf8);
-await using var stdout = new StreamWriter(Console.OpenStandardOutput(), AdapterText.Utf8) { AutoFlush = true };
+// Each reply is flushed. A redirected stdout write can remain blocked after the client closes stdin.
+// Let process exit close stdout without waiting for that write.
+var stdout = new StreamWriter(Console.OpenStandardOutput(), AdapterText.Utf8) { AutoFlush = true };
 using var stdoutGate = new SemaphoreSlim(1, 1);
+using var shutdown = new CancellationTokenSource();
+var stopping = shutdown.Token;
 
 async Task WriteStdoutAsync(string line)
 {
-    await stdoutGate.WaitAsync().ConfigureAwait(false);
+    await stdoutGate.WaitAsync(stopping).ConfigureAwait(false);
     try
     {
-        await stdout.WriteLineAsync(line).ConfigureAwait(false);
+        await stdout.WriteLineAsync(line.AsMemory(), stopping).WaitAsync(stopping).ConfigureAwait(false);
     }
     finally
     {
@@ -44,7 +48,7 @@ async Task WriteStdoutAsync(string line)
     }
 }
 
-using var connection = new PipeConnection(options, WriteStdoutAsync);
+using var connection = new PipeConnection(options, WriteStdoutAsync, stopping);
 
 // The tool list the client last received, serialized, or null before it asked. Used to tell
 // the client when the app it reaches now offers a different list than the one it cached —
@@ -54,37 +58,46 @@ var clientToolsGate = new object();
 var inFlight = new ConcurrentDictionary<int, Task>();
 var nextTaskId = 0;
 
-while (await stdin.ReadLineAsync().ConfigureAwait(false) is { } line)
+try
 {
-    if (string.IsNullOrWhiteSpace(line))
-        continue;
+    while (await stdin.ReadLineAsync().ConfigureAwait(false) is { } line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+            continue;
 
-    JsonNode? message;
-    try
-    {
-        message = JsonNode.Parse(line);
-    }
-    catch (Exception ex)
-    {
-        await WriteStdoutAsync(
-            AdapterText.RpcError(null, -32700, $"Parse error: {ex.Message}").ToJsonString()).ConfigureAwait(false);
-        continue;
-    }
+        Task task;
+        try
+        {
+            if (JsonNode.Parse(line) is not { } message)
+                continue;
+            task = HandleAsync(message);
+        }
+        catch (JsonException ex)
+        {
+            task = WriteStdoutAsync(AdapterText.RpcError(null, -32700, $"Parse error: {ex.Message}").ToJsonString());
+        }
 
-    if (message is not null)
-    {
-        var taskId = Interlocked.Increment(ref nextTaskId);
-        var task = HandleAsync(message);
+        var taskId = ++nextTaskId;
         inFlight[taskId] = task;
-        _ = task.ContinueWith(
-            _ => inFlight.TryRemove(taskId, out var removed),
-            CancellationToken.None,
-            TaskContinuationOptions.ExecuteSynchronously,
-            TaskScheduler.Default);
+        _ = task.ContinueWith(completed =>
+        {
+            _ = completed.Exception;
+            inFlight.TryRemove(taskId, out _);
+        }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
     }
 }
-
-await Task.WhenAll(inFlight.Values).ConfigureAwait(false);
+finally
+{
+    shutdown.Cancel();
+    try
+    {
+        await Task.WhenAll(inFlight.Values).ConfigureAwait(false);
+    }
+    catch (OperationCanceledException) when (stopping.IsCancellationRequested)
+    {
+        // Closing stdin ends the MCP session, including requests still waiting for the app.
+    }
+}
 
 async Task HandleAsync(JsonNode message)
 {
@@ -104,6 +117,10 @@ async Task HandleAsync(JsonNode message)
         response = await connection
             .SendAsync(message, AdapterText.ExpectsResponse(message), mayLaunch)
             .ConfigureAwait(false);
+    }
+    catch (OperationCanceledException) when (stopping.IsCancellationRequested)
+    {
+        return;
     }
     catch (Exception ex)
     {
@@ -397,7 +414,8 @@ internal sealed record AdapterOptions(
 /// <summary>Lazily connected, self-healing named pipe client.</summary>
 internal sealed class PipeConnection(
     AdapterOptions options,
-    Func<string, Task> forwardNotification) : IDisposable
+    Func<string, Task> forwardNotification,
+    CancellationToken stopping) : IDisposable
 {
     private readonly object _stateGate = new();
     private readonly SemaphoreSlim _connectGate = new(1, 1);
@@ -452,19 +470,19 @@ internal sealed class PipeConnection(
                     }
                 }
 
-                await _writeGate.WaitAsync().ConfigureAwait(false);
+            await _writeGate.WaitAsync(stopping).ConfigureAwait(false);
                 try
                 {
                     if (!ReferenceEquals(session, _session) || !session.Pipe.IsConnected)
                         throw new IOException("The app pipe changed before the request could be written.");
-                    await session.Writer.WriteLineAsync(payload).ConfigureAwait(false);
+                    await session.Writer.WriteLineAsync(payload.AsMemory(), stopping).ConfigureAwait(false);
                 }
                 finally
                 {
                     _writeGate.Release();
                 }
 
-                return reply is null ? null : await reply.Task.ConfigureAwait(false);
+                return reply is null ? null : await reply.Task.WaitAsync(stopping).ConfigureAwait(false);
             }
             catch (Exception ex) when (attempt == 0 && ex is IOException or ObjectDisposedException or TimeoutException or JsonException)
             {
@@ -488,7 +506,7 @@ internal sealed class PipeConnection(
                 return existing;
         }
 
-        await _connectGate.WaitAsync().ConfigureAwait(false);
+        await _connectGate.WaitAsync(stopping).ConfigureAwait(false);
         try
         {
             lock (_stateGate)
@@ -503,7 +521,7 @@ internal sealed class PipeConnection(
             {
                 await OpenAsync(500).ConfigureAwait(false);
             }
-            catch (Exception) when (mayLaunch)
+            catch (Exception) when (mayLaunch && !stopping.IsCancellationRequested)
             {
                 LaunchApp();
                 // The GUI has to start, unlock settings, and register the pipe.
@@ -528,12 +546,13 @@ internal sealed class PipeConnection(
                 ".", name, PipeDirection.InOut, PipeOptions.Asynchronous);
             try
             {
-                await pipe.ConnectAsync(timeoutMilliseconds / options.PipeNames.Count + 1).ConfigureAwait(false);
+                await pipe.ConnectAsync(timeoutMilliseconds / options.PipeNames.Count + 1, stopping).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                lastError = ex;
                 await pipe.DisposeAsync().ConfigureAwait(false);
+                stopping.ThrowIfCancellationRequested();
+                lastError = ex;
                 continue;
             }
 
@@ -553,6 +572,7 @@ internal sealed class PipeConnection(
 
     private void LaunchApp()
     {
+        stopping.ThrowIfCancellationRequested();
         if (!File.Exists(options.AppPath))
             throw new FileNotFoundException("JeekRemoteManager executable not found.", options.AppPath);
 
@@ -569,7 +589,7 @@ internal sealed class PipeConnection(
         Exception ended = new IOException("The app closed the pipe before replying.");
         try
         {
-            while (await session.Reader.ReadLineAsync().ConfigureAwait(false) is { } line)
+            while (await session.Reader.ReadLineAsync(stopping).ConfigureAwait(false) is { } line)
             {
                 if (line.Length == 0)
                     continue;
