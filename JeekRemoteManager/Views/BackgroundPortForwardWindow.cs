@@ -21,9 +21,10 @@ internal sealed class BackgroundPortForwardWindow : Window
     }
 
     private readonly BackgroundPortForwards _forwards;
-    private readonly Func<string, string, int, SshForwardTransport.Plan> _prepare;
+    private readonly Func<string, string, int, int, SshForwardTransport.Plan> _prepare;
     private readonly ComboBox _connection = new() { Name = "BackgroundForwardConnection", HorizontalAlignment = HorizontalAlignment.Stretch };
-    private readonly TextBox _port = new() { Name = "BackgroundForwardRemotePort" };
+    private readonly TextBox _localPort = new() { Name = "BackgroundForwardLocalPort" };
+    private readonly TextBox _remotePort = new() { Name = "BackgroundForwardRemotePort" };
     private readonly ListBox _list = new() { Name = "BackgroundForwardList", Padding = new Thickness(0) };
     private readonly TextBlock _empty = new() { Classes = { "hint" }, Margin = new Thickness(14) };
     private readonly TextBlock _message = new() { Name = "BackgroundForwardMessage", TextWrapping = TextWrapping.Wrap, IsVisible = false };
@@ -38,7 +39,7 @@ internal sealed class BackgroundPortForwardWindow : Window
     private bool _closed;
 
     internal BackgroundPortForwardWindow(BackgroundPortForwards forwards, Func<IReadOnlyList<ConnectionChoice>> choices,
-        Func<string, string, int, SshForwardTransport.Plan> prepare, string? selectedConnectionId = null)
+        Func<string, string, int, int, SshForwardTransport.Plan> prepare, string? selectedConnectionId = null)
     {
         _forwards = forwards;
         _prepare = prepare;
@@ -51,11 +52,14 @@ internal sealed class BackgroundPortForwardWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
         var connectionLabel = Localizer.Get("Connection");
-        var portLabel = Localizer.Get("BackgroundForwardRemotePortLabel");
+        var localPortLabel = Localizer.Get("BackgroundForwardLocalPortLabel");
+        var remotePortLabel = Localizer.Get("BackgroundForwardRemotePortLabel");
         AutomationProperties.SetName(_connection, connectionLabel);
-        AutomationProperties.SetName(_port, portLabel);
+        AutomationProperties.SetName(_localPort, localPortLabel);
+        AutomationProperties.SetName(_remotePort, remotePortLabel);
         _connection.PlaceholderText = Localizer.Get("BackgroundForwardChooseConnection");
-        _port.PlaceholderText = "1–65535";
+        _localPort.PlaceholderText = Localizer.Get("BackgroundForwardAutomaticPort");
+        _remotePort.PlaceholderText = "1–65535";
         _open.Classes.Add("accent");
         _empty.Text = Localizer.Get("BackgroundForwardEmpty");
         _list.ItemTemplate = new FuncDataTemplate<BackgroundPortForwards.Overview>((row, _) =>
@@ -63,6 +67,7 @@ internal sealed class BackgroundPortForwardWindow : Window
             if (row is null)
                 return null;
             var target = row.Target;
+            var localPort = row.LocalPort > 0 ? row.LocalPort : target.RequestedLocalPort;
             return Columns(
                 new StackPanel
                 {
@@ -72,7 +77,7 @@ internal sealed class BackgroundPortForwardWindow : Window
                         Text(target.Host, "hint"),
                     },
                 },
-                Text(row.LocalPort > 0 ? Endpoint(row.LocalPort) : "—"),
+                Text(localPort > 0 ? Endpoint(localPort) : "—", row.LocalPort == 0 ? "hint" : null),
                 Text(Endpoint(target.RemotePort)),
                 new StackPanel
                 {
@@ -88,12 +93,15 @@ internal sealed class BackgroundPortForwardWindow : Window
             Setters = { new Setter(HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch) },
         });
 
-        var form = new Grid { ColumnDefinitions = new ColumnDefinitions("*,190,Auto"), ColumnSpacing = 10 };
+        var form = new Grid { ColumnDefinitions = new ColumnDefinitions("*,135,160,Auto"), ColumnSpacing = 10 };
         form.Children.Add(new StackPanel { Spacing = 4, Children = { Text(connectionLabel, "label"), _connection } });
-        var portInput = new StackPanel { Spacing = 4, Children = { Text(portLabel, "label"), _port } };
-        Grid.SetColumn(portInput, 1);
-        form.Children.Add(portInput);
-        Grid.SetColumn(_open, 2);
+        var localPortInput = new StackPanel { Spacing = 4, Children = { Text(localPortLabel, "label"), _localPort } };
+        Grid.SetColumn(localPortInput, 1);
+        form.Children.Add(localPortInput);
+        var remotePortInput = new StackPanel { Spacing = 4, Children = { Text(remotePortLabel, "label"), _remotePort } };
+        Grid.SetColumn(remotePortInput, 2);
+        form.Children.Add(remotePortInput);
+        Grid.SetColumn(_open, 3);
         _open.VerticalAlignment = VerticalAlignment.Bottom;
         form.Children.Add(_open);
 
@@ -138,7 +146,8 @@ internal sealed class BackgroundPortForwardWindow : Window
         _resume.Click += async (_, _) =>
         {
             if (_list.SelectedItem is BackgroundPortForwards.Overview { CanStart: true } row)
-                await StartAsync(row.Target.ConnectionId, row.Target.Host, row.Target.RemotePort, row.Id);
+                await StartAsync(row.Target.ConnectionId, row.Target.Host, row.Target.RemotePort,
+                    row.Target.RequestedLocalPort, row.Id);
         };
         _stop.Click += async (_, _) =>
         {
@@ -184,17 +193,24 @@ internal sealed class BackgroundPortForwardWindow : Window
     {
         if (_opening || _connection.SelectedItem is not ConnectionChoice choice)
             return;
-        if (!int.TryParse(_port.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var port) || port is < 1 or > 65535)
+        var localPort = 0;
+        if (!string.IsNullOrWhiteSpace(_localPort.Text) && !TryParsePort(_localPort.Text, out localPort))
+        {
+            ShowMessage("BackgroundForwardInvalidLocalPort");
+            _localPort.Focus();
+            return;
+        }
+        if (!TryParsePort(_remotePort.Text, out var remotePort))
         {
             ShowMessage("BackgroundForwardInvalidPort");
-            _port.Focus();
+            _remotePort.Focus();
             return;
         }
         _opening = true;
         UpdateActions();
         try
         {
-            await StartAsync(choice.Id, choice.Host, port);
+            await StartAsync(choice.Id, choice.Host, remotePort, localPort);
         }
         finally
         {
@@ -203,14 +219,17 @@ internal sealed class BackgroundPortForwardWindow : Window
         }
     }
 
-    private async Task StartAsync(string connectionId, string host, int port, string? id = null)
+    private static bool TryParsePort(string? text, out int port) =>
+        int.TryParse(text?.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out port) && port is >= 1 and <= 65535;
+
+    private async Task StartAsync(string connectionId, string host, int remotePort, int localPort, string? id = null)
     {
         ShowMessage(null);
         try
         {
             var report = await Task.Run(() =>
             {
-                var plan = _prepare(connectionId, host, port);
+                var plan = _prepare(connectionId, host, remotePort, localPort);
                 return _forwards.StartFromManagerAsync(plan.Target, plan.Dial, id);
             });
             if (id is null)
@@ -272,6 +291,7 @@ internal sealed class BackgroundPortForwardWindow : Window
         "complete_authentication_in_jrm" => "BackgroundForwardAuthRequired",
         "lease_expired" => "BackgroundForwardExpired",
         "ssh_or_listener_disconnected" => "BackgroundForwardDisconnected",
+        "local_port_unavailable" => "BackgroundForwardLocalPortUnavailable",
         _ => row.State switch
         {
             "ready" => "BackgroundForwardReady",

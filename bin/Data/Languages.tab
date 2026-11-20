@@ -68,6 +68,8 @@ PortForwardsWatermark	one per line: L 8080 db:5432 / R 9000 localhost:3000 / D 1
 PortForwardsTip	L = local port to a host the server can reach, R = server port back to this machine, D = SOCKS proxy. Local listeners bind 127.0.0.1 unless you give an address.	L = 本地端口转到服务器能访问的主机，R = 服务器端口转回本机，D = SOCKS 代理。本地监听默认只绑定 127.0.0.1。
 BackgroundForwardManager	Background SSH forwarding	后台 SSH 端口转发
 BackgroundForwardChooseConnection	Choose a saved SSH connection	选择已保存的 SSH 连接
+BackgroundForwardLocalPortLabel	Local port	本地端口
+BackgroundForwardAutomaticPort	Automatic	自动分配
 BackgroundForwardRemotePortLabel	Remote loopback port	远端回环端口
 BackgroundForwardOpen	Open forward	开启转发
 BackgroundForwardResume	Reopen selected	重新开启所选
@@ -89,6 +91,8 @@ BackgroundForwardAuthRequired	Waiting for authentication	等待身份验证
 BackgroundForwardTrustRequired	Verify host key in the SSH connection	请在 SSH 连接中验证主机密钥
 BackgroundForwardDisconnected	Disconnected	已断开
 BackgroundForwardFailed	Connection failed	连接失败
+BackgroundForwardLocalPortUnavailable	Local port unavailable	本地端口不可用
+BackgroundForwardInvalidLocalPort	Enter a local port from 1 to 65535, or leave it blank for automatic assignment.	请输入 1 到 65535 之间的本地端口，或留空自动分配。
 BackgroundForwardInvalidPort	Enter a remote port from 1 to 65535.	请输入 1 到 65535 之间的远端端口。
 BackgroundForwardRouteUnavailable	The saved SSH connection or jump route is unavailable or has changed.	已保存的 SSH 连接或跳板路由不可用，或配置已变更。
 PrivateKey	Private key	私钥

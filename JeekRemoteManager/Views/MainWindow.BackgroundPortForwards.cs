@@ -38,14 +38,14 @@ public partial class MainWindow
         string TreePath(string file) =>
             Path.GetRelativePath(vm.Store.RootPath, file)[..^ConnectionStore.FileExtension.Length].Replace('\\', '/');
 
-        SshForwardTransport.Plan Prepare(string connectionId, string host, int port)
+        SshForwardTransport.Plan Prepare(string connectionId, string host, int remotePort, int localPort)
         {
             var saved = vm.Store.FindById(connectionId);
             if (saved?.Connection is not { IsSsh: true } connection
                 || !string.Equals(connection.Host.Trim(), host, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("The saved SSH connection has changed.");
-            return SshForwardTransport.Prepare(connection, TreePath(saved.Path), port,
-                vm.Store.TryLoadById, ActivateMainWindow);
+            return SshForwardTransport.Prepare(connection, TreePath(saved.Path), remotePort,
+                vm.Store.TryLoadById, ActivateMainWindow, localPort);
         }
 
         var window = new BackgroundPortForwardWindow(BackgroundPortForwards.Shared,

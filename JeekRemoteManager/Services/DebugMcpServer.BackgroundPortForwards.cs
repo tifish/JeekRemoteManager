@@ -14,12 +14,13 @@ internal static partial class DebugMcpServer
 {
     private sealed class ForwardListenerFixture : BackgroundPortForwards.ITransport
     {
-        private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
+        private readonly TcpListener _listener;
         public bool IsReady { get; private set; } = true;
         public int LocalPort { get; }
-        public ForwardListenerFixture()
+        public ForwardListenerFixture(int localPort = 0)
         {
-            _listener.Start();
+            _listener = new TcpListener(IPAddress.Loopback, localPort) { ExclusiveAddressUse = true };
+            SshForwardTransport.StartListener(() => _listener.Start(), localPort);
             LocalPort = ((IPEndPoint)_listener.LocalEndpoint).Port;
         }
         public void Dispose() { IsReady = false; _listener.Stop(); }
@@ -52,7 +53,8 @@ internal static partial class DebugMcpServer
                 manager.Close();
 
             var fixture = new BackgroundPortForwardWindow(forwards, () => [choice],
-                (_, _, port) => new(target with { RemotePort = port }, (_, _) => new ForwardListenerFixture()));
+                (_, _, remotePort, localPort) => new(target with { RemotePort = remotePort, RequestedLocalPort = localPort },
+                    (_, _) => new ForwardListenerFixture(localPort)));
             fixture.Show(main);
             return (Main: main, Fixture: fixture, Sessions: main.EnumerateTerminalSessions().Count());
         });
@@ -88,27 +90,48 @@ internal static partial class DebugMcpServer
                 Click("Open");
                 return Find<TextBlock>("BackgroundForwardMessage").IsVisible && List().ItemCount == 1;
             });
-            await OnUiAsync(() =>
+            checks["invalidLocalPortRejected"] = await OnUiAsync(() =>
             {
                 Find<TextBox>("BackgroundForwardRemotePort").Text = "28401";
+                Find<TextBox>("BackgroundForwardLocalPort").Text = "0";
+                Click("Open");
+                return Find<TextBlock>("BackgroundForwardMessage").Text
+                    == Jeek.Avalonia.Localization.Localizer.Get("BackgroundForwardInvalidLocalPort") && List().ItemCount == 1;
+            });
+            await OnUiAsync(() =>
+            {
+                Find<TextBox>("BackgroundForwardLocalPort").Text = "";
                 Click("Open");
                 return true;
             });
-            checks["manualForwardCanOpen"] = await UntilAsync(() => List().SelectedItem
+            checks["blankLocalPortUsesAutomaticAssignment"] = await UntilAsync(() => List().SelectedItem
                 is BackgroundPortForwards.Overview { IsManual: true, State: "ready", LocalPort: > 0 }
                 && Button("Stop").IsEnabled && Button("Copy").IsEnabled);
-            var localPort = await OnUiAsync(() =>
+            int requestedPort;
+            using (var occupied = new ForwardListenerFixture())
             {
-                var row = List().SelectedItem as BackgroundPortForwards.Overview;
-                Click("Stop");
-                return row?.LocalPort ?? 0;
-            });
+                requestedPort = occupied.LocalPort;
+                await OnUiAsync(() =>
+                {
+                    Find<TextBox>("BackgroundForwardLocalPort").Text = requestedPort.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    Click("Open");
+                    return true;
+                });
+                checks["occupiedPortIsReportedWithoutFallback"] = await UntilAsync(() => List().SelectedItem
+                    is BackgroundPortForwards.Overview { IsManual: true, Error: "local_port_unavailable", LocalPort: 0 } row
+                    && row.Target.RequestedLocalPort == requestedPort && List().ItemCount == 3 && !Button("Copy").IsEnabled);
+            }
+            await OnUiAsync(() => { Click("Resume"); return true; });
+            bool FixedForwardReady() => List().SelectedItem
+                is BackgroundPortForwards.Overview { IsManual: true, State: "ready" } row
+                && row.Target.RequestedLocalPort == requestedPort && row.LocalPort == requestedPort;
+            checks["specifiedPortCanOpen"] = await UntilAsync(FixedForwardReady);
+            await OnUiAsync(() => { Click("Stop"); return true; });
             checks["manualStopReleasesListener"] = await UntilAsync(() => List().SelectedItem
                 is BackgroundPortForwards.Overview { IsManual: true, State: "closed", LocalPort: 0 }
-                && Button("Resume").IsEnabled && !Button("Copy").IsEnabled) && localPort > 0 && ListenerReleased(localPort);
+                && Button("Resume").IsEnabled && !Button("Copy").IsEnabled) && ListenerReleased(requestedPort);
             await OnUiAsync(() => { Click("Resume"); return true; });
-            checks["manualForwardCanReopen"] = await UntilAsync(() => List().SelectedItem
-                is BackgroundPortForwards.Overview { IsManual: true, State: "ready", LocalPort: > 0 });
+            checks["manualForwardReopensOnSamePort"] = await UntilAsync(FixedForwardReady);
 
             await OnUiAsync(() =>
             {
@@ -132,7 +155,7 @@ internal static partial class DebugMcpServer
                 return state.Main.EnumerateTerminalSessions().Count() == state.Sessions;
             });
         }
-        checks["closingManagerKeepsListener"] = forwards.List().Any(row => row.IsManual && row.State == "ready");
+        checks["closingManagerKeepsListeners"] = forwards.List().Count(row => row.IsManual && row.State == "ready") == 2;
         var passed = checks.Values.All(value => value);
         return ToolText(new JsonObject
         {

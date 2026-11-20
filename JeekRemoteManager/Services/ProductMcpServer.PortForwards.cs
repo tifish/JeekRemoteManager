@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Net.Sockets;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
@@ -59,15 +60,15 @@ internal sealed class SshForwardTransport(SshClient client, ForwardedPortLocal f
     internal sealed record Plan(BackgroundPortForwards.Target Target,
         Func<CancellationToken, Action, BackgroundPortForwards.ITransport> Dial);
 
-    internal static Plan Prepare(Connection connection, string treePath, int port,
-        Func<string, Connection?> resolver, Action activateWindow)
+    internal static Plan Prepare(Connection connection, string treePath, int remotePort,
+        Func<string, Connection?> resolver, Action activateWindow, int localPort = 0)
     {
         // Capture a route snapshot, never resolve a newly moved/changed target while dialing.
         var route = SshDialer.ResolveJumpRoute(connection, resolver).Append(connection).ToArray();
         var routeIdentity = string.Join("|", route.Select(c =>
             $"{c.ConnectionId}:{c.Host.Trim()}:{c.Port}:{c.Username.Trim()}"));
         var target = new BackgroundPortForwards.Target(connection.ConnectionId, connection.Host.Trim(),
-            port, routeIdentity, treePath);
+            remotePort, routeIdentity, treePath, localPort);
         return new Plan(target, (token, prompted) =>
         {
             void Activate() => Dispatcher.UIThread.Post(activateWindow);
@@ -84,7 +85,7 @@ internal sealed class SshForwardTransport(SshClient client, ForwardedPortLocal f
             var keyRejected = false;
             try
             {
-                return Open(connection, port,
+                return Open(connection, target,
                     new SshDialOptions(
                         RequireKnownHost: true,
                         OnRejected: _ => { keyRejected = true; Activate(); },
@@ -102,7 +103,7 @@ internal sealed class SshForwardTransport(SshClient client, ForwardedPortLocal f
         });
     }
 
-    private static SshForwardTransport Open(Connection connection, int port, SshDialOptions options,
+    private static SshForwardTransport Open(Connection connection, BackgroundPortForwards.Target target, SshDialOptions options,
         Func<string, Connection?> resolver, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
@@ -114,18 +115,28 @@ internal sealed class SshForwardTransport(SshClient client, ForwardedPortLocal f
         try
         {
             token.ThrowIfCancellationRequested();
-            forward = new ForwardedPortLocal("127.0.0.1", 0, "127.0.0.1", (uint)port);
+            forward = new ForwardedPortLocal("127.0.0.1", (uint)target.RequestedLocalPort, "127.0.0.1", (uint)target.RemotePort);
             client.AddForwardedPort(forward);
-            forward.Start();
+            StartListener(forward.Start, target.RequestedLocalPort);
             token.ThrowIfCancellationRequested();
             return new SshForwardTransport(client, forward, jump);
         }
         catch
         {
-            forward?.Dispose();
-            client.Dispose();
-            jump?.Dispose();
+            try { forward?.Dispose(); } catch { }
+            try { client.Dispose(); } catch { }
+            try { jump?.Dispose(); } catch { }
             throw;
+        }
+    }
+
+    internal static void StartListener(Action start, int requestedLocalPort)
+    {
+        try { start(); }
+        catch (SocketException ex) when (requestedLocalPort > 0
+            && ex.SocketErrorCode is SocketError.AddressAlreadyInUse or SocketError.AccessDenied)
+        {
+            throw new BackgroundPortForwards.LocalPortUnavailableException(ex);
         }
     }
 

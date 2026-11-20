@@ -19,9 +19,10 @@ internal sealed class BackgroundPortForwards : IDisposable
     }
 
     internal sealed class UserRequiredException(string reason) : Exception(reason);
+    internal sealed class LocalPortUnavailableException(Exception inner) : Exception(null, inner);
 
     internal sealed record Target(string ConnectionId, string Host, int RemotePort, string RouteIdentity,
-        string TreePath = "");
+        string TreePath = "", int RequestedLocalPort = 0);
     internal sealed record Overview(string Id, Target Target, bool IsManual, string State, string Error, int LocalPort)
     {
         public bool CanStart => State is "closed" or "failed" || Error == "host_key_requires_user";
@@ -73,6 +74,8 @@ internal sealed class BackgroundPortForwards : IDisposable
     {
         if (target.RemotePort is < 1 or > 65535)
             throw new ArgumentException("remote_loopback_port must be between 1 and 65535.");
+        if (target.RequestedLocalPort is < 0 or > 65535)
+            throw new ArgumentException("The requested local port must be between 0 and 65535.");
         Sweep();
         Entry entry;
         Task pending;
@@ -141,11 +144,13 @@ internal sealed class BackgroundPortForwards : IDisposable
                         state = "awaiting_user";
                         error = ex.Message; // Only fixed application reason codes reach this exception.
                     }
-                    catch
+                    catch (Exception ex)
                     {
                         transport?.Dispose();
                         transport = null;
                         // Do not return server-controlled exception text or credentials.
+                        if (ex is LocalPortUnavailableException)
+                            error = "local_port_unavailable";
                     }
                     lock (_gate)
                     {
@@ -175,6 +180,7 @@ internal sealed class BackgroundPortForwards : IDisposable
 
     private static bool SameTarget(Target a, Target b) =>
         a.ConnectionId == b.ConnectionId && a.RemotePort == b.RemotePort
+        && a.RequestedLocalPort == b.RequestedLocalPort
         && string.Equals(a.Host, b.Host, StringComparison.OrdinalIgnoreCase);
 
     private void Renew(Entry entry)
