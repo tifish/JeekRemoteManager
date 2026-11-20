@@ -105,7 +105,8 @@ internal static partial class ProductMcpServer
         host.AddTool("public_key_install", PublicKeyInstallAsync);
 
         host.AddTool("session_list", _ => SessionListAsync());
-        host.AddTool("session_open", SessionOpenAsync);
+        host.AddTool("session_open", args => SessionOpenAsync(args, reuseExisting: true));
+        host.AddTool("session_open_new", args => SessionOpenAsync(args, reuseExisting: false));
         host.AddTool("session_close", args => SessionCommandAsync(args, close: true));
         host.AddTool("session_activate", args => SessionCommandAsync(args, close: false));
         host.AddTool("session_move", SessionMoveAsync);
@@ -154,6 +155,7 @@ internal static partial class ProductMcpServer
         sb.AppendLine();
         sb.AppendLine("Start with connection_list to see saved connections, session_open to get a shell,");
         sb.AppendLine("then terminal_run and friends against the returned session id.");
+        sb.AppendLine("Use session_open_new to open an additional tab for a connection.");
         sb.AppendLine("Use terminal_run_batch with explicit connection paths for multi-server work.");
         sb.AppendLine();
         sb.AppendLine(ProductMcpContract.SessionHelp);
@@ -274,7 +276,7 @@ internal static partial class ProductMcpServer
             if (open && IsExternalClient(connection))
                 result["launch"] = LaunchExternal(connection, treePath);
             else if (open)
-                result["session"] = MainWindow.OpenTerminalSession(connection, savedPath, duplicate: false, activate: true);
+                result["session"] = MainWindow.OpenTerminalSession(connection, savedPath, duplicate: false, activate: true).SessionId;
 
             return result;
         }).ConfigureAwait(false);
@@ -1107,8 +1109,7 @@ internal static partial class ProductMcpServer
                     $"'{connectionPath}' is an {connection.Type.ToDisplayName()} connection; it opens in an external viewer and has no terminal session.");
             }
 
-            var sessionId = MainWindow.OpenTerminalSession(connection, filePath, duplicate: false, activate: false);
-            return MainWindow.EnumerateTerminalSessions().First(s => s.SessionId == sessionId).View;
+            return MainWindow.OpenTerminalSession(connection, filePath, duplicate: false, activate: false).View;
         }).ConfigureAwait(false);
     }
 
@@ -1202,7 +1203,7 @@ internal static partial class ProductMcpServer
         return ToolText(result.ToJsonString(PrettyOptions));
     }
 
-    private static async Task<JsonObject> SessionOpenAsync(JsonObject args)
+    private static async Task<JsonObject> SessionOpenAsync(JsonObject args, bool reuseExisting)
     {
         var path = NormalizeTreePath(McpHost.RequiredString(args, "connection"));
         var duplicate = args["duplicate"]?.GetValue<bool>() ?? false;
@@ -1215,9 +1216,7 @@ internal static partial class ProductMcpServer
             if (IsExternalClient(connection))
                 return ("", LaunchExternal(connection, treePath), Task.CompletedTask);
 
-            var id = MainWindow.OpenTerminalSession(connection, filePath, duplicate, activate);
-            var view = MainWindow.EnumerateTerminalSessions().First(s => s.SessionId == id).View;
-            // Start() has already begun connecting, so this is the attempt just launched.
+            var (id, view, _) = MainWindow.OpenTerminalSession(connection, filePath, duplicate, activate, reuseExisting);
             return (id, (JsonObject?)null, view.WaitUntilConnectedAsync());
         }).ConfigureAwait(false);
         if (external is not null)

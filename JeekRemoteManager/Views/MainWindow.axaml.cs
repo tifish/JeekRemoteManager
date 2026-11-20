@@ -33,6 +33,7 @@ public partial class MainWindow : Window
     private enum TerminalOpenMode
     {
         ReuseTab,
+        NewTab,
         NewSession,
         NewTcpConnection,
     }
@@ -510,6 +511,16 @@ public partial class MainWindow : Window
         TerminalOpenMode mode,
         bool select = true)
     {
+        var (view, tab) = OpenTerminalTab(connection, sourcePath, mode, select);
+        return Task.FromResult<TerminalScriptSession?>(CreateTerminalScriptSession(view, tab));
+    }
+
+    private (TerminalView View, TabItem Tab) OpenTerminalTab(
+        Connection connection,
+        string? sourcePath,
+        TerminalOpenMode mode,
+        bool select)
+    {
         if (mode == TerminalOpenMode.ReuseTab)
         {
             var existing = FindTerminalTab(connection, sourcePath);
@@ -522,7 +533,7 @@ public partial class MainWindow : Window
                         RightTabs.SelectedItem = existing.Value.Tab;
                         existing.Value.View.FocusTerminal();
                     }
-                    return Task.FromResult<TerminalScriptSession?>(CreateTerminalScriptSession(existing.Value.View, existing.Value.Tab));
+                    return existing.Value;
                 }
 
                 CloseTerminalTab(existing.Value.Tab);
@@ -552,7 +563,7 @@ public partial class MainWindow : Window
                 sourcePath,
                 forceNewTcpConnection: mode == TerminalOpenMode.NewTcpConnection);
         }
-        return Task.FromResult<TerminalScriptSession?>(CreateTerminalScriptSession(view, tab));
+        return (view, tab);
     }
 
     // The right-click already selected the connection, which binds its editor.

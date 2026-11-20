@@ -4,6 +4,8 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
 using System.Linq;
+using System.Net;
+using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
@@ -476,8 +478,8 @@ internal static partial class DebugMcpServer
     /// </summary>
     private static async Task<JsonObject> ProductMcpCheckAsync()
     {
-        const string folder = "_mcp_selftest";
-        const string connection = folder + "/probe";
+        var folder = $"_mcp_selftest_{Guid.NewGuid():N}";
+        var connection = folder + "/probe";
         const string secret = "jrm-selftest-secret-2f4a";
 
         var pipeName = ProductMcpServer.PipeName;
@@ -496,6 +498,10 @@ internal static partial class DebugMcpServer
 
         try
         {
+            // Leave SSH handshakes pending on loopback so repeated opens can exercise tab reuse.
+            using var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
             var connectionsRoot = await OnUiAsync(() =>
                 (Desktop?.MainWindow?.DataContext as ViewModels.MainWindowViewModel)?.RootPath ?? "");
             await using var session = await OpenPipeSessionAsync(pipeName).ConfigureAwait(false);
@@ -509,6 +515,8 @@ internal static partial class DebugMcpServer
                 .ConfigureAwait(false);
             var toolCount = JsonNode.Parse(toolList)?["result"]?["tools"] is JsonArray tools ? tools.Count : 0;
             Check("tools/list advertises the connection surface", toolCount >= 18);
+            Check("tools/list advertises the explicit new-tab tool",
+                toolList.Contains("\"session_open_new\"", StringComparison.Ordinal));
             Check("tools/list advertises terminal-tab reordering",
                 toolList.Contains("\"session_move\"", StringComparison.Ordinal)
                 && toolList.Contains("\"position\"", StringComparison.Ordinal));
@@ -522,7 +530,8 @@ internal static partial class DebugMcpServer
                 ["name"] = "probe",
                 ["folder"] = folder,
                 ["type"] = "ssh",
-                ["host"] = "127.0.0.1",
+                ["host"] = "localhost",
+                ["port"] = port,
                 ["username"] = "selftest",
                 ["notes"] = "debug probe",
             })).ConfigureAwait(false));
@@ -550,11 +559,11 @@ internal static partial class DebugMcpServer
             var updated = ExtractToolText(await session.CallAsync(ToolCall(20, "connection_update", new JsonObject
             {
                 ["connection"] = connection,
-                ["host"] = "10.0.0.9",
+                ["host"] = "127.0.0.1",
                 ["notes"] = "updated by probe",
             })).ConfigureAwait(false));
             Check("connection_update writes only the fields it was given",
-                updated.Contains("\"host\": \"10.0.0.9\"", StringComparison.Ordinal)
+                updated.Contains("\"host\": \"127.0.0.1\"", StringComparison.Ordinal)
                 && updated.Contains("updated by probe", StringComparison.Ordinal)
                 && updated.Contains("\"username\": \"selftest\"", StringComparison.Ordinal));
             Check("connection_update keeps the stored password", updated.Contains("\"hasPassword\": true", StringComparison.Ordinal));
@@ -694,7 +703,7 @@ internal static partial class DebugMcpServer
 
             // A refused connection must be reported as soon as it fails, not after the
             // whole wait: session_open awaits the attempt instead of polling for "live".
-            const string refused = folder + "/refused";
+            var refused = folder + "/refused";
             await session.CallAsync(ToolCall(40, "connection_create", new JsonObject
             {
                 ["name"] = "refused",
@@ -720,9 +729,6 @@ internal static partial class DebugMcpServer
                 ["session"] = refused,
             })).ConfigureAwait(false);
 
-            // Session lifecycle against 127.0.0.1, which has no sshd here: the tab opens and
-            // stays un-live, which is exactly the addressing path we need to exercise without
-            // touching one of the user's real servers.
             var opened = ExtractToolText(await session.CallAsync(ToolCall(9, "session_open", new JsonObject
             {
                 ["connection"] = connection,
@@ -731,21 +737,56 @@ internal static partial class DebugMcpServer
             })).ConfigureAwait(false));
             Check("session_open returns the tree-path session id",
                 opened.Contains($"\"session\": \"{connection}\"", StringComparison.Ordinal));
-            Check("session_open reports a status", opened.Contains("\"status\"", StringComparison.Ordinal));
+            Check("session_open reports a pending login",
+                opened.Contains("\"status\": \"awaiting_user\"", StringComparison.Ordinal));
 
             var listed = ExtractToolText(await session.CallAsync(ToolCall(10, "session_list", new JsonObject()))
                 .ConfigureAwait(false));
-            Check("session_list shows the new session", listed.Contains(connection, StringComparison.Ordinal));
+            Check("session_list shows the new background session",
+                JsonNode.Parse(listed)?["sessions"] is JsonArray initialSessions
+                && initialSessions.Any(s => s?["session"]?.GetValue<string>() == connection
+                                         && s["active"]?.GetValue<bool>() == false));
 
-            var openedSecond = ExtractToolText(await session.CallAsync(ToolCall(32, "session_open", new JsonObject
+            var reopened = ExtractToolText(await session.CallAsync(ToolCall(43, "session_open", new JsonObject
+            {
+                ["connection"] = connection.ToUpperInvariant().Replace('/', '\\'),
+                ["wait_seconds"] = 1,
+            })).ConfigureAwait(false));
+            Check("session_open reuses the pending session for the same saved path",
+                reopened.Contains($"\"session\": \"{connection}\"", StringComparison.Ordinal)
+                && reopened.Contains("\"status\": \"awaiting_user\"", StringComparison.Ordinal));
+            var listedAfterReuse = ExtractToolText(await session.CallAsync(ToolCall(44, "session_list", new JsonObject()))
+                .ConfigureAwait(false));
+            Check("session_open activates the existing tab without adding another",
+                JsonNode.Parse(listedAfterReuse)?["sessions"] is JsonArray reusedSessions
+                && reusedSessions.Count(s => s?["session"]?.GetValue<string>()?.StartsWith(folder + "/", StringComparison.Ordinal) == true) == 1
+                && reusedSessions.Any(s => s?["session"]?.GetValue<string>() == connection
+                                        && s["active"]?.GetValue<bool>() == true));
+
+            var openedSecond = ExtractToolText(await session.CallAsync(ToolCall(45, "session_open_new", new JsonObject
             {
                 ["connection"] = connection,
                 ["activate"] = false,
                 ["wait_seconds"] = 1,
             })).ConfigureAwait(false));
             var secondSession = connection + " (2)";
-            Check("session_open creates an addressable second tab",
+            Check("session_open_new creates an addressable second tab",
                 openedSecond.Contains($"\"session\": \"{secondSession}\"", StringComparison.Ordinal));
+
+            var legacyDuplicate = ExtractToolText(await session.CallAsync(ToolCall(46, "session_open", new JsonObject
+            {
+                ["connection"] = connection,
+                ["duplicate"] = true,
+                ["activate"] = false,
+                ["wait_seconds"] = 1,
+            })).ConfigureAwait(false));
+            var thirdSession = connection + " (3)";
+            Check("session_open still accepts duplicate: true for an additional tab",
+                legacyDuplicate.Contains($"\"session\": \"{thirdSession}\"", StringComparison.Ordinal));
+            await session.CallAsync(ToolCall(47, "session_close", new JsonObject
+            {
+                ["session"] = thirdSession,
+            })).ConfigureAwait(false);
 
             var sessionMoved = ExtractToolText(await session.CallAsync(ToolCall(33, "session_move", new JsonObject
             {

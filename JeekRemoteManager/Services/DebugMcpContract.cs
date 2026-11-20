@@ -288,7 +288,7 @@ public static class DebugMcpContract
             "Persistent AI-panel rendering probe: action 'open' adds a local terminal tab with the embedded agent CLI started, 'status' reports feed/scroll state plus visible viewport text, 'hide' closes and disposes the AI runtime while keeping the tab, and 'close' removes the tab.",
             new() { ["action"] = Prop("string", "open | status | hide | close (default status).") }),
         Tool("product_mcp_check",
-            "Drives the product MCP surface over its own pipe the way a user's agent would: create a throwaway connection, verify passwords are write-only, exercise session open/list/move/close, in-session addressing and command forwarding without confirmation, then delete the connection.",
+            "Drives the product MCP surface over its own pipe: create a throwaway connection, verify passwords are write-only, exercise session reuse, new tabs, listing, moving and closing, in-session addressing and command forwarding, then delete the connection.",
             new()),
         Tool("mcp_adapter_offline_check",
             "Runs the stdio adapter beside this build against a pipe nobody serves and verifies it advertises tools.listChanged and lists the full product contract offline; then serves that pipe with a fake app offering a different tool list and verifies the next call is followed by notifications/tools/list_changed.",

@@ -57,39 +57,25 @@ public partial class MainWindow
             .ResolveRelativePath(connectionsRoot, view.SourcePath, view.Connection, view.SessionNumber)
             .Replace('\\', '/');
 
-    /// <summary>Opens a terminal tab for the product MCP surface and returns its session id.</summary>
-    internal string OpenTerminalSession(
+    /// <summary>Opens or reuses a terminal tab for the product MCP surface.</summary>
+    internal (string SessionId, TerminalView View, TabItem Tab) OpenTerminalSession(
         Connection connection,
-        string? sourcePath,
+        string sourcePath,
         bool duplicate,
-        bool activate)
+        bool activate,
+        bool reuseExisting = false)
     {
-        TerminalView view;
-        if (duplicate
-            && EnumerateTerminalSessions().FirstOrDefault(s =>
-                !string.IsNullOrEmpty(s.View.SourcePath)
-                && !string.IsNullOrEmpty(sourcePath)
-                && PathEquals(s.View.SourcePath!, sourcePath!)) is { View: { } source })
-        {
-            // Piggyback on the authenticated transport, like the tab's own Duplicate command.
-            var shared = BastionSessionPool.IsEligible(connection)
-                ? null
-                : source.ShareClientForDuplicate();
-            (view, _) = CreateTerminalTab(connection, sourcePath, activate);
-            view.Start(connection, sourcePath, shared, isDuplicatedSession: true);
-        }
-        else
-        {
-            (view, _) = CreateTerminalTab(connection, sourcePath, activate);
-            view.Start(connection, sourcePath);
-        }
+        var mode = duplicate ? TerminalOpenMode.NewSession
+            : reuseExisting ? TerminalOpenMode.ReuseTab
+            : TerminalOpenMode.NewTab;
+        var (view, tab) = OpenTerminalTab(connection, sourcePath, mode, activate);
 
         if (activate)
             ActivateWindow();
 
         var connectionsRoot = (DataContext as MainWindowViewModel)?.RootPath
                               ?? SettingsService.ResolveConnectionsRoot(StorageLocation.UserDirectory);
-        return BuildSessionId(connectionsRoot, view);
+        return (BuildSessionId(connectionsRoot, view), view, tab);
     }
 
     internal bool CloseTerminalSession(TabItem tab)

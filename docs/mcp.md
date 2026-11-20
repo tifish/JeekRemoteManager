@@ -121,6 +121,10 @@ agent 启动的是 `%LocalAppData%\JeekRemoteManager\Mcp\JeekRemoteManagerMcp.ex
 
 产品面上的会话用**和 agent 工作区一样的树相对路径**寻址（`vps/bwg`、`vps/bwg (2)`），这样 id 对人是有意义的，也不需要维护一张注册表。
 
+- `session_open` 按保存的连接路径查找已连接或正在连接的标签页，并返回该标签页的会话 ID。没有可复用的会话时，沿用连接树「连接」操作的行为打开一个。`activate` 默认选中标签页并把窗口带到前台，可设为 `false` 在后台使用。
+- `session_open_new` 每次打开一个新标签页，适用于需要独立 shell 的调用。两个工具都接受 `duplicate: true`，此时打开新标签页并在可用时复用已认证的 SSH 传输。RDP/VNC 由外部查看器打开。
+- Debug MCP 的 `product_mcp_check` 通过产品管道验证会话复用、激活以及显式新建标签页。
+
 ## 对象图（仅调试面）
 
 JeekTools 的 `ObjectGraph` 是基于反射的对象路径引擎：`Root.Member[0]["key"].#Name` 这样的路径可以穿过属性、字段（含非公开）、列表下标、字典键，以及一个可选的"具名子元素"钩子（在 UI 元素下按 `#Name` 找控件）。支持读、写、调用，能转换 JSON 参数（包括 `{"$path": ...}` 这种活对象引用）。

@@ -25,7 +25,12 @@ public static class ProductMcpContract
     public const string SessionHelp =
         "Sessions are addressed by the connection's tree path, with a suffix for extra tabs on " +
         "the same connection: 'vps/bwg', 'vps/bwg (2)'. Call session_list to see what is open " +
-        "and session_open to start one.";
+        "and session_open to reuse or start a session.";
+
+    private const string SessionOpenHelp =
+        " Returns the session id. RDP/VNC open their external viewer and return no session. "
+        + "If login takes longer than wait_seconds, returns status 'awaiting_user' and a session id to poll "
+        + "with session_list. Status 'failed' includes the connection error.";
 
     public static JsonArray BuildToolList() => new(
         Tool("port_forward_ensure",
@@ -233,17 +238,13 @@ public static class ProductMcpContract
             "Terminal tabs currently open, with their session id, connection, and live state. " + SessionHelp,
             new()),
         Tool("session_open",
-            "Open a terminal tab for a connection and return its session id (RDP/VNC instead open their external viewer and return no session). May block while the user "
-            + "completes login steps in the window (master password, two-factor); if that takes too long "
-            + "the tool returns status 'awaiting_user' and the session id to poll with session_list. "
-            + "Status 'failed' means the connection did not come up; the message says why.",
-            new()
-            {
-                ["connection"] = Prop("string", "Connection tree path to open."),
-                ["duplicate"] = Prop("boolean", "Open an extra tab on the same connection, reusing the authenticated transport (default false)."),
-                ["activate"] = Prop("boolean", "Bring the window and the new tab to the front (default true)."),
-                ["wait_seconds"] = Prop("integer", "How long to wait for the shell before returning awaiting_user (default 30, max 300)."),
-            },
+            "Reuse a connected or connecting terminal tab for the saved connection, or open one if needed. "
+            + "Use session_open_new to open an additional tab." + SessionOpenHelp,
+            SessionOpenArgs(),
+            ["connection"]),
+        Tool("session_open_new",
+            "Open a new terminal tab for the connection, even if a tab is already open." + SessionOpenHelp,
+            SessionOpenArgs(),
             ["connection"]),
         Tool("session_close",
             "Close a terminal tab. " + SessionHelp,
@@ -363,6 +364,14 @@ public static class ProductMcpContract
         properties["open"] = Prop("boolean", "Open a session immediately after creating (default false).");
         return properties;
     }
+
+    private static JsonObject SessionOpenArgs() => new()
+    {
+        ["connection"] = Prop("string", "Connection tree path to open."),
+        ["duplicate"] = Prop("boolean", "Open a new tab and reuse the authenticated transport when available (default false)."),
+        ["activate"] = Prop("boolean", "Bring the window and the session tab to the front (default true)."),
+        ["wait_seconds"] = Prop("integer", "How long to wait for the shell before returning awaiting_user (default 30, max 300)."),
+    };
 
     /// <summary>Every in-session tool takes the same addressing arguments.</summary>
     private static JsonObject SessionArgs(JsonObject? extra = null)

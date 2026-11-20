@@ -1908,8 +1908,7 @@ internal static partial class DebugMcpServer
             {
                 var main = (Views.MainWindow)Desktop!.MainWindow!;
                 var (connection, _, filePath) = ProductMcpServer.LoadConnection(path);
-                var id = main.OpenTerminalSession(connection, filePath, duplicate: false, activate: false);
-                var session = main.EnumerateTerminalSessions().First(s => s.SessionId == id);
+                var session = main.OpenTerminalSession(connection, filePath, duplicate: false, activate: false);
                 tab = session.Tab;
                 return session.View;
             });
