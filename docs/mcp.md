@@ -124,7 +124,7 @@ agent 启动的是 `%LocalAppData%\JeekRemoteManager\Mcp\JeekRemoteManagerMcp.ex
 产品面上的会话用**和 agent 工作区一样的树相对路径**寻址（`vps/bwg`、`vps/bwg (2)`），这样 id 对人是有意义的，也不需要维护一张注册表。
 
 - `session_open` 按保存的连接路径查找已连接或正在连接的标签页，并返回该标签页的会话 ID。没有可复用的会话时，沿用连接树「连接」操作的行为打开一个。`activate` 默认选中标签页并把窗口带到前台，可设为 `false` 在后台使用。
-- `session_open_new` 每次打开一个新标签页，适用于需要独立 shell 的调用。两个工具都接受 `duplicate: true`，此时打开新标签页并在可用时复用已认证的 SSH 传输。RDP/VNC 由外部查看器打开。
+- `session_open_new` 每次打开一个新标签页，沿用界面「新建会话」的行为，在可用时复用已认证的 SSH 传输。原先使用 `duplicate: true` 的调用改用 `session_open_new`。RDP/VNC 由外部查看器打开。
 - Debug MCP 的 `product_mcp_check` 通过产品管道验证会话复用、激活以及显式新建标签页。
 
 ## 对象图（仅调试面）

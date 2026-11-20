@@ -244,7 +244,8 @@ public static class ProductMcpContract
             SessionOpenArgs(),
             ["connection"]),
         Tool("session_open_new",
-            "Open a new terminal tab for the connection, even if a tab is already open." + SessionOpenHelp,
+            "Open a new terminal tab for the connection, reusing its authenticated SSH transport when available."
+            + SessionOpenHelp,
             SessionOpenArgs(),
             ["connection"]),
         Tool("session_close",
@@ -369,7 +370,6 @@ public static class ProductMcpContract
     private static JsonObject SessionOpenArgs() => new()
     {
         ["connection"] = Prop("string", "Connection tree path to open."),
-        ["duplicate"] = Prop("boolean", "Open a new tab and reuse the authenticated transport when available (default false)."),
         ["activate"] = Prop("boolean", "Bring the window and the session tab to the front (default true)."),
         ["wait_seconds"] = Prop("integer", "How long to wait for the shell before returning awaiting_user (default 30, max 300)."),
     };

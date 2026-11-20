@@ -513,10 +513,16 @@ internal static partial class DebugMcpServer
 
             var toolList = await session.CallAsync("""{"jsonrpc":"2.0","id":2,"method":"tools/list"}""")
                 .ConfigureAwait(false);
-            var toolCount = JsonNode.Parse(toolList)?["result"]?["tools"] is JsonArray tools ? tools.Count : 0;
-            Check("tools/list advertises the connection surface", toolCount >= 18);
-            Check("tools/list advertises the explicit new-tab tool",
-                toolList.Contains("\"session_open_new\"", StringComparison.Ordinal));
+            var tools = JsonNode.Parse(toolList)?["result"]?["tools"] as JsonArray ?? [];
+            Check("tools/list advertises the connection surface", tools.Count >= 18);
+            var openArgs = tools.FirstOrDefault(t => t?["name"]?.GetValue<string>() == "session_open")
+                ?["inputSchema"]?["properties"] as JsonObject;
+            var newTabArgs = tools.FirstOrDefault(t => t?["name"]?.GetValue<string>() == "session_open_new")
+                ?["inputSchema"]?["properties"] as JsonObject;
+            Check("tools/list exposes both session open tools with the same three arguments",
+                openArgs is { Count: 3 } && openArgs.ContainsKey("connection")
+                && openArgs.ContainsKey("activate") && openArgs.ContainsKey("wait_seconds")
+                && JsonNode.DeepEquals(openArgs, newTabArgs));
             Check("tools/list advertises terminal-tab reordering",
                 toolList.Contains("\"session_move\"", StringComparison.Ordinal)
                 && toolList.Contains("\"position\"", StringComparison.Ordinal));
@@ -763,30 +769,30 @@ internal static partial class DebugMcpServer
                 && reusedSessions.Any(s => s?["session"]?.GetValue<string>() == connection
                                         && s["active"]?.GetValue<bool>() == true));
 
-            var openedSecond = ExtractToolText(await session.CallAsync(ToolCall(45, "session_open_new", new JsonObject
+            var legacyDuplicate = await session.CallAsync(ToolCall(45, "session_open", new JsonObject
+            {
+                ["connection"] = connection,
+                ["duplicate"] = true,
+                ["activate"] = false,
+                ["wait_seconds"] = 1,
+            })).ConfigureAwait(false);
+            Check("session_open directs old duplicate calls to the new-tab tool",
+                JsonNode.Parse(legacyDuplicate)?["result"]?["isError"]?.GetValue<bool>() == true
+                && ExtractToolText(legacyDuplicate).Contains("Use session_open_new", StringComparison.Ordinal));
+
+            var openedSecond = ExtractToolText(await session.CallAsync(ToolCall(46, "session_open_new", new JsonObject
             {
                 ["connection"] = connection,
                 ["activate"] = false,
                 ["wait_seconds"] = 1,
             })).ConfigureAwait(false));
             var secondSession = connection + " (2)";
-            Check("session_open_new creates an addressable second tab",
-                openedSecond.Contains($"\"session\": \"{secondSession}\"", StringComparison.Ordinal));
-
-            var legacyDuplicate = ExtractToolText(await session.CallAsync(ToolCall(46, "session_open", new JsonObject
-            {
-                ["connection"] = connection,
-                ["duplicate"] = true,
-                ["activate"] = false,
-                ["wait_seconds"] = 1,
-            })).ConfigureAwait(false));
-            var thirdSession = connection + " (3)";
-            Check("session_open still accepts duplicate: true for an additional tab",
-                legacyDuplicate.Contains($"\"session\": \"{thirdSession}\"", StringComparison.Ordinal));
-            await session.CallAsync(ToolCall(47, "session_close", new JsonObject
-            {
-                ["session"] = thirdSession,
-            })).ConfigureAwait(false);
+            var usesDuplicatePolicy = await OnUiAsync(() => ((Views.MainWindow)Desktop!.MainWindow!)
+                .EnumerateTerminalSessions().FirstOrDefault(s => s.SessionId == secondSession)
+                .View?.DebugIsDuplicatedSession == true).ConfigureAwait(false);
+            Check("session_open_new creates an addressable second tab with the new-session transport policy",
+                openedSecond.Contains($"\"session\": \"{secondSession}\"", StringComparison.Ordinal)
+                && usesDuplicatePolicy);
 
             var sessionMoved = ExtractToolText(await session.CallAsync(ToolCall(33, "session_move", new JsonObject
             {

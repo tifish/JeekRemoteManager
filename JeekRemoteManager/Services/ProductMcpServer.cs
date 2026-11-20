@@ -1205,8 +1205,10 @@ internal static partial class ProductMcpServer
 
     private static async Task<JsonObject> SessionOpenAsync(JsonObject args, bool reuseExisting)
     {
+        if (args["duplicate"]?.GetValue<bool>() == true)
+            return ToolText("Use session_open_new to open a new tab.", isError: true);
+
         var path = NormalizeTreePath(McpHost.RequiredString(args, "connection"));
-        var duplicate = args["duplicate"]?.GetValue<bool>() ?? false;
         var activate = args["activate"]?.GetValue<bool>() ?? true;
         var waitSeconds = Math.Clamp(args["wait_seconds"]?.GetValue<int>() ?? 30, 1, 300);
 
@@ -1216,7 +1218,8 @@ internal static partial class ProductMcpServer
             if (IsExternalClient(connection))
                 return ("", LaunchExternal(connection, treePath), Task.CompletedTask);
 
-            var (id, view, _) = MainWindow.OpenTerminalSession(connection, filePath, duplicate, activate, reuseExisting);
+            var (id, view, _) = MainWindow.OpenTerminalSession(connection, filePath,
+                duplicate: !reuseExisting, activate: activate, reuseExisting: reuseExisting);
             return (id, (JsonObject?)null, view.WaitUntilConnectedAsync());
         }).ConfigureAwait(false);
         if (external is not null)
