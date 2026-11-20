@@ -13,7 +13,7 @@ namespace JeekRemoteManager.Services;
 
 internal static partial class ProductMcpServer
 {
-    private static readonly BackgroundPortForwards BackgroundForwards = new();
+    private static readonly BackgroundPortForwards BackgroundForwards = BackgroundPortForwards.Shared;
 
     internal static JsonArray PortForwardsForDebug() => BackgroundForwards.SnapshotForDebug();
 
@@ -26,56 +26,17 @@ internal static partial class ProductMcpServer
             throw new ArgumentException("remote_loopback_port must be between 1 and 65535.");
         var expected = McpHost.RequiredString(args, "expected_host").Trim();
         var path = NormalizeTreePath(McpHost.RequiredString(args, "connection"));
-        var saved = await OnUiAsync(() =>
+        var plan = await OnUiAsync(() =>
         {
             var (connection, resolved, _) = LoadConnection(path);
             if (!string.Equals(path, resolved, StringComparison.OrdinalIgnoreCase))
                 throw new ArgumentException("Use the exact tree path from connection_list.");
             if (!connection.IsSsh || !string.Equals(connection.Host.Trim(), expected, StringComparison.OrdinalIgnoreCase))
                 throw new ArgumentException("Saved SSH host does not match expected_host.");
-            var route = SshDialer.ResolveJumpRoute(connection, MainVm.Store.TryLoadById).Append(connection).ToArray();
-            return (Connection: connection, Route: route);
+            return SshForwardTransport.Prepare(connection, resolved, port, MainVm.Store.TryLoadById,
+                MainWindow.ActivateMainWindow);
         }).ConfigureAwait(false);
-        // Capture a route snapshot, never resolve a newly moved/changed target while dialing.
-        var routeIdentity = string.Join("|", saved.Route.Select(c =>
-            $"{c.ConnectionId}:{c.Host.Trim()}:{c.Port}:{c.Username.Trim()}"));
-        var target = new BackgroundPortForwards.Target(saved.Connection.ConnectionId, expected, port, routeIdentity);
-        var report = await BackgroundForwards.EnsureAsync(owner, target, (token, prompted) =>
-        {
-            void Activate() => Dispatcher.UIThread.Post(() =>
-            {
-                MainWindow.Show();
-                MainWindow.Activate();
-            });
-            // Do this before decrypting credentials. Attach still checks the actual key
-            // at every hop, rejecting unknown/changed keys even if the file changes here.
-            foreach (var hop in saved.Route)
-            {
-                if (!KnownHostsStore.Default.TryGet(hop.Host, hop.Port, out _))
-                {
-                    Activate();
-                    throw new BackgroundPortForwards.UserRequiredException("host_key_requires_user");
-                }
-            }
-            var keyRejected = false;
-            try
-            {
-                return SshForwardTransport.Open(saved.Connection, port,
-                    new SshDialOptions(
-                        RequireKnownHost: true,
-                        OnRejected: _ => { keyRejected = true; Activate(); },
-                        PromptUser: challenge =>
-                        {
-                            prompted();
-                            return KeyboardInteractiveDialog.Prompt(challenge, token);
-                        }),
-                    id => saved.Route.FirstOrDefault(c => c.ConnectionId == id), token);
-            }
-            catch when (keyRejected)
-            {
-                throw new BackgroundPortForwards.UserRequiredException("host_key_requires_user");
-            }
-        }).ConfigureAwait(false);
+        var report = await BackgroundForwards.EnsureAsync(owner, plan.Target, plan.Dial).ConfigureAwait(false);
         return ToolText(report.ToJsonString(PrettyOptions));
     }
 
@@ -95,7 +56,53 @@ internal sealed class SshForwardTransport(SshClient client, ForwardedPortLocal f
     public bool IsReady => Volatile.Read(ref _disposed) == 0 && client.IsConnected && forward.IsStarted;
     public int LocalPort => (int)forward.BoundPort;
 
-    internal static SshForwardTransport Open(Connection connection, int port, SshDialOptions options,
+    internal sealed record Plan(BackgroundPortForwards.Target Target,
+        Func<CancellationToken, Action, BackgroundPortForwards.ITransport> Dial);
+
+    internal static Plan Prepare(Connection connection, string treePath, int port,
+        Func<string, Connection?> resolver, Action activateWindow)
+    {
+        // Capture a route snapshot, never resolve a newly moved/changed target while dialing.
+        var route = SshDialer.ResolveJumpRoute(connection, resolver).Append(connection).ToArray();
+        var routeIdentity = string.Join("|", route.Select(c =>
+            $"{c.ConnectionId}:{c.Host.Trim()}:{c.Port}:{c.Username.Trim()}"));
+        var target = new BackgroundPortForwards.Target(connection.ConnectionId, connection.Host.Trim(),
+            port, routeIdentity, treePath);
+        return new Plan(target, (token, prompted) =>
+        {
+            void Activate() => Dispatcher.UIThread.Post(activateWindow);
+            // Do this before decrypting credentials. Attach still checks the actual key
+            // at every hop, rejecting unknown/changed keys even if the file changes here.
+            foreach (var hop in route)
+            {
+                if (!KnownHostsStore.Default.TryGet(hop.Host, hop.Port, out _))
+                {
+                    Activate();
+                    throw new BackgroundPortForwards.UserRequiredException("host_key_requires_user");
+                }
+            }
+            var keyRejected = false;
+            try
+            {
+                return Open(connection, port,
+                    new SshDialOptions(
+                        RequireKnownHost: true,
+                        OnRejected: _ => { keyRejected = true; Activate(); },
+                        PromptUser: challenge =>
+                        {
+                            prompted();
+                            return KeyboardInteractiveDialog.Prompt(challenge, token);
+                        }),
+                    id => route.FirstOrDefault(c => c.ConnectionId == id), token);
+            }
+            catch when (keyRejected)
+            {
+                throw new BackgroundPortForwards.UserRequiredException("host_key_requires_user");
+            }
+        });
+    }
+
+    private static SshForwardTransport Open(Connection connection, int port, SshDialOptions options,
         Func<string, Connection?> resolver, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();

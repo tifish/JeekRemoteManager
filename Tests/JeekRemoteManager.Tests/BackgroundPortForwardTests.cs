@@ -102,6 +102,76 @@ public sealed class BackgroundPortForwardTests
         Assert.Equal("closed", State(manager.Read(Id(result), owner)));
     }
 
+    [Fact]
+    public async Task User_can_pause_and_resume_leased_forward_without_allowing_ensure_to_restart_it()
+    {
+        var now = DateTimeOffset.UtcNow;
+        using var manager = new BackgroundPortForwards(() => now, startTimer: false);
+        var owner = Guid.NewGuid().ToString();
+        var transport = new Transport(41001);
+        var started = await manager.EnsureAsync(owner, Target, (_, _) => transport);
+        var id = Id(started);
+        manager.StopFromManager(id);
+        Assert.False(transport.IsReady);
+        now += TimeSpan.FromSeconds(100);
+        var paused = await manager.EnsureAsync(owner, Target, (_, _) => new Transport(41002));
+        Assert.Equal(id, Id(paused));
+        Assert.Equal("closed", State(paused));
+        Assert.Equal("stopped_by_user", paused["error"]!.GetValue<string>());
+        Assert.Equal(now + BackgroundPortForwards.Lease,
+            DateTimeOffset.Parse(paused["lease_expires_at"]!.GetValue<string>()));
+        now += TimeSpan.FromMinutes(30);
+        Assert.Equal("stopped_by_user", Assert.Single(manager.List()).Error);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => manager.StartFromManagerAsync(
+            Target with { RouteIdentity = "changed-route" }, (_, _) => new Transport(41003), id));
+        var resumed = await manager.StartFromManagerAsync(Target, (_, _) => new Transport(41004), id);
+        Assert.Equal(id, Id(resumed));
+        Assert.Equal("ready", State(manager.Read(id, owner)));
+        Assert.Equal(41004, resumed["local_port"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public async Task Manual_forwards_have_no_lease_and_cannot_be_closed_by_mcp_owners()
+    {
+        var now = DateTimeOffset.UtcNow;
+        using var manager = new BackgroundPortForwards(() => now, startTimer: false);
+        var owner = Guid.NewGuid().ToString();
+        var manual = await manager.StartFromManagerAsync(Target, (_, _) => new Transport(41001));
+        var leased = await manager.EnsureAsync(owner, Target, (_, _) => new Transport(41002));
+        Assert.NotEqual(Id(manual), Id(leased));
+        Assert.Throws<InvalidOperationException>(() => manager.Read(Id(manual), owner, close: true));
+        now += TimeSpan.FromMinutes(30);
+        var row = Assert.Single(manager.List());
+        Assert.True(row.IsManual);
+        Assert.Equal("ready", row.State);
+        manager.StopFromManager(row.Id);
+        var resumed = await manager.StartFromManagerAsync(Target, (_, _) => new Transport(41003), row.Id);
+        Assert.Equal(row.Id, Id(resumed));
+        Assert.Equal("ready", State(resumed));
+    }
+
+    [Fact]
+    public async Task User_can_restart_immediately_after_cancelling_pending_authentication()
+    {
+        using var manager = new BackgroundPortForwards(startTimer: false);
+        using var finish = new ManualResetEventSlim();
+        var previous = new Transport(41001);
+        var released = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pending = await manager.StartFromManagerAsync(Target, (_, prompted) =>
+        {
+            prompted();
+            finish.Wait(TimeSpan.FromSeconds(5));
+            return new NotifyingTransport(previous, released);
+        });
+        manager.StopFromManager(Id(pending));
+        var resumed = await manager.StartFromManagerAsync(Target, (_, _) => new Transport(41002), Id(pending));
+        finish.Set();
+        await released.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("ready", State(resumed));
+        Assert.Equal(41002, Assert.Single(manager.List()).LocalPort);
+        Assert.False(previous.IsReady);
+    }
+
     private sealed class NotifyingTransport(Transport inner, TaskCompletionSource disposed) : BackgroundPortForwards.ITransport
     {
         public bool IsReady => inner.IsReady;

@@ -143,6 +143,7 @@ internal static partial class DebugMcpServer
         host.AddTool("background_port_forward_snapshot", _ => Task.FromResult(ToolText(
             ProductMcpServer.PortForwardsForDebug().ToJsonString(PrettyOptions))));
         host.AddTool("background_port_forward_check", _ => BackgroundPortForwardCheckAsync());
+        host.AddTool("background_port_forward_manager_check", _ => BackgroundPortForwardManagerCheckAsync());
         host.AddTool("ssh_jump_chain_check", SshJumpChainCheckAsync);
         host.AddTool("jump_host_editor_check", _ => JumpHostEditorCheckAsync());
         host.AddTool("connection_tree_rename_check", _ => ConnectionTreeRenameCheckAsync());

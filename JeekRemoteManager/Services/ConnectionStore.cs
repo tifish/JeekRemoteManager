@@ -391,7 +391,7 @@ public class ConnectionStore
     public string? TryGetTreePathById(string id) => FindById(id) is { } found
         ? Path.GetRelativePath(RootPath, found.Path)[..^FileExtension.Length].Replace('\\', '/') : null;
 
-    private ConnectionFileSnapshot? FindById(string id)
+    internal ConnectionFileSnapshot? FindById(string id)
     {
         if (string.IsNullOrWhiteSpace(id))
             return null;

@@ -91,7 +91,7 @@ SSH.NET 没有内置的 host key 校验，默认信任所有主机。`KnownHosts
 
 ## 后台回环转发
 
-`BackgroundPortForwards.cs`、`ProductMcpServer.PortForwards.cs` 提供不依赖标签页的最小转发管理。
+`BackgroundPortForwards.cs`、`ProductMcpServer.PortForwards.cs`、`BackgroundPortForwardWindow.cs` 共用独立于标签页的转发注册表。
 产品 MCP 的 `port_forward_ensure/status/close` 使用独立 `SshDialer` 传输和
 `ForwardedPortLocal("127.0.0.1", 0, "127.0.0.1", port)`，不打开 session channel、PTY、shell，
 不执行 `LoginCommands` 或保存连接中的 `PortForwards`。关闭终端不影响后台转发，后台关闭不释放任何终端传输。
@@ -108,6 +108,13 @@ saved host 必须等于 `expected_host`，连接必须使用 `connection_list` �
 close 幂等且只关闭匹配 owner 的 ID，关闭记录保留至原租约结束后十分钟。
 应用退出/重启释放全部后台监听，ID 不跨进程持久化。
 
+连接面板「更多操作 → 后台 SSH 端口转发」实时显示转发状态、来源和两端地址，可以复制可用的本地地址。
+选择已保存的 SSH 连接和远端回环端口即可开启手动转发。同一连接和远端端口的手动转发共用一条记录，
+有效期随应用进程，关闭管理窗口时继续运行。停止的手动转发可以重新开启，本地端口可能变化。
+在窗口关闭 MCP 转发后，原 owner 的 ensure/status 仍续租并返回 `closed/stopped_by_user`。
+手动停止记录保留到应用退出。窗口重新开启该转发时恢复原 ID 和租约机制。
+重新开启所选转发会核对原连接身份和 SSH 路由。需要使用已修改的路由时，应从保存的连接重新开启手动转发。
+
 `ready` 表示当前 SSH 已连接且本地转发监听已启动，并不保证远端 HTTP 服务可用。
 断线/监听停止变为 `failed`；status 不重连，客户端需再次 ensure，恢复时本地端口可能改变。
 `awaiting_user` 的 `error` 区分 `ssh_connecting`（拨号尚未完成）、
@@ -118,6 +125,7 @@ API Bearer、业务授权、lease 和 request_id 均由调用方/daemon 保持�
 Debug MCP `background_port_forward_snapshot` 只读实际状态且不续租；
 `background_port_forward_check` 用隔离的本地监听夹具检查幂等、隔离、冲突、断线和释放，
 不拨生产 SSH、不创建终端。单元测试还覆盖认证期间关闭的竞态和严格主机密钥策略。
+`background_port_forward_manager_check` 从连接面板菜单打开窗口，并用隔离的本地监听夹具验证界面操作。
 
 ## 传输复用：SharedSshClient
 

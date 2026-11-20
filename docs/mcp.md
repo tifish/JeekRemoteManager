@@ -58,6 +58,8 @@ state 为 `ready/closed/failed/awaiting_user`。端口只是示例，调用方�
 ```
 
 ensure/status 续租 120 秒，建议 30 秒续租。断线后 ensure 恢复；应用重启或 ID 过期后重新 ensure。
+用户在连接面板关闭一条 MCP 转发后，ensure/status 续租并返回 `state: "closed"` 和
+`error: "stopped_by_user"`。这个停止状态持续到用户在界面重新开启转发，或应用退出。
 未知 ID 或 owner 不匹配、无效参数、saved host 不匹配返回 MCP isError，不产生转发。
 所有权为同账户 MCP 调用方的资源隔离约定，不是新的安全认证边界。
 生命周期、严格 host-key 校验及无写请求重放约束见 [SSH 连接](ssh-connection.md)。

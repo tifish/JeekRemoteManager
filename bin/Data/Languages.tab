@@ -66,6 +66,31 @@ JumpHostDropSingle	Drag one SSH connection at a time.	每次只能拖入一个 S
 PortForwards	Port forwarding	端口转发
 PortForwardsWatermark	one per line: L 8080 db:5432 / R 9000 localhost:3000 / D 1080	每行一条：L 8080 db:5432 / R 9000 localhost:3000 / D 1080
 PortForwardsTip	L = local port to a host the server can reach, R = server port back to this machine, D = SOCKS proxy. Local listeners bind 127.0.0.1 unless you give an address.	L = 本地端口转到服务器能访问的主机，R = 服务器端口转回本机，D = SOCKS 代理。本地监听默认只绑定 127.0.0.1。
+BackgroundForwardManager	Background SSH forwarding	后台 SSH 端口转发
+BackgroundForwardChooseConnection	Choose a saved SSH connection	选择已保存的 SSH 连接
+BackgroundForwardRemotePortLabel	Remote loopback port	远端回环端口
+BackgroundForwardOpen	Open forward	开启转发
+BackgroundForwardResume	Reopen selected	重新开启所选
+BackgroundForwardStop	Stop selected	关闭所选
+BackgroundForwardCopy	Copy local address	复制本地地址
+BackgroundForwardCopied	Local address copied.	已复制本地地址。
+BackgroundForwardCopyFailed	Could not copy the local address.	无法复制本地地址。
+BackgroundForwardLocalAddress	Local address	本地地址
+BackgroundForwardRemoteAddress	Remote address	远端地址
+BackgroundForwardStatus	Status	状态
+BackgroundForwardEmpty	No background forwards.	当前没有后台转发。
+BackgroundForwardManual	Manual	手动开启
+BackgroundForwardMcp	MCP	MCP
+BackgroundForwardReady	Active	转发中
+BackgroundForwardClosed	Stopped	已关闭
+BackgroundForwardExpired	Lease expired	租约已过期
+BackgroundForwardConnecting	Connecting…	正在连接…
+BackgroundForwardAuthRequired	Waiting for authentication	等待身份验证
+BackgroundForwardTrustRequired	Verify host key in the SSH connection	请在 SSH 连接中验证主机密钥
+BackgroundForwardDisconnected	Disconnected	已断开
+BackgroundForwardFailed	Connection failed	连接失败
+BackgroundForwardInvalidPort	Enter a remote port from 1 to 65535.	请输入 1 到 65535 之间的远端端口。
+BackgroundForwardRouteUnavailable	The saved SSH connection or jump route is unavailable or has changed.	已保存的 SSH 连接或跳板路由不可用，或配置已变更。
 PrivateKey	Private key	私钥
 PrivateKeyWatermark	optional path to key file	可选，私钥文件路径
 PrivateKeyDropTip	Enter a path, browse, or drop one local private-key file here. Only its path is saved.	可输入路径、浏览选择，或拖入一个本地私钥文件；仅保存文件路径。

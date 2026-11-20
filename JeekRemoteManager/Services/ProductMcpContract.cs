@@ -39,6 +39,7 @@ public static class ProductMcpContract
             + "Same owner/connection/target is idempotent. Renews a 120-second lease; poll status every 30 seconds. "
             + "Returns forward_id, state (ready/closed/failed/awaiting_user), local_host/local_port, remote_host/remote_port, host, connection_id, host_key_verified, error, lease_expires_at. "
             + "awaiting_user may mean authentication or a pending SSH dial (see error); complete prompts in JRM. Only ready is usable. "
+            + "A forward paused by a user in JRM returns closed with error stopped_by_user until the user reopens it or the app exits. "
             + "After failure call ensure again and use its actual port, which may change. No HTTP requests are replayed.",
             new()
             {

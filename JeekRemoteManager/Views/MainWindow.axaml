@@ -335,6 +335,13 @@
                                             <TextBlock Classes="menu-icon script" Text="&#xE756;" />
                                         </MenuItem.Icon>
                                     </MenuItem>
+                                    <MenuItem x:Name="BackgroundPortForwardMenuItem"
+                                              Header="{l:Localize BackgroundForwardManager}"
+                                              Click="OnBackgroundPortForwardManagerClick">
+                                        <MenuItem.Icon>
+                                            <TextBlock Classes="menu-icon connect" Text="&#xE8A7;" />
+                                        </MenuItem.Icon>
+                                    </MenuItem>
                                     <Separator />
                                     <MenuItem Header="{l:Localize NewFolder}" Command="{Binding NewFolderCommand}">
                                         <MenuItem.Icon>

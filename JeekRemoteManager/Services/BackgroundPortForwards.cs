@@ -7,9 +7,11 @@ using System.Threading.Tasks;
 
 namespace JeekRemoteManager.Services;
 
-/// <summary>Owner-scoped loopback listeners. No terminal, HTTP interpretation or request replay.</summary>
+/// <summary>Loopback listeners shared by the connection panel and owner-scoped MCP calls.</summary>
 internal sealed class BackgroundPortForwards : IDisposable
 {
+    internal static BackgroundPortForwards Shared { get; } = new();
+
     internal interface ITransport : IDisposable
     {
         bool IsReady { get; }
@@ -18,18 +20,26 @@ internal sealed class BackgroundPortForwards : IDisposable
 
     internal sealed class UserRequiredException(string reason) : Exception(reason);
 
-    internal sealed record Target(string ConnectionId, string Host, int RemotePort, string RouteIdentity);
+    internal sealed record Target(string ConnectionId, string Host, int RemotePort, string RouteIdentity,
+        string TreePath = "");
+    internal sealed record Overview(string Id, Target Target, bool IsManual, string State, string Error, int LocalPort)
+    {
+        public bool CanStart => State is "closed" or "failed" || Error == "host_key_requires_user";
+        public bool CanStop => State != "closed";
+    }
 
-    private sealed class Entry(string owner, Target target, DateTimeOffset expires)
+    private sealed class Entry(string? owner, Target target)
     {
         public readonly string Id = Guid.NewGuid().ToString("N");
-        public readonly string Owner = owner;
-        public readonly Target Target = target;
-        public DateTimeOffset Expires = expires;
+        public readonly string? Owner = owner;
+        public Target Target = target;
+        public DateTimeOffset? Expires;
+        public bool StoppedByUser;
         public string State = "awaiting_user";
         public string Error = "ssh_connecting";
         public CancellationTokenSource? Cancellation;
         public Task? Dial;
+        public TaskCompletionSource? Prompted;
         public ITransport? Transport;
         public int LocalPort;
     }
@@ -52,28 +62,48 @@ internal sealed class BackgroundPortForwards : IDisposable
         Guid.TryParse(owner, out var id) && id != Guid.Empty
             ? id.ToString("D") : throw new ArgumentException("owner must be a non-empty GUID.");
 
-    internal async Task<JsonObject> EnsureAsync(string owner, Target target,
-        Func<CancellationToken, Action, ITransport> dial)
+    internal async Task<JsonObject> EnsureAsync(string owner, Target target, Func<CancellationToken, Action, ITransport> dial) =>
+        await StartAsync(NormalizeOwner(owner), target, dial).ConfigureAwait(false);
+
+    internal Task<JsonObject> StartFromManagerAsync(Target target, Func<CancellationToken, Action, ITransport> dial,
+        string? resumeId = null) => StartAsync(null, target, dial, resumeId);
+
+    private async Task<JsonObject> StartAsync(string? owner, Target target,
+        Func<CancellationToken, Action, ITransport> dial, string? resumeId = null)
     {
-        owner = NormalizeOwner(owner);
         if (target.RemotePort is < 1 or > 65535)
             throw new ArgumentException("remote_loopback_port must be between 1 and 65535.");
         Sweep();
         Entry entry;
         Task pending;
-        var prompted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task prompted;
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            entry = _entries.Values.FirstOrDefault(e => e.Owner == owner
-                && e.Target.ConnectionId == target.ConnectionId
-                && string.Equals(e.Target.Host, target.Host, StringComparison.OrdinalIgnoreCase)
-                && e.Target.RemotePort == target.RemotePort)
-                ?? new Entry(owner, target, _now() + Lease);
-            if (entry.Target.RouteIdentity != target.RouteIdentity)
-                throw new InvalidOperationException("Saved SSH route changed; close this owner's old forward first.");
-            _entries[entry.Id] = entry;
-            entry.Expires = _now() + Lease;
+            if (resumeId is not null)
+            {
+                if (!_entries.TryGetValue(resumeId, out var existing))
+                    throw new InvalidOperationException("The background forward no longer exists.");
+                entry = existing;
+                if (!SameTarget(entry.Target, target) || entry.Target.RouteIdentity != target.RouteIdentity)
+                    throw new InvalidOperationException("The saved SSH route has changed.");
+                entry.StoppedByUser = false;
+            }
+            else
+            {
+                entry = _entries.Values.FirstOrDefault(e => e.Owner == owner && SameTarget(e.Target, target))
+                    ?? new Entry(owner, target);
+                if (entry.StoppedByUser)
+                {
+                    Renew(entry);
+                    return Snapshot(entry);
+                }
+                if (entry.State != "closed" && entry.Target.RouteIdentity != target.RouteIdentity)
+                    throw new InvalidOperationException("Saved SSH route changed; close this owner's old forward first.");
+                _entries[entry.Id] = entry;
+            }
+            entry.Target = target;
+            Renew(entry);
             if (entry.Transport?.IsReady == true)
                 return Snapshot(entry);
             if (entry.Dial is null || entry.Dial.IsCompleted)
@@ -81,6 +111,8 @@ internal sealed class BackgroundPortForwards : IDisposable
                 Retire(entry, "awaiting_user", "ssh_connecting");
                 entry.Cancellation = new CancellationTokenSource();
                 var token = entry.Cancellation.Token;
+                var promptSignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                entry.Prompted = promptSignal;
                 entry.Dial = Task.Run(() =>
                 {
                     ITransport? transport = null;
@@ -94,7 +126,7 @@ internal sealed class BackgroundPortForwards : IDisposable
                                 if (entry.Cancellation?.Token != token || token.IsCancellationRequested)
                                     return;
                                 entry.Error = "complete_authentication_in_jrm";
-                                prompted.TrySetResult();
+                                promptSignal.TrySetResult();
                             }
                         });
                         if (!transport.IsReady)
@@ -130,14 +162,25 @@ internal sealed class BackgroundPortForwards : IDisposable
                 });
             }
             pending = entry.Dial;
+            prompted = entry.Prompted!.Task;
         }
         // Like session_open: a GUI challenge/slow dial must not hold an MCP call indefinitely.
-        await Task.WhenAny(pending, prompted.Task, Task.Delay(TimeSpan.FromSeconds(10))).ConfigureAwait(false);
+        await Task.WhenAny(pending, prompted, Task.Delay(TimeSpan.FromSeconds(10))).ConfigureAwait(false);
         lock (_gate)
         {
             Refresh(entry);
             return Snapshot(entry);
         }
+    }
+
+    private static bool SameTarget(Target a, Target b) =>
+        a.ConnectionId == b.ConnectionId && a.RemotePort == b.RemotePort
+        && string.Equals(a.Host, b.Host, StringComparison.OrdinalIgnoreCase);
+
+    private void Renew(Entry entry)
+    {
+        if (entry.Owner is not null)
+            entry.Expires = _now() + Lease;
     }
 
     internal JsonObject Read(string id, string owner, bool close = false)
@@ -149,12 +192,31 @@ internal sealed class BackgroundPortForwards : IDisposable
             if (!_entries.TryGetValue(id, out var entry) || entry.Owner != owner)
                 throw new InvalidOperationException("No forward belongs to this forward_id and owner.");
             Refresh(entry);
-            if (close)
+            if (close && !entry.StoppedByUser)
                 Retire(entry, "closed", "");
-            else if (entry.State != "closed")
-                entry.Expires = _now() + Lease;
+            else if (!close && (entry.State != "closed" || entry.StoppedByUser))
+                Renew(entry);
             return Snapshot(entry);
         }
+    }
+
+    internal void StopFromManager(string id)
+    {
+        lock (_gate)
+        {
+            if (!_entries.TryGetValue(id, out var entry) || entry.State == "closed")
+                return;
+            entry.StoppedByUser = entry.Owner is not null;
+            Retire(entry, "closed", "stopped_by_user");
+        }
+    }
+
+    internal Overview[] List()
+    {
+        Sweep();
+        lock (_gate)
+            return _entries.Values.Select(e => new Overview(e.Id, e.Target, e.Owner is null,
+                e.State, e.Error, e.State == "ready" ? e.LocalPort : 0)).ToArray();
     }
 
     private void Refresh(Entry entry)
@@ -172,6 +234,8 @@ internal sealed class BackgroundPortForwards : IDisposable
         entry.Cancellation?.Cancel();
         entry.Cancellation?.Dispose();
         entry.Cancellation = null;
+        entry.Dial = null;
+        entry.Prompted = null;
         entry.Transport?.Dispose();
         entry.Transport = null;
     }
@@ -188,7 +252,7 @@ internal sealed class BackgroundPortForwards : IDisposable
         ["connection_id"] = e.Target.ConnectionId,
         ["host_key_verified"] = e.State == "ready",
         ["error"] = e.Error,
-        ["lease_expires_at"] = e.Expires.ToString("O"),
+        ["lease_expires_at"] = e.Expires?.ToString("O"),
     };
 
     internal void Sweep()
@@ -198,12 +262,13 @@ internal sealed class BackgroundPortForwards : IDisposable
             if (_disposed) return;
             foreach (var entry in _entries.Values.ToArray())
             {
-                if (entry.State != "closed" && entry.Expires <= _now())
+                var now = _now();
+                if (entry.State != "closed" && entry.Expires <= now)
                     Retire(entry, "closed", "lease_expired");
                 else
                     Refresh(entry);
-                // Keep tombstones briefly for idempotent close/status without unbounded growth.
-                if (entry.State == "closed" && entry.Expires + TimeSpan.FromMinutes(10) < _now())
+                // An explicit user stop survives the caller's lease. Keep ordinary tombstones briefly.
+                if (entry.State == "closed" && !entry.StoppedByUser && entry.Expires + TimeSpan.FromMinutes(10) < now)
                     _entries.Remove(entry.Id);
             }
         }
