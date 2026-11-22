@@ -12,6 +12,7 @@
     - Kill it before **any** build that reaches this project, including `dotnet run` on `Tests\SmokeTest` — that rebuilds `JeekRemoteManager`, and the running app holds `bin`, so the NetBeauty post-processing step fails with MSB3073. Nothing is wrong with the code when that happens.
     - After stopping the app, also kill leftover `JeekRemoteManagerMcp.exe` adapters. Each holds a named-pipe instance, and once they accumulate the app logs "All pipe instances are busy" and further Debug MCP calls time out.
   - Use the current worktree's Debug MCP (`JeekRemoteManagerDebugMcp.cmd` at the repo root, which starts the fixed per-user `JeekRemoteManagerMcp.exe` with `--surface debug --app <this worktree\bin\JeekRemoteManager.exe>` and forwards stdio to this worktree's named pipe) to test the feature or bug, if anything wrong, try to fix it and test again, until all done.
+  - Once verified, automatically commit and push the changes (commit and push `JeekTools.NET` first if it was modified).
 - When reading code, logs and the Debug MCP are not enough to locate a problem, use a debugger:
   - Use netcoredbg on the Debug build to set breakpoints, step, and inspect variables; feed it a command script via stdin, and drive the program to the breakpoint through the Debug MCP.
   - Use dotnet-dump to analyze hangs and crashes.

@@ -101,6 +101,7 @@ internal static partial class DebugMcpServer
         host.AddTool("settings_dialog_layout_check", _ => SettingsDialogLayoutCheckAsync());
         host.AddTool("settings_terminal_preview_check", _ => SettingsTerminalPreviewCheckAsync());
         host.AddTool("button_content_alignment_check", _ => ButtonContentAlignmentCheckAsync());
+        host.AddTool("scrollbar_policy_check", _ => ScrollBarPolicyCheckAsync());
         host.AddTool("ai_runtime_snapshot", _ => AiRuntimeSnapshotAsync());
         host.AddTool("password_ime_check", _ => PasswordImeCheckAsync());
         host.AddTool("terminal_tab_pagination_check", _ => TerminalTabPaginationCheckAsync());

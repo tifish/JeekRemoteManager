@@ -6,6 +6,20 @@
         <Setter Property="Background" Value="{DynamicResource AppBackgroundBrush}" />
     </Style>
 
+    <!-- Keep all scrollbars at their full expanded width and in their own
+         non-overlay grid track so they never auto-thin or cover content.
+         ListBox/TreeView/TextBox forward ScrollViewer.AllowAutoHide through
+         a TemplateBinding that outranks a plain ScrollViewer style. -->
+    <Style Selector=":is(ScrollViewer)">
+        <Setter Property="AllowAutoHide" Value="False" />
+    </Style>
+    <Style Selector=":is(ScrollBar)">
+        <Setter Property="AllowAutoHide" Value="False" />
+    </Style>
+    <Style Selector=":is(ListBox), :is(TreeView), :is(TextBox)">
+        <Setter Property="ScrollViewer.AllowAutoHide" Value="False" />
+    </Style>
+
     <Style Selector="TextBlock">
         <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
     </Style>

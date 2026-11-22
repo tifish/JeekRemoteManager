@@ -32,7 +32,8 @@
     <Grid Background="{DynamicResource AppBackgroundBrush}">
 
         <!-- Live stats -->
-        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+        <ScrollViewer x:Name="MonitorScrollViewer"
+                      HorizontalScrollBarVisibility="Disabled"
                       IsVisible="{Binding HasData}">
             <StackPanel Spacing="8" Margin="8">
 
@@ -225,7 +226,8 @@
         </StackPanel>
 
         <!-- Close (hides the panel; polling stops with it) -->
-        <Button Classes="toolbar"
+        <Button x:Name="CloseButton"
+                Classes="toolbar"
                 Click="OnCloseClick"
                 ToolTip.Tip="{l:Localize Close}"
                 HorizontalAlignment="Right"

@@ -130,6 +130,8 @@ AI 运行模式的持久化被**拆成两个槽**：有桌面 surface 的 agent 
 
 所有普通 `Button` 的内容在水平和垂直方向都默认居中，这条规则放在 `Themes/AppControls.axaml` 的共享样式里，因此 XAML 控件和代码动态创建的对话框按钮保持一致。确实需要其它对齐方式的特殊按钮用更具体的样式或本地属性显式覆写。
 
+全应用的滚动条均关闭自动隐藏与自动变细（`AllowAutoHide = false`），始终保持完整宽度并占用独立轨道，不覆盖后面的内容：`Themes/AppControls.axaml` 对 `:is(ScrollViewer)`、`:is(ScrollBar)` 以及通过 `TemplateBinding` 透传 `ScrollViewer.AllowAutoHide` 的 `:is(ListBox)` / `:is(TreeView)` / `:is(TextBox)` 统一设 `AllowAutoHide = False`；`ScrollBarAutoHideGuard`（`Views/ScrollBarAutoHideGuard.cs`，在 `App.Initialize` 中安装）兜底拦截 `SvcSystems.UI.Terminal.TerminalControl` 等会以本地值写回 `AllowAutoHide = true` 的第三方控件；`ServerMonitorView` 的右上角关闭按钮在纵向滚动条可见时按滚动条宽度向左让位，避免与滚动条重叠。Debug MCP 的 `scrollbar_policy_check` 在隔离窗口和主窗口中验证上述全部控件。
+
 ## 焦点
 
 每个终端标签记住"上次聚焦的控件"（弱引用，仅会话内，不持久化），控件不存在或不可见时回退到 SSH 终端。把焦点移进内部终端控件要**投递到 UI 线程**，让它跑在视图重新附加之后——直接聚焦 UserControl 本身不会把焦点转给终端。

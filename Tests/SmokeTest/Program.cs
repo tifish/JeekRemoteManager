@@ -1353,13 +1353,13 @@ try
     // --- Streaming UTF-8 (Chinese split across packets must not become U+FFFD) ---
     var chineseUtf8 = Encoding.UTF8.GetBytes("中文测试");
     Check(chineseUtf8.Length >= 6, "Chinese UTF-8 sample is multi-byte");
-    // Library path: per-packet GetString turns incomplete sequences into replacement chars.
-    var brokenModel = new TerminalControlModel(new TerminalOptions { Cols = 40, Rows = 5, Scrollback = 10 });
-    brokenModel.Feed(chineseUtf8.AsSpan(0, 2).ToArray(), 2);
-    brokenModel.Feed(chineseUtf8.AsSpan(2).ToArray(), chineseUtf8.Length - 2);
-    var brokenText = brokenModel.Terminal.Buffer.GetLine(0)?.TranslateToString(true) ?? "";
-    Check(brokenText.Contains('\uFFFD'),
-          "TerminalControlModel.Feed(byte[]) produces U+FFFD when UTF-8 is split mid-character");
+    // XTerm.NET 3.x / SvcSystems.UI.Terminal 2.x decodes streaming UTF-8 across byte[] feeds.
+    var rawFeedModel = new TerminalControlModel(new TerminalOptions { Cols = 40, Rows = 5, Scrollback = 10 });
+    rawFeedModel.Feed(chineseUtf8.AsSpan(0, 2).ToArray(), 2);
+    rawFeedModel.Feed(chineseUtf8.AsSpan(2).ToArray(), chineseUtf8.Length - 2);
+    var rawFeedText = rawFeedModel.Terminal.Buffer.GetLine(0)?.TranslateToString(true) ?? "";
+    Check(rawFeedText.Contains("中文测试", StringComparison.Ordinal) && !rawFeedText.Contains('\uFFFD'),
+          "TerminalControlModel.Feed(byte[]) preserves Chinese when UTF-8 is split mid-character");
 
     var streamDecoder = new TerminalStreamDecoder();
     var streamed = streamDecoder.Decode(chineseUtf8.AsSpan(0, 2))
@@ -1484,40 +1484,43 @@ try
     var growAbsBefore = growModel.Terminal.Buffer.YBase + growModel.Terminal.Buffer.Y;
     var growRelBefore = growModel.Terminal.Buffer.Y;
     growModel.Terminal.Resize(40, 20);
-    // XTerm.NET leaves the cursor on older history after growing the viewport.
-    Check(growModel.Terminal.Buffer.YBase + growModel.Terminal.Buffer.Y != growAbsBefore
+    TerminalBufferResizeRepair.TryRepair(
+        growModel.Terminal.Buffer, growAbsBefore, growRelBefore, 20);
+    Check(growModel.Terminal.Buffer.YBase + growModel.Terminal.Buffer.Y == growAbsBefore
           && BufferLineText(growModel.Terminal.Buffer.GetLine(
-                 growModel.Terminal.Buffer.YBase + growModel.Terminal.Buffer.Y))
-             .StartsWith("line-", StringComparison.Ordinal),
-          "XTerm grow-without-repair lands the cursor on older scrollback text");
+                 growModel.Terminal.Buffer.YBase + growModel.Terminal.Buffer.Y)) == "prompt$",
+          "Terminal resize keeps the cursor on the prompt after maximize/grow");
+
+    // Verify TerminalBufferResizeRepair still recovers a cursor displaced onto older history.
+    growModel.Terminal.Buffer.SetCursorRaw(growModel.Terminal.Buffer.X, growRelBefore);
     Check(TerminalBufferResizeRepair.TryRepair(
               growModel.Terminal.Buffer, growAbsBefore, growRelBefore, 20)
           && growModel.Terminal.Buffer.YBase + growModel.Terminal.Buffer.Y == growAbsBefore
           && BufferLineText(growModel.Terminal.Buffer.GetLine(
                  growModel.Terminal.Buffer.YBase + growModel.Terminal.Buffer.Y)) == "prompt$",
-          "Terminal resize repair keeps the cursor on the prompt after maximize/grow");
+          "Terminal resize repair restores a displaced cursor to the prompt after grow");
 
     var shrinkModel = FeedScrollbackPrompt(20);
     var shrinkAbsBefore = shrinkModel.Terminal.Buffer.YBase + shrinkModel.Terminal.Buffer.Y;
     var shrinkRelBefore = shrinkModel.Terminal.Buffer.Y;
     shrinkModel.Terminal.Resize(40, 10);
-    Check(TerminalBufferResizeRepair.TryRepair(
-              shrinkModel.Terminal.Buffer, shrinkAbsBefore, shrinkRelBefore, 10)
-          && shrinkModel.Terminal.Buffer.YBase + shrinkModel.Terminal.Buffer.Y == shrinkAbsBefore
+    TerminalBufferResizeRepair.TryRepair(
+        shrinkModel.Terminal.Buffer, shrinkAbsBefore, shrinkRelBefore, 10);
+    Check(shrinkModel.Terminal.Buffer.YBase + shrinkModel.Terminal.Buffer.Y == shrinkAbsBefore
           && BufferLineText(shrinkModel.Terminal.Buffer.GetLine(
                  shrinkModel.Terminal.Buffer.YBase + shrinkModel.Terminal.Buffer.Y)) == "prompt$",
-          "Terminal resize repair keeps the cursor on the prompt after shrink");
+          "Terminal resize keeps the cursor on the prompt after shrink");
 
     var maximizeModel = FeedScrollbackPrompt(10);
     var maxAbsBefore = maximizeModel.Terminal.Buffer.YBase + maximizeModel.Terminal.Buffer.Y;
     var maxRelBefore = maximizeModel.Terminal.Buffer.Y;
     maximizeModel.Terminal.Resize(120, 40);
-    Check(TerminalBufferResizeRepair.TryRepair(
-              maximizeModel.Terminal.Buffer, maxAbsBefore, maxRelBefore, 40)
-          && maximizeModel.Terminal.Buffer.YBase + maximizeModel.Terminal.Buffer.Y == maxAbsBefore
+    TerminalBufferResizeRepair.TryRepair(
+        maximizeModel.Terminal.Buffer, maxAbsBefore, maxRelBefore, 40);
+    Check(maximizeModel.Terminal.Buffer.YBase + maximizeModel.Terminal.Buffer.Y == maxAbsBefore
           && BufferLineText(maximizeModel.Terminal.Buffer.GetLine(
                  maximizeModel.Terminal.Buffer.YBase + maximizeModel.Terminal.Buffer.Y)) == "prompt$",
-          "Terminal resize repair keeps the cursor on the prompt after large maximize");
+          "Terminal resize keeps the cursor on the prompt after large maximize");
 
     var noScrollbackModel = new TerminalControlModel(new TerminalOptions { Cols = 40, Rows = 10, Scrollback = 100 });
     noScrollbackModel.Feed("few lines\r\n");

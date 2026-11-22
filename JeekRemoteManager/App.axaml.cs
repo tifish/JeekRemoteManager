@@ -33,6 +33,7 @@ public partial class App : Application
     {
         AvaloniaXamlLoader.Load(this);
         PasswordImeGuard.Install();
+        ScrollBarAutoHideGuard.Install();
     }
 
     public override void OnFrameworkInitializationCompleted()

@@ -1374,6 +1374,311 @@ internal static partial class DebugMcpServer
         return ToolText(report, isError: !passed);
     }
 
+    /// <summary>
+    /// Verifies that every scrollbar across direct ScrollViewers, templated controls
+    /// (ListBox, TreeView, TextBox), TerminalControl, ServerMonitorView and MainWindow
+    /// stays permanently expanded at full width (AllowAutoHide=false, IsExpanded=true)
+    /// and sits in its own non-overlay track without obscuring content.
+    /// </summary>
+    private static async Task<JsonObject> ScrollBarPolicyCheckAsync()
+    {
+        Window? probe = null;
+        ScrollViewer? plainScroll = null;
+        ListBox? listBox = null;
+        TreeView? treeView = null;
+        TextBox? textBox = null;
+        SvcSystems.UI.Terminal.TerminalControl? terminal = null;
+        ServerMonitorView? monitor = null;
+
+        try
+        {
+            var opened = await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main)
+                    return false;
+
+                plainScroll = new ScrollViewer
+                {
+                    Name = "ProbePlainScrollViewer",
+                    Width = 220,
+                    Height = 120,
+                    HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+                    VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+                    Content = new Border
+                    {
+                        Width = 500,
+                        Height = 400,
+                    },
+                };
+
+                listBox = new ListBox
+                {
+                    Name = "ProbeListBox",
+                    Width = 220,
+                    Height = 120,
+                    ItemsSource = Enumerable.Range(1, 30).Select(i => $"List item {i:00} — wide row text").ToArray(),
+                };
+
+                treeView = new TreeView
+                {
+                    Name = "ProbeTreeView",
+                    Width = 220,
+                    Height = 120,
+                    ItemsSource = Enumerable.Range(1, 30).Select(i => new TreeViewItem { Header = $"Tree node {i:00}" }).ToArray(),
+                };
+
+                textBox = new TextBox
+                {
+                    Name = "ProbeTextBox",
+                    Width = 220,
+                    Height = 120,
+                    AcceptsReturn = true,
+                    TextWrapping = TextWrapping.NoWrap,
+                    Text = string.Join(Environment.NewLine, Enumerable.Range(1, 30).Select(i => $"Line {i:00}: " + new string('x', 48))),
+                };
+
+                var termModel = new SvcSystems.UI.Terminal.TerminalControlModel(new SvcSystems.UI.Terminal.TerminalOptions
+                {
+                    Cols = 40,
+                    Rows = 8,
+                    Scrollback = 200,
+                });
+                terminal = new SvcSystems.UI.Terminal.TerminalControl
+                {
+                    Name = "ProbeTerminalControl",
+                    Width = 260,
+                    Height = 140,
+                    Model = termModel,
+                };
+                termModel.Feed(string.Join("\r\n", Enumerable.Range(1, 60).Select(i => $"terminal line {i:00}")) + "\r\n");
+
+                monitor = new ServerMonitorView
+                {
+                    Name = "ProbeMonitorView",
+                    Width = 260,
+                    Height = 180,
+                };
+
+                var grid = new WrapPanel
+                {
+                    Margin = new Thickness(12),
+                    ItemSpacing = 12,
+                    LineSpacing = 12,
+                };
+                grid.Children.Add(plainScroll);
+                grid.Children.Add(listBox);
+                grid.Children.Add(treeView);
+                grid.Children.Add(textBox);
+                grid.Children.Add(terminal);
+                grid.Children.Add(monitor);
+
+                probe = new Window
+                {
+                    Title = "scrollbar_policy_check",
+                    Width = 820,
+                    Height = 420,
+                    ShowInTaskbar = false,
+                    WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                    Content = grid,
+                };
+                probe.Show(main);
+                // Force the monitor scroll region visible so its cards overflow vertically
+                // without needing a live SSH connection.
+                var monitorScroll = monitor.GetVisualDescendants()
+                    .OfType<ScrollViewer>()
+                    .FirstOrDefault(control => control.Name == "MonitorScrollViewer");
+                if (monitorScroll is not null)
+                    monitorScroll.IsVisible = true;
+                probe.UpdateLayout();
+                return true;
+            });
+
+            if (!opened)
+                return ToolText("FAIL: MainWindow is not available.", isError: true);
+
+            await Task.Delay(120);
+
+            var (passed, report) = await OnUiAsync(() =>
+            {
+                if (probe is null || plainScroll is null || listBox is null || treeView is null
+                    || textBox is null || terminal is null || monitor is null)
+                {
+                    return (false, "FAIL: Probe window was not initialized.");
+                }
+
+                // Trigger another feed after initial layout so TerminalControl.UpdateScrollBarLayout()
+                // runs again and attempts to set AllowAutoHide = true locally.
+                terminal.Model?.Feed("post-layout line\r\n");
+                probe.UpdateLayout();
+
+                var lines = new List<string>();
+                var ok = true;
+
+                void Check(bool condition, string detail)
+                {
+                    ok &= condition;
+                    lines.Add($"{(condition ? "ok" : "FAIL")}: {detail}");
+                }
+
+                static bool IsUnscaledTransform(ITransform? transform) =>
+                    transform is null || transform.Value == Matrix.Identity;
+
+                static string FormatTransform(ITransform? transform) =>
+                    transform is null
+                        ? "null"
+                        : transform.Value == Matrix.Identity
+                            ? "identity"
+                            : $"matrix({transform.Value.M11:F3},{transform.Value.M22:F3})";
+
+                void CheckScrollViewer(string label, ScrollViewer? sv, bool expectHorizontal)
+                {
+                    if (sv is null)
+                    {
+                        Check(false, $"{label}: ScrollViewer missing");
+                        return;
+                    }
+
+                    var presenter = sv.GetVisualDescendants()
+                        .OfType<Avalonia.Controls.Presenters.ScrollContentPresenter>()
+                        .FirstOrDefault();
+                    var bars = sv.GetVisualDescendants()
+                        .OfType<Avalonia.Controls.Primitives.ScrollBar>()
+                        .ToArray();
+                    var vbar = bars.FirstOrDefault(b => b.Orientation == Avalonia.Layout.Orientation.Vertical);
+                    var hbar = bars.FirstOrDefault(b => b.Orientation == Avalonia.Layout.Orientation.Horizontal);
+
+                    var vThumb = vbar?.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.Thumb>().FirstOrDefault();
+                    var vBarBounds = vbar?.TranslatePoint(new Point(0, 0), sv);
+                    var pBounds = presenter?.TranslatePoint(new Point(0, 0), sv);
+                    var pRight = pBounds is { } po && presenter is not null ? po.X + presenter.Bounds.Width : double.NaN;
+                    var vLeft = vBarBounds is { } vo ? vo.X : double.NaN;
+                    var noVerticalOverlap = presenter is not null
+                                            && vbar is not null
+                                            && Grid.GetColumnSpan(presenter) == 1
+                                            && pRight <= vLeft + 0.5;
+
+                    var vOk = !sv.AllowAutoHide
+                              && vbar is { IsVisible: true, AllowAutoHide: false, IsExpanded: true }
+                              && vbar.Bounds.Width >= 12
+                              && vThumb is not null
+                              && vThumb.Bounds.Width >= 8
+                              && IsUnscaledTransform(vThumb.RenderTransform)
+                              && noVerticalOverlap;
+
+                    Check(vOk,
+                        $"{label} vertical: svAutoHide={sv.AllowAutoHide}, barVis={vbar?.IsVisible}, "
+                        + $"barAutoHide={vbar?.AllowAutoHide}, expanded={vbar?.IsExpanded}, "
+                        + $"barW={vbar?.Bounds.Width:F1}, thumbW={vThumb?.Bounds.Width:F1}, "
+                        + $"thumbTransform={FormatTransform(vThumb?.RenderTransform)}, "
+                        + $"colSpan={(presenter is null ? -1 : Grid.GetColumnSpan(presenter))}, "
+                        + $"presenterRight={pRight:F1}<=vbarLeft={vLeft:F1}");
+
+                    if (expectHorizontal)
+                    {
+                        var hThumb = hbar?.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.Thumb>().FirstOrDefault();
+                        var hBarBounds = hbar?.TranslatePoint(new Point(0, 0), sv);
+                        var pBottom = pBounds is { } po2 && presenter is not null ? po2.Y + presenter.Bounds.Height : double.NaN;
+                        var hTop = hBarBounds is { } ho ? ho.Y : double.NaN;
+                        var noHorizontalOverlap = presenter is not null
+                                                  && hbar is not null
+                                                  && Grid.GetRowSpan(presenter) == 1
+                                                  && pBottom <= hTop + 0.5;
+
+                        var hOk = hbar is { IsVisible: true, AllowAutoHide: false, IsExpanded: true }
+                                  && hbar.Bounds.Height >= 12
+                                  && hThumb is not null
+                                  && hThumb.Bounds.Height >= 8
+                                  && IsUnscaledTransform(hThumb.RenderTransform)
+                                  && noHorizontalOverlap;
+
+                        Check(hOk,
+                            $"{label} horizontal: barVis={hbar?.IsVisible}, barAutoHide={hbar?.AllowAutoHide}, "
+                            + $"expanded={hbar?.IsExpanded}, barH={hbar?.Bounds.Height:F1}, "
+                            + $"thumbH={hThumb?.Bounds.Height:F1}, "
+                            + $"thumbTransform={FormatTransform(hThumb?.RenderTransform)}, "
+                            + $"rowSpan={(presenter is null ? -1 : Grid.GetRowSpan(presenter))}, "
+                            + $"presenterBottom={pBottom:F1}<=hbarTop={hTop:F1}");
+                    }
+                }
+
+                CheckScrollViewer("ScrollViewer", plainScroll, expectHorizontal: true);
+                CheckScrollViewer("ListBox", listBox.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault(), expectHorizontal: false);
+                CheckScrollViewer("TreeView", treeView.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault(), expectHorizontal: false);
+                CheckScrollViewer("TextBox", textBox.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault(), expectHorizontal: true);
+
+                var termBar = terminal.GetVisualDescendants()
+                    .OfType<Avalonia.Controls.Primitives.ScrollBar>()
+                    .FirstOrDefault();
+                var termThumb = termBar?.GetVisualDescendants()
+                    .OfType<Avalonia.Controls.Primitives.Thumb>()
+                    .FirstOrDefault();
+                var termSurface = terminal.Children.FirstOrDefault(child => child != termBar);
+                var termSurfaceRight = termSurface is not null ? termSurface.Bounds.Right : double.NaN;
+                var termBarLeft = termBar is not null ? termBar.Bounds.Left : double.NaN;
+                var termOk = termBar is { IsVisible: true, AllowAutoHide: false, IsExpanded: true }
+                             && termBar.Bounds.Width >= 12
+                             && termThumb is not null
+                             && termThumb.Bounds.Width >= 8
+                             && IsUnscaledTransform(termThumb.RenderTransform)
+                             && termSurface is not null
+                             && termSurfaceRight <= termBarLeft + 0.5;
+                Check(termOk,
+                    $"TerminalControl: barVis={termBar?.IsVisible}, barAutoHide={termBar?.AllowAutoHide}, "
+                    + $"expanded={termBar?.IsExpanded}, barW={termBar?.Bounds.Width:F1}, "
+                    + $"thumbW={termThumb?.Bounds.Width:F1}, "
+                    + $"thumbTransform={FormatTransform(termThumb?.RenderTransform)}, "
+                    + $"surfaceRight={termSurfaceRight:F1}<=barLeft={termBarLeft:F1}");
+
+                var monitorScroll = monitor.GetVisualDescendants()
+                    .OfType<ScrollViewer>()
+                    .FirstOrDefault(c => c.Name == "MonitorScrollViewer");
+                var monitorBar = monitorScroll?.GetVisualDescendants()
+                    .OfType<Avalonia.Controls.Primitives.ScrollBar>()
+                    .FirstOrDefault(b => b.Orientation == Avalonia.Layout.Orientation.Vertical);
+                var closeButton = monitor.GetVisualDescendants()
+                    .OfType<Button>()
+                    .FirstOrDefault(b => b.Name == "CloseButton");
+                var closeRight = closeButton?.TranslatePoint(new Point(closeButton.Bounds.Width, 0), monitor)?.X ?? double.NaN;
+                var monitorBarLeft = monitorBar?.TranslatePoint(new Point(0, 0), monitor)?.X ?? double.NaN;
+                var monitorOk = monitorScroll is { AllowAutoHide: false }
+                                && monitorBar is { IsVisible: true, AllowAutoHide: false, IsExpanded: true }
+                                && closeButton is not null
+                                && closeRight <= monitorBarLeft - 0.5;
+                Check(monitorOk,
+                    $"ServerMonitorView: svAutoHide={monitorScroll?.AllowAutoHide}, barVis={monitorBar?.IsVisible}, "
+                    + $"expanded={monitorBar?.IsExpanded}, closeRight={closeRight:F1}<barLeft={monitorBarLeft:F1}");
+
+                if (Desktop?.MainWindow is Views.MainWindow mainWindow)
+                {
+                    var badViewers = mainWindow.GetVisualDescendants()
+                        .OfType<ScrollViewer>()
+                        .Where(v => v.IsVisible && v.AllowAutoHide)
+                        .Select(v => v.Name ?? v.GetType().Name)
+                        .ToArray();
+                    var badBars = mainWindow.GetVisualDescendants()
+                        .OfType<Avalonia.Controls.Primitives.ScrollBar>()
+                        .Where(b => b.IsVisible && (b.AllowAutoHide || !b.IsExpanded))
+                        .Select(b => $"{b.Name ?? "ScrollBar"}(autoHide={b.AllowAutoHide},expanded={b.IsExpanded})")
+                        .ToArray();
+                    Check(badViewers.Length == 0 && badBars.Length == 0,
+                        $"MainWindow: badViewers=[{string.Join(",", badViewers)}], badBars=[{string.Join(",", badBars)}]");
+                }
+
+                return (ok, $"{(ok ? "PASS" : "FAIL")}: scrollbar policy\n" + string.Join("\n", lines));
+            });
+
+            return ToolText(report, isError: !passed);
+        }
+        finally
+        {
+            await OnUiAsync(() =>
+            {
+                probe?.Close();
+                return true;
+            });
+        }
+    }
+
 
     /// <summary>
     /// Drives the real <see cref="PasswordImeGuard"/> class handlers through a throwaway window:

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using JeekRemoteManager.ViewModels;
@@ -19,8 +20,10 @@ public partial class ServerMonitorView : UserControl
 {
     /// <summary>How many samples the sparkline window holds; matches the view model's history length.</summary>
     private const int SparklineWindow = 60;
+    private const double BaseCloseRightMargin = 12;
 
     private ServerMonitorViewModel? _viewModel;
+    private ScrollBar? _verticalScrollBar;
 
     /// <summary>Raised by the panel's own close button; the hosting TerminalView
     /// collapses the panel (which also stops polling).</summary>
@@ -31,6 +34,48 @@ public partial class ServerMonitorView : UserControl
         InitializeComponent();
         DataContextChanged += (_, _) => AttachViewModel();
         NetChart.SizeChanged += (_, _) => RedrawSparkline();
+        MonitorScrollViewer.TemplateApplied += OnMonitorScrollViewerTemplateApplied;
+        MonitorScrollViewer.PropertyChanged += OnMonitorScrollViewerPropertyChanged;
+    }
+
+    private void OnMonitorScrollViewerTemplateApplied(object? sender, TemplateAppliedEventArgs e)
+    {
+        if (_verticalScrollBar is not null)
+            _verticalScrollBar.PropertyChanged -= OnVerticalScrollBarPropertyChanged;
+
+        _verticalScrollBar = e.NameScope.Find<ScrollBar>("PART_VerticalScrollBar");
+        if (_verticalScrollBar is not null)
+            _verticalScrollBar.PropertyChanged += OnVerticalScrollBarPropertyChanged;
+
+        UpdateCloseButtonMargin();
+    }
+
+    private void OnMonitorScrollViewerPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property == IsVisibleProperty
+            || e.Property == ScrollViewer.ExtentProperty
+            || e.Property == ScrollViewer.ViewportProperty)
+        {
+            UpdateCloseButtonMargin();
+        }
+    }
+
+    private void OnVerticalScrollBarPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property == IsVisibleProperty || e.Property == BoundsProperty)
+            UpdateCloseButtonMargin();
+    }
+
+    private void UpdateCloseButtonMargin()
+    {
+        // Keep the floating close button inset inside the host card and strictly to
+        // the left of the non-overlay vertical scrollbar when the panel scrolls.
+        var scrollBarWidth = MonitorScrollViewer.IsVisible && _verticalScrollBar?.IsVisible == true
+            ? (_verticalScrollBar.Bounds.Width > 0 ? _verticalScrollBar.Bounds.Width : 16)
+            : 0;
+        var margin = new Thickness(0, 12, BaseCloseRightMargin + scrollBarWidth, 0);
+        if (CloseButton.Margin != margin)
+            CloseButton.Margin = margin;
     }
 
     private void AttachViewModel()
