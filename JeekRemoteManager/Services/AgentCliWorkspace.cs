@@ -77,7 +77,7 @@ public static class AgentCliWorkspace
 
         Directory.CreateDirectory(absolute);
         WriteAgentDocs(absolute, relative, connection, sourcePath, connectionPath, sessionNumber);
-        WriteProjectMcpConfigs(absolute, connectionPath);
+        WriteProjectMcpConfigs(absolute, connectionPath, sessionNumber > 1 ? relative : null);
         return absolute;
     }
 
@@ -233,12 +233,16 @@ public static class AgentCliWorkspace
     /// </summary>
     public static void WriteProjectMcpConfigs(
         string workspaceDir,
-        string connectionPath)
+        string connectionPath,
+        string? sessionId = null)
     {
         Directory.CreateDirectory(workspaceDir);
         var utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
         var adapter = AgentWorkspaceLink.AdapterPath;
         var connection = connectionPath.Replace('\\', '/').Trim('/');
+        var normalizedSession = string.IsNullOrWhiteSpace(sessionId)
+            ? null
+            : sessionId.Replace('\\', '/').Trim('/');
 
         // Legacy Claude sidecar used with --mcp-config; project agents load .mcp.json instead.
         TryDelete(Path.Combine(workspaceDir, "jrm-mcp.json"));
@@ -267,7 +271,8 @@ public static class AgentCliWorkspace
                             target,
                             adapter,
                             connection,
-                            AgentWorkspaceLink.AdapterInstanceId),
+                            AgentWorkspaceLink.AdapterInstanceId,
+                            normalizedSession),
                     },
                 };
                 AgentMcpConfigCatalog.ApplyJsonRootSettings(
@@ -285,7 +290,8 @@ public static class AgentCliWorkspace
                       McpServerName,
                       adapter,
                       connection,
-                      AgentWorkspaceLink.AdapterInstanceId);
+                      AgentWorkspaceLink.AdapterInstanceId,
+                      normalizedSession);
             }
 
             File.WriteAllText(path, content, utf8);
@@ -467,6 +473,12 @@ public static class AgentCliWorkspace
         sb.AppendLine(
             $"- **Pinned connection:** `{connectionPath.Replace('\\', '/')}` "
             + "(you may omit the `connection` argument)");
+        if (sessionNumber > 1)
+        {
+            sb.AppendLine(
+                $"- **Pinned session:** `{relativePath.Replace('\\', '/')}` "
+                + "(in-session tools target this duplicated tab by default)");
+        }
         sb.AppendLine($"- **Adapter:** `{AgentWorkspaceLink.AdapterPath}`");
         sb.AppendLine();
         foreach (var line in AgentMcpConfigCatalog.DocTableLines())

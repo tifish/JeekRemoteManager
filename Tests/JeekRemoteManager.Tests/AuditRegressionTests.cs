@@ -393,4 +393,43 @@ public sealed class AuditRegressionTests
             Directory.Delete(root, recursive: true);
         }
     }
+
+    [Fact]
+    public void Duplicated_tab_mcp_configs_pin_both_connection_and_session()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "jrm-audit-session-pin-" + Guid.NewGuid().ToString("N"));
+        var connectionsRoot = Path.Combine(root, "Connections");
+        var workspacesRoot = Path.Combine(root, "Workspaces");
+        var projectDir = Path.Combine(root, "Project");
+        Directory.CreateDirectory(Path.Combine(connectionsRoot, "vps"));
+        Directory.CreateDirectory(projectDir);
+        try
+        {
+            var sourcePath = Path.Combine(connectionsRoot, "vps", "bwg.json");
+            var connection = new Connection { Name = "bwg", Host = "10.0.0.1", Username = "root" };
+
+            var ws1 = AgentCliWorkspace.Ensure(connectionsRoot, sourcePath, connection, sessionNumber: 1, workspaceRoot: workspacesRoot);
+            var mcp1 = File.ReadAllText(Path.Combine(ws1, ".mcp.json"));
+            Assert.Contains("\"--connection\"", mcp1, StringComparison.Ordinal);
+            Assert.DoesNotContain("\"--session\"", mcp1, StringComparison.Ordinal);
+
+            var ws2 = AgentCliWorkspace.Ensure(connectionsRoot, sourcePath, connection, sessionNumber: 2, workspaceRoot: workspacesRoot);
+            var mcp2 = File.ReadAllText(Path.Combine(ws2, ".mcp.json"));
+            Assert.Contains("\"--connection\"", mcp2, StringComparison.Ordinal);
+            Assert.Contains("\"vps/bwg\"", mcp2, StringComparison.Ordinal);
+            Assert.Contains("\"--session\"", mcp2, StringComparison.Ordinal);
+            Assert.Contains("\"vps/bwg (2)\"", mcp2, StringComparison.Ordinal);
+
+            var link2 = AgentCliWorkspace.BuildLink(connectionsRoot, sourcePath, connection, sessionNumber: 2);
+            AgentProjectLink.WriteInto(link2, projectDir, [".mcp.json"]);
+            var linkedMcp = File.ReadAllText(Path.Combine(projectDir, ".mcp.json"));
+            Assert.Contains("\"--connection\"", linkedMcp, StringComparison.Ordinal);
+            Assert.Contains("\"--session\"", linkedMcp, StringComparison.Ordinal);
+            Assert.Contains("\"vps/bwg (2)\"", linkedMcp, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 }

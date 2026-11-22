@@ -58,6 +58,7 @@ state 为 `ready/closed/failed/awaiting_user`。端口只是示例，调用方�
 ```
 
 ensure/status 续租 120 秒，建议 30 秒续租。断线后 ensure 恢复；应用重启或 ID 过期后重新 ensure。
+条目处于 `ready` 状态时拒绝静默切换保存的 SSH 路由；处于 `failed` / `awaiting_user` 状态（或手动转发处于 `closed` 状态）时，更新路由会取消旧拨号并自动按新路由重试。
 用户在连接面板关闭一条 MCP 转发后，ensure/status 续租并返回 `state: "closed"` 和
 `error: "stopped_by_user"`。这个停止状态持续到用户在界面重新开启转发，或应用退出。
 未知 ID 或 owner 不匹配、无效参数、saved host 不匹配返回 MCP isError，不产生转发。
@@ -110,7 +111,7 @@ agent 启动的是 `%LocalAppData%\JeekRemoteManager\Mcp\JeekRemoteManagerMcp.ex
 - 适配器用一条专门的读循环按 JSON-RPC `id` 路由响应，并把服务端主动通知原样转给 stdio 客户端；不能让每个调用自己读一行，否则并发响应会串台，通知也可能被误当作回复。
 - 客户端关闭 stdin 时，适配器取消挂起的管道操作和回包等待，关闭管道后退出。宿主收到断开后取消该会话的请求。Debug MCP 的 `mcp_concurrency_check` 覆盖有请求挂起时的断开。
 - Windows 适配器使用 Windows 线程池，减少间歇调用反复创建和回收工作线程时积存的线程与 Event 句柄。
-- `--connection` 参数把适配器**钉在**某个连接上，链接到项目里的配置就不必每次调用都写连接路径。显式参数总是优先。
+- `--connection` 参数把适配器**钉在**某个连接上，链接到项目里的配置就不必每次调用都写连接路径；复制标签页（如 `vps/bwg (2)`）额外传入 `--session`，在调用方未显式传 `session`/`connection` 时默认把会话内工具精准路由到对应标签页，而连接级工具仍使用 `--connection`。显式参数总是优先。
 - **显式路由过的或固定的适配器绝不回退到 Release**：如果一个 Debug worktree 离线了，转而连上用户已安装的实例是危险的。
 - 只有产品面会按需启动应用；Debug worktree 由已经开着应用的开发者驱动。
 

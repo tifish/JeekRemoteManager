@@ -94,12 +94,20 @@ public static class AgentProjectLink
             return project;
         }
 
+        var sessionId = string.Equals(
+            link.NormalizedRelativePath,
+            link.NormalizedConnectionPath,
+            StringComparison.OrdinalIgnoreCase)
+            ? null
+            : link.NormalizedRelativePath;
+
         Apply(
             project,
             link.NormalizedRelativePath,
             link.ProjectMcpServerName,
             BuildReferenceBlock(link, selected),
             link.NormalizedConnectionPath,
+            sessionId,
             portable: true,
             selected);
         return project;
@@ -141,6 +149,7 @@ public static class AgentProjectLink
             ApplicationMcpServerName,
             BuildApplicationReferenceBlock(portable: true, selected),
             connectionPath: null,
+            sessionId: null,
             portable: true,
             selected);
         return project;
@@ -163,6 +172,7 @@ public static class AgentProjectLink
             ApplicationMcpServerName,
             BuildApplicationReferenceBlock(portable: false),
             connectionPath: null,
+            sessionId: null,
             portable: false,
             AgentMcpConfigCatalog.All);
     }
@@ -208,6 +218,7 @@ public static class AgentProjectLink
         string serverName,
         string body,
         string? connectionPath,
+        string? sessionId,
         bool portable,
         IReadOnlyList<AgentMcpConfigCatalog.Target> selected)
     {
@@ -230,6 +241,7 @@ public static class AgentProjectLink
             marker,
             serverName,
             connectionPath,
+            sessionId,
             portable,
             selected);
         RemoveUnselectedTargets(projectDirectory, marker, serverName, selected);
@@ -338,8 +350,10 @@ public static class AgentProjectLink
           .Append("`terminal_scrollback`, `file_upload`, `file_download`, …) for anything that must run ")
           .Append("on that server. They drive the already-open shell — same cwd, same environment — ")
           .Append("and do not open a new SSH session.\n");
-        sb.Append("- This server is pinned to `").Append(connection)
-          .Append("`, so you can omit the `connection` argument. If no tab is open for it, call ")
+        sb.Append("- This server is pinned to `").Append(connection).Append('`');
+        if (!string.Equals(relative, connection, StringComparison.OrdinalIgnoreCase))
+            sb.Append(" (session `").Append(relative).Append("`)");
+        sb.Append(", so you can omit the `connection` argument. If no tab is open for it, call ")
           .Append("`session_open` first; `session_list` shows what is live.\n");
         sb.Append("- Your built-in shell and file tools run on the **local machine** and on **this ")
           .Append("project folder**, never on the remote server. Never assume a local command reaches it.\n");
@@ -402,15 +416,17 @@ public static class AgentProjectLink
         string marker,
         string serverName,
         string? connectionPath,
+        string? sessionId,
         bool portable,
         IReadOnlyList<AgentMcpConfigCatalog.Target> selected)
     {
         var launch = portable
-            ? WritePortableLaunch(projectDirectory, connectionPath)
+            ? WritePortableLaunch(projectDirectory, connectionPath, sessionId)
             : AgentMcpConfigCatalog.AdapterLaunch.Direct(
                 AgentWorkspaceLink.AdapterPath,
                 connectionPath,
-                AgentWorkspaceLink.AdapterInstanceId);
+                AgentWorkspaceLink.AdapterInstanceId,
+                sessionId);
 
         foreach (var target in selected)
         {
@@ -501,7 +517,8 @@ public static class AgentProjectLink
     /// </summary>
     private static AgentMcpConfigCatalog.AdapterLaunch WritePortableLaunch(
         string projectDirectory,
-        string? connectionPath)
+        string? connectionPath,
+        string? sessionId = null)
     {
         var path = Path.Combine(projectDirectory, AgentMcpConfigCatalog.ProjectLauncherFileName);
         File.WriteAllText(
@@ -510,7 +527,8 @@ public static class AgentProjectLink
             Utf8);
         return AgentMcpConfigCatalog.AdapterLaunch.PortableProject(
             connectionPath,
-            AgentWorkspaceLink.AdapterInstanceId);
+            AgentWorkspaceLink.AdapterInstanceId,
+            sessionId);
     }
 
     private static void MergeMcpJson(

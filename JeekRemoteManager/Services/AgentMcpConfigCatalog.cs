@@ -121,23 +121,27 @@ public static class AgentMcpConfigCatalog
         IReadOnlyList<string> Arguments,
         string? WorkingDirectory = null)
     {
-        /// <summary>Absolute exe plus optional <c>--instance</c> / <c>--connection</c>.</summary>
+        /// <summary>Absolute exe plus optional <c>--instance</c> / <c>--connection</c> / <c>--session</c>.</summary>
         public static AdapterLaunch Direct(
             string adapterPath,
             string? connectionPath,
-            string? instanceId = null) =>
-            new(adapterPath, ToArgumentList(connectionPath, instanceId));
+            string? instanceId = null,
+            string? sessionId = null) =>
+            new(adapterPath, ToArgumentList(connectionPath, instanceId, sessionId));
 
         /// <summary>
         /// Portable project launch: <c>cmd /c .\JeekRemoteManagerMcp.cmd</c> plus optional
-        /// <c>--instance</c> / <c>--connection</c>. Release omits <c>--instance</c> so the
+        /// <c>--instance</c> / <c>--connection</c> / <c>--session</c>. Release omits <c>--instance</c> so the
         /// committed files talk to the installed app; Debug includes it so agents opened on
         /// the folder reach the worktree that wrote the config, not a different instance.
         /// </summary>
-        public static AdapterLaunch PortableProject(string? connectionPath, string? instanceId = null)
+        public static AdapterLaunch PortableProject(
+            string? connectionPath,
+            string? instanceId = null,
+            string? sessionId = null)
         {
             var args = new List<string> { "/c", ProjectLauncherRelativeCommand };
-            args.AddRange(ToArgumentList(connectionPath, instanceId));
+            args.AddRange(ToArgumentList(connectionPath, instanceId, sessionId));
             return new("cmd", args, ".");
         }
 
@@ -187,16 +191,18 @@ public static class AgentMcpConfigCatalog
     public static JsonObject BuildJsonEntry(
         string adapterPath,
         string? connectionPath,
-        string? instanceId = null) =>
-        BuildStdioEntry(AdapterLaunch.Direct(adapterPath, connectionPath, instanceId));
+        string? instanceId = null,
+        string? sessionId = null) =>
+        BuildStdioEntry(AdapterLaunch.Direct(adapterPath, connectionPath, instanceId, sessionId));
 
     /// <summary>Builds the spelling required by one JSON target.</summary>
     public static JsonObject BuildJsonEntry(
         Target target,
         string adapterPath,
         string? connectionPath,
-        string? instanceId = null) =>
-        BuildJsonEntry(target, AdapterLaunch.Direct(adapterPath, connectionPath, instanceId));
+        string? instanceId = null,
+        string? sessionId = null) =>
+        BuildJsonEntry(target, AdapterLaunch.Direct(adapterPath, connectionPath, instanceId, sessionId));
 
     /// <summary>Builds the spelling required by one JSON target from a prepared launch.</summary>
     public static JsonObject BuildJsonEntry(Target target, AdapterLaunch launch)
@@ -326,11 +332,12 @@ public static class AgentMcpConfigCatalog
         string serverName,
         string adapterPath,
         string? connectionPath,
-        string? instanceId = null) =>
+        string? instanceId = null,
+        string? sessionId = null) =>
         BuildTomlEntry(
             target,
             serverName,
-            AdapterLaunch.Direct(adapterPath, connectionPath, instanceId));
+            AdapterLaunch.Direct(adapterPath, connectionPath, instanceId, sessionId));
 
     /// <summary>The same entry as a TOML table body from a prepared launch.</summary>
     public static string BuildTomlEntry(
@@ -392,7 +399,10 @@ public static class AgentMcpConfigCatalog
             entry["cwd"] = cwd;
     }
 
-    private static IReadOnlyList<string> ToArgumentList(string? connectionPath, string? instanceId)
+    private static IReadOnlyList<string> ToArgumentList(
+        string? connectionPath,
+        string? instanceId,
+        string? sessionId = null)
     {
         var args = new List<string>();
         if (!string.IsNullOrWhiteSpace(instanceId))
@@ -404,6 +414,12 @@ public static class AgentMcpConfigCatalog
         {
             args.Add("--connection");
             args.Add(connectionPath);
+        }
+        if (!string.IsNullOrWhiteSpace(sessionId)
+            && !string.Equals(sessionId, connectionPath, StringComparison.OrdinalIgnoreCase))
+        {
+            args.Add("--session");
+            args.Add(sessionId);
         }
 
         return args;

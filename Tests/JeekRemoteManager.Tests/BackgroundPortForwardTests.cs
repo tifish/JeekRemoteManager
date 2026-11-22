@@ -209,4 +209,42 @@ public sealed class BackgroundPortForwardTests
         Assert.Contains(tools, t => t!["name"]!.GetValue<string>() == "port_forward_close");
         Assert.Contains(DebugMcpContract.BuildToolList(), t => t!["name"]!.GetValue<string>() == "background_port_forward_check");
     }
+
+    [Fact]
+    public async Task Route_update_on_failed_or_awaiting_user_forward_cancels_stale_dial_and_retries()
+    {
+        using var manager = new BackgroundPortForwards(startTimer: false);
+        var owner = Guid.NewGuid().ToString();
+
+        // 1. Failed entry accepts updated route and immediately recovers.
+        var failed = await manager.EnsureAsync(owner, Target, (_, _) => throw new Exception("bad route"));
+        Assert.Equal("failed", State(failed));
+        var updatedTarget = Target with { RouteIdentity = "fixed-route" };
+        var recovered = await manager.EnsureAsync(owner, updatedTarget, (_, _) => new Transport(42001));
+        Assert.Equal(Id(failed), Id(recovered));
+        Assert.Equal("ready", State(recovered));
+        Assert.Equal(42001, recovered["local_port"]!.GetValue<int>());
+
+        // 2. Manual awaiting_user entry cancels the stale pending dial and retries on resume with new route.
+        using var finishStale = new ManualResetEventSlim();
+        var staleTransport = new Transport(42002);
+        var staleDisposed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var awaiting = await manager.StartFromManagerAsync(Target, (_, prompted) =>
+        {
+            prompted();
+            finishStale.Wait(TimeSpan.FromSeconds(5));
+            return new NotifyingTransport(staleTransport, staleDisposed);
+        });
+        Assert.Equal("awaiting_user", State(awaiting));
+
+        var resumed = await manager.StartFromManagerAsync(
+            updatedTarget,
+            (_, _) => new Transport(42003),
+            Id(awaiting));
+        finishStale.Set();
+        await staleDisposed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(staleTransport.IsReady);
+        Assert.Equal("ready", State(resumed));
+        Assert.Equal(42003, resumed["local_port"]!.GetValue<int>());
+    }
 }

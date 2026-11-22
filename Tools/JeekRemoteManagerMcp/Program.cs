@@ -218,11 +218,14 @@ static string AdvertiseListChanged(string response)
     return reply.ToJsonString();
 }
 
-// Fills in the connection this adapter was pinned to, so a linked project does not have to
-// name it on every call. An explicit argument always wins.
+// Fills in the connection and (for duplicated tabs) session this adapter was pinned to, so a
+// workspace or linked project does not have to name them on every call. Explicit arguments win:
+// if the caller already passed 'session' or 'connection', do not inject the default session.
 void ApplyDefaultArguments(JsonObject call)
 {
-    if (options.Connection is not { Length: > 0 } connectionPath)
+    var hasConnection = options.Connection is { Length: > 0 };
+    var hasSession = options.Session is { Length: > 0 };
+    if (!hasConnection && !hasSession)
         return;
     if (call["params"] is not JsonObject parameters)
         return;
@@ -233,8 +236,11 @@ void ApplyDefaultArguments(JsonObject call)
         parameters["arguments"] = toolArgs;
     }
 
-    if (toolArgs["connection"] is null)
-        toolArgs["connection"] = connectionPath;
+    var callerProvidedTarget = toolArgs["session"] is not null || toolArgs["connection"] is not null;
+    if (hasSession && !callerProvidedTarget)
+        toolArgs["session"] = options.Session;
+    if (hasConnection && toolArgs["connection"] is null)
+        toolArgs["connection"] = options.Connection;
 }
 
 // The app is unreachable. Keep the session usable instead of failing the handshake: the
@@ -299,6 +305,7 @@ internal sealed record AdapterOptions(
     IReadOnlyList<string> PipeNames,
     string Surface,
     string? Connection,
+    string? Session,
     bool AutoLaunch,
     string AppPath)
 {
@@ -317,6 +324,7 @@ internal sealed record AdapterOptions(
         string? pipe = null;
         string? instance = null;
         string? connection = null;
+        string? session = null;
         string? appPath = null;
         bool? launch = null;
 
@@ -339,6 +347,10 @@ internal sealed record AdapterOptions(
                     break;
                 case "--connection" when value is not null:
                     connection = value;
+                    i++;
+                    break;
+                case "--session" when value is not null:
+                    session = value;
                     i++;
                     break;
                 case "--app" when value is not null:
@@ -416,7 +428,7 @@ internal sealed record AdapterOptions(
         // product surface starts it on demand.
         launch ??= !surface.Equals("debug", StringComparison.OrdinalIgnoreCase);
 
-        return new AdapterOptions(pipes, surface, connection, launch.Value, appPath);
+        return new AdapterOptions(pipes, surface, connection, session, launch.Value, appPath);
     }
 }
 

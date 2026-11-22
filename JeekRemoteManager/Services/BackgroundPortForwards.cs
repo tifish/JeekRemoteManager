@@ -90,12 +90,16 @@ internal sealed class BackgroundPortForwards : IDisposable
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            var routeChanged = false;
             if (resumeId is not null)
             {
                 if (!_entries.TryGetValue(resumeId, out var existing))
                     throw new InvalidOperationException("The background forward no longer exists.");
                 entry = existing;
-                if (!SameTarget(entry.Target, target) || entry.Target.RouteIdentity != target.RouteIdentity)
+                routeChanged = entry.Target.RouteIdentity != target.RouteIdentity;
+                var allowRouteUpdate = entry.State is "failed" or "awaiting_user"
+                    || (entry.Owner is null && entry.State == "closed");
+                if (!SameTarget(entry.Target, target) || (routeChanged && !allowRouteUpdate))
                     throw new InvalidOperationException("The saved SSH route has changed.");
                 entry.StoppedByUser = false;
             }
@@ -108,7 +112,8 @@ internal sealed class BackgroundPortForwards : IDisposable
                     Renew(entry);
                     return Snapshot(entry);
                 }
-                if (entry.State != "closed" && entry.Target.RouteIdentity != target.RouteIdentity)
+                routeChanged = entry.Target.RouteIdentity != target.RouteIdentity;
+                if (entry.State == "ready" && routeChanged)
                     throw new InvalidOperationException("Saved SSH route changed; close this owner's old forward first.");
                 _entries[entry.Id] = entry;
             }
@@ -116,7 +121,9 @@ internal sealed class BackgroundPortForwards : IDisposable
             Renew(entry);
             if (entry.Transport?.IsReady == true)
                 return Snapshot(entry);
-            if (entry.Dial is null || entry.Dial.IsCompleted)
+            // If the SSH route changed while failed/awaiting_user, cancel any in-flight dial
+            // on the stale route and immediately retry with the updated route.
+            if (routeChanged || entry.Dial is null || entry.Dial.IsCompleted)
             {
                 retiredBeforeDial = RetireLocked(entry, "awaiting_user", "ssh_connecting");
                 entry.Cancellation = new CancellationTokenSource();
