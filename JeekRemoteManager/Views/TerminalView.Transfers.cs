@@ -60,14 +60,22 @@ public partial class TerminalView
         {
             // No ZMODEM over ConPTY, and the Windows filesystem is mounted inside
             // the distro anyway: dropping pastes the /mnt/... path instead.
-            WriteToShell(string.Join(" ",
-                paths.Select(p => QuoteForRemoteShell(WslDistroService.ToWslPath(p)))));
+            try
+            {
+                WriteToShell(string.Join(" ",
+                    paths.Select(p => QuoteForRemoteShell(WslDistroService.ToWslPath(p)))));
+            }
+            catch { /* channel may have closed */ }
             return;
         }
 
         if (e.KeyModifiers.HasFlag(KeyModifiers.Shift))
         {
-            WriteToShell(string.Join(" ", paths.Select(QuoteForRemoteShell)));
+            try
+            {
+                WriteToShell(string.Join(" ", paths.Select(QuoteForRemoteShell)));
+            }
+            catch { /* channel may have closed */ }
             return;
         }
 
@@ -97,7 +105,17 @@ public partial class TerminalView
             : $"(mkdir -p {QuoteForRemoteShell(remoteDirectory)} && cd {QuoteForRemoteShell(remoteDirectory)} && rz)";
 
         // Ctrl+U discards anything half-typed at the prompt so `rz` runs clean.
-        WriteToShell("\u0015" + rz + "\r");
+        try
+        {
+            WriteToShell("\u0015" + rz + "\r");
+        }
+        catch
+        {
+            Interlocked.Exchange(ref _pendingDropUploadFiles, null);
+            FeedLineOnUiThread("\u001b[31m[zmodem upload]\u001b[0m Terminal channel is closed.");
+            _aiTransferCompletion?.TrySetResult("[upload failed: terminal channel is closed]");
+            return;
+        }
 
         _ = ExpireDropUploadAsync(generation);
     }
@@ -146,24 +164,31 @@ public partial class TerminalView
 
     private void ScheduleZmodemDetectionFlush()
     {
-        if (_disposed || _activeZmodemQueue is not null)
-            return;
+        lock (_timersGate)
+        {
+            if (_disposed || _activeZmodemQueue is not null)
+                return;
 
-        _zmodemDetectionFlushTimer ??= new Timer(_ => FlushZmodemDetectionBuffer());
-        _zmodemDetectionFlushTimer.Change(80, Timeout.Infinite);
+            _zmodemDetectionFlushTimer ??= new Timer(_ => FlushZmodemDetectionBuffer());
+            _zmodemDetectionFlushTimer.Change(80, Timeout.Infinite);
+        }
     }
 
     private void FlushZmodemDetectionBuffer()
     {
+        if (_disposed)
+            return;
+
         byte[] data;
         lock (_zmodemDetectionGate)
         {
-            if (_activeZmodemQueue is not null)
+            if (_disposed || _activeZmodemQueue is not null)
                 return;
             data = _zmodemDetector.Flush();
         }
 
-        FeedBytes(data);
+        if (!_disposed)
+            FeedBytes(data);
     }
 
     private void StartZmodemTransfer(ZmodemDetection detection)
@@ -273,8 +298,6 @@ public partial class TerminalView
         }
         finally
         {
-            var leftover = queue.DrainAvailable();
-            trace?.WriteBytes("RX leftover", leftover);
             if (ReferenceEquals(_activeZmodemQueue, queue))
                 _activeZmodemQueue = null;
             if (ReferenceEquals(_activeZmodemTrace, trace))
@@ -283,10 +306,13 @@ public partial class TerminalView
                 _activeZmodemCancellation = null;
 
             queue.Complete();
-            FeedBytes(leftover);
+            var leftover = queue.DrainAvailable();
+            trace?.WriteBytes("RX leftover", leftover);
+            if (!_disposed)
+                FeedBytes(leftover);
             cancellation.Dispose();
             trace?.Dispose();
-            _suppressUserInput = _activePayloadMonitor is not null;
+            _suppressUserInput = Volatile.Read(ref _activePayloadMonitor) is not null;
             // Safety net: every exit path above should have completed this already.
             _aiTransferCompletion?.TrySetResult("[transfer ended]");
             FocusTerminal();

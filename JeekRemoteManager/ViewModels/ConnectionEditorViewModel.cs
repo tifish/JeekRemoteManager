@@ -206,6 +206,9 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     private System.Collections.Generic.Dictionary<string, Connection>? _jumpConnections;
 
     private string _jumpHostDropError = "";
+    private string? _cachedJumpHostValidationMessage;
+
+    internal bool SuppressWslDistroAutoSave { get; private set; }
 
     public bool HasJumpHost => !string.IsNullOrWhiteSpace(JumpHostConnectionId);
 
@@ -217,7 +220,11 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     public string JumpHostDisplay => CurrentJump is { } saved
         ? $"{saved.Key}  ({saved.Value.Username}@{saved.Value.Host}:{(saved.Value.Port > 0 ? saved.Value.Port : 22)})" : JumpHostConnectionId;
 
-    partial void OnJumpHostConnectionIdChanged(string value) => ReportJumpHostDropError("");
+    partial void OnJumpHostConnectionIdChanged(string value)
+    {
+        _cachedJumpHostValidationMessage = null;
+        ReportJumpHostDropError("");
+    }
 
     private Connection? ResolveJumpReference(string id)
     {
@@ -235,6 +242,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     {
         _jumpConnections = connections.ToDictionary(pair => NormalizeJumpPath(pair.Key), pair => pair.Value,
             System.StringComparer.OrdinalIgnoreCase);
+        _cachedJumpHostValidationMessage = null;
         OnPropertyChanged(nameof(JumpHostDisplay));
         OnPropertyChanged(nameof(JumpHostValidationMessage));
         OnPropertyChanged(nameof(HasJumpHostValidationMessage));
@@ -280,30 +288,31 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     public void ReportJumpHostDropError(string error)
     {
         _jumpHostDropError = error;
+        _cachedJumpHostValidationMessage = null;
         OnPropertyChanged(nameof(JumpHostValidationMessage));
         OnPropertyChanged(nameof(HasJumpHostValidationMessage));
     }
 
-    public string JumpHostValidationMessage
+    public string JumpHostValidationMessage =>
+        _cachedJumpHostValidationMessage ??= ComputeJumpHostValidationMessage();
+
+    private string ComputeJumpHostValidationMessage()
     {
-        get
+        if (_jumpHostDropError.Length > 0)
+            return _jumpHostDropError;
+        if (_jumpConnections is null || !HasJumpHost)
+            return "";
+        try
         {
-            if (_jumpHostDropError.Length > 0)
-                return _jumpHostDropError;
-            if (_jumpConnections is null || !HasJumpHost)
-                return "";
-            try
+            SshDialer.ResolveJumpRoute(new Connection
             {
-                SshDialer.ResolveJumpRoute(new Connection
-                {
-                    ConnectionId = _connectionId, JumpHostConnectionId = JumpHostConnectionId,
-                }, ResolveJumpReference);
-                return "";
-            }
-            catch (System.InvalidOperationException ex)
-            {
-                return ex.Message;
-            }
+                ConnectionId = _connectionId, JumpHostConnectionId = JumpHostConnectionId,
+            }, ResolveJumpReference);
+            return "";
+        }
+        catch (System.InvalidOperationException ex)
+        {
+            return ex.Message;
         }
     }
 
@@ -331,6 +340,7 @@ public partial class ConnectionEditorViewModel : ViewModelBase
     // WSL
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(AvailableWslDistros))]
+    [NotifyPropertyChangedFor(nameof(ShowNoWslDistrosHint))]
     private string _wslDistro = "";
 
     private string[]? _availableWslDistros;
@@ -421,11 +431,23 @@ public partial class ConnectionEditorViewModel : ViewModelBase
         // The distro ComboBox writes null through its two-way binding while its
         // items detach/reattach (editor rebinds, the type switches). Keep the
         // previous value so the selection survives, and push it back to the
-        // ComboBox once the binding storm settles.
+        // ComboBox once the binding storm settles without marking the editor dirty.
         if (newValue is not null)
             return;
         _wslDistro = oldValue ?? "";
-        Avalonia.Threading.Dispatcher.UIThread.Post(() => OnPropertyChanged(nameof(WslDistro)));
+        SuppressWslDistroAutoSave = true;
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            SuppressWslDistroAutoSave = true;
+            try
+            {
+                OnPropertyChanged(nameof(WslDistro));
+            }
+            finally
+            {
+                SuppressWslDistroAutoSave = false;
+            }
+        });
     }
 
     partial void OnTypeChanged(ConnectionType oldValue, ConnectionType newValue)
@@ -437,6 +459,21 @@ public partial class ConnectionEditorViewModel : ViewModelBase
 
     partial void OnTypeChanged(ConnectionType value)
     {
+        if (value != ConnectionType.Ssh)
+        {
+            HasBastionProfile = false;
+        }
+        else if (_bastionProfiles is not null && !HasBastionProfile)
+        {
+            var probe = CreateLoginCommandVariableConnection();
+            _bastionProfiles.Resolve(probe);
+            if (probe.ResolvedBastionProfile is { } profile)
+            {
+                LoadProfileIntoEditor(profile);
+                HasBastionProfile = true;
+            }
+        }
+
         NotifyLoginCommandPresentationChanged();
 
         // Switching an existing connection to WSL: preselect the default distro so

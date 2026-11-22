@@ -6,12 +6,6 @@ fail() {
     exit 1
 }
 
-warn() {
-    printf 'WARNING: %s\n' "$1" >&2
-}
-
-PORT=${PORT:-}
-
 if [ "$(uname -s)" != "Linux" ]; then
     fail "This uninstall script only supports Linux."
 fi

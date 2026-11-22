@@ -44,9 +44,13 @@ public static class McpAdapterRegistration
             return false;
         }
 
+        var processPath = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(processPath))
+            return false;
+
         return string.Equals(
                    Path.GetFullPath(registered.AppPath),
-                   Path.GetFullPath(Environment.ProcessPath ?? ""),
+                   Path.GetFullPath(processPath),
                    StringComparison.OrdinalIgnoreCase)
                && registered.ProductPipeName == DebugInstanceContext.ProductMcpPipeName
                && registered.DebugPipeName == DebugInstanceContext.DebugMcpPipeName;

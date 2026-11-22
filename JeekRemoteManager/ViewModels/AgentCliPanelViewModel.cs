@@ -265,6 +265,9 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
     partial void OnSelectedProviderChanged(AgentCliDescriptor value)
     {
+        if (value is null)
+            return;
+
         // Rebuild options for the new provider and restore that family's stored mode
         // (e.g. Grok CLI/WT → Claude Desktop → VS Code's single IDE mode).
         if (SyncRunModeOptions(value.Kind, _resolvePreferredRunMode?.Invoke(value.Kind) ?? RunMode))
@@ -278,6 +281,9 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
     partial void OnSelectedRunModeOptionChanged(AgentCliRunModeOption value)
     {
+        if (value is null)
+            return;
+
         OnPropertyChanged(nameof(RunMode));
         NotifyLayoutFlags();
         InstallCommand.NotifyCanExecuteChanged();
@@ -301,8 +307,10 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
 
         if (CanStartSelectedProvider())
             _ = StartAsync();
-        else if (IsRunning)
+        else if (IsRunning || Volatile.Read(ref _pendingOpenCts) is not null)
             _ = StopForSelectionChangeAsync();
+        else
+            SupersedeLaunches();
     }
 
     /// <summary>
@@ -312,10 +320,16 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     /// </summary>
     private async Task StopForSelectionChangeAsync()
     {
+        if (_disposed)
+            return;
+
         SupersedeLaunches();
         await _startGate.WaitAsync().ConfigureAwait(true);
         try
         {
+            if (_disposed)
+                return;
+
             await StopInternalAsync(userStopped: false, replaced: true).ConfigureAwait(true);
             RefreshStatusFromProvider();
             NotifyLayoutFlags();
@@ -575,13 +589,18 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
     private void RediscoverProviders(AgentCliKind preferKind)
     {
         var discovered = AgentCliCatalog.Rediscover();
-        Providers.Clear();
+        var oldCount = Providers.Count;
         foreach (var d in discovered)
             Providers.Add(d);
 
-        SelectedProvider = Providers.FirstOrDefault(p => p.Kind == preferKind)
-            ?? Providers.FirstOrDefault(p => p.IsAvailable)
-            ?? Providers[0];
+        var fresh = Providers.Skip(oldCount).ToList();
+        SelectedProvider = fresh.FirstOrDefault(p => p.Kind == preferKind)
+            ?? fresh.FirstOrDefault(p => p.IsAvailable)
+            ?? fresh[0];
+
+        for (var i = oldCount - 1; i >= 0; i--)
+            Providers.RemoveAt(i);
+
         NotifyLayoutFlags();
     }
 
@@ -625,7 +644,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             var surface = provider.SurfaceFor(runMode);
             if (surface?.IsAvailable != true)
             {
-                StatusText = surface?.InstallHint ?? L("AiCliDesktopUnsupported", provider.Label);
+                RefreshStatusFromProvider();
                 NotifyLayoutFlags();
                 return;
             }
@@ -699,7 +718,10 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
                 }
 
                 // Runtime flags only (auto-approve tools / scrollback). Server context is in AGENTS.md.
-                var args = AgentCliCatalog.BuildInteractiveArguments(provider.Kind);
+                var mcpServerName = ShowConnectionOptions
+                    ? AgentCliWorkspace.McpServerName
+                    : AgentProjectLink.ApplicationMcpServerName;
+                var args = AgentCliCatalog.BuildInteractiveArguments(provider.Kind, mcpServerName);
 
                 if (runMode == AgentCliRunMode.WindowsTerminal)
                 {
@@ -871,55 +893,49 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             // ignore
         }
 
-        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        try
         {
-            if (_disposed)
-                return;
-            // A newer StartAsync superseded this launch — only dispose if still current.
-            if (generation != Volatile.Read(ref _startGeneration)
-                && !ReferenceEquals(_session, session))
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
-                try { session.Dispose(); } catch { /* ignore */ }
-                return;
-            }
+                if (_disposed)
+                    return;
+                // A newer StartAsync superseded this launch — only dispose if still current.
+                if (generation != Volatile.Read(ref _startGeneration)
+                    && !ReferenceEquals(_session, session))
+                {
+                    try { session.Dispose(); } catch { /* ignore */ }
+                    return;
+                }
 
-            HandleCliProcessExited(session, external: null, exitCode);
-        });
+                HandleCliProcessExited(session, exitCode);
+            });
+        }
+        catch
+        {
+            // UI dispatcher may already be shutting down.
+        }
     }
 
     /// <summary>
-    /// CLI process ended on its own (or the external console closed). Clears session
-    /// state, refreshes toolbar/status, and tells the view to update the terminal surface.
+    /// CLI process ended on its own. Clears session state, refreshes toolbar/status,
+    /// and tells the view to update the terminal surface.
     /// </summary>
-    private void HandleCliProcessExited(ConPtySession? session, Process? external, int? exitCode)
+    private void HandleCliProcessExited(ConPtySession session, int exitCode)
     {
         if (_disposed)
             return;
 
         // Ignore stale exit from a session we already replaced or stopped.
-        if (session is not null && !ReferenceEquals(_session, session))
-            return;
-        if (external is not null && !ReferenceEquals(_externalProcess, external))
+        if (!ReferenceEquals(_session, session))
             return;
 
         // Capture before dispose — early-exit CLIs often die before the UI attaches DataReceived.
-        var exitDetail = session is not null
-            ? SummarizeCliOutput(session.GetRecentOutputPlainText())
-            : null;
+        var exitDetail = SummarizeCliOutput(session.GetRecentOutputPlainText());
 
-        if (session is not null)
-        {
-            _session = null;
-            try { session.Dispose(); } catch { /* ignore */ }
-        }
+        _session = null;
+        try { session.Dispose(); } catch { /* ignore */ }
 
-        if (external is not null)
-        {
-            _externalProcess = null;
-            try { external.Dispose(); } catch { /* ignore */ }
-        }
-
-        if (!IsRunning && _session is null && _externalProcess is null && !_detachedAppActive)
+        if (!IsRunning && _externalProcess is null && !_detachedAppActive)
             return;
 
         IsRunning = false;
@@ -929,18 +945,12 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         SessionStopped?.Invoke(false, exitDetail);
     }
 
-    private static string FormatProcessExitStatus(string label, int? exitCode, string? exitDetail)
+    private static string FormatProcessExitStatus(string label, int exitCode, string? exitDetail)
     {
         if (!string.IsNullOrWhiteSpace(exitDetail))
-        {
-            return exitCode is { } code
-                ? L("AiCliExitedWithDetail", label, code, exitDetail)
-                : L("AiCliExitedWithDetailNoCode", label, exitDetail);
-        }
+            return L("AiCliExitedWithDetail", label, exitCode, exitDetail);
 
-        return exitCode is { } c
-            ? L("AiCliExited", label, c)
-            : L("AiCliExitedNoCode", label);
+        return L("AiCliExited", label, exitCode);
     }
 
     /// <summary>Collapse multi-line CLI output into a short status-bar detail.</summary>
@@ -1000,6 +1010,16 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             try { session.Dispose(); } catch { /* ignore */ }
         }
 
+        lock (_captureGate)
+        {
+            var capture = _captureStream;
+            _captureStream = null;
+            if (capture is not null)
+            {
+                try { capture.Dispose(); } catch { /* ignore */ }
+            }
+        }
+
         var external = _externalProcess;
         _externalProcess = null;
         if (external is not null)
@@ -1056,7 +1076,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
                 FileName = uri,
                 UseShellExecute = true,
             };
-            Process.Start(psi);
+            using var _ = Process.Start(psi);
             _detachedAppActive = true;
             return true;
         }
@@ -1116,7 +1136,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             };
             foreach (var argument in arguments)
                 psi.ArgumentList.Add(argument);
-            Process.Start(psi);
+            using var _ = Process.Start(psi);
             _detachedAppActive = true;
             return true;
         }
@@ -1269,15 +1289,30 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             return;
         _disposed = true;
         SupersedeLaunches();
-        await _startGate.WaitAsync().ConfigureAwait(false);
+        await _startGate.WaitAsync().ConfigureAwait(true);
         try
         {
-            await StopInternalAsync(userStopped: false, replaced: false).ConfigureAwait(false);
+            if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+            {
+                await StopInternalAsync(userStopped: false, replaced: false).ConfigureAwait(true);
+            }
+            else
+            {
+                try
+                {
+                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(
+                        () => StopInternalAsync(userStopped: false, replaced: false));
+                }
+                catch
+                {
+                    // Dispatcher unavailable during shutdown; still tear down owned resources.
+                    await StopInternalAsync(userStopped: false, replaced: false).ConfigureAwait(false);
+                }
+            }
         }
         finally
         {
             _startGate.Release();
-            _startGate.Dispose();
         }
     }
 }

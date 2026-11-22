@@ -50,8 +50,9 @@ public partial class ServerMonitorView : UserControl
 
     private async void OnCopyIpClick(object? sender, RoutedEventArgs e)
     {
-        await CopyIpAsync();
         e.Handled = true;
+        try { await CopyIpAsync(); }
+        catch { /* best-effort clipboard copy */ }
     }
 
     /// <summary>Copies the address currently shown by the monitor. Public so Debug MCP

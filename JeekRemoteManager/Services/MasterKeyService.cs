@@ -30,7 +30,7 @@ public sealed class MasterKeyService
     // Extra entropy binding the DPAPI cache to this application/cache version.
     private static readonly byte[] CacheEntropy = Encoding.UTF8.GetBytes("JeekRemoteManager.masterpassword.v3");
 
-    private byte[]? _masterSecret;
+    private volatile byte[]? _masterSecret;
     private byte[]? _masterSecretHash;
 
     /// <summary>
@@ -68,9 +68,6 @@ public sealed class MasterKeyService
 
     /// <summary>True once the master password has been unlocked and is held in memory.</summary>
     public bool IsUnlocked => _masterSecret != null;
-
-    /// <summary>True when a local DPAPI cache file is present.</summary>
-    public static bool HasCache => File.Exists(CachePath);
 
     /// <summary>
     /// True if <paramref name="password"/> matches the currently-unlocked master

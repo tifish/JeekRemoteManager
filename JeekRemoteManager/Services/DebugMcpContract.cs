@@ -3,26 +3,8 @@ using System.Text.Json.Nodes;
 
 namespace JeekRemoteManager.Services;
 
-public sealed class DebugMcpDiscovery
-{
-    public string Url { get; set; } = "";
-
-    /// <summary>Named pipe accepting Debug MCP sessions (preferred over <see cref="Url"/>).</summary>
-    public string PipeName { get; set; } = "";
-    public int ProcessId { get; set; }
-    public string ExecutablePath { get; set; } = "";
-    public string InstanceId { get; set; } = "";
-    public string InstanceLabel { get; set; } = "";
-    public string WorkspaceRoot { get; set; } = "";
-    public string ConfigRoot { get; set; } = "";
-    public string RuntimeTempRoot { get; set; } = "";
-}
-
 public static class DebugMcpContract
 {
-    public const string SupportedProtocolVersion = "2025-06-18";
-    public static readonly string[] KnownProtocolVersions = ["2024-11-05", "2025-03-26", SupportedProtocolVersion];
-
     public const string PathHelp =
         "Paths start from a root: App (the Application), Desktop (the desktop lifetime), " +
         "MainWindow, or MainVm (MainWindow.DataContext). Segments: '.Member' reads a property or field " +
@@ -329,17 +311,6 @@ public static class DebugMcpContract
         Tool("auto_update_mirror_check",
             "Samples normal package downloads from GitHub and its mirrors, reports received bytes, throughput and timeouts, and selects the fastest usable source. Does not install updates.",
             new()));
-
-    public static JsonObject InitializeResult(string name, string title, string version, string? requestedVersion)
-    {
-        var protocol = KnownProtocolVersions.Contains(requestedVersion) ? requestedVersion! : SupportedProtocolVersion;
-        return new JsonObject
-        {
-            ["protocolVersion"] = protocol,
-            ["capabilities"] = new JsonObject { ["tools"] = new JsonObject() },
-            ["serverInfo"] = new JsonObject { ["name"] = name, ["title"] = title, ["version"] = version },
-        };
-    }
 
     private static JsonObject Tool(string name, string description, JsonObject properties, string[]? required = null)
     {

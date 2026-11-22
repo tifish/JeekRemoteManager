@@ -14,7 +14,6 @@
                 Background="{DynamicResource ChromeSurfaceBrush}">
             <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="6">
                 <ComboBox Grid.Column="0"
-                          Classes="header-option"
                           MinWidth="92"
                           MaxWidth="120"
                           MinHeight="28"
@@ -29,7 +28,6 @@
                 </ComboBox>
 
                 <ComboBox Grid.Column="1"
-                          Classes="header-option"
                           MinWidth="108"
                           MaxWidth="150"
                           MinHeight="28"
@@ -167,7 +165,7 @@
                             HorizontalAlignment="Center"
                             MinHeight="32"
                             Padding="16,6"
-                            IsDefault="True" />
+                            Classes="accent" />
                     <TextBlock Text="{Binding InstallHelpText}"
                                TextWrapping="Wrap"
                                TextAlignment="Center"

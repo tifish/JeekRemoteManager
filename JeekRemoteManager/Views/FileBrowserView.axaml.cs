@@ -22,6 +22,7 @@ namespace JeekRemoteManager.Views;
 /// </summary>
 public partial class FileBrowserView : UserControl
 {
+    private FileBrowserViewModel? _wiredVm;
     private string _searchPrefix = "";
     private DateTime _lastSearchInput;
 
@@ -82,6 +83,11 @@ public partial class FileBrowserView : UserControl
             e.Handled = true;
             vm.CancelRename(entry);
         }
+        else if (e.Key is Key.Up or Key.Down or Key.PageUp or Key.PageDown or Key.Left or Key.Right or Key.Home or Key.End)
+        {
+            // Keep unhandled single-line editor nav keys from bubbling to the ListBox.
+            e.Handled = true;
+        }
     }
 
     private void OnRenameEditorLostFocus(object? sender, RoutedEventArgs e)
@@ -95,7 +101,8 @@ public partial class FileBrowserView : UserControl
     /// <summary>True when the event originates from a row's inline rename editor —
     /// list/panel shortcuts must not fire while the user is typing a name.</summary>
     private static bool IsFromRenameEditor(RoutedEventArgs e) =>
-        e.Source is TextBox { DataContext: RemoteFileEntry };
+        e.Source is Avalonia.Visual visual
+        && visual.FindAncestorOfType<TextBox>(includeSelf: true) is { DataContext: RemoteFileEntry };
 
     private void OnPanelKeyDown(object? sender, KeyEventArgs e)
     {
@@ -250,8 +257,26 @@ public partial class FileBrowserView : UserControl
 
     private void WireViewModel()
     {
+        if (_wiredVm is not null)
+        {
+            _wiredVm.GetSelection = null;
+            _wiredVm.PickUploadFilesAsync = null;
+            _wiredVm.PickDownloadFolderAsync = null;
+            _wiredVm.PromptAsync = null;
+            _wiredVm.ConfirmAsync = null;
+            _wiredVm.SetClipboardTextAsync = null;
+            _wiredVm.IsListFocused = null;
+            _wiredVm.RequestFocusList = null;
+            _wiredVm.RequestSelectEntry = null;
+            _wiredVm.RequestFocusPathInput = null;
+            _wiredVm.RequestBeginRename = null;
+            _wiredVm = null;
+        }
+
         if (Vm is not { } vm)
             return;
+
+        _wiredVm = vm;
 
         vm.GetSelection = () =>
             FileList.SelectedItems?.OfType<RemoteFileEntry>().ToList()
@@ -443,7 +468,7 @@ public partial class FileBrowserView : UserControl
                 Spacing = 12,
                 Children =
                 {
-                    new TextBlock { Text = message },
+                    new TextBlock { Text = message, TextWrapping = Avalonia.Media.TextWrapping.Wrap },
                     input,
                     new StackPanel
                     {

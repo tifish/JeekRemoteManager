@@ -820,11 +820,15 @@
                                                         Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).BrowseKeyCommand}" />
 
                                                 <TextBlock Grid.Row="3" Grid.Column="0" Classes="label" Text="{l:Localize Passphrase}" />
-                                                <TextBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2"
-                                                         Text="{Binding PrivateKeyPassphrase, Mode=TwoWay}"
-                                                         PasswordChar="&#x2022;"
-                                                         RevealPassword="{Binding #Root.((vm:MainWindowViewModel)DataContext).ShowPassword}"
-                                                         PlaceholderText="{l:Localize PassphraseWatermark}" />
+                                                <StackPanel Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Spacing="4">
+                                                    <TextBox Text="{Binding PrivateKeyPassphrase, Mode=TwoWay}"
+                                                             PasswordChar="&#x2022;"
+                                                             RevealPassword="{Binding #Root.((vm:MainWindowViewModel)DataContext).ShowPassword}"
+                                                             PlaceholderText="{l:Localize PassphraseWatermark}" />
+                                                    <TextBlock Text="{l:Localize PassphraseDecryptFailed}"
+                                                               Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap"
+                                                               IsVisible="{Binding PassphraseDecryptFailed}" />
+                                                </StackPanel>
 
                                                 <StackPanel Grid.Row="4" Grid.Column="0"
                                                             Orientation="Horizontal" Spacing="6"
@@ -850,7 +854,7 @@
                                                     <Border x:Name="BastionTemplateCard"
                                                             IsVisible="{Binding HasBastionProfile}"
                                                             Padding="12" CornerRadius="6"
-                                                            Background="{DynamicResource ThemeControlLowBrush}">
+                                                            Background="{DynamicResource SurfaceBrush}">
                                                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                                                             <StackPanel Spacing="3">
                                                                 <TextBlock Text="{l:Localize BastionTemplateAutoLinked}"
@@ -878,7 +882,7 @@
                                                            Text="{Binding LoginCommandsValidationMessage}"
                                                            IsVisible="{Binding HasLoginCommandsValidationMessage}"
                                                            TextWrapping="Wrap"
-                                                           Foreground="#D97706" FontSize="11" />
+                                                           Foreground="{DynamicResource WarningBrush}" FontSize="11" />
 
                                                 <TextBlock Grid.Row="6" Grid.Column="0" Classes="label"
                                                            Text="{l:Localize AutoOpenPanels}" VerticalAlignment="Top" Margin="0,4,0,0" />
@@ -908,7 +912,7 @@
                                                     </Grid>
                                                     <TextBlock Text="{Binding JumpHostValidationMessage}"
                                                                IsVisible="{Binding HasJumpHostValidationMessage}"
-                                                               TextWrapping="Wrap" Foreground="#D97706" FontSize="11" />
+                                                               TextWrapping="Wrap" Foreground="{DynamicResource WarningBrush}" FontSize="11" />
                                                 </StackPanel>
 
                                                 <TextBlock Grid.Row="8" Grid.Column="0" Classes="label"
@@ -924,7 +928,7 @@
                                                            Text="{Binding PortForwardsValidationMessage}"
                                                            IsVisible="{Binding HasPortForwardsValidationMessage}"
                                                            TextWrapping="Wrap"
-                                                           Foreground="#D97706" FontSize="11" />
+                                                           Foreground="{DynamicResource WarningBrush}" FontSize="11" />
                                             </Grid>
 
                                         </StackPanel>
@@ -1020,7 +1024,7 @@
                                                     </Grid>
                                                     <TextBlock Text="{Binding JumpHostValidationMessage}"
                                                                IsVisible="{Binding HasJumpHostValidationMessage}"
-                                                               TextWrapping="Wrap" Foreground="#D97706" FontSize="11" />
+                                                               TextWrapping="Wrap" Foreground="{DynamicResource WarningBrush}" FontSize="11" />
                                                 </StackPanel>
                                                 <TextBlock Grid.Row="1" Grid.Column="1" Classes="hint"
                                                            Text="{l:Localize VncCredentialsHint}"

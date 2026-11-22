@@ -250,7 +250,7 @@ public partial class MainWindow
         content.Children.Add(actions);
         dialog.Content = content;
 
-        var requestConfirmation = confirmAsync ?? ConfirmAsync;
+        var requestConfirmation = confirmAsync ?? ((title, message) => ConfirmAsync(dialog, title, message));
         insertTypical.Click += async (_, _) =>
         {
             if (fragments.Any(fragment => !string.IsNullOrWhiteSpace(fragment.Text))
@@ -334,6 +334,8 @@ public partial class MainWindow
             Content = Localizer.Get("Close"),
             HorizontalAlignment = HorizontalAlignment.Right,
             MinWidth = 88,
+            IsDefault = true,
+            IsCancel = true,
             Classes = { "accent" },
         };
         var rows = new StackPanel { Spacing = 7 };
@@ -423,55 +425,5 @@ public partial class MainWindow
         };
         close.Click += (_, _) => dialog.Close();
         await dialog.ShowDialog(this);
-    }
-
-    private Task<string?> PromptAsync(string title, string message, string initial)
-    {
-        var tcs = new TaskCompletionSource<string?>();
-
-        var input = new TextBox { Text = initial };
-        var ok = new Button
-        {
-            Content = Localizer.Get("DialogOk"),
-            MinWidth = 80,
-            IsDefault = true,
-            Classes = { "accent" },
-        };
-        var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 80, IsCancel = true };
-
-        var dialog = new Window
-        {
-            Title = title,
-            Width = 380,
-            SizeToContent = SizeToContent.Height,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            CanResize = false,
-            Content = new StackPanel
-            {
-                Margin = new Avalonia.Thickness(20),
-                Spacing = 12,
-                Children =
-                {
-                    new TextBlock { Text = message },
-                    input,
-                    new StackPanel
-                    {
-                        Orientation = Orientation.Horizontal,
-                        HorizontalAlignment = HorizontalAlignment.Right,
-                        Spacing = 8,
-                        Children = { ok, cancel },
-                    },
-                },
-            },
-        };
-
-        ok.Click += (_, _) => { tcs.TrySetResult(input.Text); dialog.Close(); };
-        cancel.Click += (_, _) => { tcs.TrySetResult(null); dialog.Close(); };
-        dialog.Closed += (_, _) => tcs.TrySetResult(null);
-        // Focus + select once the window is actually shown, so it reliably sticks.
-        dialog.Opened += (_, _) => { input.Focus(); input.SelectAll(); };
-
-        dialog.ShowDialog(this);
-        return tcs.Task;
     }
 }

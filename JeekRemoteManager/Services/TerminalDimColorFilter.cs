@@ -13,6 +13,8 @@ namespace JeekRemoteManager.Services;
 /// </summary>
 public sealed class TerminalDimColorFilter
 {
+    private const int MaxCsiParamBytes = 256;
+
     private bool _injectedDimGray;
     private bool _pendingEsc;
     // Reused across frames: a full-screen TUI repaint runs through here dozens of times a
@@ -24,7 +26,6 @@ public sealed class TerminalDimColorFilter
     private readonly List<int> _parts = new(16);
     private readonly List<int> _rebuilt = new(24);
     private bool _inCsi;
-    private bool _csiSawQuestion;
 
     /// <summary>Clears dim/CSI state for a new ConPTY session.</summary>
     public void Reset()
@@ -32,7 +33,6 @@ public sealed class TerminalDimColorFilter
         _injectedDimGray = false;
         _pendingEsc = false;
         _inCsi = false;
-        _csiSawQuestion = false;
         _csiParams.Clear();
         _outputLength = 0;
     }
@@ -58,7 +58,6 @@ public sealed class TerminalDimColorFilter
             if (data[0] == (byte)'[')
             {
                 _inCsi = true;
-                _csiSawQuestion = false;
                 _csiParams.Clear();
                 i = 1;
             }
@@ -84,13 +83,43 @@ public sealed class TerminalDimColorFilter
                     if (data[i + 1] == (byte)'[')
                     {
                         _inCsi = true;
-                        _csiSawQuestion = false;
                         _csiParams.Clear();
                         i++; // consume '['
                         continue;
                     }
 
                     Emit(b);
+                    continue;
+                }
+
+                Emit(b);
+                continue;
+            }
+
+            // Inside CSI: CAN/SUB/ESC abort the current sequence per ECMA-48.
+            if (b is 0x18 or 0x1a)
+            {
+                EmitAbortedCsi();
+                Emit(b);
+                _inCsi = false;
+                continue;
+            }
+
+            if (b == 0x1b)
+            {
+                EmitAbortedCsi();
+                _inCsi = false;
+                if (i + 1 >= data.Length)
+                {
+                    _pendingEsc = true;
+                    break;
+                }
+
+                if (data[i + 1] == (byte)'[')
+                {
+                    _inCsi = true;
+                    _csiParams.Clear();
+                    i++;
                     continue;
                 }
 
@@ -106,9 +135,11 @@ public sealed class TerminalDimColorFilter
                 continue;
             }
 
-            if (b == (byte)'?' && _csiParams.Count == 0)
+            if (_csiParams.Count >= MaxCsiParamBytes)
             {
-                _csiSawQuestion = true;
+                EmitAbortedCsi();
+                Emit(b);
+                _inCsi = false;
                 continue;
             }
 
@@ -127,20 +158,19 @@ public sealed class TerminalDimColorFilter
 
     private void FlushCsi(char final)
     {
-        // Only rewrite SGR (…m). Pass every other CSI through unchanged.
-        if (final != 'm' || _csiSawQuestion)
+        // Only rewrite standard semicolon-delimited SGR (…m). Pass every other CSI —
+        // including private prefixes (?, >, <, =), colon sub-parameters (38:2:…, 4:3m),
+        // and intermediate bytes — through unchanged.
+        if (final != 'm' || !TryParseSgrParamsInto(_parts))
         {
             EmitRawCsi(final);
             return;
         }
 
         var parts = _parts;
-        ParseSgrParamsInto(parts);
-
-        var hasDim = false;
-        var hasNormalIntensity = false;
-        var hasReset = false;
-        var hasExplicitFg = false;
+        var dimInThisSeq = false;
+        var explicitColorActive = false;
+        var needRestoreFg = false;
         var rebuilt = _rebuilt;
         rebuilt.Clear();
 
@@ -150,32 +180,45 @@ public sealed class TerminalDimColorFilter
             switch (code)
             {
                 case 0:
-                    hasReset = true;
+                    dimInThisSeq = false;
+                    explicitColorActive = false;
+                    needRestoreFg = false;
                     _injectedDimGray = false;
                     rebuilt.Add(0);
                     break;
                 case 1:
-                    // Bold cancels dim in common terminal practice.
-                    hasNormalIntensity = true;
-                    rebuilt.Add(1);
+                case 22:
+                    // Bold (1) and normal intensity (22) cancel dim.
+                    dimInThisSeq = false;
+                    if (_injectedDimGray)
+                    {
+                        needRestoreFg = true;
+                        _injectedDimGray = false;
+                    }
+                    rebuilt.Add(code);
                     break;
                 case 2:
                     // Dim — only when not the RGB mode byte of 38;2 / 48;2 / 58;2
                     // (those are handled under case 38/48/58 via CopyExtendedColor).
-                    hasDim = true;
-                    break;
-                case 22:
-                    hasNormalIntensity = true;
-                    rebuilt.Add(22);
+                    // Keep explicit colors intact; inject soft gray for default foreground.
+                    if (!explicitColorActive)
+                    {
+                        dimInThisSeq = true;
+                        needRestoreFg = false;
+                    }
                     break;
                 case 39:
-                    hasExplicitFg = true;
+                    explicitColorActive = false;
+                    dimInThisSeq = false;
+                    needRestoreFg = false;
                     _injectedDimGray = false;
                     rebuilt.Add(39);
                     break;
                 case >= 30 and <= 37:
                 case >= 90 and <= 97:
-                    hasExplicitFg = true;
+                    explicitColorActive = true;
+                    dimInThisSeq = false;
+                    needRestoreFg = false;
                     _injectedDimGray = false;
                     rebuilt.Add(code);
                     break;
@@ -185,7 +228,9 @@ public sealed class TerminalDimColorFilter
                     // 38/48/58 ; 5 ; n  or  ; 2 ; r ; g ; b — must not treat mode 2 as dim.
                     if (code == 38)
                     {
-                        hasExplicitFg = true;
+                        explicitColorActive = true;
+                        dimInThisSeq = false;
+                        needRestoreFg = false;
                         _injectedDimGray = false;
                     }
 
@@ -198,7 +243,7 @@ public sealed class TerminalDimColorFilter
             }
         }
 
-        if (hasDim && !hasExplicitFg)
+        if (dimInThisSeq)
         {
             // Soft gray close to "dimmed white" on dark themes (not bright-black 90,
             // which made secondary/UI text look almost black and leaked into input).
@@ -209,15 +254,11 @@ public sealed class TerminalDimColorFilter
             rebuilt.Add(168);
             _injectedDimGray = true;
         }
-        else if (hasNormalIntensity && _injectedDimGray && !hasExplicitFg && !hasReset)
+        else if (needRestoreFg)
         {
             // Leaving dim without a new FG: restore default foreground (bright white).
             rebuilt.Add(39);
-            _injectedDimGray = false;
         }
-
-        if (hasReset)
-            _injectedDimGray = false;
 
         EmitSgr(rebuilt);
     }
@@ -242,45 +283,20 @@ public sealed class TerminalDimColorFilter
         }
     }
 
-    private void ParseSgrParamsInto(List<int> list)
+    /// <summary>
+    /// Parses plain <c>digit;digit;…</c> parameters straight off the bytes. Returns false
+    /// if any non-SGR byte (private prefixes, colon sub-parameters, intermediates) or
+    /// overflowing number appears, so the caller passes the raw CSI through untouched.
+    /// </summary>
+    private bool TryParseSgrParamsInto(List<int> list)
     {
         list.Clear();
         if (_csiParams.Count == 0)
         {
             list.Add(0);
-            return;
+            return true;
         }
 
-        if (TryParseSgrParamsFast(list))
-            return;
-
-        // Rare: sub-parameters (38:2:…) or other non-numeric bytes. Fall back to the
-        // string parser so unusual input keeps behaving exactly as it did before.
-        list.Clear();
-        var raw = Encoding.ASCII.GetString(_csiParams.ToArray());
-        foreach (var piece in raw.Split(';'))
-        {
-            if (piece.Length == 0)
-            {
-                list.Add(0);
-                continue;
-            }
-
-            if (int.TryParse(piece, out var n))
-                list.Add(n);
-        }
-
-        if (list.Count == 0)
-            list.Add(0);
-    }
-
-    /// <summary>
-    /// Parses plain <c>digit;digit;…</c> parameters straight off the bytes. Bails out on
-    /// anything else, including runs long enough to overflow, so the slow path stays
-    /// authoritative for input this cannot reproduce exactly.
-    /// </summary>
-    private bool TryParseSgrParamsFast(List<int> list)
-    {
         var value = 0;
         var digits = 0;
         foreach (var b in _csiParams)
@@ -337,12 +353,19 @@ public sealed class TerminalDimColorFilter
         Emit((byte)('0' + value % 10));
     }
 
+    private void EmitAbortedCsi()
+    {
+        Emit(0x1b);
+        Emit((byte)'[');
+        foreach (var b in _csiParams)
+            Emit(b);
+        _csiParams.Clear();
+    }
+
     private void EmitRawCsi(char final)
     {
         Emit(0x1b);
         Emit((byte)'[');
-        if (_csiSawQuestion)
-            Emit((byte)'?');
         foreach (var b in _csiParams)
             Emit(b);
         Emit((byte)final);

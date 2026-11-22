@@ -130,12 +130,13 @@ public partial class TerminalView : UserControl
     private TaskCompletionSource<bool>? _connected;
     private readonly SemaphoreSlim _scriptLock = new(1, 1);
     private readonly object _shellWriteGate = new();
+    private readonly object _timersGate = new();
     private readonly object _zmodemDetectionGate = new();
     private readonly ZmodemTriggerDetector _zmodemDetector = new();
     private InteractiveShellPayloadMonitor? _activePayloadMonitor;
     private InteractiveShellPayloadMonitor? _manualRecoveryMonitor;
     private Timer? _zmodemDetectionFlushTimer;
-    private ZmodemByteQueue? _activeZmodemQueue;
+    private volatile ZmodemByteQueue? _activeZmodemQueue;
     private ZmodemTraceLog? _activeZmodemTrace;
     private CancellationTokenSource? _activeZmodemCancellation;
     private IReadOnlyList<string>? _pendingDropUploadFiles;
@@ -165,8 +166,8 @@ public partial class TerminalView : UserControl
     private string _loginSequenceState = "idle";
     private string _bastionSessionState = "none";
     private bool _connectInProgress;
-    private bool _shellClosed;
-    private bool _suppressUserInput;
+    private volatile bool _shellClosed;
+    private volatile bool _suppressUserInput;
     private int _lastFedCursorRow;
     private int _lastFedAbsoluteCursorRow;
     private DispatcherTimer? _windowSizeSyncTimer;
@@ -279,8 +280,7 @@ public partial class TerminalView : UserControl
     /// <summary>The lazily-created AI CLI panel view model, exposed for Debug MCP verification.</summary>
     public AgentCliPanelViewModel? AiViewModel => _aiViewModel;
 
-    /// <summary>Current connection-scoped agent MCP server, exposed for Debug MCP probes.</summary>
-    /// <summary>Product MCP endpoint for the AI CLI on this tab (null until the panel starts it).</summary>
+    /// <summary>Path to the connection file backing this tab, if saved on disk.</summary>
     public string? SourcePath => _sourcePath;
 
     /// <summary>
@@ -330,10 +330,19 @@ public partial class TerminalView : UserControl
     public long AiAutoReconnectSuccessCount =>
         Interlocked.Read(ref _aiAutoReconnectSuccessCount);
 
+    private SharedSshClient? CurrentClient
+    {
+        get
+        {
+            lock (_clientReferenceGate)
+                return _client;
+        }
+    }
+
     private bool IsConnected =>
         _channel is not null
         && !_shellClosed
-        && (_connection?.IsWsl == true || _client?.IsConnected == true);
+        && (_connection?.IsWsl == true || CurrentClient?.IsConnected == true);
 
     public TerminalView()
         : this(TerminalAppearance.DefaultScrollbackLines)
@@ -432,11 +441,12 @@ public partial class TerminalView : UserControl
         ToolTip.SetTip(FindCloseButton, Jeek.Avalonia.Localization.Localizer.Get("Close"));
     }
 
-    private static void ReleaseLocalValueBindings(Control root)
+    private static void ReleaseLocalValueBindings(params Control[] roots)
     {
         var controls = new HashSet<Control>();
         var pending = new Stack<Control>();
-        pending.Push(root);
+        foreach (var root in roots)
+            pending.Push(root);
         while (pending.TryPop(out var control))
         {
             if (!controls.Add(control))
@@ -543,6 +553,16 @@ public partial class TerminalView : UserControl
     }
 
     /// <summary>
+    /// Pre-attaches connection identity before the tab is inserted/selected so tab-search
+    /// filtering sees the connection immediately, before <see cref="Start"/> runs.
+    /// </summary>
+    internal void PreAttachConnectionIdentity(Connection connection, string? sourcePath)
+    {
+        _connection = connection;
+        _sourcePath = sourcePath;
+    }
+
+    /// <summary>
     /// Assigns the connection without starting one, so Debug MCP can exercise panels
     /// that are gated on the connection kind with no network activity at all: the
     /// monitor session then simply reports "waiting for a connection".
@@ -583,7 +603,7 @@ public partial class TerminalView : UserControl
     /// </summary>
     public SharedSshClient? ShareClientForDuplicate()
     {
-        var client = _client;
+        var client = CurrentClient;
         if (_disposed
             || client is null
             || !client.IsConnected
@@ -1018,7 +1038,11 @@ public partial class TerminalView : UserControl
 
     public void DebugResetTerminalOutputStats()
     {
-        _outputFrameFlushTimer.Change(Timeout.Infinite, Timeout.Infinite);
+        lock (_timersGate)
+        {
+            if (!_disposed)
+                _outputFrameFlushTimer.Change(Timeout.Infinite, Timeout.Infinite);
+        }
         _sessionOutputBuffer.Clear();
         Interlocked.Exchange(ref _receivedPacketCount, 0);
         Interlocked.Exchange(ref _feedBatchCount, 0);
@@ -1109,7 +1133,6 @@ public partial class TerminalView : UserControl
         return false;
     }
 
-    /// <summary>Sets the terminal font size in points (main shell and AI CLI panel).</summary>
     /// <summary>Sets the terminal font family (main shell and AI CLI panel).</summary>
     public void SetFontFamily(FontFamily family)
     {
@@ -1134,6 +1157,7 @@ public partial class TerminalView : UserControl
     /// <summary>Font family of the main terminal, for Debug MCP.</summary>
     internal string DebugTerminalFontFamily => Term.FontFamily.Name;
 
+    /// <summary>Sets the terminal font size in points (main shell and AI CLI panel).</summary>
     public void SetFontSize(double size)
     {
         Term.FontSize = size;
@@ -1162,7 +1186,7 @@ public partial class TerminalView : UserControl
             return;
         }
 
-        if (_activePayloadMonitor is { } payloadMonitor)
+        if (Volatile.Read(ref _activePayloadMonitor) is { } payloadMonitor)
         {
             var payloadDisplayData = payloadMonitor.Append(data);
             FeedBytes(payloadDisplayData);
@@ -1225,14 +1249,21 @@ public partial class TerminalView : UserControl
 
     private async void OnTerminalContextRequested(object? sender, TerminalContextRequestedEventArgs e)
     {
-        if (e.HasSelection)
+        try
         {
-            await CopyTerminalSelectionToClipboardAsync(e.SelectedText);
-            _model.ClearSelection();
-            return;
-        }
+            if (e.HasSelection)
+            {
+                await CopyTerminalSelectionToClipboardAsync(e.SelectedText);
+                _model.ClearSelection();
+                return;
+            }
 
-        await Term.PasteFromClipboardAsync();
+            await Term.PasteFromClipboardAsync();
+        }
+        catch
+        {
+            // Clipboard access can fail when locked by another process.
+        }
     }
 
     private async void OnTerminalPreviewKeyDown(object? sender, KeyEventArgs e)
@@ -1266,7 +1297,8 @@ public partial class TerminalView : UserControl
         {
             e.Handled = true;
             _pendingKeyboardCopyText = null;
-            await Term.PasteFromClipboardAsync();
+            try { await Term.PasteFromClipboardAsync(); }
+            catch { /* best-effort clipboard paste */ }
             return;
         }
 
@@ -1283,7 +1315,8 @@ public partial class TerminalView : UserControl
 
         e.Handled = true;
         _pendingKeyboardCopyText = null;
-        await SetTerminalClipboardTextAsync(text);
+        try { await SetTerminalClipboardTextAsync(text); }
+        catch { /* best-effort clipboard copy */ }
     }
 
     private void OnTerminalPreviewKeyUp(object? sender, KeyEventArgs e)
@@ -1338,7 +1371,7 @@ public partial class TerminalView : UserControl
         {
             DeferExitCompletion = true,
         };
-        _activePayloadMonitor = monitor;
+        Volatile.Write(ref _activePayloadMonitor, monitor);
         _suppressUserInput = true;
         var handshakeSentAt = Environment.TickCount64;
 
@@ -1386,8 +1419,7 @@ public partial class TerminalView : UserControl
         }
         finally
         {
-            if (ReferenceEquals(_activePayloadMonitor, monitor))
-                _activePayloadMonitor = null;
+            Interlocked.CompareExchange(ref _activePayloadMonitor, null, monitor);
             Interlocked.CompareExchange(ref _manualRecoveryMonitor, null, monitor);
             _suppressUserInput = false;
         }
@@ -1418,11 +1450,21 @@ public partial class TerminalView : UserControl
             // The absolute deadline keeps continuous command output from being held.
             var remaining = Volatile.Read(ref _resizeOutputDeadlineTicks) - Environment.TickCount64;
             if (remaining <= 0)
+            {
                 FlushResizeOutputBuffer();
+            }
             else
-                _resizeOutputFlushTimer?.Change(
-                    (int)Math.Min(ResizeOutputQuietPeriodMs, remaining),
-                    Timeout.Infinite);
+            {
+                lock (_timersGate)
+                {
+                    if (!_disposed)
+                    {
+                        _resizeOutputFlushTimer?.Change(
+                            (int)Math.Min(ResizeOutputQuietPeriodMs, remaining),
+                            Timeout.Infinite);
+                    }
+                }
+            }
             return;
         }
 
@@ -1431,7 +1473,7 @@ public partial class TerminalView : UserControl
 
     private void FeedBytesDirect(byte[] data)
     {
-        if (data.Length == 0)
+        if (_disposed || data.Length == 0)
             return;
 
         Interlocked.Increment(ref _receivedPacketCount);
@@ -1439,11 +1481,18 @@ public partial class TerminalView : UserControl
         if (!_sessionOutputBuffer.Append(data, generation))
             return;
 
-        _outputFrameFlushTimer.Change(OutputFrameInterval, Timeout.InfiniteTimeSpan);
+        lock (_timersGate)
+        {
+            if (!_disposed)
+                _outputFrameFlushTimer.Change(OutputFrameInterval, Timeout.InfiniteTimeSpan);
+        }
     }
 
     private void DrainTerminalOutputFrame()
     {
+        if (_disposed)
+            return;
+
         var generation = Volatile.Read(ref _connectionGeneration);
         var payload = _sessionOutputBuffer.Drain(generation);
         if (_disposed || payload.Length == 0 || generation != _connectionGeneration)
@@ -1465,8 +1514,8 @@ public partial class TerminalView : UserControl
         {
             _outputDecoder.Reset();
             FeedLine(
-                $"\r\n[33m[output truncated: dropped {dropped / 1024} KiB the terminal "
-                + "could not keep up with][0m");
+                $"\r\n\u001b[33m[output truncated: dropped {dropped / 1024} KiB the terminal "
+                + "could not keep up with]\u001b[0m");
         }
         RecordCursorRow();
     }
@@ -1677,21 +1726,27 @@ public partial class TerminalView : UserControl
 
     private void BeginResizeOutputCoalescing()
     {
-        _resizeOutputBuffer.Start();
-        _resizeOutputFlushTimer ??= new Timer(_ => FlushResizeOutputBuffer());
-        // Allow for a remote round trip, while placing a firm upper bound on how
-        // long unrelated live output can be delayed by a resize.
-        Volatile.Write(
-            ref _resizeOutputDeadlineTicks,
-            Environment.TickCount64 + ResizeOutputHardLimitMs);
-        _resizeOutputFlushTimer.Change(ResizeOutputInitialWaitMs, Timeout.Infinite);
+        lock (_timersGate)
+        {
+            if (_disposed)
+                return;
+            _resizeOutputBuffer.Start();
+            _resizeOutputFlushTimer ??= new Timer(_ => FlushResizeOutputBuffer());
+            // Allow for a remote round trip, while placing a firm upper bound on how
+            // long unrelated live output can be delayed by a resize.
+            Volatile.Write(
+                ref _resizeOutputDeadlineTicks,
+                Environment.TickCount64 + ResizeOutputHardLimitMs);
+            _resizeOutputFlushTimer.Change(ResizeOutputInitialWaitMs, Timeout.Infinite);
+        }
     }
 
     private void FlushResizeOutputBuffer()
     {
         Volatile.Write(ref _resizeOutputDeadlineTicks, 0);
         var data = _resizeOutputBuffer.StopAndDrain();
-        FeedBytesDirect(data);
+        if (!_disposed)
+            FeedBytesDirect(data);
     }
 
     private void FeedLine(string text)
@@ -1753,18 +1808,25 @@ public partial class TerminalView : UserControl
         StopSessionLog();
         Interlocked.Increment(ref _connectionGeneration);
         Interlocked.Exchange(ref _loginManualInputTcs, null)?.TrySetCanceled();
+        Interlocked.Exchange(ref _aiTransferCompletion, null)?.TrySetCanceled();
         _connectInProgress = false;
         _connected?.TrySetCanceled();
-        _activePayloadMonitor?.Fail(new ObjectDisposedException(nameof(TerminalView)));
+        Volatile.Read(ref _activePayloadMonitor)?.Fail(new ObjectDisposedException(nameof(TerminalView)));
         _activeZmodemCancellation?.Cancel();
         _activeZmodemQueue?.Complete(new ObjectDisposedException(nameof(TerminalView)));
         _activeZmodemTrace?.Dispose();
-        _zmodemDetectionFlushTimer?.Dispose();
-        _resizeOutputFlushTimer?.Dispose();
+        lock (_timersGate)
+        {
+            _zmodemDetectionFlushTimer?.Dispose();
+            _zmodemDetectionFlushTimer = null;
+            _resizeOutputFlushTimer?.Dispose();
+            _resizeOutputFlushTimer = null;
+            _outputFrameFlushTimer.Dispose();
+        }
         _resizeOutputBuffer.StopAndDrain();
-        _outputFrameFlushTimer.Dispose();
         _sessionOutputBuffer.Clear();
         _windowSizeSyncTimer?.Stop();
+        _monitorSuspendTimer?.Stop();
         // Either may be the last reference, and that release disconnects: keep it off
         // the UI thread like the transport below.
         var pendingSharedClient = Interlocked.Exchange(ref _pendingSharedClient, null);
@@ -1795,9 +1857,6 @@ public partial class TerminalView : UserControl
             _ = ai.DisposeAsync();
 
         Jeek.Avalonia.Localization.Localizer.LanguageChanged -= OnLanguageChanged;
-        ReleaseLocalValueBindings(AiPanel);
-        ReleaseLocalValueBindings(FileBrowser);
-        ReleaseLocalValueBindings(MonitorPanel);
-        ReleaseLocalValueBindings(this);
+        ReleaseLocalValueBindings(this, AiPanel, FileBrowser, MonitorPanel);
     }
 }

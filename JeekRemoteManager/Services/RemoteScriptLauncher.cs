@@ -160,6 +160,13 @@ public class RemoteScriptLauncher
         {
             value = normalized;
         }
+        else if (parameter.Type == RemoteScriptParameterType.Enum)
+        {
+            var canonical = parameter.EnumOptions.FirstOrDefault(option =>
+                string.Equals(option, value, StringComparison.OrdinalIgnoreCase));
+            if (canonical is not null)
+                value = canonical;
+        }
 
         return value;
     }

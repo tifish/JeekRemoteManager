@@ -37,7 +37,7 @@ public static class LoginKeySequence
             var rest = normalized.StartsWith("^", StringComparison.Ordinal)
                 ? normalized[1..]
                 : normalized[(normalized.IndexOf('-') + 1)..];
-            if (rest.Length != 1 || !char.IsLetter(rest[0]))
+            if (rest.Length != 1 || !char.IsAsciiLetter(rest[0]))
             {
                 error = $"\"{spec}\" is not a Ctrl key combination";
                 return false;
@@ -149,14 +149,15 @@ public static class LoginMenuPager
         for (var page = 1; ; page++)
         {
             var text = snapshot();
-            result = LoginMenuSelection.Resolve(text, keyword);
+            var entries = LoginMenuSelection.ParseEntries(text);
+            result = LoginMenuSelection.ResolveFromEntries(entries, keyword);
             // An ambiguous page is a real answer: paging past it would silently pick a
             // machine from a later page over the ones already matching here.
             if (result.Success || result.Ambiguous || pageKeySequence is null)
                 return result;
 
             var isNewPage = false;
-            foreach (var entry in LoginMenuSelection.ParseEntries(text))
+            foreach (var entry in entries)
                 isNewPage |= seen.Add($"{entry.Choice}|{entry.Label}");
 
             if (!isNewPage)

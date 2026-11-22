@@ -88,10 +88,6 @@ public static class PublicKeyInstaller
         if (connection.Type != ConnectionType.Ssh)
             throw new InvalidOperationException("Public keys can only be installed on SSH connections.");
 
-        var host = connection.Host.Trim();
-        var port = connection.Port > 0 ? connection.Port : 22;
-        var output = new StringBuilder();
-
         // Build (which may query ssh-agent / Pageant over IPC) and Connect both run
         // on a background thread; those calls can block and must not run on the UI
         // thread. Same auth + known_hosts path as the terminal and script runner.
@@ -100,7 +96,6 @@ public static class PublicKeyInstaller
             info => new SshClient(info),
             new SshDialOptions(
                 OnMismatch: confirmHostKeyReplacement,
-                OnRejected: message => output.Append(message).Append('\n'),
                 PromptUser: promptUser),
             resolveConnection), cancellationToken).ConfigureAwait(false);
         using var jumpTunnel = tunnel;

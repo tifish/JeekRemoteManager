@@ -1,4 +1,5 @@
 set -eu
+set -f
 
 tmp_config=
 tmp_package_dir=

@@ -18,6 +18,7 @@
             <SolidColorBrush x:Key="AccentHoverBrush" Color="#0B5F59" />
             <SolidColorBrush x:Key="AccentPressedBrush" Color="#084C47" />
             <SolidColorBrush x:Key="AccentSoftBrush" Color="#DFF4EE" />
+            <SolidColorBrush x:Key="AccentForegroundBrush" Color="#FFFFFF" />
             <SolidColorBrush x:Key="FloatingActionBrush" Color="#E617212B" />
             <SolidColorBrush x:Key="SshIconBackgroundBrush" Color="#DBEAFE" />
             <SolidColorBrush x:Key="SshIconBorderBrush" Color="#93C5FD" />
@@ -31,9 +32,8 @@
             <SolidColorBrush x:Key="HoverBrush" Color="#EEF6F4" />
             <SolidColorBrush x:Key="SelectedBrush" Color="#E6F4F1" />
             <SolidColorBrush x:Key="SelectedBorderBrush" Color="#8CCFC3" />
-            <SolidColorBrush x:Key="TerminalBackgroundBrush" Color="#101820" />
-            <SolidColorBrush x:Key="TerminalForegroundBrush" Color="#DCE7EF" />
             <SolidColorBrush x:Key="SuccessBrush" Color="#15803D" />
+            <SolidColorBrush x:Key="WarningBrush" Color="#D97706" />
             <SolidColorBrush x:Key="DangerBrush" Color="#C2410C" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Dark">
@@ -52,6 +52,7 @@
             <SolidColorBrush x:Key="AccentHoverBrush" Color="#5EEAD4" />
             <SolidColorBrush x:Key="AccentPressedBrush" Color="#14B8A6" />
             <SolidColorBrush x:Key="AccentSoftBrush" Color="#123B38" />
+            <SolidColorBrush x:Key="AccentForegroundBrush" Color="#06201D" />
             <SolidColorBrush x:Key="FloatingActionBrush" Color="#E6323B46" />
             <SolidColorBrush x:Key="SshIconBackgroundBrush" Color="#123A66" />
             <SolidColorBrush x:Key="SshIconBorderBrush" Color="#60A5FA" />
@@ -65,13 +66,11 @@
             <SolidColorBrush x:Key="HoverBrush" Color="#243332" />
             <SolidColorBrush x:Key="SelectedBrush" Color="#1F3B39" />
             <SolidColorBrush x:Key="SelectedBorderBrush" Color="#2DD4BF" />
-            <SolidColorBrush x:Key="TerminalBackgroundBrush" Color="#070B10" />
-            <SolidColorBrush x:Key="TerminalForegroundBrush" Color="#D8E2EA" />
             <SolidColorBrush x:Key="SuccessBrush" Color="#4ADE80" />
+            <SolidColorBrush x:Key="WarningBrush" Color="#F59E0B" />
             <SolidColorBrush x:Key="DangerBrush" Color="#FB7185" />
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
 
-    <SolidColorBrush x:Key="AccentForegroundBrush" Color="#FFFFFF" />
     <SolidColorBrush x:Key="FloatingActionBorderBrush" Color="#66FFFFFF" />
 </ResourceDictionary>

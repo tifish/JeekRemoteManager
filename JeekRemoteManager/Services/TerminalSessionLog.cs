@@ -80,7 +80,17 @@ public sealed class TerminalSessionLog : IDisposable
                 return;
             var plain = _stripper.Strip(terminalText);
             if (plain.Length > 0)
-                _writer.Write(plain);
+            {
+                try
+                {
+                    _writer.Write(plain);
+                }
+                catch
+                {
+                    // Disk full or stream unavailable; keep the terminal session running.
+                    _disposed = true;
+                }
+            }
         }
     }
 
@@ -212,7 +222,12 @@ public sealed class AnsiTextStripper
                     break;
 
                 case State.StringEscape:
-                    _state = ch == '\\' ? State.Text : State.String;
+                    _state = ch switch
+                    {
+                        '\\' or '\u0007' or '\u009c' => State.Text,
+                        '\u001b' => State.StringEscape,
+                        _ => State.String,
+                    };
                     break;
 
                 case State.Charset:

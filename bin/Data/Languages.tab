@@ -19,7 +19,6 @@ RDP	RDP	RDP
 WSL	WSL	WSL
 VNC	VNC	VNC
 Connect	Connect	连接
-ConnectTooltip	Connect (Enter / double-click; hold Ctrl for a new session)	连接（回车 / 双击；按住 Ctrl 新开会话）
 ConnectNewSession	Open new session	新建会话
 ConnectNewTcpConnection	Open new TCP connection	新建 TCP 连接
 Settings	Settings...	设置...
@@ -57,7 +56,6 @@ TerminalType	Terminal type	终端类型
 TerminalEncoding	Encoding	编码
 TerminalEncodingTip	Character encoding of the remote shell. Choose GBK or GB18030 for servers whose locale is not UTF-8.	远程 shell 的字符编码。服务器的 locale 不是 UTF-8 时选择 GBK 或 GB18030。
 JumpHost	Jump host	跳板机
-JumpHostWatermark	Search or enter a saved SSH connection path; empty connects directly	搜索或输入已保存的 SSH 连接路径；留空直连
 JumpHostTip	Drag a saved SSH connection from the left tree here. Each hop uses its own credentials and host key. Clear to connect directly.	将左侧连接树中的 SSH 连接拖到此处。每一跳使用各自的凭据和主机密钥，清除后直连。
 JumpHostDragHint	Drag an SSH connection from the left tree here	将左侧 SSH 连接拖到此处设置跳板机
 JumpHostClear	Clear / direct	清除／直连
@@ -200,16 +198,12 @@ AutoSaveHint	Changes are saved automatically.	更改将自动保存。
 SelectConnectionHint	Select a connection to edit, or create one from the toolbar.	选择一个连接进行编辑，或在工具栏新建一个。
 MultiSelectionHint	{0} items selected. Use the context menu for batch operations.	已选中 {0} 项。可使用右键菜单进行批量操作。
 StatusReady	Ready.	就绪。
-StatusTargetRoot	Target: root	目标：根目录
-StatusTarget	Target: {0}	目标：{0}
 StatusBuild	Version {0}	版本 {0}
 StatusDevBuild	Dev version	开发版本
 StatusCreatedFolder	Created folder '{0}'.	已创建文件夹“{0}”。
 StatusCouldNotCreateFolder	Could not create folder: {0}	无法创建文件夹：{0}
 StatusCreatedConnection	Created {0} connection.	已创建 {0} 连接。
 StatusCouldNotCreateConnection	Could not create connection: {0}	无法创建连接：{0}
-StatusLaunchingSshWithClipboard	Launching SSH to {0} — password copied to clipboard (auto-clears in 30s).	正在启动 SSH 到 {0} —— 密码已复制到剪贴板（30 秒后自动清除）。
-StatusLaunchingSsh	Launching SSH to {0}.	正在启动 SSH 到 {0}。
 StatusLaunching	Launching {0} to {1}.	正在启动 {0} 到 {1}。
 StatusFailedToLaunch	Failed to launch: {0}	启动失败：{0}
 StatusVncViewerMissing	The TigerVNC viewer is not installed.	未安装 TigerVNC 查看器。
@@ -254,7 +248,6 @@ StatusImportedPasswords	Recovered {0} password(s); enter any remaining passwords
 StatusImportedNoPasswords	Passwords could not be decrypted from the source — fill them in via the editor.	源中的密码无法解密 —— 请在编辑器中手动填写。
 StatusImportFailed	Import failed: {0}	导入失败：{0}
 StatusOpenFolderFailed	Cannot open folder: {0}	无法打开文件夹：{0}
-StatusNotWritable	That location is not writable: {0}	该位置不可写：{0}
 StatusStorageLocationOnly	Config location: {0}. Folder: {1}	Config 位置：{0}。文件夹：{1}
 StatusStorageLocationWithData	Config location: {0}. Showing Config at {1}	Config 位置：{0}。Config 位于 {1}
 StatusStorageNotSaved	Config location changed, but settings could not be saved to {0}.	Config 位置已更改，但设置无法保存到 {0}。
@@ -273,10 +266,6 @@ DialogDeleteTitle	Delete	删除
 DialogDeleteFolderPrompt	Delete folder '{0}' and all its contents?	删除文件夹“{0}”及其所有内容？
 DialogDeleteConnectionPrompt	Delete connection '{0}'?	删除连接“{0}”？
 DialogDeleteMultiplePrompt	Delete {0} selected items?	删除选中的 {0} 项？
-DialogRenameTitle	Rename	重命名
-DialogRenamePrompt	New name:	新名称：
-DialogUpdateAvailableTitle	Update available	发现新版本
-DialogUpdateAvailableMessage	A newer build is available (current {0}, latest {1}).\n\nDownload it in the background now? You can keep working; you'll be asked again before the app restarts.	发现新版本（当前 {0}，最新 {1}）。\n\n是否在后台下载更新？下载期间可继续使用，应用重启前会再次确认。
 DialogUpdateReadyTitle	Update ready	更新就绪
 DialogUpdateReadyMessage	A newer build is ready to install (current {0}, latest {1}).\n\nRestart now to install it? If you choose later, the package is kept and will not be downloaded again.	新版本已准备就绪（当前 {0}，最新 {1}）。\n\n是否立即重启并安装？若选择稍后，已下载的安装包会保留，下次无需重新下载。
 DialogMoveConfigTitle	Move Config data	移动 Config 数据
@@ -295,7 +284,6 @@ SettingsSecuritySection	Security	安全
 SettingsUpdatesSection	Updates	更新
 SettingsStorageLabel	Config location	Config 保存位置
 SettingsPasswordHint	Protect saved credentials with your master password.	使用主密码保护已保存的凭据。
-DialogStorageQuestion	Where should Config be stored?	Config 应保存在哪里？
 StorageUserOption	User directory (roaming)	用户目录（漫游）
 StorageProgramOption	Program directory (portable)	程序目录（便携）
 StorageCustomOption	Custom directory	自定义目录
@@ -326,21 +314,17 @@ CloseOthers	Close others	关闭其他
 CloseTabsToRight	Close tabs to the right	关闭右侧所有标签页
 CloseTabsToLeft	Close tabs to the left	关闭左侧所有标签页
 CloseAll	Close all	关闭所有
-CopyOutput	Copy output	复制输出
-ClearOutput	Clear output	清空输出
 ClearParameters	Clear all parameters	清除所有参数
 UnnamedScriptBinding	Unnamed script action	未命名脚本动作
 StatusNoScripts	No script suite found under script roots: {0}.	未在脚本目录下找到脚本套件：{0}。
 StatusScriptOnlySsh	Script actions are only available for SSH and WSL connections.	脚本动作仅适用于 SSH 和 WSL 连接。
 StatusScriptAlreadyRunning	A script is already running.	已有脚本正在运行。
-StatusChooseScriptSuite	Choose a script suite.	请选择脚本套件。
 StatusScriptSuiteOpened	Opened script suite: {0}	已打开脚本套件：{0}
 StatusScriptRunning	Running {0} on {1}…	正在 {1} 上运行 {0}…
 StatusScriptSucceeded	{0} succeeded.	{0} 执行成功。
 StatusScriptFailed	{0} failed with exit code {1}.	{0} 执行失败，退出码 {1}。
 StatusScriptLaunchFailed	Script launch failed: {0}	脚本启动失败：{0}
 StatusScriptTerminalUnavailable	Could not open an SSH terminal for script execution.	无法打开用于执行脚本的 SSH 终端。
-StatusScriptOutputCopied	Script output copied.	已复制脚本输出。
 StatusScriptStillRunning	The script is still running.	脚本仍在运行。
 StatusScriptParametersCleared	Cleared parameters for {0}.	已清除 {0} 的参数。
 StatusMissingScriptBindingsRemoved	Removed {0} missing script binding(s).	已删除 {0} 个已失效的脚本参数绑定。
@@ -395,7 +379,6 @@ FindPlaceholder	Find in terminal (Ctrl+Shift+F)	在终端中查找（Ctrl+Shift+
 FindPrevious	Previous match (Shift+Enter)	上一个（Shift+Enter）
 FindNext	Next match (Enter)	下一个（Enter）
 FindNoResults	No results	无结果
-AiLoadEarlierMessages	Load earlier messages	加载更早的消息
 HostKeyHint	If you don't recognize this server, rejecting is safer.	如果你不认识这台服务器，拒绝更安全。
 HostKeyReject	Reject	拒绝
 HostKeyChangedTitle	Host key changed	主机密钥已更改
@@ -411,67 +394,13 @@ Passphrase	Key passphrase	私钥口令
 PassphraseWatermark	optional, only if the key is encrypted	可选，仅在私钥已加密时填写
 AiAssistant	AI assistant	AI 助手
 AiAssistantShort	AI	AI
-AiSend	Send	发送
-AiSteer	Steer	插入当前工作
-AiSteerHint	Add this message to the assistant's current work.	将这条消息直接插入助手当前正在进行的工作。
-AiSteerFailed	Could not steer the current work: {0}	无法插入当前工作：{0}
-AiStop	Stop	停止
-AiStopHint	Stop the assistant and cancel the running command.	停止助手并取消正在执行的命令。
-AiStopped	Stopped.	已停止。
 TerminalForceInterruptHint	Force interrupt the running terminal command and restore shell input.	强制中断正在运行的终端命令并恢复 Shell 输入。
 TerminalReconnectHint	Reconnect this terminal with a fresh channel.	使用新通道重新连接此终端。
 TerminalForceInterruptConfirmTitle	Force interrupt terminal	强制中断终端
 TerminalForceInterruptConfirmPrompt	Force interrupt the running terminal command and restore shell input?	强制中断正在运行的终端命令并恢复 Shell 输入吗？
 TerminalReconnectConfirmTitle	Reconnect terminal	重新连接终端
 TerminalReconnectConfirmPrompt	Reconnect this terminal with a new SSH channel? Any running command will be interrupted.	使用新的 SSH 通道重新连接此终端吗？正在运行的命令将被中断。
-AiNewConversation	New conversation	新对话
-AiNewConversationHint	Start a new conversation with empty context (Ctrl+N).	从空上下文开始新对话 (Ctrl+N)。
-AiConversationHistoryTitle	Conversation history	历史对话
-AiConversationHistoryHint	Restore a previous conversation or manage deleted conversations for this connection.	恢复这个连接以前的对话，或管理已删除的对话。
-AiConversationHistoryTab	History	历史记录
-AiConversationTrashTab	Recycle bin	回收站
-AiConversationHistoryEmpty	No saved conversations.	暂无历史对话。
-AiConversationTrashEmpty	Recycle bin is empty.	回收站为空。
-AiRestoreConversation	Restore	恢复
-AiMoveToTrash	Move to recycle bin	移至回收站
-AiRestoreFromTrash	Restore from recycle bin	从回收站恢复
-AiDeletePermanently	Delete permanently	永久删除
-AiDeletePermanentlyPrompt	Permanently delete "{0}"? This cannot be undone.	永久删除“{0}”吗？此操作无法撤销。
-AiTrashRetentionHint	Conversations in the recycle bin are permanently deleted after 30 days.	回收站中的对话将在 30 天后永久删除。
-AiConversationPermanentDeleteAt	Permanently deletes at {0}	将在 {0} 永久删除
-AiConversationRestored	Conversation restored. The next message will continue its original session.	对话已恢复，下一条消息将继续原会话。
-AiConversationNotReady	Session ID unavailable	会话 ID 不可用
-AiConversationMessages	{0} messages	{0} 条消息
-AiInputWatermark	Ask about this server…	询问关于这台服务器…
-AiEmptyTitle	What can I help with?	今天想在这台服务器上做什么？
-AiEmptyHint	Ask a question, investigate an issue, or describe a task to run on the connected server.	可以询问问题、排查故障，或描述一个需要在已连接服务器上完成的任务。
-AiSelectionHint	The terminal selection will be sent with your message.	发送时将附带终端中选中的内容。
-AiSelectionAttached	[+ terminal selection]	[+ 终端选中内容]
-AiRunInTerminal	Run	执行
-AiNotAvailable	Claude CLI not found. Install it (claude.ai/install) and reopen this panel.	未检测到 Claude CLI，请先安装（claude.ai/install）后重新打开此面板。
-AiNotAvailableCodex	Codex CLI not found. Install it (developers.openai.com/codex/cli) and reopen this panel.	未检测到 Codex CLI，请先安装（developers.openai.com/codex/cli）后重新打开此面板。
-AiNotAvailableGrok	Grok Build CLI not found. Install it (irm https://x.ai/cli/install.ps1 | iex) and reopen this panel.	未检测到 Grok Build CLI，请先安装（irm https://x.ai/cli/install.ps1 | iex）后重新打开此面板。
-AiWaiting	Thinking…	思考中…
-AiThinking	Thinking	思考中
-AiWaitingCommand	Running…	运行中…
-AiRunning	Running	运行中
-AiToolDraftPending	Tool draft pending turn confirmation…	工具调用草稿待本轮确认后才会执行…
-AiElapsedSeconds	{0}s	{0} 秒
-AiTurnCost	{0} tokens · ${1:F4}	{0} tokens · ${1:F4}
-AiTurnTokens	{0} tokens	{0} tokens
-AiTurnError	The assistant hit an error.	助手执行出错。
-AiSessionEnded	Session ended.	会话已结束。
-AiLoginRequired	{0} login is missing or expired. Log in locally, then send again.	{0} 未登录或登录已过期。请在本机完成登录后重新发送。
-AiTerminalDisconnected	Server connection lost. Reconnecting automatically…	服务器连接已断开，正在自动重连…
-AiTerminalReconnected	Server reconnected. The assistant can continue.	服务器已重新连接，AI 可继续执行。
-AiTerminalReconnectFailed	Automatic server reconnection failed: {0}	服务器自动重连失败：{0}
-AiShowOutput	Show output	显示命令输出
-AiShowOutputHint	Show the executed commands and their output in this chat (they always appear in the terminal too).	在对话中显示执行的命令及其输出（它们始终也会显示在终端里）。
 AiProvider	Provider	提供方
-AiModel	Model	模型
-AiEffort	Effort	强度
-AiOptionDefault	Default	默认
-AiSettingsChanged	Settings changed; applies to a new conversation.	设置已更改，将用于新对话。
 AiAutoOpenPanel	Open AI panel automatically	自动打开 AI 面板
 AiAutoOpenPanelHint	Open the AI panel after every SSH login. Applies to all connections.	每次 SSH 登录后自动打开 AI 面板，对所有连接生效。
 AiHideSshTerminal	Hide SSH terminal	隐藏 SSH 终端
@@ -484,22 +413,14 @@ AiWorkspaceFolderCopied	Workspace path copied: {0}	已复制工作区目录：{0
 AiCopyWorkspaceFolderFailed	Could not copy the workspace path: {0}	无法复制工作区目录：{0}
 AiLinkProject	Write this connection's MCP…	写入本连接MCP…
 AiLinkProjectHint	Choose a project folder and which MCP agents should receive this connection. Unchecked agents are removed.	选择项目目录以及要写入本连接 MCP 的 Agent；未勾选的会从该目录移除。
-AiLinkProjectTitle	Choose the project folder whose agents should use this connection	选择要让其中 AI 使用此连接的项目目录
 AiLinkProjectDone	Agents started in {0} can now use this connection.	在 {0} 中启动的 AI 现在可以使用此连接。
 AiLinkProjectFailed	Could not update the project folder: {0}	更新项目目录失败：{0}
 AiLinkProjectUnavailable	This tab cannot be shared with a project folder yet.	此标签页暂时无法提供给项目目录使用。
-AiUnlinkProject	Stop agents in a project folder from using this connection…	不再让项目目录中的 AI 使用此连接…
-AiUnlinkProjectHint	Removes this connection's notes and MCP config from that folder. Anything the project had before is left untouched.	从该目录移除本连接的说明和 MCP 配置，项目原有内容不受影响。
-AiUnlinkProjectTitle	Choose the project folder that should stop using this connection	选择要停止使用此连接的项目目录
 AiUnlinkProjectDone	Agents in {0} no longer use this connection.	{0} 中的 AI 不再使用此连接。
 AiLinkApplicationProject	Write this software's MCP…	写入本软件MCP…
 AiLinkApplicationProjectHint	Choose a project folder and which MCP agents should control this application. Unchecked agents are removed.	选择项目目录以及要写入本软件 MCP 的 Agent；未勾选的会从该目录移除。
-AiLinkApplicationProjectTitle	Choose the project folder whose agents should control JeekRemoteManager	选择要让其中 AI 控制 JeekRemoteManager 的项目目录
 AiLinkApplicationProjectDone	Agents started in {0} can now control JeekRemoteManager.	在 {0} 中启动的 AI 现在可以控制 JeekRemoteManager。
-AiLinkApplicationProjectFailed	Could not update the project folder: {0}	更新项目目录失败：{0}
 AiUnlinkApplicationProject	Stop agents in a project folder from controlling JeekRemoteManager…	不再让项目目录中的 AI 控制整个软件…
-AiUnlinkApplicationProjectHint	Removes JeekRemoteManager's application-wide MCP notes and config from that folder. Existing project content is preserved.	从该目录移除 JeekRemoteManager 的全局 MCP 说明和配置，项目原有内容不受影响。
-AiUnlinkApplicationProjectTitle	Choose the project folder that should stop controlling JeekRemoteManager	选择要停止控制 JeekRemoteManager 的项目目录
 AiUnlinkApplicationProjectDone	Agents in {0} no longer control JeekRemoteManager.	{0} 中的 AI 不再控制 JeekRemoteManager。
 McpLinkDialogApplicationTitle	Write this software's MCP	写入本软件MCP
 McpLinkDialogConnectionTitle	Write this connection's MCP	写入本连接MCP
@@ -523,7 +444,6 @@ GlobalAiAgentTooltip	Use an AI agent to manage connections and operate multiple 
 AiCliStart	Start	启动
 AiCliRestart	Restart	重启
 AiCliStop	Stop	停止
-AiCliInstall	Install	安装
 AiCliOptions	AI panel options	AI 面板选项
 AiCliInstallNow	Install now	立即安装
 AiCliInstallHint	Uses the official installer. Requires network access. You may need to log in after install.	将运行官方安装命令，需要联网。安装后可能还需要登录。
@@ -537,7 +457,6 @@ AiCliInstallFailed	Could not install {0}.{2}{1}	无法安装 {0}。{2}{1}
 AiCliDownloadOpened	Opened the official {0} download page.	已打开 {0} 官方下载页面。
 AiCliDownloadFailed	Could not open the {0} download page.{2}{1}	无法打开 {0} 下载页面。{2}{1}
 AiCliRunMode	Run mode	运行模式
-AiCliUseWindowsTerminal	Windows Terminal	Windows Terminal
 AiCliReady	{0} is ready.	{0} 已就绪。
 AiCliRunning	{0} is running in the side panel.	{0} 正在侧栏中运行。
 AiCliRunningExternal	{0} is running in Windows Terminal.	{0} 正在 Windows Terminal 中运行。
@@ -549,9 +468,7 @@ AiCliDesktopLaunchFailedDetail	Could not open the workspace in {0}: {1}	无法�
 AiCliOpeningDesktop	Opening the workspace in {0}…	正在 {0} 中打开工作区…
 AiCliDesktopUnsupported	{0} has no desktop app to open.	{0} 没有可打开的桌面应用。
 AiCliExited	{0} exited (code {1}). Click Start to run again.	{0} 已退出（代码 {1}）。点击「启动」可再次运行。
-AiCliExitedNoCode	{0} exited. Click Start to run again.	{0} 已退出。点击「启动」可再次运行。
 AiCliExitedWithDetail	{0} exited (code {1}): {2}	{0} 已退出（代码 {1}）：{2}
-AiCliExitedWithDetailNoCode	{0} exited: {1}	{0} 已退出：{1}
 AiCliStopped	{0} stopped.	{0} 已停止。
 AiCliExternalHint	The agent CLI is running in Windows Terminal. Remote server tools are provided by JeekRemoteManager over MCP.	Agent CLI 正在 Windows Terminal 中运行。远程服务器工具由 JeekRemoteManager 通过 MCP 提供。
 AiCliDesktopHint	The agent is running in the desktop app. Remote server tools are provided by JeekRemoteManager over MCP (workspace folder).	Agent 正在桌面应用中运行。远程服务器工具由 JeekRemoteManager 通过 MCP 提供（工作区文件夹）。
@@ -560,18 +477,6 @@ AiCliIdeHint	The workspace folder is open in the editor. Remote server tools are
 AiCliZedIdeHint	The workspace folder is open in Zed. Trust the folder in Zed (shield icon in the title bar) so its project settings load — until then Zed ignores the JeekRemoteManager MCP server.	工作区目录已在 Zed 中打开。请在 Zed 中信任该目录（标题栏盾牌图标），其项目设置才会生效——在此之前 Zed 会忽略 JeekRemoteManager 的 MCP 服务器。
 AiCliIdeLaunchFailed	Could not start {0}.	无法启动 {0}。
 AiCliRunningIde	Workspace opened in {0}.	工作区已在 {0} 中打开。
-AiManageProviders	Manage custom providers…	管理自定义提供方…
-AiCustomProvidersTitle	Custom AI providers	自定义 AI 提供方
-AiCustomNotConfigured	This provider needs an API key and at least one model. Configure it with the gear button.	该提供方缺少 API 密钥或模型列表，请点击齿轮按钮配置。
-AiProviderName	Name	名称
-AiApiType	API type	API 类型
-AiBaseUrl	Base URL (blank = official endpoint)	接口地址（留空使用官方地址）
-AiApiKey	API key	API 密钥
-AiShowApiKey	Show key	显示密钥
-AiModelsLabel	Models (one per line, first is the default)	模型（每行一个，第一个为默认）
-AiAddProvider	Add	添加
-AiRemoveProvider	Remove	移除
-AiProviderUnnamed	(unnamed)	（未命名）
 FileBrowser	File browser	文件浏览器
 FileBrowserShort	Files	文件
 FileBrowserUp	Parent directory	上级目录
@@ -645,9 +550,10 @@ BatchOpenTerminal	Show terminal	查看终端
 StatusBatchScriptRunning	Running {0} on {1} servers…	正在 {1} 台服务器上运行 {0}…
 StatusBatchScriptSucceeded	{0} succeeded on all {1} servers	{0} 在全部 {1} 台服务器上运行成功
 StatusBatchScriptFailed	{0} failed on {1} servers	{0} 在 {1} 台服务器上运行失败
-
 TabSearch	Search open tabs…	搜索已开标签…
 TabSearchClear	Clear tab search	清除标签搜索
 TabMaxRows	Rows	行数
 TabPreviousPage	Previous tab page	上一页标签
 TabNextPage	Next tab page	下一页标签
+StatusPublicKeyOnlySsh	Public key copy is only supported for SSH connections.	仅 SSH 连接支持复制公钥。
+PassphraseDecryptFailed	Saved passphrase could not be decrypted with the current master password. Leave blank to keep it untouched, or type a new passphrase to replace it.	当前主密码无法解密已保存的私钥口令。留空将保留原密文，输入新口令将覆盖它。

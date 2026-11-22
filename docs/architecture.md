@@ -23,7 +23,6 @@ JeekRemoteManager.exe            Avalonia 桌面应用（唯一的有状态进�
 JeekRemoteManagerMcp.exe         MCP stdio 适配器（无状态转发器）
 JeekTools.NET/                   submodule：McpHost、AutoUpdater、SettingsStorage、ObjectGraph 等通用件
 Tests/SmokeTest/                 控制台断言集，直接引用主工程的类
-Tools/LegacyPasswordConverter/   历史密码格式迁移工具
 ```
 
 ### 大类的文件组织
@@ -56,7 +55,7 @@ Tools/LegacyPasswordConverter/   历史密码格式迁移工具
 3. **字体回退链。** 终端默认字体 Cascadia Mono 没有 CJK 字形，显式排出中日韩字体的回退顺序，不能依赖平台的通用回退。
 4. **注册固定 MCP 适配器。** 失败只记警告，不阻断 GUI。
 5. **`ShutdownMode = OnExplicitShutdown`。** 关主窗口只是隐藏到托盘，退出走托盘菜单。
-6. **启动两套 MCP 服务端。** Debug 面在 Release 下是空转（代码照样编译，只是不监听）。
+6. **启动两套 MCP 服务端。** Debug 面和 Product 面在所有构建中都会在各自的命名管道上监听；应用写给用户 agent 配置的永远只指向 Product 面。
 7. **主密码闸门。** 先试 DPAPI 缓存静默解锁；解出来的密钥还必须能真正解开至少一个已存在的 `jrm1` blob，否则视为不可用并重新提问。用户取消就退出进程——没有"跳过加密"这条路。
 8. 主窗口构建、托盘菜单构建、后台更新检查。
 
@@ -85,7 +84,8 @@ Tools/LegacyPasswordConverter/   历史密码格式迁移工具
 
 | 位置 | 内容 | 为什么在这里 |
 | --- | --- | --- |
-| `%LOCALAPPDATA%\JeekRemoteManager\Config` | 机器本地设置、known_hosts、DPAPI 主密码缓存 | 与机器/账户绑定，不该跟着漫游或便携数据走 |
+| `%LOCALAPPDATA%\JeekRemoteManager\` | DPAPI 主密码缓存（`master-password.bin`） | 与机器/账户绑定，不该跟着漫游或便携数据走 |
+| `%LOCALAPPDATA%\JeekRemoteManager\Config` | 机器本地设置、known_hosts | 与机器/账户绑定，不该跟着漫游或便携数据走 |
 | 活动存储位置的 `Config\` | 漫游偏好、连接树、脚本套件、堡垒机模板 | 可以跟着 AppData / 便携目录 / 自定义目录搬家 |
 | `%LOCALAPPDATA%\JeekRemoteManager\AgentWorkspaces` | 每个终端标签页的 AI 工作区 | 生成物，机器本地，与便携模式无关 |
 | `%LOCALAPPDATA%\JeekRemoteManager\Mcp` | 固定路径的 MCP 适配器 | agent 配置里要写死这个路径，必须永不变化 |

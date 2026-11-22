@@ -157,7 +157,8 @@ public partial class MainWindowViewModel
     }
 
     private bool CanOpenNewSession() =>
-        SelectedNode is
+        !HasMultiSelection
+        && SelectedNode is
         {
             IsConnection: true,
             IsNameEditing: false,
@@ -165,7 +166,8 @@ public partial class MainWindowViewModel
         };
 
     private bool CanOpenNewTcpConnection() =>
-        SelectedNode is
+        !HasMultiSelection
+        && SelectedNode is
         {
             IsConnection: true,
             IsNameEditing: false,
@@ -234,12 +236,6 @@ public partial class MainWindowViewModel
     private bool IsRecentConnectionContextMethod() => IsRecentConnectionContext;
 
     /// <summary>
-    /// Rebuilds the synthetic "Recent" group node from the current path list and
-    /// swaps it into <see cref="Nodes"/> without touching the rest of the tree.
-    /// Cancels any pending delayed rebuild so callers that need an immediate
-    /// refresh (remove/clear/full reload) win over a later timer tick.
-    /// </summary>
-    /// <summary>
     /// Recent entries load their own copy of each connection, so an in-place save that
     /// skips the full tree reload has to refresh them, or a click there would launch
     /// the connection as it was before the edit.
@@ -250,6 +246,12 @@ public partial class MainWindowViewModel
             RebuildRecentGroupInPlace();
     }
 
+    /// <summary>
+    /// Rebuilds the synthetic "Recent" group node from the current path list and
+    /// swaps it into <see cref="Nodes"/> without touching the rest of the tree.
+    /// Cancels any pending delayed rebuild so callers that need an immediate
+    /// refresh (remove/clear/full reload) win over a later timer tick.
+    /// </summary>
     private void RebuildRecentGroupInPlace()
     {
         _recentRebuildTimer?.Stop();
@@ -429,8 +431,6 @@ public partial class MainWindowViewModel
 
         if (existingIndex >= 0)
             list.RemoveAt(existingIndex);
-        else
-            list.RemoveAll(p => PathEquals(p, path));
 
         list.Insert(0, path);
         if (list.Count > RecentMax)
@@ -481,9 +481,6 @@ public partial class MainWindowViewModel
     [RelayCommand(CanExecute = nameof(CanModifySelection))]
     private async Task Delete()
     {
-        // Drop any pending auto-save for what's about to be deleted.
-        _autoSaveTimer?.Stop();
-
         var targets = RemoveNestedNodes(EffectiveSelection()
             .Where(n => n is { IsRecent: false, IsNameEditing: false })
             .ToList());
@@ -501,6 +498,9 @@ public partial class MainWindowViewModel
             if (!ok)
                 return;
         }
+
+        // Drop any pending auto-save for what's about to be deleted.
+        _autoSaveTimer?.Stop();
 
         // Pick the next selection from the anchor's siblings, skipping anything
         // that is itself doomed (selected or inside a selected folder).
@@ -540,6 +540,7 @@ public partial class MainWindowViewModel
                     Editor.PropertyChanged -= OnEditorPropertyChanged;
                 _editingNode = null;
                 Editor = null;
+                _editorHasPendingChanges = false;
             }
 
             try
@@ -735,14 +736,14 @@ public partial class MainWindowViewModel
         if (_clipboardEntries.Count == 0)
             return;
 
-        if (_clipboardIsCut)
-            FlushPendingAutoSave();
+        FlushPendingAutoSave();
 
         var target = TargetFolder();
         var newPaths = new List<string>();
         var movedEntries = new List<ClipboardEntry>();
         var missing = 0;
-        var skipped = 0;
+        var skippedSameFolder = 0;
+        var skippedIntoSelf = 0;
         string? firstError = null;
 
         foreach (var entry in _clipboardEntries.ToList())
@@ -758,7 +759,7 @@ public partial class MainWindowViewModel
             // its own subfolders would recurse forever.
             if (entry.IsFolder && ConnectionStore.IsSameOrInside(entry.Path, target))
             {
-                skipped++;
+                skippedIntoSelf++;
                 continue;
             }
 
@@ -776,7 +777,7 @@ public partial class MainWindowViewModel
                 // (pasting back into the same folder). Keep the cut pending in that case.
                 if (_clipboardIsCut && PathEquals(newPath, entry.Path))
                 {
-                    skipped++;
+                    skippedSameFolder++;
                     continue;
                 }
 
@@ -806,9 +807,11 @@ public partial class MainWindowViewModel
         {
             StatusMessage = firstError is not null
                 ? L("StatusPasteFailed", firstError)
-                : skipped > 0
-                    ? L("StatusAlreadyInFolder")
-                    : L("StatusClipboardGone");
+                : skippedIntoSelf > 0 && skippedSameFolder == 0
+                    ? L("StatusPasteIntoSelf")
+                    : skippedSameFolder > 0 || skippedIntoSelf > 0
+                        ? L("StatusAlreadyInFolder")
+                        : L("StatusClipboardGone");
             return;
         }
 
@@ -955,12 +958,13 @@ public partial class MainWindowViewModel
     [RelayCommand(CanExecute = nameof(CanBrowseKey))]
     private async Task BrowseKey()
     {
-        if (Editor is null || PickKeyFileAsync is null)
+        var editor = Editor;
+        if (editor is null || PickKeyFileAsync is null)
             return;
 
         var path = await PickKeyFileAsync();
-        if (!string.IsNullOrEmpty(path))
-            Editor.PrivateKeyPath = path;
+        if (!string.IsNullOrEmpty(path) && ReferenceEquals(Editor, editor))
+            editor.PrivateKeyPath = path;
     }
 
     // The Browse button is only visible in the SSH section, so gating on a

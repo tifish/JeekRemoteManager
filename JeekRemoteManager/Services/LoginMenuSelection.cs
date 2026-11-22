@@ -51,7 +51,23 @@ public static class LoginMenuSelection
         if (keyword.Length == 0)
             return new LoginMenuSelectionResult(null, null, "the #select directive has no name to match");
 
-        var entries = ParseEntries(output);
+        var (lastBlock, all) = ParseEntryBlocks(Clean(output));
+        if (all.Count == 0)
+            return new LoginMenuSelectionResult(null, null, $"no numbered menu was found on screen for \"{keyword}\"");
+
+        var result = ResolveFromEntries(lastBlock, keyword);
+        if (result.Success || result.Ambiguous || lastBlock.Count == all.Count)
+            return result;
+
+        return ResolveFromEntries(all, keyword);
+    }
+
+    internal static LoginMenuSelectionResult ResolveFromEntries(IReadOnlyList<LoginMenuEntry> entries, string keyword)
+    {
+        keyword = Normalize(keyword);
+        if (keyword.Length == 0)
+            return new LoginMenuSelectionResult(null, null, "the #select directive has no name to match");
+
         if (entries.Count == 0)
             return new LoginMenuSelectionResult(null, null, $"no numbered menu was found on screen for \"{keyword}\"");
 
@@ -79,16 +95,21 @@ public static class LoginMenuSelection
     /// <summary>
     /// Parses the numbered entries of the menu that is currently on screen: the last run of
     /// consecutive numbered lines, so an earlier menu still in the captured output (asset
-    /// categories before assets) can't be matched by mistake. Falls back to every numbered
-    /// line when the last block holds no match for the caller.
+    /// categories before assets) can't be matched by mistake.
     /// </summary>
-    public static IReadOnlyList<LoginMenuEntry> ParseEntries(string output)
+    public static IReadOnlyList<LoginMenuEntry> ParseEntries(string output) =>
+        ParseEntriesFromClean(Clean(output));
+
+    internal static IReadOnlyList<LoginMenuEntry> ParseEntriesFromClean(string cleanOutput) =>
+        ParseEntryBlocks(cleanOutput).LastBlock;
+
+    private static (IReadOnlyList<LoginMenuEntry> LastBlock, IReadOnlyList<LoginMenuEntry> All) ParseEntryBlocks(string cleanOutput)
     {
         var all = new List<LoginMenuEntry>();
         var lastBlock = new List<LoginMenuEntry>();
         var block = new List<LoginMenuEntry>();
 
-        foreach (var rawLine in Clean(output).Split('\n'))
+        foreach (var rawLine in cleanOutput.Split('\n'))
         {
             var match = MenuLine.Match(rawLine);
             if (!match.Success)
@@ -119,7 +140,7 @@ public static class LoginMenuSelection
         if (block.Count > 0)
             lastBlock = block;
 
-        return lastBlock.Count > 0 ? lastBlock : all;
+        return (lastBlock.Count > 0 ? lastBlock : all, all);
     }
 
     /// <summary>Strips ANSI/OSC sequences and control characters. Anything matching PTY

@@ -437,40 +437,4 @@ public class RemoteScriptStore
                 return false;
         }
     }
-
-    public void CopyTreeContents(string sourceRoot, string destRoot)
-    {
-        using var lease = SharedDataFile.AcquireMany(RootPath, sourceRoot, destRoot);
-        if (!Directory.Exists(sourceRoot) || ConnectionStore.IsSameOrInside(sourceRoot, destRoot))
-            return;
-
-        Directory.CreateDirectory(destRoot);
-
-        foreach (var dir in Directory.GetDirectories(sourceRoot))
-        {
-            var name = Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar));
-            var target = UniqueDirectoryPath(destRoot, name);
-            CopyDirectory(dir, target);
-        }
-    }
-
-    private static void CopyDirectory(string sourceDir, string destDir)
-    {
-        Directory.CreateDirectory(destDir);
-
-        foreach (var file in Directory.GetFiles(sourceDir))
-            SharedDataFile.CopyAtomic(file, Path.Combine(destDir, Path.GetFileName(file)));
-
-        foreach (var dir in Directory.GetDirectories(sourceDir))
-            CopyDirectory(dir, Path.Combine(destDir, Path.GetFileName(dir)));
-    }
-
-    private static string UniqueDirectoryPath(string parentPath, string baseName)
-    {
-        var candidate = Path.Combine(parentPath, baseName);
-        var i = 2;
-        while (Directory.Exists(candidate))
-            candidate = Path.Combine(parentPath, $"{baseName} ({i++})");
-        return candidate;
-    }
 }

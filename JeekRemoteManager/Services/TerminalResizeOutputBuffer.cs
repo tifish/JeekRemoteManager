@@ -1,5 +1,5 @@
 using System;
-using System.Collections.Generic;
+using System.Buffers;
 
 namespace JeekRemoteManager.Services;
 
@@ -11,8 +11,11 @@ namespace JeekRemoteManager.Services;
 /// </summary>
 public sealed class TerminalResizeOutputBuffer
 {
+    private const int MaxRetainedCapacity = 64 * 1024;
+    private const int MaxPendingBytes = 4 * 1024 * 1024;
+
     private readonly object _gate = new();
-    private readonly List<byte> _pending = [];
+    private ArrayBufferWriter<byte> _pending = new();
     private bool _isActive;
 
     public bool IsActive
@@ -29,7 +32,7 @@ public sealed class TerminalResizeOutputBuffer
         get
         {
             lock (_gate)
-                return _pending.Count;
+                return _pending.WrittenCount;
         }
     }
 
@@ -46,8 +49,16 @@ public sealed class TerminalResizeOutputBuffer
             if (!_isActive)
                 return false;
 
-            foreach (var value in data)
-                _pending.Add(value);
+            if (_pending.WrittenCount + data.Length > MaxPendingBytes)
+            {
+                // Cap runaway output during the short resize settle window; keep the newest tail.
+                var keep = Math.Min(data.Length, MaxPendingBytes);
+                _pending = new ArrayBufferWriter<byte>(Math.Min(keep, MaxRetainedCapacity));
+                _pending.Write(data[^keep..]);
+                return true;
+            }
+
+            _pending.Write(data);
             return true;
         }
     }
@@ -57,11 +68,14 @@ public sealed class TerminalResizeOutputBuffer
         lock (_gate)
         {
             _isActive = false;
-            if (_pending.Count == 0)
+            if (_pending.WrittenCount == 0)
                 return [];
 
-            var result = _pending.ToArray();
-            _pending.Clear();
+            var result = _pending.WrittenSpan.ToArray();
+            if (_pending.Capacity > MaxRetainedCapacity)
+                _pending = new ArrayBufferWriter<byte>();
+            else
+                _pending.ResetWrittenCount();
             return result;
         }
     }

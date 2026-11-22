@@ -70,16 +70,23 @@ internal static class SshMfaDialog
         var manager = CreateWindow("SshMfaManagerTitle", list, codePanel, error, Buttons(add, edit, remove, close));
 
         (long ValidFrom, long ExpiresAt)? displayedWindow = null;
+        long? lastShownRemainingSeconds = null;
         var isCopying = false;
         Guid? SelectedId() => (list.SelectedItem as SshMfaProfileChoice)?.Id;
         SshTotp.TimedCode? ReadCode(Guid? id) =>
             id is { } profileId ? SshTotp.ReadCurrentCode(store.TryGetEncryptedCredential(profileId), clock) : null;
-        void ShowRemaining(long seconds) =>
+        void ShowRemaining(long seconds)
+        {
+            if (lastShownRemainingSeconds == seconds)
+                return;
+            lastShownRemainingSeconds = seconds;
             remaining.Text = string.Format(Localizer.Get("SshMfaCodeRemaining"), seconds);
+        }
 
         void ShowCode(SshTotp.TimedCode? code)
         {
             displayedWindow = code is null ? null : (code.ValidFrom, code.ExpiresAt);
+            lastShownRemainingSeconds = null;
             codeText.Text = code?.Value ?? "—";
             copy.IsEnabled = code is not null && !isCopying;
             if (code is not null)
@@ -592,13 +599,17 @@ internal static class SshMfaDialog
         return panel;
     }
 
-    private static TextBlock CreateError() => new()
+    private static TextBlock CreateError()
     {
-        Name = "SshMfaError",
-        IsVisible = false,
-        TextWrapping = TextWrapping.Wrap,
-        Foreground = Brushes.DarkOrange,
-    };
+        var block = new TextBlock
+        {
+            Name = "SshMfaError",
+            IsVisible = false,
+            TextWrapping = TextWrapping.Wrap,
+        };
+        block[!TextBlock.ForegroundProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("DangerBrush");
+        return block;
+    }
 
     private static void ShowError(TextBlock error, string key)
     {

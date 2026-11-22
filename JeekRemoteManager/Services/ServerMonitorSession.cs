@@ -68,17 +68,9 @@ public sealed class ServerMonitorSession : IDisposable
     private const int SampleTimeoutSeconds = 10;
     private const int LoginQuietMilliseconds = 500;
     private const int LoginStepTimeoutSeconds = 30;
+    private const int LandingSettleTimeoutSeconds = 10;
 
     private const string SectionMarker = "@JRM@";
-
-    // PTY-backed bastion shells can inject colors or terminal-control sequences into
-    // otherwise plain command output. Remove them before any monitor field is parsed.
-    private static readonly Regex AnsiAndControlChars = new(
-        "\u001b\\[[0-9;?]*[ -/]*[@-~]" +
-        "|\u001b\\][\\s\\S]*?(?:\u0007|\u001b\\\\)" +
-        "|\u001b[@-_]" +
-        "|[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]",
-        RegexOptions.Compiled);
 
     // Light sections sample fast-moving counters every tick.
     private const string LightCommand =
@@ -106,6 +98,7 @@ public sealed class ServerMonitorSession : IDisposable
 
     private readonly object _gate = new();
     private CancellationTokenSource? _cancellation;
+    private Task _activeRun = Task.CompletedTask;
     private SharedSshClient? _held;
     private BastionSessionPool.BastionSessionLease? _pendingPoolLease;
     private SharedShellStreamLease? _shell;
@@ -124,7 +117,7 @@ public sealed class ServerMonitorSession : IDisposable
 
     // Delta state between ticks (background thread only).
     private (long Total, long Idle)? _prevCpu;
-    private (long Rx, long Tx)? _prevNet;
+    private (string Interface, long Rx, long Tx)? _prevNet;
     private Stopwatch? _prevNetClock;
     private string? _primaryInterface;
     private double? _latencyEmaMs;
@@ -215,14 +208,21 @@ public sealed class ServerMonitorSession : IDisposable
     public void Start()
     {
         CancellationTokenSource cancellation;
+        Task previousRun;
         lock (_gate)
         {
             if (_cancellation is not null)
                 return;
             cancellation = _cancellation = new CancellationTokenSource();
+            previousRun = _activeRun;
+            _activeRun = Task.Run(() => RunAfterPreviousAsync(previousRun, cancellation), CancellationToken.None);
         }
+    }
 
-        _ = Task.Run(() => RunAsync(cancellation), CancellationToken.None);
+    private async Task RunAfterPreviousAsync(Task previousRun, CancellationTokenSource cancellation)
+    {
+        try { await previousRun.ConfigureAwait(false); } catch { /* previous run already wound down */ }
+        await RunAsync(cancellation).ConfigureAwait(false);
     }
 
     /// <summary>Stops polling. The loop task releases the client reference and
@@ -333,6 +333,7 @@ public sealed class ServerMonitorSession : IDisposable
 
         if (_bastionSessionPool is not null
             && _connection is not null
+            && BastionSessionPool.IsEligible(_connection)
             && LoginCommandSequence.HasStructuredReuseWorkflow(_connection.EffectiveLoginCommands))
         {
             _pendingPoolLease = await _bastionSessionPool
@@ -378,54 +379,18 @@ public sealed class ServerMonitorSession : IDisposable
             return;
 
         ReleaseShell();
-        var shell = await client.CreateShellStreamAsync(
-                _terminalType,
-                120,
-                30,
-                0,
-                0,
-                4096,
-                cancellationToken)
-            .ConfigureAwait(false);
-
-        _shell = shell;
-        var stream = shell.Stream;
-        Interlocked.Increment(ref _shellGeneration);
-        _shellFailure = null;
-        Interlocked.Exchange(ref _lastShellDataTicks, 0);
-        stream.DataReceived += OnShellData;
-        stream.ErrorOccurred += OnShellError;
-        stream.Closed += OnShellClosed;
-
+        SharedShellStreamLease shell;
         try
         {
-            if (_pendingPoolLease is { } pooledLease)
-            {
-                if (pooledLease.ReuseStart == BastionReuseStart.Switch)
-                {
-                    await RunLoginSectionAsync(
-                            pooledLease.SourceRoute.LoginCommands,
-                            LoginCommandSection.ReuseLeave,
-                            cancellationToken)
-                        .ConfigureAwait(false);
-                }
-
-                await RunLoginSectionAsync(
-                        _connection!.EffectiveLoginCommands,
-                        pooledLease.ReuseStart == BastionReuseStart.Duplicate
-                            ? LoginCommandSection.Duplicate
-                            : LoginCommandSection.ReuseEnter,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-
-                _held = pooledLease.CompleteAndTakeClient();
-                pooledLease.Dispose();
-                _pendingPoolLease = null;
-            }
-            else
-            {
-                await RunDuplicatedLoginCommandsAsync(cancellationToken).ConfigureAwait(false);
-            }
+            shell = await client.CreateShellStreamAsync(
+                    _terminalType,
+                    120,
+                    30,
+                    0,
+                    0,
+                    4096,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
         catch (SshChannelCapacityException)
         {
@@ -438,18 +403,70 @@ public sealed class ServerMonitorSession : IDisposable
                 _pendingPoolLease = null;
                 _held = null;
             }
-            _loginCaptureActive = false;
-            _loginCapture.Reset();
-            ReleaseShell();
             throw;
+        }
+
+        _shell = shell;
+        var stream = shell.Stream;
+        Interlocked.Increment(ref _shellGeneration);
+        _shellFailure = null;
+        Interlocked.Exchange(ref _lastShellDataTicks, 0);
+        _loginCapture.Reset();
+        _loginCaptureActive = _pendingPoolLease is not null;
+        stream.DataReceived += OnShellData;
+        stream.ErrorOccurred += OnShellError;
+        stream.Closed += OnShellClosed;
+
+        var typedIntoBastion = false;
+        try
+        {
+            if (_pendingPoolLease is { } pooledLease)
+            {
+                await WaitForLandingQuietAsync(cancellationToken).ConfigureAwait(false);
+                var landing = BastionLanding.Classify(_loginCapture.Snapshot());
+                if (landing == BastionLandingKind.AuthPrompt)
+                    throw new InvalidOperationException("Bastion channel landed on an authentication prompt.");
+
+                var phases = BastionLanding.SelectReusePhases(
+                    landing,
+                    pooledLease.ReuseStart,
+                    pooledLease.SourceRoute.LoginCommands,
+                    _connection!.EffectiveLoginCommands);
+
+                // Keep _loginCapture active across ReuseLeave -> ReuseEnter so menus printed
+                // by leaving the previous target remain available to #select in ReuseEnter.
+                long mustBeAfterTicks = 0;
+                foreach (var phase in phases)
+                {
+                    if (phase.Length == 0)
+                        continue;
+                    typedIntoBastion = true;
+                    mustBeAfterTicks = await RunLoginLinesAsync(phase, mustBeAfterTicks, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
+                _loginCaptureActive = false;
+                _loginCapture.Reset();
+                _held = pooledLease.CompleteAndTakeClient();
+                pooledLease.Dispose();
+                _pendingPoolLease = null;
+            }
+            else
+            {
+                await RunDuplicatedLoginCommandsAsync(cancellationToken).ConfigureAwait(false);
+            }
         }
         catch
         {
-            if (_pendingPoolLease is not null)
+            if (_pendingPoolLease is { } lease)
             {
-                // Release the borrow only. Abandoning would drop the authenticated
-                // transport and force the next target through a fresh 2FA login.
-                _pendingPoolLease.Dispose();
+                // Release the borrow only unless the transport itself died. Abandoning a
+                // live transport would force the next target through a fresh 2FA login.
+                if (!lease.Client.IsConnected)
+                    lease.Abandon();
+                else if (typedIntoBastion)
+                    lease.KeepAndRelease();
+                lease.Dispose();
                 _pendingPoolLease = null;
                 _held = null;
             }
@@ -460,32 +477,28 @@ public sealed class ServerMonitorSession : IDisposable
         }
     }
 
-    private async Task RunDuplicatedLoginCommandsAsync(CancellationToken cancellationToken)
+    private async Task WaitForLandingQuietAsync(CancellationToken cancellationToken)
     {
-        var lines = LoginCommandSequence.Select(_loginCommands, isDuplicatedSession: true);
-        if (lines.Length == 0)
-            return;
+        var startedAt = Environment.TickCount64;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ThrowIfShellFailed();
 
-        long mustBeAfterTicks = 0;
-        _loginCapture.Reset();
-        _loginCaptureActive = true;
-        try
-        {
-            await RunLoginLinesAsync(lines, mustBeAfterTicks, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _loginCaptureActive = false;
-            _loginCapture.Reset();
+            var lastData = Interlocked.Read(ref _lastShellDataTicks);
+            var now = Environment.TickCount64;
+            if (lastData != 0 && now - lastData >= LoginQuietMilliseconds)
+                return;
+            if (now - startedAt >= LandingSettleTimeoutSeconds * 1000L)
+                return;
+
+            await Task.Delay(50, cancellationToken).ConfigureAwait(false);
         }
     }
 
-    private async Task RunLoginSectionAsync(
-        string loginCommands,
-        LoginCommandSection section,
-        CancellationToken cancellationToken)
+    private async Task RunDuplicatedLoginCommandsAsync(CancellationToken cancellationToken)
     {
-        var lines = LoginCommandSequence.Select(loginCommands, section);
+        var lines = LoginCommandSequence.Select(_loginCommands, isDuplicatedSession: true);
         if (lines.Length == 0)
             return;
 
@@ -502,7 +515,7 @@ public sealed class ServerMonitorSession : IDisposable
         }
     }
 
-    private async Task RunLoginLinesAsync(
+    private async Task<long> RunLoginLinesAsync(
         string[] lines,
         long mustBeAfterTicks,
         CancellationToken cancellationToken)
@@ -542,6 +555,7 @@ public sealed class ServerMonitorSession : IDisposable
                 mustBeAfterTicks = Environment.TickCount64;
                 _loginCapture.Reset();
                 WriteToShell(immediateKey);
+                await WaitForShellQuietAsync(mustBeAfterTicks, cancellationToken).ConfigureAwait(false);
                 continue;
             }
 
@@ -582,6 +596,8 @@ public sealed class ServerMonitorSession : IDisposable
             WriteToShell(text + "\r");
             await WaitForShellQuietAsync(mustBeAfterTicks, cancellationToken).ConfigureAwait(false);
         }
+
+        return mustBeAfterTicks;
     }
 
     private async Task WaitForNumberedMenuAsync(
@@ -589,8 +605,17 @@ public sealed class ServerMonitorSession : IDisposable
         CancellationToken cancellationToken)
     {
         var startedAt = Environment.TickCount64;
-        while (LoginMenuSelection.ParseEntries(_loginCapture.Snapshot()).Count == 0)
+        var lastParsedTicks = -1L;
+        while (true)
         {
+            var currentTicks = Interlocked.Read(ref _lastShellDataTicks);
+            if (currentTicks != lastParsedTicks)
+            {
+                lastParsedTicks = currentTicks;
+                if (LoginMenuSelection.ParseEntries(_loginCapture.Snapshot()).Count > 0)
+                    break;
+            }
+
             cancellationToken.ThrowIfCancellationRequested();
             ThrowIfShellFailed();
             if (Environment.TickCount64 - startedAt >= LoginStepTimeoutSeconds * 1000L)
@@ -653,7 +678,7 @@ public sealed class ServerMonitorSession : IDisposable
         ThrowIfShellFailed();
         var shell = _shell?.Stream
                     ?? throw new InvalidOperationException("Server monitor shell is not open.");
-        var bytes = Encoding.UTF8.GetBytes(text);
+        var bytes = _encoding.GetBytes(text);
         shell.Write(bytes, 0, bytes.Length);
         shell.Flush();
     }
@@ -753,13 +778,12 @@ public sealed class ServerMonitorSession : IDisposable
     /// the first marker (login banners, motd fragments) are ignored.</summary>
     internal static Dictionary<string, List<string>> SplitSections(string output)
     {
-        output = AnsiAndControlChars.Replace(output, string.Empty);
+        output = LoginMenuSelection.CleanPtyText(output);
         var sections = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         List<string>? current = null;
 
-        foreach (var rawLine in output.Split('\n'))
+        foreach (var line in output.Split('\n'))
         {
-            var line = rawLine.TrimEnd('\r');
             if (line.StartsWith(SectionMarker, StringComparison.Ordinal))
             {
                 var name = line[SectionMarker.Length..].Trim();
@@ -897,11 +921,15 @@ public sealed class ServerMonitorSession : IDisposable
         var current = counters[iface];
         var prev = _prevNet;
         var elapsed = _prevNetClock?.Elapsed.TotalSeconds;
-        _prevNet = current;
+        _prevNet = (iface, current.Rx, current.Tx);
         _prevNetClock = Stopwatch.StartNew();
 
         // First sample, interface switch, or counter reset — no rate yet.
-        if (prev is not { } last || elapsed is not > 0.2 || current.Rx < last.Rx || current.Tx < last.Tx)
+        if (prev is not { } last
+            || !string.Equals(last.Interface, iface, StringComparison.Ordinal)
+            || elapsed is not > 0.2
+            || current.Rx < last.Rx
+            || current.Tx < last.Tx)
             return null;
 
         return new ServerMonitorNetRates(

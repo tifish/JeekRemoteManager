@@ -93,6 +93,7 @@ public sealed class SshJumpTunnel : IDisposable
         var client = new SshClient(upstream is null
             ? SshConnectionFactory.Build(jump, options.PromptUser)
             : SshConnectionFactory.Build(jump, options.PromptUser, "127.0.0.1", upstream.LocalPort));
+        ForwardedPortLocal? forward = null;
         try
         {
             SshHostKey.Attach(client, jumpHost, jumpPort, options);
@@ -100,13 +101,15 @@ public sealed class SshJumpTunnel : IDisposable
             client.Connect();
 
             // Port 0: the OS picks a free loopback port, read back after Start.
-            var forward = new ForwardedPortLocal("127.0.0.1", 0, targetHost, (uint)targetPort);
+            forward = new ForwardedPortLocal("127.0.0.1", 0, targetHost, (uint)targetPort);
             client.AddForwardedPort(forward);
             forward.Start();
             return new SshJumpTunnel(client, forward, upstream);
         }
         catch
         {
+            try { forward?.Stop(); } catch { /* ignore */ }
+            try { forward?.Dispose(); } catch { /* ignore */ }
             try { client.Dispose(); } catch { /* ignore */ }
             throw;
         }

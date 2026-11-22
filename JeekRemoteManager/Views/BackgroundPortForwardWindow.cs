@@ -36,6 +36,7 @@ internal sealed class BackgroundPortForwardWindow : Window
     private string? _selectOnRefresh;
     private bool _refreshing;
     private bool _opening;
+    private bool _busy;
     private bool _closed;
 
     internal BackgroundPortForwardWindow(BackgroundPortForwards forwards, Func<IReadOnlyList<ConnectionChoice>> choices,
@@ -114,6 +115,7 @@ internal sealed class BackgroundPortForwardWindow : Window
         table.Children.Add(listArea);
 
         var close = Button("Close");
+        close.IsCancel = true;
         var actions = new StackPanel
         {
             Orientation = Orientation.Horizontal, Spacing = 8, Children = { _resume, _stop, _copy },
@@ -142,20 +144,53 @@ internal sealed class BackgroundPortForwardWindow : Window
         _connection.DropDownOpened += (_, _) => LoadChoices((_connection.SelectedItem as ConnectionChoice)?.Id);
         _connection.SelectionChanged += (_, _) => UpdateActions();
         _list.SelectionChanged += (_, _) => UpdateActions();
-        _open.Click += async (_, _) => await OpenAsync();
+        _open.Click += async (_, _) =>
+        {
+            try { await OpenAsync(); }
+            catch { ShowMessage("BackgroundForwardRouteUnavailable"); }
+        };
         _resume.Click += async (_, _) =>
         {
-            if (_list.SelectedItem is BackgroundPortForwards.Overview { CanStart: true } row)
+            if (_busy || _list.SelectedItem is not BackgroundPortForwards.Overview { CanStart: true } row)
+                return;
+            _busy = true;
+            UpdateActions();
+            try
+            {
                 await StartAsync(row.Target.ConnectionId, row.Target.Host, row.Target.RemotePort,
                     row.Target.RequestedLocalPort, row.Id);
+            }
+            catch
+            {
+                ShowMessage("BackgroundForwardRouteUnavailable");
+            }
+            finally
+            {
+                _busy = false;
+                UpdateActions();
+            }
         };
         _stop.Click += async (_, _) =>
         {
-            if (_list.SelectedItem is not BackgroundPortForwards.Overview { CanStop: true } row)
+            if (_busy || _list.SelectedItem is not BackgroundPortForwards.Overview { CanStop: true } row)
                 return;
-            ShowMessage(null);
-            await Task.Run(() => _forwards.StopFromManager(row.Id));
-            await RefreshAsync();
+            _busy = true;
+            UpdateActions();
+            try
+            {
+                ShowMessage(null);
+                await Task.Run(() => _forwards.StopFromManager(row.Id));
+                await RefreshAsync();
+            }
+            catch
+            {
+                ShowMessage("BackgroundForwardFailed");
+            }
+            finally
+            {
+                _busy = false;
+                UpdateActions();
+            }
         };
         _copy.Click += async (_, _) =>
         {
@@ -174,11 +209,16 @@ internal sealed class BackgroundPortForwardWindow : Window
         close.Click += (_, _) => Close();
 
         var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-        timer.Tick += async (_, _) => await RefreshAsync();
+        timer.Tick += async (_, _) =>
+        {
+            try { await RefreshAsync(); }
+            catch { /* best-effort periodic refresh */ }
+        };
         Opened += async (_, _) =>
         {
             timer.Start();
-            await RefreshAsync();
+            try { await RefreshAsync(); }
+            catch { /* best-effort initial refresh */ }
         };
         Closed += (_, _) =>
         {
@@ -273,9 +313,9 @@ internal sealed class BackgroundPortForwardWindow : Window
     private void UpdateActions()
     {
         var selected = _list.SelectedItem as BackgroundPortForwards.Overview;
-        _open.IsEnabled = !_opening && _connection.SelectedItem is ConnectionChoice;
-        _resume.IsEnabled = selected?.CanStart == true;
-        _stop.IsEnabled = selected?.CanStop == true;
+        _open.IsEnabled = !_opening && !_busy && _connection.SelectedItem is ConnectionChoice;
+        _resume.IsEnabled = !_busy && selected?.CanStart == true;
+        _stop.IsEnabled = !_busy && selected?.CanStop == true;
         _copy.IsEnabled = selected?.LocalPort > 0;
     }
 

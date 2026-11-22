@@ -22,9 +22,6 @@ public partial class MainWindowViewModel
 {
     // --- Misc ---
 
-    [RelayCommand]
-    private void Refresh() => ReloadTree(SelectedNode?.FullPath);
-
     /// <summary>Clears the tree selection so subsequent new/paste operations target the root.</summary>
     // Disabled while renaming so the tree's Escape key binding doesn't swallow
     // the key before the name editor can cancel the edit.
@@ -33,27 +30,16 @@ public partial class MainWindowViewModel
 
     private bool CanClearSelection() => _renamingNode is null;
 
-    [RelayCommand]
-    private void OpenStorageFolder()
-    {
-        try
-        {
-            Directory.CreateDirectory(_store.RootPath);
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = _store.RootPath,
-                UseShellExecute = true,
-            });
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = L("StatusOpenFolderFailed", ex.Message);
-        }
-    }
-
     // Cancelled when the user changes the periodic-check interval, so the loop
     // wakes from its long sleep and picks up the new cadence immediately.
     private CancellationTokenSource _updateIntervalChanged = new();
+
+    private void WakeUpdateLoop()
+    {
+        var previous = Interlocked.Exchange(ref _updateIntervalChanged, new CancellationTokenSource());
+        try { previous.Cancel(); }
+        finally { previous.Dispose(); }
+    }
 
     // Guards against overlapping downloads when the periodic silent check and
     // the manual menu command race each other. Only touched on the UI thread.
@@ -95,7 +81,7 @@ public partial class MainWindowViewModel
                 // on changes the interval, which cancels the waker below.
                 var delay = hours > 0 ? TimeSpan.FromHours(hours) : Timeout.InfiniteTimeSpan;
 
-                var waker = _updateIntervalChanged;
+                var waker = Volatile.Read(ref _updateIntervalChanged);
                 try
                 {
                     await Task.Delay(delay, waker.Token).ConfigureAwait(false);
@@ -103,7 +89,11 @@ public partial class MainWindowViewModel
                 catch (OperationCanceledException)
                 {
                     // Interval changed mid-wait; loop around to read the new value.
-                    _updateIntervalChanged = new CancellationTokenSource();
+                    continue;
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Waker was swapped and disposed concurrently; loop around.
                     continue;
                 }
 
@@ -468,8 +458,11 @@ public partial class MainWindowViewModel
             _settings.Settings.CheckUpdateOnStartup = result.CheckUpdateOnStartup;
             _settings.Settings.UpdateCheckIntervalHours = result.UpdateCheckIntervalHours;
             if (intervalChanged)
-                _updateIntervalChanged.Cancel();
+                WakeUpdateLoop();
         }
+
+        // Persist all non-storage settings (language, theme, update preferences, etc.) immediately.
+        _settings.SaveIfChanged();
 
         // A no-op when neither the location nor (for a custom location) its path changed.
         if (result.StorageLocation == current
@@ -496,6 +489,7 @@ public partial class MainWindowViewModel
             }
             catch (Exception ex)
             {
+                StartWatchingCurrentStorage();
                 StatusMessage = L("StatusStorageCopyFailed", ex.Message);
                 return;
             }
@@ -509,7 +503,6 @@ public partial class MainWindowViewModel
         _settings.Settings.CustomStoragePath = result.CustomStoragePath;
         var settingsSaved = _settings.SaveIfChanged();
         DebugInstanceContext.SetConfigRoot(_settings.ResolveConfigRoot());
-        DebugMcpServer.RefreshDiscovery();
         _store.SetRoot(newRoot);
         _scriptStore.SetRoot(newScriptsRoot);
         ReloadScripts();
@@ -517,11 +510,10 @@ public partial class MainWindowViewModel
         ClearClipboard();
         ReloadTree();
         OnPropertyChanged(nameof(RootPath));
-        OnPropertyChanged(nameof(TargetDescription));
 
         if (!settingsSaved)
             StatusMessage = L("StatusStorageNotSaved", _settings.SettingsPath);
-        else if (HasData(newConfigRoot))
+        else if (HasData(newRoot))
             StatusMessage = L("StatusStorageLocationWithData", result.StorageLocation, newConfigRoot);
         else
             StatusMessage = L("StatusStorageLocationOnly", result.StorageLocation, newConfigRoot);
@@ -668,6 +660,7 @@ public partial class MainWindowViewModel
             }
 
             current.SetPassword(newPassword);
+            ReloadTree();
             StatusMessage = L("StatusMasterChanged");
         }
         catch (Exception ex)

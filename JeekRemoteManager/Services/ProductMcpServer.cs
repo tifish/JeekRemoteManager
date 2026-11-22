@@ -60,20 +60,12 @@ internal static partial class ProductMcpServer
         {
             ServerName = "jeek-remote-manager",
             ServerTitle = "JeekRemoteManager",
-            Graph = new ObjectGraph(new ObjectGraphOptions
-            {
-                // The product surface exposes no object graph; the standard get/set/invoke
-                // tools are never advertised by ProductMcpContract.
-                ResolveRoot = name => throw new InvalidOperationException(
-                    $"The product MCP surface has no object roots ('{name}')."),
-                RootNamesHelp = "(none)",
-            }),
+            RegisterStandardTools = false,
             GetVersion = () => $"{AutoUpdateService.GetLocalCommitCount()}",
             PipeName = DebugInstanceContext.ProductMcpPipeName,
             DefaultPort = 0,
             UiInvoker = func => Dispatcher.UIThread.InvokeAsync(func).GetTask()
                 .WaitAsync(TimeSpan.FromMinutes(5)),
-            Describe = BuildDescribeText,
             ToolListProvider = ProductMcpContract.BuildToolList,
         });
 
@@ -105,8 +97,8 @@ internal static partial class ProductMcpServer
         host.AddTool("public_key_install", PublicKeyInstallAsync);
 
         host.AddTool("session_list", _ => SessionListAsync());
-        host.AddTool("session_open", args => SessionOpenAsync(args, reuseExisting: true));
-        host.AddTool("session_open_new", args => SessionOpenAsync(args, reuseExisting: false));
+        host.AddTool("session_open", (args, ct) => SessionOpenAsync(args, reuseExisting: true, ct));
+        host.AddTool("session_open_new", (args, ct) => SessionOpenAsync(args, reuseExisting: false, ct));
         host.AddTool("session_close", args => SessionCommandAsync(args, close: true));
         host.AddTool("session_activate", args => SessionCommandAsync(args, close: false));
         host.AddTool("session_move", SessionMoveAsync);
@@ -146,24 +138,6 @@ internal static partial class ProductMcpServer
     private static MainWindowViewModel MainVm =>
         MainWindow.DataContext as MainWindowViewModel
         ?? throw new InvalidOperationException("The main window has no view model yet.");
-
-    private static string BuildDescribeText()
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("JeekRemoteManager product MCP surface.");
-        sb.AppendLine($@"Pipe: \\.\pipe\{Host.PipeName}");
-        sb.AppendLine();
-        sb.AppendLine("Start with connection_list to see saved connections, session_open to get a shell,");
-        sb.AppendLine("then terminal_run and friends against the returned session id.");
-        sb.AppendLine("Use session_open_new to open an additional tab for a connection.");
-        sb.AppendLine("Use terminal_run_batch with explicit connection paths for multi-server work.");
-        sb.AppendLine();
-        sb.AppendLine(ProductMcpContract.SessionHelp);
-        sb.AppendLine();
-        sb.AppendLine("Passwords are write-only: no tool returns one, and connection_set_password defaults");
-        sb.AppendLine("to letting the user type it in the app window. Two-factor prompts always happen there.");
-        return sb.ToString();
-    }
 
     #region Connections
 
@@ -255,15 +229,14 @@ internal static partial class ProductMcpServer
             Name = name,
             Port = Connection.DefaultPort(type),
         };
-        ApplyEditableFields(connection, args);
 
         var report = await OnUiAsync(() =>
         {
+            // ApplyEditableFields may read MainVm.Store (e.g. jump_host), so it must run on the UI thread.
+            ApplyEditableFields(connection, args);
             var root = MainVm.RootPath;
             var store = MainVm.Store;
-            var targetFolder = folder.Length == 0
-                ? root
-                : Path.Combine(root, folder.Replace('/', Path.DirectorySeparatorChar));
+            var targetFolder = ResolveInsideRoot(root, folder, allowRoot: true);
             Directory.CreateDirectory(targetFolder);
 
             var savedPath = store.Save(connection, targetFolder);
@@ -315,9 +288,7 @@ internal static partial class ProductMcpServer
         {
             var (connection, _, filePath) = LoadConnection(path);
             var root = MainVm.RootPath;
-            var targetFolder = folder.Length == 0
-                ? root
-                : Path.Combine(root, folder.Replace('/', Path.DirectorySeparatorChar));
+            var targetFolder = ResolveInsideRoot(root, folder, allowRoot: true);
             Directory.CreateDirectory(targetFolder);
 
             var movedPath = MainVm.Store.MoveFileInto(filePath, targetFolder);
@@ -365,8 +336,13 @@ internal static partial class ProductMcpServer
             connection.ShortName = shortName.Trim();
         if (args["host"]?.GetValue<string>() is { } host)
             connection.Host = host.Trim();
-        if (args["port"] is { } port)
-            connection.Port = port.GetValue<int>();
+        if (args["port"] is { } portNode)
+        {
+            var port = portNode.GetValue<int>();
+            if (port is < 1 or > 65535)
+                throw new ArgumentException("port must be between 1 and 65535.");
+            connection.Port = port;
+        }
         if (args["username"]?.GetValue<string>() is { } username)
             connection.Username = username.Trim();
         if (args["private_key_path"]?.GetValue<string>() is { } keyPath)
@@ -524,8 +500,7 @@ internal static partial class ProductMcpServer
     {
         var root = MainVm.RootPath;
         var store = MainVm.Store;
-        var relative = treePath.Replace('/', Path.DirectorySeparatorChar);
-        var filePath = Path.Combine(root, relative + ConnectionStore.FileExtension);
+        var filePath = ResolveInsideRoot(root, treePath + ConnectionStore.FileExtension, allowRoot: false);
 
         if (!File.Exists(filePath))
         {
@@ -546,6 +521,33 @@ internal static partial class ProductMcpServer
         }
 
         return (store.Load(filePath), ToTreePath(root, filePath), filePath);
+    }
+
+    private static string ResolveInsideRoot(string root, string normalizedRelative, bool allowRoot)
+    {
+        var fullRoot = Path.GetFullPath(root);
+        if (normalizedRelative.Length == 0)
+        {
+            if (!allowRoot)
+                throw new InvalidOperationException("Path must stay below the connection tree root.");
+            return fullRoot;
+        }
+
+        if (Path.IsPathRooted(normalizedRelative))
+            throw new InvalidOperationException($"Path '{normalizedRelative}' must be relative to the connection tree root.");
+
+        var full = Path.GetFullPath(Path.Combine(fullRoot, normalizedRelative.Replace('/', Path.DirectorySeparatorChar)));
+        if (!ConnectionStore.IsSameOrInside(fullRoot, full))
+            throw new InvalidOperationException($"Path '{normalizedRelative}' escapes the connection tree root.");
+        if (!allowRoot && string.Equals(
+                full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                fullRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Path must stay below the connection tree root.");
+        }
+
+        return full;
     }
 
     private static string ToTreePath(string root, string filePath)
@@ -572,7 +574,7 @@ internal static partial class ProductMcpServer
         var created = await OnUiAsync(() =>
         {
             var root = MainVm.RootPath;
-            var path = Path.Combine(root, folder.Replace('/', Path.DirectorySeparatorChar));
+            var path = ResolveInsideRoot(root, folder, allowRoot: false);
             Directory.CreateDirectory(path);
             MainVm.ReloadTreeFromDisk(path);
             return ToTreePath(root, path);
@@ -591,17 +593,18 @@ internal static partial class ProductMcpServer
         if (folder.Length == 0)
             return ToolText("Refusing to delete the tree root.", isError: true);
 
-        await OnUiAsync(() =>
+        var deleted = await OnUiAsync(() =>
         {
-            var full = Path.Combine(MainVm.RootPath, folder.Replace('/', Path.DirectorySeparatorChar));
+            var root = MainVm.RootPath;
+            var full = ResolveInsideRoot(root, folder, allowRoot: false);
             if (!Directory.Exists(full))
                 throw new InvalidOperationException($"No folder at '{folder}'.");
             MainVm.Store.DeleteFolder(full);
             MainVm.ReloadTreeFromDisk();
-            return true;
+            return ToTreePath(root, full);
         }).ConfigureAwait(false);
 
-        return ToolText(new JsonObject { ["status"] = "deleted", ["folder"] = folder }.ToJsonString(PrettyOptions));
+        return ToolText(new JsonObject { ["status"] = "deleted", ["folder"] = deleted }.ToJsonString(PrettyOptions));
     }
 
     /// <summary>Moves a folder under another parent, or renames it in place.</summary>
@@ -620,15 +623,13 @@ internal static partial class ProductMcpServer
         {
             var root = MainVm.RootPath;
             var store = MainVm.Store;
-            var path = Path.Combine(root, folder.Replace('/', Path.DirectorySeparatorChar));
+            var path = ResolveInsideRoot(root, folder, allowRoot: false);
             if (!Directory.Exists(path))
                 throw new InvalidOperationException($"No folder at '{folder}'.");
 
             if (parent is not null)
             {
-                var targetParent = parent.Length == 0
-                    ? root
-                    : Path.Combine(root, parent.Replace('/', Path.DirectorySeparatorChar));
+                var targetParent = ResolveInsideRoot(root, parent, allowRoot: true);
                 if (ConnectionStore.IsSameOrInside(path, targetParent))
                     throw new InvalidOperationException("A folder cannot be moved inside itself.");
 
@@ -1091,7 +1092,7 @@ internal static partial class ProductMcpServer
     private static async Task<TerminalView> ResolveOrOpenSessionAsync(string connectionPath, bool openMissing)
     {
         var existing = await OnUiAsync(() => MainWindow.EnumerateTerminalSessions()
-            .FirstOrDefault(s => s.SessionId == connectionPath
+            .FirstOrDefault(s => string.Equals(s.SessionId, connectionPath, StringComparison.OrdinalIgnoreCase)
                                  || s.SessionId.StartsWith(connectionPath + " (", StringComparison.OrdinalIgnoreCase))
             .View).ConfigureAwait(false);
         if (existing is not null)
@@ -1203,7 +1204,10 @@ internal static partial class ProductMcpServer
         return ToolText(result.ToJsonString(PrettyOptions));
     }
 
-    private static async Task<JsonObject> SessionOpenAsync(JsonObject args, bool reuseExisting)
+    private static async Task<JsonObject> SessionOpenAsync(
+        JsonObject args,
+        bool reuseExisting,
+        CancellationToken cancellationToken)
     {
         if (args["duplicate"]?.GetValue<bool>() == true)
             return ToolText("Use session_open_new to open a new tab.", isError: true);
@@ -1232,7 +1236,7 @@ internal static partial class ProductMcpServer
         string message;
         try
         {
-            await connected.WaitAsync(TimeSpan.FromSeconds(waitSeconds)).ConfigureAwait(false);
+            await connected.WaitAsync(TimeSpan.FromSeconds(waitSeconds), cancellationToken).ConfigureAwait(false);
             status = "open";
             message = "The shell is up; address it with this session id.";
         }
@@ -1242,12 +1246,12 @@ internal static partial class ProductMcpServer
             message = "Still logging in — the JeekRemoteManager window may be waiting for the user "
                       + "(master password, two-factor, bastion menu). Poll session_list for 'live'.";
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             status = "failed";
             message = "The session was closed or restarted before its shell came up.";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             status = "failed";
             message = ex.Message;
@@ -1266,17 +1270,18 @@ internal static partial class ProductMcpServer
         var id = McpHost.RequiredString(args, "session");
         var report = await OnUiAsync(() =>
         {
-            if (MainWindow.EnumerateTerminalSessions().FirstOrDefault(s => s.SessionId == id) is not { View: not null } session)
+            if (MainWindow.EnumerateTerminalSessions().FirstOrDefault(s =>
+                    string.Equals(s.SessionId, id, StringComparison.OrdinalIgnoreCase)) is not { View: not null } session)
                 throw new InvalidOperationException($"No open session '{id}'. Call session_list.");
 
             if (close)
             {
                 MainWindow.CloseTerminalSession(session.Tab);
-                return $"Closed session '{id}'.";
+                return $"Closed session '{session.SessionId}'.";
             }
 
             MainWindow.ActivateTerminalSession(session.Tab, session.View);
-            return $"Brought session '{id}' to the front.";
+            return $"Brought session '{session.SessionId}' to the front.";
         }).ConfigureAwait(false);
 
         return ToolText(report);
@@ -1291,7 +1296,8 @@ internal static partial class ProductMcpServer
         var result = await OnUiAsync(() =>
         {
             var sessions = MainWindow.EnumerateTerminalSessions();
-            if (sessions.FirstOrDefault(s => s.SessionId == id) is not { View: not null } session)
+            if (sessions.FirstOrDefault(s =>
+                    string.Equals(s.SessionId, id, StringComparison.OrdinalIgnoreCase)) is not { View: not null } session)
                 throw new InvalidOperationException($"No open session '{id}'. Call session_list.");
             if (position < 0 || position >= sessions.Count)
             {
@@ -1303,7 +1309,7 @@ internal static partial class ProductMcpServer
             var reordered = MainWindow.EnumerateTerminalSessions();
             return new JsonObject
             {
-                ["session"] = id,
+                ["session"] = session.SessionId,
                 ["position"] = position,
                 ["active"] = ReferenceEquals(session.Tab, MainWindow.SelectedTerminalTab),
                 ["sessions"] = new JsonArray(
@@ -1331,7 +1337,8 @@ internal static partial class ProductMcpServer
 
             if (!string.IsNullOrWhiteSpace(id))
             {
-                return sessions.FirstOrDefault(s => s.SessionId == id) is { View: not null } match
+                return sessions.FirstOrDefault(s =>
+                    string.Equals(s.SessionId, id, StringComparison.OrdinalIgnoreCase)) is { View: not null } match
                     ? match.View
                     : throw new InvalidOperationException($"No open session '{id}'. Call session_list.");
             }
@@ -1340,7 +1347,7 @@ internal static partial class ProductMcpServer
             {
                 // 'vps/bwg' also matches its duplicated tabs 'vps/bwg (2)'; prefer the first.
                 var byConnection = sessions
-                    .Where(s => s.SessionId == connection
+                    .Where(s => string.Equals(s.SessionId, connection, StringComparison.OrdinalIgnoreCase)
                                 || s.SessionId.StartsWith(connection + " (", StringComparison.OrdinalIgnoreCase))
                     .ToList();
                 if (byConnection.Count == 0)

@@ -96,6 +96,9 @@ public static class AgentCliWorkspace
 
         Directory.CreateDirectory(absolute);
         AgentProjectLink.WriteApplicationWorkspace(absolute);
+        var utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+        WriteClaudeMcpApproval(absolute, utf8, AgentProjectLink.ApplicationMcpServerName);
+        WriteCursorCliPermissions(absolute, utf8, AgentProjectLink.ApplicationMcpServerName);
         return absolute;
     }
 
@@ -293,15 +296,20 @@ public static class AgentCliWorkspace
         // pinned to the current connection, so approve only our server in local project
         // settings. Without this, a fresh connection silently starts Claude without any
         // jrm-remote tools even though --allowedTools contains their names.
-        WriteClaudeMcpApproval(workspaceDir, utf8);
+        WriteClaudeMcpApproval(workspaceDir, utf8, McpServerName);
 
         // Cursor's CLI has no flag that grants one MCP server's tools, and a project-level
         // server is not auto-approved the way a user-level one is. Its project permission file
         // covers both without the blanket shell access --force would hand out.
-        WriteCursorCliPermissions(workspaceDir, utf8);
+        WriteCursorCliPermissions(workspaceDir, utf8, McpServerName);
     }
 
-    private static void WriteClaudeMcpApproval(string workspaceDir, Encoding utf8)
+    private static bool JsonNodeEqualsString(JsonNode? node, string expected) =>
+        node is JsonValue value
+        && value.TryGetValue<string>(out var actual)
+        && string.Equals(actual, expected, StringComparison.Ordinal);
+
+    private static void WriteClaudeMcpApproval(string workspaceDir, Encoding utf8, string serverName)
     {
         var claudeDir = Path.Combine(workspaceDir, ".claude");
         var settingsPath = Path.Combine(claudeDir, "settings.local.json");
@@ -310,24 +318,16 @@ public static class AgentCliWorkspace
         var root = ReadJsonObject(settingsPath);
 
         var enabled = root["enabledMcpjsonServers"] as JsonArray ?? new JsonArray();
-        if (!enabled.Any(node =>
-                string.Equals(node?.GetValue<string>(), McpServerName, StringComparison.Ordinal)))
-        {
-            enabled.Add(McpServerName);
-        }
+        if (!enabled.Any(node => JsonNodeEqualsString(node, serverName)))
+            enabled.Add(serverName);
         root["enabledMcpjsonServers"] = enabled;
 
         if (root["disabledMcpjsonServers"] is JsonArray disabled)
         {
             for (var i = disabled.Count - 1; i >= 0; i--)
             {
-                if (string.Equals(
-                        disabled[i]?.GetValue<string>(),
-                        McpServerName,
-                        StringComparison.Ordinal))
-                {
+                if (JsonNodeEqualsString(disabled[i], serverName))
                     disabled.RemoveAt(i);
-                }
             }
         }
 
@@ -339,13 +339,10 @@ public static class AgentCliWorkspace
             root["permissions"] = permissions;
         }
 
-        var allowRule = $"mcp__{McpServerName}";
+        var allowRule = $"mcp__{serverName}";
         var allow = permissions["allow"] as JsonArray ?? new JsonArray();
-        if (!allow.Any(node =>
-                string.Equals(node?.GetValue<string>(), allowRule, StringComparison.Ordinal)))
-        {
+        if (!allow.Any(node => JsonNodeEqualsString(node, allowRule)))
             allow.Add(allowRule);
-        }
         permissions["allow"] = allow;
 
         File.WriteAllText(
@@ -355,18 +352,19 @@ public static class AgentCliWorkspace
     }
 
     /// <summary>
-    /// Allows exactly this connection's remote tools in the Cursor CLI, through the only
+    /// Allows exactly this workspace's remote tools in the Cursor CLI, through the only
     /// project-scoped setting it accepts.
     /// </summary>
     private static void WriteCursorCliPermissions(
         string workspaceDir,
-        Encoding utf8)
+        Encoding utf8,
+        string serverName)
     {
         var cursorDir = Path.Combine(workspaceDir, ".cursor");
         var permissionsPath = Path.Combine(cursorDir, "cli.json");
         Directory.CreateDirectory(cursorDir);
 
-        var token = $"Mcp({McpServerName}:*)";
+        var token = $"Mcp({serverName}:*)";
         var root = ReadJsonObject(permissionsPath);
         if (root["permissions"] is not JsonObject permissions)
         {
@@ -377,7 +375,7 @@ public static class AgentCliWorkspace
         var allow = permissions["allow"] as JsonArray ?? new JsonArray();
         for (var i = allow.Count - 1; i >= 0; i--)
         {
-            if (string.Equals(allow[i]?.GetValue<string>(), token, StringComparison.Ordinal))
+            if (JsonNodeEqualsString(allow[i], token))
                 allow.RemoveAt(i);
         }
         allow.Add(token);
@@ -491,7 +489,7 @@ public static class AgentCliWorkspace
         sb.AppendLine("| Tool | Purpose |");
         sb.AppendLine("|------|---------|");
         sb.AppendLine("| `terminal_status` | Read-only: connected? lock free? command/transfer running? |");
-        sb.AppendLine("| `connection_info` | Safe metadata (type/target/notes; no secrets) |");
+        sb.AppendLine("| `connection_get` | Safe metadata (type/target/notes; no secrets) |");
         sb.AppendLine("| `terminal_run` | Run a non-interactive remote command; optional `timeout_seconds` |");
         sb.AppendLine("| `terminal_interrupt` | Force-interrupt active command (can run while `terminal_run` is in flight) |");
         sb.AppendLine("| `terminal_reconnect` | Rebuild SSH/WSL when the channel is unhealthy |");

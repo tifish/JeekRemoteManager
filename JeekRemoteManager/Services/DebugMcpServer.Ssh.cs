@@ -114,7 +114,7 @@ internal static partial class DebugMcpServer
     /// text is whatever PAM prints in the server's locale. Matching only the English word
     /// left non-English servers failing to authenticate with a correct stored password.
     /// </summary>
-    private static JsonObject SshAuthPromptCheck()
+    private static async Task<JsonObject> SshAuthPromptCheckAsync()
     {
         const string secret = "s3cret";
         var failures = new List<string>();
@@ -356,8 +356,8 @@ internal static partial class DebugMcpServer
                 new Connection { Type = ConnectionType.Ssh, Host = "h", Username = "u" }) is not null)
             failures.Add("a connection without a key path reported a key problem");
 
-        var promptUserWired = OnUiAsync(() =>
-            (Desktop?.MainWindow?.DataContext as ViewModels.MainWindowViewModel)?.PromptUser is not null).GetAwaiter().GetResult();
+        var promptUserWired = await OnUiAsync(() =>
+            (Desktop?.MainWindow?.DataContext as ViewModels.MainWindowViewModel)?.PromptUser is not null).ConfigureAwait(false);
         if (!promptUserWired)
             failures.Add("MainVm.PromptUser is not wired; OTP prompts on its dials would fail at connect time");
 
@@ -506,6 +506,7 @@ internal static partial class DebugMcpServer
         var connection = new Connection { Type = ConnectionType.Ssh, Host = host, Port = port, Username = username };
         var failures = new List<string>();
         var hadOriginal = KnownHostsStore.Default.TryGet(host, port, out var original);
+        KnownHostsStore.Default.TryGetKeyType(host, port, out var originalKeyType);
         string rejectedMessage = "(none)";
         string trusted = "(none)";
         string rememberedFamily = "(none)";
@@ -574,7 +575,7 @@ internal static partial class DebugMcpServer
         finally
         {
             if (hadOriginal)
-                KnownHostsStore.Default.Trust(host, port, original);
+                KnownHostsStore.Default.Trust(host, port, original, originalKeyType);
             else
                 KnownHostsStore.Default.Forget(host, port);
         }
@@ -673,43 +674,49 @@ internal static partial class DebugMcpServer
                 var localPort = FreeTcpPort();
                 var socksPort = FreeTcpPort();
                 var remotePort = Random.Shared.Next(20000, 40000);
-                using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
-                listener.Start();
-                var listenerPort = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
-                var started = SshPortForwarding.StartAll(client, SshPortForwarding.Parse(
-                    $"L {localPort} 127.0.0.1:{port}\nD {socksPort}\nR {remotePort} 127.0.0.1:{listenerPort}"));
-                foreach (var result in started.Where(result => result.Error is not null))
-                    failures.Add($"forward {result.Spec} did not start: {result.Error}");
-                shared.AddOwnedResource(new PortForwardSet(started.Where(r => r.Port is not null).Select(r => r.Port!).ToList()));
-
-                var banner = ReadBanner(localPort, socks: false, port);
-                report.Add($"L banner={banner}");
-                if (!banner.StartsWith("SSH-", StringComparison.Ordinal))
-                    failures.Add("nothing came back through the local forward");
-
-                var socksBanner = ReadBanner(socksPort, socks: true, port);
-                report.Add($"D banner={socksBanner}");
-                if (!socksBanner.StartsWith("SSH-", StringComparison.Ordinal))
-                    failures.Add("nothing came back through the SOCKS forward");
-
-                var accept = listener.AcceptTcpClientAsync();
-                client.RunCommand($"bash -c 'echo hi-from-remote > /dev/tcp/127.0.0.1/{remotePort}'");
-                if (accept.Wait(TimeSpan.FromSeconds(5)))
+                try
                 {
-                    using var inbound = accept.Result;
-                    using var reader = new StreamReader(inbound.GetStream());
-                    var line = reader.ReadLine();
-                    report.Add($"R received={line}");
-                    if (line != "hi-from-remote")
-                        failures.Add($"the remote forward delivered '{line}'");
+                    using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+                    listener.Start();
+                    var listenerPort = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+                    var started = SshPortForwarding.StartAll(client, SshPortForwarding.Parse(
+                        $"L {localPort} 127.0.0.1:{port}\nD {socksPort}\nR {remotePort} 127.0.0.1:{listenerPort}"));
+                    foreach (var result in started.Where(result => result.Error is not null))
+                        failures.Add($"forward {result.Spec} did not start: {result.Error}");
+                    shared.AddOwnedResource(new PortForwardSet(started.Where(r => r.Port is not null).Select(r => r.Port!).ToList()));
+
+                    var banner = ReadBanner(localPort, socks: false, port);
+                    report.Add($"L banner={banner}");
+                    if (!banner.StartsWith("SSH-", StringComparison.Ordinal))
+                        failures.Add("nothing came back through the local forward");
+
+                    var socksBanner = ReadBanner(socksPort, socks: true, port);
+                    report.Add($"D banner={socksBanner}");
+                    if (!socksBanner.StartsWith("SSH-", StringComparison.Ordinal))
+                        failures.Add("nothing came back through the SOCKS forward");
+
+                    var accept = listener.AcceptTcpClientAsync();
+                    client.RunCommand($"bash -c 'echo hi-from-remote > /dev/tcp/127.0.0.1/{remotePort}'");
+                    if (accept.Wait(TimeSpan.FromSeconds(5)))
+                    {
+                        using var inbound = accept.Result;
+                        using var reader = new StreamReader(inbound.GetStream());
+                        var line = reader.ReadLine();
+                        report.Add($"R received={line}");
+                        if (line != "hi-from-remote")
+                            failures.Add($"the remote forward delivered '{line}'");
+                    }
+                    else
+                    {
+                        failures.Add("the remote forward never connected back");
+                    }
                 }
-                else
+                finally
                 {
-                    failures.Add("the remote forward never connected back");
+                    // Releasing the transport stops the forwards it owns.
+                    shared.Release();
                 }
 
-                // Releasing the transport stops the forwards it owns.
-                shared.Release();
                 var stillListening = IsListening(localPort);
                 report.Add($"afterRelease localListening={stillListening}");
                 if (stillListening)
@@ -828,7 +835,7 @@ internal static partial class DebugMcpServer
                 vnc,
                 @"C:\TigerVNC\vncviewer.exe",
                 new SshDialOptions(),
-                path => path == "_probe/jump" ? jump : null,
+                id => id == jump.ConnectionId ? jump : null,
                 startInfo =>
                 {
                     endpoint = startInfo.ArgumentList.Last();
@@ -854,17 +861,20 @@ internal static partial class DebugMcpServer
                 failures.Add("nothing came back through the VNC tunnel");
 
             await viewer.WaitForExitAsync();
-            var tunnelPort = int.Parse(endpoint![(endpoint.LastIndexOf("::", StringComparison.Ordinal) + 2)..]);
-            var closed = false;
-            for (var i = 0; i < 20 && !closed; i++)
+            if (endpoint is not null && endpoint.LastIndexOf("::", StringComparison.Ordinal) is >= 0 and var sep
+                && int.TryParse(endpoint[(sep + 2)..], out var tunnelPort))
             {
-                await Task.Delay(150);
-                closed = !IsListening(tunnelPort);
-            }
+                var closed = false;
+                for (var i = 0; i < 20 && !closed; i++)
+                {
+                    await Task.Delay(150);
+                    closed = !IsListening(tunnelPort);
+                }
 
-            report.Add($"afterViewerExit tunnelListening={!closed}");
-            if (!closed)
-                failures.Add("the tunnel kept listening after the viewer exited");
+                report.Add($"afterViewerExit tunnelListening={!closed}");
+                if (!closed)
+                    failures.Add("the tunnel kept listening after the viewer exited");
+            }
 
             vnc.JumpHostConnectionId = "_probe/missing";
             try

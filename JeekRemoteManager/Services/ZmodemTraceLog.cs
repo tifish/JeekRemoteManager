@@ -98,7 +98,14 @@ public sealed class ZmodemTraceLog : IDisposable
             }
 
             _disposed = true;
-            _writer.Dispose();
+            try
+            {
+                _writer.Dispose();
+            }
+            catch (IOException)
+            {
+                // Logging must never interfere with terminal shutdown.
+            }
         }
     }
 

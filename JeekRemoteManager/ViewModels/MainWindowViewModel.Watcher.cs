@@ -53,6 +53,7 @@ public partial class MainWindowViewModel
             _watcher.Deleted += OnWatchedChange;
             _watcher.Renamed += OnWatchedChange;
             _watcher.Changed += OnWatchedChange;
+            _watcher.Error += OnWatcherError;
             _watcher.EnableRaisingEvents = true;
         }
         catch
@@ -68,6 +69,8 @@ public partial class MainWindowViewModel
 
     private void StopWatching()
     {
+        _watchReloadTimer?.Stop();
+
         if (_watcher is null)
             return;
 
@@ -76,10 +79,22 @@ public partial class MainWindowViewModel
         _watcher.Deleted -= OnWatchedChange;
         _watcher.Renamed -= OnWatchedChange;
         _watcher.Changed -= OnWatchedChange;
+        _watcher.Error -= OnWatcherError;
         _watcher.Dispose();
         _watcher = null;
         _pendingWatchedPaths.Clear();
         _watchingPortableConfig = false;
+    }
+
+    private void OnWatcherError(object? sender, ErrorEventArgs e)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!ReferenceEquals(sender, _watcher))
+                return;
+            StartWatchingCurrentStorage();
+            _ = ReloadTreeIfChangedAsync();
+        });
     }
 
     // Events arrive on a background thread; hop to the UI thread and debounce. Whether a
@@ -91,11 +106,13 @@ public partial class MainWindowViewModel
         var changedPath = e.FullPath;
         var oldPath = e is RenamedEventArgs renamed ? renamed.OldFullPath : null;
 
-        Dispatcher.UIThread.Post(() => ScheduleWatchReload(changedPath, oldPath));
+        Dispatcher.UIThread.Post(() => ScheduleWatchReload(sender, changedPath, oldPath));
     }
 
-    private void ScheduleWatchReload(string changedPath, string? oldPath = null)
+    private void ScheduleWatchReload(object? sender, string changedPath, string? oldPath = null)
     {
+        if (!ReferenceEquals(sender, _watcher))
+            return;
         if (_watchingPortableConfig)
         {
             AddPendingWatchedPath(changedPath);
@@ -159,9 +176,10 @@ public partial class MainWindowViewModel
             _settings.ReloadRoamingSettings();
             ApplyLanguage(_settings.Settings.Language);
             ApplyTheme(_settings.Settings.Theme);
+            ApplyTerminalFontSize?.Invoke(TerminalFontSize);
             ApplyTerminalAppearance?.Invoke(TerminalAppearance);
             if (previousInterval != _settings.Settings.UpdateCheckIntervalHours)
-                _updateIntervalChanged.Cancel();
+                WakeUpdateLoop();
         }
 
         if (changes.ScriptsChanged)
@@ -180,9 +198,8 @@ public partial class MainWindowViewModel
             return;
 
         ClearClipboard();
-        _ = ReloadTreeAsync(_settings.Settings.LastSelectedConnectionPath);
+        await ReloadTreeAsync(requestFocus: false);
         OnPropertyChanged(nameof(RootPath));
-        OnPropertyChanged(nameof(TargetDescription));
     }
 
     public static PortableConfigChangeSet ClassifyPortableConfigChanges(IEnumerable<string> changedPaths)

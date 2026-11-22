@@ -48,15 +48,25 @@ public partial class TerminalView
         PanelStateChanged?.Invoke(this, EventArgs.Empty);
 
         // Match the main terminal font, then remeasure ConPTY against the opened column.
+        var aiVm = _aiViewModel;
         AiPanel.SetFontSize(Term.FontSize);
         Dispatcher.UIThread.Post(async () =>
         {
-            AiPanel.NotifyHostLayoutChanged();
-            // Auto-start the agent CLI so opening the panel is enough.
-            if (_aiViewModel is not null)
-                await _aiViewModel.EnsureStartedAsync();
-            if (!IsLoginManualInputPending)
-                AiPanel.FocusCliTerminal();
+            try
+            {
+                if (_disposed || !AiPanelHost.IsVisible || !ReferenceEquals(_aiViewModel, aiVm))
+                    return;
+
+                AiPanel.NotifyHostLayoutChanged();
+                // Auto-start the agent CLI so opening the panel is enough.
+                await aiVm.EnsureStartedAsync();
+                if (!_disposed && AiPanelHost.IsVisible && ReferenceEquals(_aiViewModel, aiVm) && !IsLoginManualInputPending)
+                    AiPanel.FocusCliTerminal();
+            }
+            catch
+            {
+                // Panel may have been closed while starting.
+            }
         }, DispatcherPriority.Loaded);
         if (IsLoginManualInputPending)
             FocusTerminal();
@@ -184,7 +194,8 @@ public partial class TerminalView
             path =>
             {
                 // Ctrl+U discards anything half-typed at the prompt so `cd` runs clean.
-                WriteToShell("\u0015cd " + QuoteForRemoteShell(path) + "\r");
+                try { WriteToShell("\u0015cd " + QuoteForRemoteShell(path) + "\r"); }
+                catch { /* channel may have closed */ }
                 FocusTerminal();
             },
             label,
@@ -314,7 +325,7 @@ public partial class TerminalView
         var vm = new ServerMonitorViewModel(
             // Takes a counted reference on the live shared client so the transport
             // survives until the monitor lets go, even if the tab reconnects meanwhile.
-            () => _client is { IsConnected: true } client && client.TryAddRef() ? client : null,
+            () => CurrentClient is { IsConnected: true } client && client.TryAddRef() ? client : null,
             connection.TerminalType,
             connection.EffectiveLoginCommands,
             label,

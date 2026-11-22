@@ -33,7 +33,7 @@ jobs:
               with:
                   dotnet-version: 10.0.x
                   cache: true
-                  cache-dependency-path: JeekRemoteManager/packages.lock.json
+                  cache-dependency-path: "**/packages.lock.json"
 
             - name: Compute commit count
               id: ver
@@ -70,12 +70,9 @@ jobs:
               run: gh release delete ${{ env.RELEASE_TAG }} --cleanup-tag -y
               continue-on-error: true
 
-            - name: Create a new tag and release
+            - name: Create release and upload artifacts
               if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-              run: gh release create ${{ env.RELEASE_TAG }} --generate-notes
-
-            - name: Upload artifacts
-              if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+              shell: pwsh
               run: |
-                  gh release upload ${{ env.RELEASE_TAG }} ${{ env.PROJECT_NAME }}.zip --clobber
-                  gh release upload ${{ env.RELEASE_TAG }} version.txt --clobber
+                  gh release create ${{ env.RELEASE_TAG }} ${{ env.PROJECT_NAME }}.zip version.txt --generate-notes
+                  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

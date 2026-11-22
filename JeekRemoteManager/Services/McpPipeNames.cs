@@ -42,7 +42,8 @@ public static class McpPipeNames
             : Product(instanceId);
 
     private static string Compose(string baseName, string? instanceId) =>
-        string.IsNullOrWhiteSpace(instanceId) || instanceId == "release"
+        string.IsNullOrWhiteSpace(instanceId)
+        || instanceId.Trim().Equals("release", StringComparison.OrdinalIgnoreCase)
             ? baseName
             : $"{baseName}.{instanceId.Trim()}";
 

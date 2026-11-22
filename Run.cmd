@@ -7,7 +7,7 @@ if "%CONFIG%"=="" set "CONFIG=Debug"
 rem Stop only the copy built by this worktree. Other worktree Debug instances
 rem intentionally keep running for side-by-side verification.
 set "APP_EXE=%~dp0bin\JeekRemoteManager.exe"
-powershell.exe -NoProfile -Command "$target=[IO.Path]::GetFullPath($env:APP_EXE); foreach($process in (Get-CimInstance Win32_Process -Filter 'Name=''JeekRemoteManager.exe''')) { if($process.ExecutablePath -and [IO.Path]::GetFullPath($process.ExecutablePath) -eq $target) { Stop-Process -Id $process.ProcessId -Force } }"
+powershell.exe -NoProfile -Command "$target=[IO.Path]::GetFullPath($env:APP_EXE); foreach($process in (Get-CimInstance Win32_Process -Filter 'Name=''JeekRemoteManager.exe''')) { if($process.ExecutablePath -and [IO.Path]::GetFullPath($process.ExecutablePath) -eq $target) { Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue } }"
 
 echo Building (%CONFIG%)...
 dotnet build "%~dp0JeekRemoteManager\JeekRemoteManager.csproj" -c %CONFIG%

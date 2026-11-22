@@ -77,7 +77,7 @@ public static class BastionLanding
 
         if (LooksLikeAuthPrompt(lastLine))
             return BastionLandingKind.AuthPrompt;
-        if (LoginMenuSelection.ParseEntries(output).Count > 0)
+        if (LoginMenuSelection.ParseEntriesFromClean(clean).Count > 0)
             return BastionLandingKind.Menu;
         if (ShellPromptLine.IsMatch(lastLine))
             return BastionLandingKind.Shell;

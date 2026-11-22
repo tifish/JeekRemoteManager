@@ -124,14 +124,30 @@ internal static partial class DebugMcpServer
                 if (string.IsNullOrWhiteSpace(name))
                     return "Unnamed";
                 var invalid = Path.GetInvalidFileNameChars();
-                var cleaned = new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim();
-                return string.IsNullOrEmpty(cleaned) ? "Unnamed" : cleaned;
+                var cleaned = new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray())
+                    .Trim()
+                    .TrimEnd('.', ' ');
+                if (string.IsNullOrEmpty(cleaned))
+                    return "Unnamed";
+                var stem = cleaned.Split('.')[0];
+                if (stem.Equals("CON", StringComparison.OrdinalIgnoreCase)
+                    || stem.Equals("PRN", StringComparison.OrdinalIgnoreCase)
+                    || stem.Equals("AUX", StringComparison.OrdinalIgnoreCase)
+                    || stem.Equals("NUL", StringComparison.OrdinalIgnoreCase)
+                    || (stem.Length == 4
+                        && (stem.StartsWith("COM", StringComparison.OrdinalIgnoreCase)
+                            || stem.StartsWith("LPT", StringComparison.OrdinalIgnoreCase))
+                        && stem[3] is >= '1' and <= '9'))
+                {
+                    cleaned = "_" + cleaned;
+                }
+                return cleaned;
             }
 
             string[] names =
             [
                 "", "   ", "plain", " padded ", "a/b", "a\\b", "a:b", "a*b?", "a\"b", "a<b>c|d",
-                "\t\n", "...", "名字", "emoji 🚀", "trailing ", new string('/', 8),
+                "\t\n", ".", "..", "...", "foo.", "CON", "nul.txt", "COM1", "名字", "emoji 🚀", "trailing ", new string('/', 8),
                 "mixed 名字/with:bad*chars", "control",
             ];
             var sanitizeMismatches = names

@@ -77,12 +77,6 @@ internal static partial class DebugMcpServer
         OnEndpointChanged();
     }
 
-    public static void RefreshDiscovery()
-    {
-        if (Host.PipeName.Length > 0)
-            WriteDiscovery();
-    }
-
     private static McpHost CreateHost()
     {
         var host = new McpHost(new McpHostOptions
@@ -131,7 +125,7 @@ internal static partial class DebugMcpServer
         host.AddTool(
             "zmodem_detector_latency_check",
             _ => Task.FromResult(ZmodemDetectorLatencyCheck()));
-        host.AddTool("ssh_auth_prompt_check", _ => Task.Run(SshAuthPromptCheck));
+        host.AddTool("ssh_auth_prompt_check", _ => SshAuthPromptCheckAsync());
         host.AddTool("ssh_mfa_check", SshMfaCheckAsync);
         host.AddTool("ssh_mfa_code_check", _ => SshMfaCodeCheckAsync());
         host.AddTool("ssh_mfa_input_check", SshMfaInputCheckAsync);
@@ -501,58 +495,7 @@ internal static partial class DebugMcpServer
         var endpoint = Host.PipeName.Length > 0 ? $@"\\.\pipe\{Host.PipeName}" : Host.Url;
         DebugInstanceContext.SetMcpUrl(endpoint);
         if (endpoint.Length > 0)
-        {
-            WriteDiscovery();
             Log.ZLogInformation($"Debug MCP listening on {endpoint} for {DebugInstanceContext.InstanceLabel}");
-        }
-        else
-        {
-            DeleteOwnedDiscovery();
-        }
-    }
-
-    private static void WriteDiscovery()
-    {
-        try
-        {
-            var info = DebugInstanceContext.Info;
-            var discovery = new DebugMcpDiscovery
-            {
-                Url = Host.Url,
-                PipeName = Host.PipeName,
-                ProcessId = Environment.ProcessId,
-                ExecutablePath = Environment.ProcessPath ?? "",
-                InstanceId = info.InstanceId,
-                InstanceLabel = info.InstanceLabel,
-                WorkspaceRoot = info.WorkspaceRoot,
-                ConfigRoot = info.ConfigRoot,
-                RuntimeTempRoot = info.RuntimeTempRoot,
-            };
-            SharedDataFile.WriteAllTextAtomic(
-                DebugInstanceContext.DiscoveryPath,
-                JsonSerializer.Serialize(discovery, PrettyOptions));
-        }
-        catch (Exception ex)
-        {
-            Log.ZLogWarning(ex, $"Could not write Debug MCP discovery file");
-        }
-    }
-
-    private static void DeleteOwnedDiscovery()
-    {
-        try
-        {
-            var path = DebugInstanceContext.DiscoveryPath;
-            if (!File.Exists(path))
-                return;
-            var discovery = JsonSerializer.Deserialize<DebugMcpDiscovery>(File.ReadAllText(path));
-            if (discovery?.ProcessId == Environment.ProcessId)
-                File.Delete(path);
-        }
-        catch
-        {
-            // Best-effort cleanup; the bridge rejects stale process ids.
-        }
     }
 
     #endregion
@@ -599,7 +542,7 @@ internal static partial class DebugMcpServer
     {
         var sb = new StringBuilder();
         var instance = DebugInstanceContext.Info;
-        sb.AppendLine($"JeekRemoteManager debug MCP server at {Host.Url} (build {AutoUpdateService.GetLocalCommitCount()}).");
+        sb.AppendLine($"JeekRemoteManager debug MCP server at {instance.McpUrl} (build {AutoUpdateService.GetLocalCommitCount()}).");
         sb.AppendLine($"InstanceId: {instance.InstanceId}");
         sb.AppendLine($"InstanceLabel: {instance.InstanceLabel}");
         sb.AppendLine($"WorkspaceRoot: {instance.WorkspaceRoot}");
@@ -699,7 +642,7 @@ internal static partial class DebugMcpServer
             case TextBlock { Text.Length: > 0 } textBlock:
                 sb.Append($" Text=\"{ObjectGraph.Truncate(textBlock.Text, 80)}\"");
                 break;
-            case TextBox { Text.Length: > 0 } textBox:
+            case TextBox { PasswordChar: '\0', Text.Length: > 0 } textBox:
                 sb.Append($" Text=\"{ObjectGraph.Truncate(textBox.Text, 80)}\"");
                 break;
         }

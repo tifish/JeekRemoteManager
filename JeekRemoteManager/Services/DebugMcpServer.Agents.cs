@@ -205,6 +205,11 @@ internal static partial class DebugMcpServer
                 vm.SelectedProvider = vm.Providers.FirstOrDefault(p =>
                                           AgentCliCatalog.RunModesFor(p.Kind) is var modes
                                           && modes.Contains(AgentCliRunMode.Cli)
+                                          && modes.Any(m => m != AgentCliRunMode.Cli
+                                                            && p.SurfaceFor(m)?.IsAvailable == true))
+                                      ?? vm.Providers.FirstOrDefault(p =>
+                                          AgentCliCatalog.RunModesFor(p.Kind) is var modes
+                                          && modes.Contains(AgentCliRunMode.Cli)
                                           && modes.Any(m => m != AgentCliRunMode.Cli))
                                       ?? throw new InvalidOperationException(
                                           "No agent offers both CLI and an external mode.");
@@ -225,7 +230,10 @@ internal static partial class DebugMcpServer
                 vm.HideSshTerminal = true;
                 Check("CLI can hide the SSH terminal", view.IsSshTerminalHidden && !view.IsTerminalAreaVisible);
 
-                var external = Option(m => m != AgentCliRunMode.Cli);
+                var external = vm.RunModeOptions.FirstOrDefault(o =>
+                                   o.Mode != AgentCliRunMode.Cli
+                                   && vm.SelectedProvider.SurfaceFor(o.Mode)?.IsAvailable == true)
+                               ?? Option(m => m != AgentCliRunMode.Cli);
                 vm.SelectedRunModeOption = external;
                 main.UpdateLayout();
                 Check($"{external.Label} uses the compact bar",
@@ -458,7 +466,7 @@ internal static partial class DebugMcpServer
                         await Task.Delay(200);
                         await OnUiAsync(() =>
                         {
-                            _renderProbeView!.ToggleAiPanel();
+                            _renderProbeView?.ToggleAiPanel();
                             return true;
                         });
                     }
@@ -706,18 +714,20 @@ internal static partial class DebugMcpServer
             var copyWorkspaceLabel = Localizer.Get("AiCopyWorkspaceFolder");
             var connectionLinkLabel = Localizer.Get("AiLinkProject");
             var autoOpenLabel = Localizer.Get("AiAutoOpenPanel");
-            var (optionHeaders, hasExecutionToggle, copiedWorkspace, copyStatus) = await OnUiAsync(() =>
+            var (vmToDispose, optionHeaders, hasExecutionToggle, copiedWorkspace, copyStatus) = await OnUiAsync(() =>
             {
                 var panel = new Views.AgentCliPanelView();
                 var vm = new AgentCliPanelViewModel(workspace);
                 panel.DataContext = vm;
                 var copied = panel.DebugCopyWorkspaceFolder();
-                return (panel.OptionsMenuHeaders.ToArray(),
+                return (vm,
+                    panel.OptionsMenuHeaders.ToArray(),
                     panel.FindControl<MenuItem>("AutoRunMenuItem") is not null
                     || panel.FindControl<MenuItem>("AutoApproveMenuItem") is not null,
                     copied,
                     vm.StatusText);
             });
+            await vmToDispose.DisposeAsync();
             report.AppendLine("options-menu: " + string.Join(" | ", optionHeaders));
             report.AppendLine("workspace-copy: " + copiedWorkspace);
             Check("AI options menu exposes workspace open", optionHeaders.Contains(openWorkspaceLabel));

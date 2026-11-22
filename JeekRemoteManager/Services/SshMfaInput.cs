@@ -13,16 +13,18 @@ internal enum SshMfaInputMode
 
 internal sealed record SshMfaInput(SshMfaInputMode Mode = SshMfaInputMode.SshAuthentication, string Prompt = "")
 {
-    internal bool MatchesPrompt(string text) =>
+    internal bool MatchesPrompt(string? text) =>
         Mode == SshMfaInputMode.MatchPrompt && !string.IsNullOrWhiteSpace(Prompt)
-        && text.Contains(Prompt, StringComparison.OrdinalIgnoreCase);
+        && (text ?? "").Contains(Prompt, StringComparison.OrdinalIgnoreCase);
 
     internal bool MatchesShellOutput(string output)
     {
+        if (Mode != SshMfaInputMode.MatchPrompt || string.IsNullOrWhiteSpace(Prompt))
+            return false;
+
         var text = LoginMenuSelection.CleanPtyText(output).AsSpan().TrimEnd();
         var lastLine = text[(text.LastIndexOf('\n') + 1)..];
-        return Mode == SshMfaInputMode.MatchPrompt && !string.IsNullOrWhiteSpace(Prompt)
-            && lastLine.Contains(Prompt, StringComparison.OrdinalIgnoreCase);
+        return lastLine.Contains(Prompt, StringComparison.OrdinalIgnoreCase);
     }
 }
 

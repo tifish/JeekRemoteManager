@@ -46,6 +46,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private TreeNodeViewModel? _editingNode;
     private DispatcherTimer? _autoSaveTimer;
     private bool _editorHasPendingChanges;
+    private bool _suppressEditorAutoSave;
     private static readonly TimeSpan AutoSaveDelay = TimeSpan.FromMilliseconds(600);
     private TreeNodeViewModel? _renamingNode;
 
@@ -88,7 +89,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _store = store;
         _launcher = launcher;
         _settings = settings;
-        _scriptStore = scriptStore ?? new RemoteScriptStore();
+        _scriptStore = scriptStore ?? new RemoteScriptStore(_settings.ResolveScriptsRoot());
         _store.SetRoot(_settings.ResolveConnectionsRoot());
         _scriptStore.SetRoot(_settings.ResolveScriptsRoot());
         ReloadScripts();
@@ -96,17 +97,27 @@ public partial class MainWindowViewModel : ViewModelBase
         StartWatchingCurrentStorage();
 
         // Refresh language-dependent computed properties when the user switches language.
-        Localizer.LanguageChanged += (_, _) =>
-        {
-            StatusMessage = L("StatusReady");
-            OnPropertyChanged(nameof(TargetDescription));
-            OnPropertyChanged(nameof(VersionDisplay));
-            OnPropertyChanged(nameof(PlaceholderHint));
-            OnPropertyChanged(nameof(EditorTabTitle));
-            RefreshSshMfaProfileChoices();
-            if (_recentGroup != null)
-                _recentGroup.Name = L("RecentGroup");
-        };
+        Localizer.LanguageChanged += OnLanguageChanged;
+    }
+
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        StatusMessage = L("StatusReady");
+        OnPropertyChanged(nameof(VersionDisplay));
+        OnPropertyChanged(nameof(PlaceholderHint));
+        OnPropertyChanged(nameof(EditorTabTitle));
+        RefreshSshMfaProfileChoices();
+        if (_recentGroup != null)
+            _recentGroup.Name = L("RecentGroup");
+    }
+
+    /// <summary>Detaches global event handlers, timers, and file watchers on window close.</summary>
+    public void Detach()
+    {
+        Localizer.LanguageChanged -= OnLanguageChanged;
+        _autoSaveTimer?.Stop();
+        _recentRebuildTimer?.Stop();
+        StopWatching();
     }
 
     // Parameterless constructor for the XAML designer.
@@ -130,10 +141,8 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyCanExecuteChangedFor(nameof(CopyCommand))]
     [NotifyCanExecuteChangedFor(nameof(CutCommand))]
     [NotifyCanExecuteChangedFor(nameof(BrowseKeyCommand))]
-    [NotifyCanExecuteChangedFor(nameof(RunSelectedScriptBindingCommand))]
     [NotifyCanExecuteChangedFor(nameof(RevealInTreeCommand))]
     [NotifyCanExecuteChangedFor(nameof(RemoveFromRecentCommand))]
-    [NotifyPropertyChangedFor(nameof(TargetDescription))]
     [NotifyPropertyChangedFor(nameof(IsRecentGroupContext))]
     [NotifyPropertyChangedFor(nameof(IsRecentConnectionContext))]
     [NotifyPropertyChangedFor(nameof(IsRegularContext))]
@@ -256,23 +265,6 @@ public partial class MainWindowViewModel : ViewModelBase
             n is { IsConnection: true, Connection.Type: ConnectionType.Ssh or ConnectionType.Wsl })
         : IsShellConnectionContext;
 
-    /// <summary>Human-readable description of where New/Paste will create items.</summary>
-    public string TargetDescription
-    {
-        get
-        {
-            var folder = TargetFolder();
-            if (string.Equals(
-                    Path.GetFullPath(folder),
-                    Path.GetFullPath(_store.RootPath),
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                return L("StatusTargetRoot");
-            }
-            return L("StatusTarget", Path.GetFileName(folder.TrimEnd(Path.DirectorySeparatorChar)));
-        }
-    }
-
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowConnectionEditor))]
     [NotifyPropertyChangedFor(nameof(ShowPlaceholder))]
@@ -296,12 +288,9 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool _showPassword;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasScriptExecution))]
     [NotifyPropertyChangedFor(nameof(ShowConnectionEditor))]
     [NotifyPropertyChangedFor(nameof(ShowPlaceholder))]
     private ScriptSuitePanelViewModel? _scriptPanel;
-
-    public bool HasScriptExecution => ScriptPanel is not null;
 
     /// <summary>Batch script run over the tree multi-selection, shown in the
     /// editor tab in place of the connection editor while open.</summary>
@@ -336,7 +325,6 @@ public partial class MainWindowViewModel : ViewModelBase
     // hard dependency on the window.
     public IClipboard? Clipboard { get; set; }
     public Func<string, string, Task<bool>>? ConfirmAsync { get; set; }
-    public Func<string, string, string, Task<string?>>? PromptAsync { get; set; }
     public Func<Task<string?>>? PickKeyFileAsync { get; set; }
     public Func<StorageLocation, string?, string?, string?, bool, int, string?, TerminalAppearanceSettings, Task<SettingsDialogResult?>>? PickSettingsAsync { get; set; }
     /// <summary>Opens a folder picker. Args: suggested start path, optional dialog title.</summary>
@@ -486,6 +474,9 @@ public partial class MainWindowViewModel : ViewModelBase
         get => _settings.Settings.AiProvider;
         set
         {
+            if (string.Equals(_settings.Settings.AiProvider, value, StringComparison.Ordinal))
+                return;
+
             _settings.Settings.AiProvider = value;
             _settings.SaveIfChanged();
         }
@@ -739,12 +730,24 @@ public partial class MainWindowViewModel : ViewModelBase
             if (SuppressRecentAutoLaunch)
                 return;
 
+            FlushPendingAutoSave();
+
             var node = value;
             Dispatcher.UIThread.Post(async () =>
             {
-                await LaunchAsync(node);
-                if (ReferenceEquals(SelectedNode, node))
-                    SelectedNode = null;
+                try
+                {
+                    await LaunchAsync(node);
+                }
+                catch (Exception ex)
+                {
+                    StatusMessage = L("StatusFailedToLaunch", ex.Message);
+                }
+                finally
+                {
+                    if (ReferenceEquals(SelectedNode, node))
+                        SelectedNode = null;
+                }
             });
             return;
         }
@@ -782,7 +785,6 @@ public partial class MainWindowViewModel : ViewModelBase
             Editor.PropertyChanged += OnEditorPropertyChanged;
 
         BrowseKeyCommand.NotifyCanExecuteChanged();
-        RunSelectedScriptBindingCommand.NotifyCanExecuteChanged();
     }
 
     private bool TryRetargetEditor(TreeNodeViewModel? value)
@@ -809,7 +811,16 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void OnEditorPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        // Computed properties don't represent user edits.
+        if (_suppressEditorAutoSave)
+            return;
+
+        if (e.PropertyName == nameof(ConnectionEditorViewModel.WslDistro)
+            && Editor?.SuppressWslDistroAutoSave == true)
+        {
+            return;
+        }
+
+        // Computed, validation, and transient metadata properties don't represent user edits.
         if (e.PropertyName is nameof(ConnectionEditorViewModel.IsSsh)
                           or nameof(ConnectionEditorViewModel.IsRdp)
                           or nameof(ConnectionEditorViewModel.IsWsl)
@@ -819,13 +830,23 @@ public partial class MainWindowViewModel : ViewModelBase
                           or nameof(ConnectionEditorViewModel.SupportsScripts)
                           or nameof(ConnectionEditorViewModel.ShowNoWslDistrosHint)
                           or nameof(ConnectionEditorViewModel.AvailableWslDistros)
+                          or nameof(ConnectionEditorViewModel.AvailableTerminalTypes)
+                          or nameof(ConnectionEditorViewModel.TypeDisplay)
+                          or nameof(ConnectionEditorViewModel.PasswordDecryptFailed)
+                          or nameof(ConnectionEditorViewModel.PassphraseDecryptFailed)
                           or nameof(ConnectionEditorViewModel.JumpHostDisplay)
                           or nameof(ConnectionEditorViewModel.HasJumpHost)
                           or nameof(ConnectionEditorViewModel.SelectedSshMfaProfile)
                           or nameof(ConnectionEditorViewModel.JumpHostValidationMessage)
-                          or nameof(ConnectionEditorViewModel.HasJumpHostValidationMessage))
+                          or nameof(ConnectionEditorViewModel.HasJumpHostValidationMessage)
+                          or nameof(ConnectionEditorViewModel.PortForwardsValidationMessage)
+                          or nameof(ConnectionEditorViewModel.HasPortForwardsValidationMessage)
+                          or nameof(ConnectionEditorViewModel.LoginCommandsValidationMessage)
+                          or nameof(ConnectionEditorViewModel.HasLoginCommandsValidationMessage)
+                          or nameof(ConnectionEditorViewModel.HasBastionProfile)
+                          or nameof(ConnectionEditorViewModel.BastionTemplateId)
+                          or nameof(ConnectionEditorViewModel.BastionProfileEndpoint))
         {
-            RunSelectedScriptBindingCommand.NotifyCanExecuteChanged();
             return;
         }
 
@@ -905,7 +926,16 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            editor.ApplyTo(node.Connection);
+            var previousType = node.Connection.Type;
+            _suppressEditorAutoSave = true;
+            try
+            {
+                editor.ApplyTo(node.Connection);
+            }
+            finally
+            {
+                _suppressEditorAutoSave = false;
+            }
             ProtectConnectionScriptBindings(node.Connection);
 
             var newPath = _store.SaveEdit(node.Connection, node.FullPath);
@@ -924,6 +954,15 @@ public partial class MainWindowViewModel : ViewModelBase
                 RefreshRecentCopiesOf(newPath);
             }
             node.ShortName = node.Connection.ShortName;
+            if (node.Connection.Type != previousType)
+            {
+                node.NotifyConnectionTypeChanged();
+                OnPropertyChanged(nameof(IsSshConnectionContext));
+                OnPropertyChanged(nameof(IsShellConnectionContext));
+                OnPropertyChanged(nameof(IsShellSelectionContext));
+                ConnectNewSessionCommand.NotifyCanExecuteChanged();
+                ConnectNewTcpConnectionCommand.NotifyCanExecuteChanged();
+            }
 
             StatusMessage = L("StatusAutoSaved", node.Name);
             _editorHasPendingChanges = false;

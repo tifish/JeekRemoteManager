@@ -44,7 +44,9 @@ public class XshellImporter
         var folderCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         var userName = Environment.UserName;
-        var sid = WindowsIdentity.GetCurrent().User?.Value ?? "";
+        string sid;
+        using (var identity = WindowsIdentity.GetCurrent())
+            sid = identity.User?.Value ?? "";
 
         foreach (var file in Directory.EnumerateFiles(sessionsRoot, "*.xsh", SearchOption.AllDirectories))
         {
@@ -313,6 +315,8 @@ public class XshellImporter
         return output;
     }
 
+    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
     private static string ReadSessionText(string path)
     {
         var bytes = File.ReadAllBytes(path);
@@ -322,7 +326,16 @@ public class XshellImporter
             return Encoding.BigEndianUnicode.GetString(bytes, 2, bytes.Length - 2);
         if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
             return Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3);
-        return Encoding.Default.GetString(bytes);
+
+        try
+        {
+            return StrictUtf8.GetString(bytes);
+        }
+        catch (DecoderFallbackException)
+        {
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+            return Encoding.GetEncoding(System.Globalization.CultureInfo.CurrentCulture.TextInfo.ANSICodePage).GetString(bytes);
+        }
     }
 
     private static Dictionary<string, Dictionary<string, string>> ParseIniSections(string content)

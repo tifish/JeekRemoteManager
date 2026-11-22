@@ -80,7 +80,7 @@ public static class AgentCliInstaller
 
         try
         {
-            Process.Start(new ProcessStartInfo
+            using var _ = Process.Start(new ProcessStartInfo
             {
                 FileName = url!,
                 UseShellExecute = true,
@@ -142,7 +142,8 @@ public static class AgentCliInstaller
     /// <summary>Resolves the executable behind one surface of an agent.</summary>
     public static string? Locate(AgentCliKind kind, AgentSurfaceKind surface) => (kind, surface) switch
     {
-        (AgentCliKind.Claude, _) => AgentCliLocator.FindClaude(),
+        (AgentCliKind.Claude, AgentSurfaceKind.Terminal) => AgentCliLocator.FindClaude(),
+        (AgentCliKind.Claude, AgentSurfaceKind.Desktop) => AgentCliLocator.FindProtocolHandler("claude"),
         (AgentCliKind.Codex, _) => AgentCliLocator.FindCodex(),
         (AgentCliKind.Grok, _) => AgentCliLocator.FindGrok(),
         (AgentCliKind.Copilot, AgentSurfaceKind.Terminal) => AgentCliLocator.FindCopilot(),

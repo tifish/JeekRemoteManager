@@ -478,7 +478,7 @@ public partial class TerminalView
             return;
         }
 
-        AttachChannel(new WslTerminalChannel(session), generation, (cols, rows));
+        AttachChannel(new LocalConPtyTerminalChannel(session), generation, (cols, rows));
     }
 
     /// <summary>
@@ -658,9 +658,15 @@ public partial class TerminalView
                 Volatile.Write(ref _aiAutoReconnectTask, reconnectCompletion.Task);
             }
 
-            _activePayloadMonitor?.Fail(new TerminalConnectionLostException());
+            Volatile.Read(ref _activePayloadMonitor)?.Fail(new TerminalConnectionLostException());
             Dispatcher.UIThread.Post(() =>
             {
+                if (_disposed || generation != _connectionGeneration)
+                {
+                    reconnectCompletion?.TrySetResult(false);
+                    return;
+                }
+
                 FeedLine("\r\n\u001b[33m[session closed]\u001b[0m");
                 if (reconnectCompletion is null)
                 {

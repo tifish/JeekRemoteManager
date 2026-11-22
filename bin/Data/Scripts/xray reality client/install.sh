@@ -360,19 +360,6 @@ download_to_file() {
     fi
 }
 
-download_to_stdout() {
-    url=$1
-
-    if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --connect-timeout 5 --max-time 120 "$url"
-    elif command -v wget >/dev/null 2>&1; then
-        wget -T 30 -qO- "$url"
-    else
-        return 1
-    fi
-}
-
-
 find_xray() {
     if [ -x /usr/local/bin/xray ]; then
         printf '/usr/local/bin/xray\n'

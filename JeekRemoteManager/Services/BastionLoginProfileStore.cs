@@ -125,6 +125,9 @@ public sealed class BastionLoginProfileStore
             }
         }
 
+        var configRoot = Path.GetDirectoryName(FilePath)!;
+        Directory.CreateDirectory(configRoot);
+        using var lease = SharedDataFile.Acquire(configRoot);
         TemplateFile snapshot;
         lock (_gate)
         {
@@ -147,9 +150,6 @@ public sealed class BastionLoginProfileStore
             };
         }
 
-        var configRoot = Path.GetDirectoryName(FilePath)!;
-        Directory.CreateDirectory(configRoot);
-        using var lease = SharedDataFile.Acquire(configRoot);
         SharedDataFile.WriteAllTextAtomic(
             FilePath,
             JsonSerializer.Serialize(snapshot, JsonOptions));

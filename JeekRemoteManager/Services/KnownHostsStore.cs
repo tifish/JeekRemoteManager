@@ -236,6 +236,8 @@ public sealed class KnownHostsStore
         }
     }
 
+    private static readonly JsonSerializerOptions SaveJsonOptions = new() { WriteIndented = true };
+
     private void Save(Dictionary<string, string> map)
     {
         try
@@ -243,7 +245,7 @@ public sealed class KnownHostsStore
             using var lease = SharedDataFile.Acquire(FilePath);
             SharedDataFile.WriteAllTextAtomic(
                 FilePath,
-                JsonSerializer.Serialize(map, new JsonSerializerOptions { WriteIndented = true }));
+                JsonSerializer.Serialize(map, SaveJsonOptions));
         }
         catch
         {

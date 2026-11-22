@@ -479,9 +479,11 @@ public static class LoginCommandSequence
         if (reuseEnterLines.Count == 1 && reuseLeaveLines.Count == 1)
         {
             var reuseEnter = reuseEnterLines[0];
-            var duplicate = duplicateLines.FirstOrDefault(int.MaxValue);
             var reuseLeave = reuseLeaveLines[0];
-            if (!(reuseEnter < duplicate && duplicate < reuseLeave))
+            var validOrder = duplicateLines.Count == 0
+                ? reuseEnter < reuseLeave
+                : reuseEnter < duplicateLines[0] && duplicateLines[0] < reuseLeave;
+            if (!validOrder)
                 messages.Add("Structured sections must be ordered as #reuse-enter, #duplicate, #reuse-leave.");
             else
             {

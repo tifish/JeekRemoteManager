@@ -45,7 +45,8 @@ public sealed class WslFileSession : IFileSystemSession
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            return await Task.Run(() => operation(EnsureReady()), cancellationToken).ConfigureAwait(false);
+            var ops = await EnsureReadyAsync(cancellationToken).ConfigureAwait(false);
+            return await Task.Run(() => operation(ops), cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -53,7 +54,7 @@ public sealed class WslFileSession : IFileSystemSession
         }
     }
 
-    private WslOps EnsureReady()
+    private async Task<WslOps> EnsureReadyAsync(CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -63,14 +64,14 @@ public sealed class WslFileSession : IFileSystemSession
         if (_distro.Length == 0)
             throw new InvalidOperationException("No WSL distribution is configured.");
 
-        HomePath ??= QueryHomePath();
+        HomePath ??= await QueryHomePathAsync(cancellationToken).ConfigureAwait(false);
         _ops = new WslOps(WslDistroService.UncRoot(_distro), HomePath);
         return _ops;
     }
 
     /// <summary>Asks the distribution for the connection user's $HOME. Also serves as
     /// the "connect" step: a missing distribution fails here with wsl.exe's message.</summary>
-    private string QueryHomePath()
+    private async Task<string> QueryHomePathAsync(CancellationToken cancellationToken)
     {
         var psi = new ProcessStartInfo(WslDistroService.WslExePath)
         {
@@ -97,28 +98,63 @@ public sealed class WslFileSession : IFileSystemSession
         using var process = Process.Start(psi)
             ?? throw new InvalidOperationException("Could not start wsl.exe.");
         process.StandardInput.Close();
-        // Drain both pipes asynchronously so WaitForExit's timeout actually
-        // applies and neither full pipe can wedge the child.
-        var outputTask = process.StandardOutput.ReadToEndAsync();
-        var errorTask = process.StandardError.ReadToEndAsync();
-        if (!process.WaitForExit(30000))
+
+        // Drain raw bytes asynchronously so WaitForExitAsync honors cancellation/timeout,
+        // UTF-8 Linux $HOME paths aren't mangled by the ANSI code page, and UTF-16LE
+        // wsl.exe error messages (written to stdout or stderr) are decoded cleanly.
+        var outputTask = ReadAllBytesAsync(process.StandardOutput.BaseStream, cancellationToken);
+        var errorTask = ReadAllBytesAsync(process.StandardError.BaseStream, cancellationToken);
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
+        try
+        {
+            await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             try { process.Kill(entireProcessTree: true); } catch { /* ignore */ }
             throw new TimeoutException("WSL did not respond while resolving the home directory.");
         }
+        catch (OperationCanceledException)
+        {
+            try { process.Kill(entireProcessTree: true); } catch { /* ignore */ }
+            throw;
+        }
 
-        var output = outputTask.GetAwaiter().GetResult();
-        var error = errorTask.GetAwaiter().GetResult();
+        var outputBytes = await outputTask.ConfigureAwait(false);
+        var errorBytes = await errorTask.ConfigureAwait(false);
 
         if (process.ExitCode != 0)
         {
+            var error = DecodeWslOutput(errorBytes);
+            if (string.IsNullOrWhiteSpace(error))
+                error = DecodeWslOutput(outputBytes);
             throw new InvalidOperationException(string.IsNullOrWhiteSpace(error)
                 ? $"wsl.exe exited with code {process.ExitCode}."
                 : error.Trim());
         }
 
-        var home = output.Trim();
+        var home = DecodeWslOutput(outputBytes).Trim();
         return home.StartsWith('/') ? home : "/";
+    }
+
+    private static async Task<byte[]> ReadAllBytesAsync(Stream stream, CancellationToken cancellationToken)
+    {
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
+        return ms.ToArray();
+    }
+
+    private static string DecodeWslOutput(byte[] bytes)
+    {
+        if (bytes.Length == 0)
+            return "";
+        // wsl.exe writes UTF-16LE errors when redirected; sh writes UTF-8.
+        var looksUtf16Le = bytes.Length >= 2 && (bytes[0] == 0xFF && bytes[1] == 0xFE || Array.IndexOf(bytes, (byte)0) >= 0);
+        var text = looksUtf16Le
+            ? System.Text.Encoding.Unicode.GetString(bytes)
+            : System.Text.Encoding.UTF8.GetString(bytes);
+        return text.TrimStart('\uFEFF').Replace("\0", "");
     }
 
     private sealed class WslOps : IFileSystemOps
@@ -146,20 +182,23 @@ public sealed class WslFileSession : IFileSystemSession
 
         public IEnumerable<FileSystemEntry> ListDirectory(string path)
         {
+            var entries = new List<FileSystemEntry>();
             var directory = new DirectoryInfo(ToUnc(path));
             foreach (var info in directory.EnumerateFileSystemInfos())
             {
                 var isDirectory = (info.Attributes & FileAttributes.Directory) != 0;
                 var isSymlink = (info.Attributes & FileAttributes.ReparsePoint) != 0;
-                yield return new FileSystemEntry(
+                entries.Add(new FileSystemEntry(
                     info.Name,
                     CombineUnix(path, info.Name),
                     isDirectory,
                     isSymlink,
                     info is FileInfo file ? file.Length : 0,
                     info.LastWriteTime,
-                    Permissions: "");
+                    Permissions: ""));
             }
+
+            return entries;
         }
 
         private static string CombineUnix(string directory, string name) =>

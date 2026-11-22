@@ -35,8 +35,13 @@ public static class HostKeyDialog
         return tcs.Task.GetAwaiter().GetResult();
     }
 
-    private static Window? OwnerWindow() =>
-        (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
+    private static Window? OwnerWindow()
+    {
+        var owner = (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
+        if (owner is MainWindow mainWindow)
+            mainWindow.ActivateMainWindow();
+        return owner;
+    }
 
     public static Task<bool> ShowAsync(Window? owner, string host, int port, string keyType,
         string oldFingerprintSha256, string newFingerprintSha256)

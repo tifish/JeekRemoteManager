@@ -352,6 +352,8 @@ public sealed class BastionSessionPool : IDisposable
 
         if (!added)
             client.Release(); // disposed, or the pool already owns a reference
+        else
+            ReleaseIfUnused(entry); // caller's ref may have dropped before ReferenceReleased was hooked
         return registered;
     }
 
@@ -449,6 +451,8 @@ public sealed class BastionSessionPool : IDisposable
             entry.RouteGate.Release();
         if (releaseClient)
             entry.Client.Release();
+        else
+            ReleaseIfUnused(entry); // taker's ref may have dropped while ActiveLeases was still > 0
     }
 
     private void RemoveEntry(Entry entry)

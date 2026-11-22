@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
+using System.Threading;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -44,6 +45,8 @@ public sealed partial class ServerMonitorViewModel : ViewModelBase, IDisposable
     private readonly List<double> _downloadHistory = new();
     private IReadOnlyList<ServerMonitorProcess> _latestProcesses = Array.Empty<ServerMonitorProcess>();
     private ServerMonitorProcessSort _processSort = ServerMonitorProcessSort.Memory;
+    private int _sessionGeneration;
+    private volatile bool _disposed;
 
     public string HostLabel { get; }
 
@@ -135,9 +138,33 @@ public sealed partial class ServerMonitorViewModel : ViewModelBase, IDisposable
             acquireClient,
             terminalType,
             loginCommands,
-            snapshot => Dispatcher.UIThread.Post(() => ApplySnapshot(snapshot)),
-            () => Dispatcher.UIThread.Post(OnWaiting),
-            () => Dispatcher.UIThread.Post(OnFailed),
+            snapshot =>
+            {
+                var generation = Volatile.Read(ref _sessionGeneration);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (!_disposed && generation == Volatile.Read(ref _sessionGeneration))
+                        ApplySnapshot(snapshot);
+                });
+            },
+            () =>
+            {
+                var generation = Volatile.Read(ref _sessionGeneration);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (!_disposed && generation == Volatile.Read(ref _sessionGeneration))
+                        OnWaiting();
+                });
+            },
+            () =>
+            {
+                var generation = Volatile.Read(ref _sessionGeneration);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (!_disposed && generation == Volatile.Read(ref _sessionGeneration))
+                        OnFailed();
+                });
+            },
             bastionSessionPool,
             connection);
     }
@@ -149,9 +176,18 @@ public sealed partial class ServerMonitorViewModel : ViewModelBase, IDisposable
 
     public void Resume() => _session.Resume();
 
-    public void Stop() => _session.Stop();
+    public void Stop()
+    {
+        Interlocked.Increment(ref _sessionGeneration);
+        _session.Stop();
+    }
 
-    public void Dispose() => _session.Dispose();
+    public void Dispose()
+    {
+        _disposed = true;
+        Interlocked.Increment(ref _sessionGeneration);
+        _session.Dispose();
+    }
 
     // Intentionally public so Debug MCP can verify the live channel strategy and
     // sampling progress without reaching through private implementation fields.
@@ -170,6 +206,10 @@ public sealed partial class ServerMonitorViewModel : ViewModelBase, IDisposable
     [RelayCommand]
     private void Retry()
     {
+        if (_disposed)
+            return;
+
+        Interlocked.Increment(ref _sessionGeneration);
         IsFailed = false;
         IsWaiting = true;
         _session.Stop();

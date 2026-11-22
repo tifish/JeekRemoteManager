@@ -74,7 +74,6 @@ public class JumpHostTests
             ["desktop"] = new() { Type = ConnectionType.Rdp },
         };
         editor.SetJumpHostConnections(saved);
-        editor.SetJumpHostConnections(saved);
         Assert.Equal("missing", editor.JumpHostConnectionId);
         Assert.True(editor.HasJumpHostValidationMessage);
         Assert.True(editor.TrySetJumpHostFromTree("VPS\\inner.json"));

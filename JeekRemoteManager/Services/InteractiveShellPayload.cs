@@ -355,22 +355,29 @@ public sealed class InteractiveShellPayloadMonitor
         }
 
         // From here the scan is already incremental: _displayOffset only moves forward.
-        var exitRelative = _output
-            .AsSpan(_displayOffset, _outputLength - _displayOffset)
-            .IndexOf(_payload.ExitMarkerPrefix.AsSpan());
+        var exitPrefix = _payload.ExitMarkerPrefix.AsSpan();
+        var remaining = _output.AsSpan(_displayOffset, _outputLength - _displayOffset);
+        var exitRelative = remaining.IndexOf(exitPrefix);
         if (exitRelative < 0)
         {
-            if (_outputLength <= _displayOffset)
+            if (remaining.Length == 0)
                 return "";
 
-            var displayText = new string(_output, _displayOffset, _outputLength - _displayOffset);
-            _displayOffset = _outputLength;
+            // Withhold any trailing suffix that could be the start of a split exit marker
+            // so packet boundaries never leak partial marker text into the terminal.
+            var holdback = TrailingPrefixOverlap(remaining, exitPrefix);
+            var emitCount = remaining.Length - holdback;
+            if (emitCount <= 0)
+                return "";
+
+            var displayText = new string(_output, _displayOffset, emitCount);
+            _displayOffset += emitCount;
             return WithholdTrailingNewlines(displayText);
         }
 
         var exitIndex = _displayOffset + exitRelative;
         var beforeExitMarker = new string(_output, _displayOffset, exitIndex - _displayOffset);
-        var markerLineEnd = _output.AsSpan(exitIndex, _outputLength - exitIndex).IndexOf('\n');
+        var markerLineEnd = _output.AsSpan(exitIndex, _outputLength - exitIndex).IndexOfAny('\r', '\n');
         if (markerLineEnd < 0)
         {
             _displayOffset = exitIndex;
@@ -386,6 +393,18 @@ public sealed class InteractiveShellPayloadMonitor
         var completed = _pendingDisplayNewlines + beforeExitMarker;
         _pendingDisplayNewlines = "";
         return completed[..LengthWithoutTrailingNewlines(completed)];
+    }
+
+    private static int TrailingPrefixOverlap(ReadOnlySpan<char> text, ReadOnlySpan<char> marker)
+    {
+        var max = Math.Min(text.Length, marker.Length - 1);
+        for (var len = max; len > 0; len--)
+        {
+            if (text[^len..].SequenceEqual(marker[..len]))
+                return len;
+        }
+
+        return 0;
     }
 
     /// <summary>

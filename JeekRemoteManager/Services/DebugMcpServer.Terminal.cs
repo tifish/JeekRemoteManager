@@ -416,7 +416,7 @@ internal static partial class DebugMcpServer
         }
 
         static string Show(byte[] bytes) =>
-            bytes.Length == 0 ? "(none)" : Encoding.ASCII.GetString(bytes).Replace("", "<ZDLE>");
+            bytes.Length == 0 ? "(none)" : Encoding.ASCII.GetString(bytes).Replace("\u0018", "<ZDLE>");
 
         void Immediate(string name, string input)
         {
@@ -456,7 +456,7 @@ internal static partial class DebugMcpServer
         // Detection still works when a trigger arrives whole...
         {
             var detector = new ZmodemTriggerDetector();
-            var detection = detector.Append(Encoding.ASCII.GetBytes("**B00"), out _);
+            var detection = detector.Append(Encoding.ASCII.GetBytes("**\u0018B00"), out _);
             if (detection?.Direction != ZmodemTransferDirection.Download)
                 failures.Add("whole hex download trigger was not detected");
         }
@@ -467,7 +467,7 @@ internal static partial class DebugMcpServer
             var detector = new ZmodemTriggerDetector();
             ZmodemDetection? detection = null;
             var released = new List<byte>();
-            foreach (var b in Encoding.ASCII.GetBytes("ready\r\n**B01"))
+            foreach (var b in Encoding.ASCII.GetBytes("ready\r\n**\u0018B01"))
             {
                 detection = detector.Append([b], out var display);
                 released.AddRange(display);

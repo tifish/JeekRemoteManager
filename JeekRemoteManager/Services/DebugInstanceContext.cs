@@ -1,7 +1,5 @@
 using System;
 using System.IO;
-using System.Security.Cryptography;
-using System.Text;
 
 namespace JeekRemoteManager.Services;
 
@@ -52,8 +50,6 @@ public static class DebugInstanceContext
     public static string AppUserModelId => IsDebugBuild
         ? $"JeekRemoteManager.App.Debug.{InstanceId}"
         : "JeekRemoteManager.App";
-
-    public static string DiscoveryPath => Path.Combine(AppContext.BaseDirectory, "debug-mcp.json");
 
     /// <summary>Named pipe for the Debug MCP surface (object graph, probes).</summary>
     public static string DebugMcpPipeName { get; } =
@@ -108,10 +104,6 @@ public static class DebugInstanceContext
             && string.Equals(Path.GetFullPath(executablePath), Path.GetFullPath(current),
                 StringComparison.OrdinalIgnoreCase);
     }
-
-    private static string NormalizePath(string path) =>
-        Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-            .ToUpperInvariant();
 
     private static (string Branch, string Commit, string Worktree) ReadGitIdentity(string root)
     {

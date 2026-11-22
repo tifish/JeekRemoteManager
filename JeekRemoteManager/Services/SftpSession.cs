@@ -26,6 +26,7 @@ public sealed class SftpSession : IFileSystemSession
     private readonly Action<ConnectionInfo>? _configure;
     private readonly Func<SshConnectionFactory.KeyboardInteractiveChallenge, string?>? _promptUser;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly object _clientGate = new();
     private SftpClient? _client;
     private SshJumpTunnel? _tunnel;
     private volatile bool _disposed;
@@ -110,19 +111,22 @@ public sealed class SftpSession : IFileSystemSession
 
         public IEnumerable<FileSystemEntry> ListDirectory(string path)
         {
+            var entries = new List<FileSystemEntry>();
             foreach (var file in _client.ListDirectory(path))
             {
                 if (file.Name is "." or "..")
                     continue;
-                yield return new FileSystemEntry(
+                entries.Add(new FileSystemEntry(
                     file.Name,
                     file.FullName,
                     file.IsDirectory,
                     file.IsSymbolicLink,
                     file.Length,
                     file.LastWriteTime,
-                    BuildPermissionString(file));
+                    BuildPermissionString(file)));
             }
+
+            return entries;
         }
 
         public void CreateDirectory(string path) => _client.CreateDirectory(path);
@@ -164,8 +168,11 @@ public sealed class SftpSession : IFileSystemSession
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        if (_client is { IsConnected: true } live)
-            return live;
+        lock (_clientGate)
+        {
+            if (_client is { IsConnected: true } live)
+                return live;
+        }
 
         DisposeClient();
         // This dial is a separate transport from the terminal's, so it must pass the same
@@ -174,10 +181,11 @@ public sealed class SftpSession : IFileSystemSession
         // outright — the replacement prompt belongs to the terminal connection, not a
         // background dial. It also goes through the same jump host as the terminal.
         string? rejection = null;
-        SftpClient client;
+        SftpClient? client = null;
+        SshJumpTunnel? tunnel = null;
         try
         {
-            (client, _tunnel) = SshDialer.Connect(
+            (client, tunnel) = SshDialer.Connect(
                 _connection,
                 info =>
                 {
@@ -191,12 +199,34 @@ public sealed class SftpSession : IFileSystemSession
                 _configure);
             HomePath ??= client.WorkingDirectory;
         }
-        catch (Exception ex) when (rejection is not null)
+        catch (Exception ex)
         {
-            throw new InvalidOperationException(rejection, ex);
+            DisposeClientPair(client, tunnel);
+            if (rejection is not null)
+                throw new InvalidOperationException(rejection, ex);
+            throw;
         }
 
-        _client = client;
+        var disposedWhileConnecting = false;
+        lock (_clientGate)
+        {
+            if (_disposed)
+            {
+                disposedWhileConnecting = true;
+            }
+            else
+            {
+                _client = client;
+                _tunnel = tunnel;
+            }
+        }
+
+        if (disposedWhileConnecting)
+        {
+            DisposeClientPair(client, tunnel);
+            ObjectDisposedException.ThrowIf(true, this);
+        }
+
         return client;
     }
 
@@ -221,10 +251,21 @@ public sealed class SftpSession : IFileSystemSession
 
     private void DisposeClient()
     {
-        var client = _client;
-        var tunnel = _tunnel;
-        _client = null;
-        _tunnel = null;
+        SftpClient? client;
+        SshJumpTunnel? tunnel;
+        lock (_clientGate)
+        {
+            client = _client;
+            tunnel = _tunnel;
+            _client = null;
+            _tunnel = null;
+        }
+
+        DisposeClientPair(client, tunnel);
+    }
+
+    private static void DisposeClientPair(SftpClient? client, SshJumpTunnel? tunnel)
+    {
         if (client is not null)
         {
             try { client.Disconnect(); } catch { /* ignore */ }

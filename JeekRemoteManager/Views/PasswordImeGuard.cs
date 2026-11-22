@@ -26,7 +26,7 @@ internal static class PasswordImeGuard
 
     private static bool _installed;
     private static TextBox? _guarded;
-    private static WindowBase? _guardedWindow;
+    private static WeakReference<WindowBase>? _guardedWindow;
 
     /// <summary>
     /// IME open status captured before the guard closed it, kept until it is handed back.
@@ -74,7 +74,9 @@ internal static class PasswordImeGuard
         if (_guarded is { } previous)
             previous.DetachedFromVisualTree -= OnGuardedDetached;
         _guarded = box;
-        _guardedWindow = TopLevel.GetTopLevel(box) as WindowBase;
+        _guardedWindow = TopLevel.GetTopLevel(box) is WindowBase window
+            ? new WeakReference<WindowBase>(window)
+            : null;
         box.DetachedFromVisualTree += OnGuardedDetached;
 
         var ime = ResolveImeWindow(box);
@@ -144,8 +146,8 @@ internal static class PasswordImeGuard
     private static IntPtr ResolveImeWindow(Visual? near)
     {
         var hwnd = GetHandle(TopLevel.GetTopLevel(near));
-        if (hwnd == IntPtr.Zero)
-            hwnd = GetHandle(_guardedWindow);
+        if (hwnd == IntPtr.Zero && _guardedWindow is { } weak && weak.TryGetTarget(out var guardedWindow))
+            hwnd = GetHandle(guardedWindow);
         if (hwnd == IntPtr.Zero
             && Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {

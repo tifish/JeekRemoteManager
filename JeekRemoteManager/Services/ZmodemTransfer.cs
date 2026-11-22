@@ -81,6 +81,30 @@ public sealed class ZmodemTriggerDetector
         if (data.Length == 0)
             return null;
 
+        // Fast path: nothing pending from the previous packet — scan data directly
+        // so normal SSH packets are copied at most once instead of twice.
+        if (_pendingLength == 0)
+        {
+            if (FindTrigger(data) is { } directTrigger)
+            {
+                var (index, direction) = directTrigger;
+                return new ZmodemDetection(direction, data[..index].ToArray(), data[index..].ToArray());
+            }
+
+            var directRetain = PartialTriggerTailLength(data);
+            if (directRetain == data.Length)
+            {
+                AppendPending(data);
+                return null;
+            }
+
+            var directFlush = data.Length - directRetain;
+            displayBytes = data[..directFlush].ToArray();
+            if (directRetain > 0)
+                AppendPending(data[directFlush..]);
+            return null;
+        }
+
         AppendPending(data);
         var pending = _pending.AsSpan(0, _pendingLength);
 
@@ -388,51 +412,67 @@ public sealed class ZmodemSession
         Trace($"RX file destination=\"{destination}\"");
         await SendHeaderHexAsync(ZmodemHeaderType.ZRPOS, 0, cancellationToken).ConfigureAwait(false);
 
-        await using var output = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+        var completed = false;
+        var output = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
         long offset = 0;
-
-        while (true)
+        try
         {
-            var header = await ReadHeaderAsync(HeaderTimeout, cancellationToken).ConfigureAwait(false);
-            switch (header.Type)
+            while (true)
             {
-                case ZmodemHeaderType.ZDATA:
-                    if (header.Argument != offset)
-                    {
+                var header = await ReadHeaderAsync(HeaderTimeout, cancellationToken).ConfigureAwait(false);
+                switch (header.Type)
+                {
+                    case ZmodemHeaderType.ZDATA:
+                        if (header.Argument != offset)
+                        {
+                            await SendHeaderHexAsync(ZmodemHeaderType.ZRPOS, offset, cancellationToken).ConfigureAwait(false);
+                            break;
+                        }
+
+                        await ReceiveDataBlocksAsync(output, offset, value => offset = value, cancellationToken)
+                            .ConfigureAwait(false);
+                        break;
+
+                    case ZmodemHeaderType.ZEOF:
+                        if (header.Argument != offset)
+                        {
+                            await SendHeaderHexAsync(ZmodemHeaderType.ZRPOS, offset, cancellationToken).ConfigureAwait(false);
+                            break;
+                        }
+
+                        await output.FlushAsync(cancellationToken).ConfigureAwait(false);
+                        await output.DisposeAsync().ConfigureAwait(false);
+                        output = null;
+                        completed = true;
+                        if (info.ModifiedAt is not null)
+                            TrySetLastWriteTime(destination, info.ModifiedAt.Value);
+                        await SendReceiveInitAsync(cancellationToken).ConfigureAwait(false);
+                        return destination;
+
+                    case ZmodemHeaderType.ZSKIP:
+                        return null;
+
+                    case ZmodemHeaderType.ZFIN:
+                        await SendHeaderHexAsync(ZmodemHeaderType.ZFIN, 0, cancellationToken).ConfigureAwait(false);
+                        throw new InvalidDataException("Remote ended the ZMODEM transfer before finishing the file.");
+
+                    case ZmodemHeaderType.ZABORT:
+                    case ZmodemHeaderType.ZCAN:
+                        throw new ZmodemTransferCanceledException("Remote cancelled the ZMODEM transfer.");
+
+                    default:
                         await SendHeaderHexAsync(ZmodemHeaderType.ZRPOS, offset, cancellationToken).ConfigureAwait(false);
                         break;
-                    }
-
-                    await ReceiveDataBlocksAsync(output, offset, value => offset = value, cancellationToken)
-                        .ConfigureAwait(false);
-                    break;
-
-                case ZmodemHeaderType.ZEOF:
-                    if (header.Argument != offset)
-                    {
-                        await SendHeaderHexAsync(ZmodemHeaderType.ZRPOS, offset, cancellationToken).ConfigureAwait(false);
-                        break;
-                    }
-
-                    await output.FlushAsync(cancellationToken).ConfigureAwait(false);
-                    if (info.ModifiedAt is not null)
-                        TrySetLastWriteTime(destination, info.ModifiedAt.Value);
-                    await SendReceiveInitAsync(cancellationToken).ConfigureAwait(false);
-                    return destination;
-
-                case ZmodemHeaderType.ZSKIP:
-                    return null;
-
-                case ZmodemHeaderType.ZFIN:
-                    return destination;
-
-                case ZmodemHeaderType.ZABORT:
-                case ZmodemHeaderType.ZCAN:
-                    throw new ZmodemTransferCanceledException("Remote cancelled the ZMODEM transfer.");
-
-                default:
-                    await SendHeaderHexAsync(ZmodemHeaderType.ZRPOS, offset, cancellationToken).ConfigureAwait(false);
-                    break;
+                }
+            }
+        }
+        finally
+        {
+            if (output is not null)
+                await output.DisposeAsync().ConfigureAwait(false);
+            if (!completed)
+            {
+                try { File.Delete(destination); } catch { /* best-effort partial file cleanup */ }
             }
         }
     }
@@ -526,43 +566,52 @@ public sealed class ZmodemSession
 
     private async Task SendFileDataAsync(string filePath, long offset, CancellationToken cancellationToken)
     {
+        const int maxRetries = 10;
         await using var input = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-        if (offset > 0)
-            input.Seek(offset, SeekOrigin.Begin);
-
         var buffer = new byte[8192];
-        var position = offset;
-
-        await SendHeaderBinary32Async(ZmodemHeaderType.ZDATA, position, cancellationToken).ConfigureAwait(false);
-
-        while (true)
-        {
-            var read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-            if (read == 0)
-                break;
-
-            position += read;
-            var end = input.Position >= input.Length ? ZmodemFrameEnd.ZCRCE : ZmodemFrameEnd.ZCRCG;
-            await SendDataSubpacketAsync(buffer.AsMemory(0, read), end, cancellationToken).ConfigureAwait(false);
-        }
-
-        await SendHeaderBinary32Async(ZmodemHeaderType.ZEOF, position, cancellationToken).ConfigureAwait(false);
+        var position = Math.Clamp(offset, 0, input.Length);
+        var retries = 0;
 
         while (true)
         {
-            var header = await ReadHeaderAsync(HeaderTimeout, cancellationToken).ConfigureAwait(false);
-            switch (header.Type)
+            input.Seek(position, SeekOrigin.Begin);
+            await SendHeaderBinary32Async(ZmodemHeaderType.ZDATA, position, cancellationToken).ConfigureAwait(false);
+
+            while (true)
             {
-                case ZmodemHeaderType.ZRINIT:
-                    return;
-                case ZmodemHeaderType.ZRPOS:
-                    await SendFileDataAsync(filePath, header.Argument, cancellationToken).ConfigureAwait(false);
-                    return;
-                case ZmodemHeaderType.ZSKIP:
-                    return;
-                case ZmodemHeaderType.ZABORT:
-                case ZmodemHeaderType.ZCAN:
-                    throw new ZmodemTransferCanceledException("Remote cancelled the ZMODEM transfer.");
+                var read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+                if (read == 0)
+                    break;
+
+                position += read;
+                var end = input.Position >= input.Length ? ZmodemFrameEnd.ZCRCE : ZmodemFrameEnd.ZCRCG;
+                await SendDataSubpacketAsync(buffer.AsMemory(0, read), end, cancellationToken).ConfigureAwait(false);
+            }
+
+            await SendHeaderBinary32Async(ZmodemHeaderType.ZEOF, position, cancellationToken).ConfigureAwait(false);
+
+            var retryRequested = false;
+            while (!retryRequested)
+            {
+                var header = await ReadHeaderAsync(HeaderTimeout, cancellationToken).ConfigureAwait(false);
+                switch (header.Type)
+                {
+                    case ZmodemHeaderType.ZRINIT:
+                        return;
+                    case ZmodemHeaderType.ZRPOS:
+                        if (++retries > maxRetries)
+                            throw new InvalidDataException("ZMODEM upload failed after too many ZRPOS retries.");
+                        if (header.Argument < 0 || header.Argument > input.Length)
+                            throw new InvalidDataException($"Remote requested invalid ZMODEM offset {header.Argument}.");
+                        position = header.Argument;
+                        retryRequested = true;
+                        break;
+                    case ZmodemHeaderType.ZSKIP:
+                        return;
+                    case ZmodemHeaderType.ZABORT:
+                    case ZmodemHeaderType.ZCAN:
+                        throw new ZmodemTransferCanceledException("Remote cancelled the ZMODEM transfer.");
+                }
             }
         }
     }
@@ -653,7 +702,15 @@ public sealed class ZmodemSession
     {
         var bytes = new byte[7];
         for (var i = 0; i < bytes.Length; i++)
-            bytes[i] = await ReadHexByteAsync(cancellationToken).ConfigureAwait(false);
+        {
+            var parsed = await TryReadHexByteAsync(cancellationToken).ConfigureAwait(false);
+            if (parsed is null)
+            {
+                Trace("RX hex header contained non-hex byte; resyncing");
+                return null;
+            }
+            bytes[i] = parsed.Value;
+        }
 
         var expected = ZmodemCrc.Crc16(bytes.AsSpan(0, 5));
         var actual = BinaryPrimitives.ReadUInt16BigEndian(bytes.AsSpan(5, 2));
@@ -716,12 +773,14 @@ public sealed class ZmodemSession
         }
     }
 
-    private async Task<byte> ReadHexByteAsync(CancellationToken cancellationToken)
+    private async Task<byte?> TryReadHexByteAsync(CancellationToken cancellationToken)
     {
         var hi = FromHex(await ReadRawByteAsync(cancellationToken).ConfigureAwait(false));
+        if (hi < 0)
+            return null;
         var lo = FromHex(await ReadRawByteAsync(cancellationToken).ConfigureAwait(false));
-        if (hi < 0 || lo < 0)
-            throw new InvalidDataException("Invalid ZMODEM hex header.");
+        if (lo < 0)
+            return null;
 
         return (byte)((hi << 4) | lo);
     }
@@ -737,57 +796,69 @@ public sealed class ZmodemSession
 
     private async Task<ZmodemDataSubpacket> ReadDataSubpacketAsync(CancellationToken cancellationToken)
     {
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(HeaderTimeout);
+        var token = timeoutCts.Token;
+
         var data = new List<byte>(8192);
         ZmodemFrameEnd end;
 
-        while (true)
+        try
         {
-            var item = await ReadEscapedDataOrFrameEndAsync(cancellationToken).ConfigureAwait(false);
-            if (item.FrameEnd is not null)
+            while (true)
             {
-                end = item.FrameEnd.Value;
-                break;
+                var item = await ReadEscapedDataOrFrameEndAsync(token).ConfigureAwait(false);
+                if (item.FrameEnd is not null)
+                {
+                    end = item.FrameEnd.Value;
+                    break;
+                }
+
+                if (data.Count >= MaxDataSubpacketBytes)
+                {
+                    Trace($"RX data subpacket exceeded {MaxDataSubpacketBytes} bytes without a frame end");
+                    throw new InvalidDataException(
+                        $"ZMODEM data subpacket exceeded {MaxDataSubpacketBytes} bytes without a frame terminator.");
+                }
+
+                data.Add(item.Byte!.Value);
             }
 
-            if (data.Count >= MaxDataSubpacketBytes)
+            if (_lastHeaderFormat == ZmodemHeaderFormat.Bin32)
             {
-                Trace($"RX data subpacket exceeded {MaxDataSubpacketBytes} bytes without a frame end");
-                throw new InvalidDataException(
-                    $"ZMODEM data subpacket exceeded {MaxDataSubpacketBytes} bytes without a frame terminator.");
-            }
+                var crcBytes = new byte[4];
+                for (var i = 0; i < crcBytes.Length; i++)
+                    crcBytes[i] = await ReadEscapedDataByteAsync(token).ConfigureAwait(false);
 
-            data.Add(item.Byte!.Value);
+                // Span overload: the IReadOnlyList one boxes the enumerator and makes an
+                // interface call per byte of the subpacket.
+                var expected = ZmodemCrc.Crc32(CollectionsMarshal.AsSpan(data), (byte)end);
+                var actual = BinaryPrimitives.ReadUInt32LittleEndian(crcBytes);
+                if (expected != actual)
+                {
+                    Trace($"RX data CRC32 mismatch end={end} len={data.Count} expected=0x{expected:x8} actual=0x{actual:x8}");
+                    throw new InvalidDataException("ZMODEM CRC32 mismatch.");
+                }
+            }
+            else
+            {
+                var crcBytes = new byte[2];
+                for (var i = 0; i < crcBytes.Length; i++)
+                    crcBytes[i] = await ReadEscapedDataByteAsync(token).ConfigureAwait(false);
+
+                var expected = ZmodemCrc.Crc16(CollectionsMarshal.AsSpan(data), (byte)end);
+                var actual = BinaryPrimitives.ReadUInt16BigEndian(crcBytes);
+                if (expected != actual)
+                {
+                    Trace($"RX data CRC16 mismatch end={end} len={data.Count} expected=0x{expected:x4} actual=0x{actual:x4}");
+                    throw new InvalidDataException("ZMODEM CRC16 mismatch.");
+                }
+            }
         }
-
-        if (_lastHeaderFormat == ZmodemHeaderFormat.Bin32)
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            var crcBytes = new byte[4];
-            for (var i = 0; i < crcBytes.Length; i++)
-                crcBytes[i] = await ReadEscapedDataByteAsync(cancellationToken).ConfigureAwait(false);
-
-            // Span overload: the IReadOnlyList one boxes the enumerator and makes an
-            // interface call per byte of the subpacket.
-            var expected = ZmodemCrc.Crc32(CollectionsMarshal.AsSpan(data), (byte)end);
-            var actual = BinaryPrimitives.ReadUInt32LittleEndian(crcBytes);
-            if (expected != actual)
-            {
-                Trace($"RX data CRC32 mismatch end={end} len={data.Count} expected=0x{expected:x8} actual=0x{actual:x8}");
-                throw new InvalidDataException("ZMODEM CRC32 mismatch.");
-            }
-        }
-        else
-        {
-            var crcBytes = new byte[2];
-            for (var i = 0; i < crcBytes.Length; i++)
-                crcBytes[i] = await ReadEscapedDataByteAsync(cancellationToken).ConfigureAwait(false);
-
-            var expected = ZmodemCrc.Crc16(CollectionsMarshal.AsSpan(data), (byte)end);
-            var actual = BinaryPrimitives.ReadUInt16BigEndian(crcBytes);
-            if (expected != actual)
-            {
-                Trace($"RX data CRC16 mismatch end={end} len={data.Count} expected=0x{expected:x4} actual=0x{actual:x4}");
-                throw new InvalidDataException("ZMODEM CRC16 mismatch.");
-            }
+            Trace("RX data subpacket timeout");
+            throw new TimeoutException("Timed out waiting for ZMODEM data.");
         }
 
         Trace($"RX data end={end} len={data.Count} crcFormat={_lastHeaderFormat}");
@@ -818,6 +889,27 @@ public sealed class ZmodemSession
                 return ZmodemEscapedRead.Data(b);
 
             var escaped = await ReadRawByteAsync(cancellationToken).ConfigureAwait(false);
+            if (escaped == ZmodemConstants.CAN)
+            {
+                var canCount = 2; // leading ZDLE (0x18) + escaped CAN (0x18)
+                while (canCount < 5)
+                {
+                    var next = await ReadRawByteAsync(cancellationToken).ConfigureAwait(false);
+                    if (next == ZmodemConstants.CAN)
+                    {
+                        canCount++;
+                        continue;
+                    }
+
+                    PushBack(next);
+                    break;
+                }
+
+                if (canCount >= 5)
+                    throw new ZmodemTransferCanceledException("Remote cancelled the ZMODEM transfer.");
+                return ZmodemEscapedRead.Data(ZmodemConstants.CAN);
+            }
+
             if (escaped is (byte)ZmodemFrameEnd.ZCRCE
                 or (byte)ZmodemFrameEnd.ZCRCG
                 or (byte)ZmodemFrameEnd.ZCRCQ
@@ -1035,13 +1127,32 @@ public sealed class ZmodemSession
         var normalized = remoteFileName.Replace('\\', '/');
         var fileName = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault();
         if (string.IsNullOrWhiteSpace(fileName))
-            fileName = "download";
+            return "download";
 
         foreach (var c in Path.GetInvalidFileNameChars())
             fileName = fileName.Replace(c, '_');
 
-        return fileName is "." or ".." ? "download" : fileName;
+        fileName = fileName.Trim().TrimEnd('.', ' ');
+        if (fileName.Length == 0 || fileName is "." or "..")
+            return "download";
+
+        var dotIndex = fileName.IndexOf('.');
+        var stem = dotIndex >= 0 ? fileName[..dotIndex] : fileName;
+        if (IsReservedWindowsDeviceName(stem))
+            fileName = "_" + fileName;
+
+        return fileName;
     }
+
+    private static bool IsReservedWindowsDeviceName(string stem) =>
+        stem.Equals("CON", StringComparison.OrdinalIgnoreCase)
+        || stem.Equals("PRN", StringComparison.OrdinalIgnoreCase)
+        || stem.Equals("AUX", StringComparison.OrdinalIgnoreCase)
+        || stem.Equals("NUL", StringComparison.OrdinalIgnoreCase)
+        || (stem.Length == 4
+            && (stem.StartsWith("COM", StringComparison.OrdinalIgnoreCase)
+                || stem.StartsWith("LPT", StringComparison.OrdinalIgnoreCase))
+            && stem[3] is >= '1' and <= '9');
 
     private static void TrySetLastWriteTime(string path, DateTimeOffset modifiedAt)
     {
@@ -1149,16 +1260,44 @@ internal sealed record ZmodemFileInfo(string FileName, long? Size, DateTimeOffse
 
         long? size = parts.Length > 0 && long.TryParse(parts[0], out var parsedSize) ? parsedSize : null;
         DateTimeOffset? modified = null;
-        if (parts.Length > 1 && long.TryParse(parts[1], out var unixSeconds))
-            modified = DateTimeOffset.FromUnixTimeSeconds(unixSeconds);
+        if (parts.Length > 1 && TryParseOctalInt64(parts[1], out var unixSeconds))
+        {
+            try
+            {
+                modified = DateTimeOffset.FromUnixTimeSeconds(unixSeconds);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                modified = null;
+            }
+        }
 
         return new ZmodemFileInfo(name, size, modified);
     }
 
+    private static bool TryParseOctalInt64(string text, out long value)
+    {
+        value = 0;
+        if (string.IsNullOrEmpty(text))
+            return false;
+
+        foreach (var ch in text)
+        {
+            if (ch is < '0' or > '7')
+                return false;
+            if (value > (long.MaxValue - (ch - '0')) / 8)
+                return false;
+            value = value * 8 + (ch - '0');
+        }
+
+        return true;
+    }
+
     public static byte[] Build(string fileName, long size, DateTime modifiedUtc)
     {
-        var unixSeconds = new DateTimeOffset(DateTime.SpecifyKind(modifiedUtc, DateTimeKind.Utc)).ToUnixTimeSeconds();
-        var text = $"{fileName}\0{size} {unixSeconds} 100644 0 1 {size}\0";
+        var unixSeconds = Math.Max(0, new DateTimeOffset(DateTime.SpecifyKind(modifiedUtc, DateTimeKind.Utc)).ToUnixTimeSeconds());
+        var octalModified = Convert.ToString(unixSeconds, 8);
+        var text = $"{fileName}\0{size} {octalModified} 100644 0 1 {size}\0";
         return Encoding.UTF8.GetBytes(text);
     }
 }

@@ -25,8 +25,9 @@ public sealed class TerminalStreamDecoder(Encoding? encoding = null)
             return string.Empty;
 
         // Must call GetChars even when no complete character is ready: GetCharCount does not
-        // retain incomplete multi-byte tails, but GetChars does.
-        EnsureCharBuffer(_encoding.GetMaxCharCount(data.Length));
+        // retain incomplete multi-byte tails, but GetChars does. Add headroom for bytes
+        // carried inside _decoder from the previous packet (e.g. 3-byte GB18030 tails).
+        EnsureCharBuffer(_encoding.GetMaxCharCount(data.Length + 4) + 4);
         var written = _decoder.GetChars(data, _charBuffer, flush: false);
         return written == 0 ? string.Empty : new string(_charBuffer, 0, written);
     }

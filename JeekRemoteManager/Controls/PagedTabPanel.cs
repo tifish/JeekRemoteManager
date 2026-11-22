@@ -13,6 +13,7 @@ public sealed class PagedTabPanel : Panel
     private Control? _anchor;
     private Control[] _matching = [];
     private TabPagination.Layout _layout = TabPagination.Calculate([], 1, 5, double.PositiveInfinity);
+    private (int CurrentPage, int PageCount, int MatchingCount, int TotalRows) _lastNotified = (-1, -1, -1, -1);
 
     public PagedTabPanel() => ClipToBounds = true;
 
@@ -25,7 +26,15 @@ public sealed class PagedTabPanel : Panel
     public int MaxRows
     {
         get => _maxRows;
-        set { if (_maxRows != value) { _maxRows = Math.Clamp(value, 1, 20); InvalidateMeasure(); } }
+        set
+        {
+            var clamped = Math.Clamp(value, 1, 20);
+            if (_maxRows != clamped)
+            {
+                _maxRows = clamped;
+                InvalidateMeasure();
+            }
+        }
     }
     public double HeightBudget
     {
@@ -83,7 +92,12 @@ public sealed class PagedTabPanel : Panel
         for (var i = 0; i < _matching.Length; i++)
             if (_layout.Items[i].Page == CurrentPage)
                 _matching[i].Arrange(_layout.Items[i].Bounds);
-        PaginationChanged?.Invoke(this, EventArgs.Empty);
+        var state = (CurrentPage, PageCount, MatchingCount, TotalRows);
+        if (state != _lastNotified)
+        {
+            _lastNotified = state;
+            PaginationChanged?.Invoke(this, EventArgs.Empty);
+        }
         return finalSize;
     }
 }

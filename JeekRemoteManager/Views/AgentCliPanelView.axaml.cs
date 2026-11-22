@@ -97,8 +97,7 @@ public partial class AgentCliPanelView : UserControl
         var previousUpdateUi = _model.UpdateUI;
         _model.UpdateUI = () =>
         {
-            if (SyncFollowStateFromViewport())
-                _model.FullBufferUpdate();
+            SyncFollowStateFromViewport();
             previousUpdateUi?.Invoke();
         };
 
@@ -112,8 +111,6 @@ public partial class AgentCliPanelView : UserControl
         CliTerm.AddHandler(InputElement.KeyDownEvent, OnCliPreviewKeyDown, RoutingStrategies.Tunnel);
         CliTerm.AddHandler(InputElement.KeyUpEvent, OnCliPreviewKeyUp, RoutingStrategies.Tunnel);
         TerminalHost.SizeChanged += (_, _) =>
-            Dispatcher.UIThread.Post(SyncViewportToConPty, DispatcherPriority.Render);
-        SizeChanged += (_, _) =>
             Dispatcher.UIThread.Post(SyncViewportToConPty, DispatcherPriority.Render);
 
         CliTerm.AddHandler(PointerPressedEvent, (_, _) => FocusCliTerminal(), RoutingStrategies.Tunnel);
@@ -234,9 +231,9 @@ public partial class AgentCliPanelView : UserControl
 
     /// <summary>
     /// Raises the real Ctrl+C key route on the CLI terminal so Debug MCP can verify
-    /// copy-vs-interrupt behavior. With <paramref name="selectVisibleText"/> the first
-    /// visible line is selected first (Ctrl+C should copy and be handled); without it
-    /// the gesture should fall through so the embedded CLI receives the interrupt.
+    /// copy-and-swallow behavior. With <paramref name="selectVisibleText"/> the first
+    /// visible line is selected first (Ctrl+C copies and is handled); without it
+    /// Ctrl+C is still swallowed so an accidental interrupt never kills the embedded CLI.
     /// </summary>
     public string DebugPressCtrlCOnCli(bool selectVisibleText)
     {
@@ -301,7 +298,7 @@ public partial class AgentCliPanelView : UserControl
         try
         {
             Directory.CreateDirectory(_vm.WorkingDirectory);
-            Process.Start(new ProcessStartInfo(_vm.WorkingDirectory) { UseShellExecute = true });
+            using var _ = Process.Start(new ProcessStartInfo(_vm.WorkingDirectory) { UseShellExecute = true });
         }
         catch (Exception ex)
         {
@@ -669,8 +666,12 @@ public partial class AgentCliPanelView : UserControl
         Dispatcher.UIThread.Post(
             () =>
             {
-                if (!_outputFrameTimer.IsEnabled)
+                if (ReferenceEquals(_liveSession, session)
+                    && feedGeneration == _sessionFeedGeneration
+                    && !_outputFrameTimer.IsEnabled)
+                {
                     _outputFrameTimer.Start();
+                }
             },
             DispatcherPriority.Background);
     }
@@ -778,12 +779,11 @@ public partial class AgentCliPanelView : UserControl
 
     /// <summary>
     /// Keeps sticky follow in sync with host scrollbar / wheel changes.
-    /// Returns true when YDisp was rewritten so the caller can rebuild the viewport.
     /// </summary>
-    private bool SyncFollowStateFromViewport()
+    private void SyncFollowStateFromViewport()
     {
         if (_model.Terminal.IsAlternateBufferActive || _restoringPinnedScroll)
-            return false;
+            return;
 
         var yDisp = _model.Terminal.Buffer.YDisp;
         var yBase = _model.Terminal.Buffer.YBase;
@@ -795,7 +795,7 @@ public partial class AgentCliPanelView : UserControl
             _pinnedYDisp = yDisp;
             _lastObservedYDisp = yDisp;
             _suppressFollowReattach = false;
-            return false;
+            return;
         }
 
         // At bottom. Intentional scrollbar/wheel return-to-bottom is accepted on a deferred
@@ -829,12 +829,11 @@ public partial class AgentCliPanelView : UserControl
             }
 
             _lastObservedYDisp = yDisp;
-            return false;
+            return;
         }
 
         _pinnedYDisp = yDisp;
         _lastObservedYDisp = yDisp;
-        return false;
     }
 
     private void NoteUserHostScroll()
@@ -898,6 +897,7 @@ public partial class AgentCliPanelView : UserControl
         _liveSessionDataHandler = null;
         _liveSession = null;
         _sessionFeedGeneration++;
+        _resizeSettleTimer.Stop();
         _outputFrameTimer.Stop();
         _sessionOutputBuffer.Clear();
     }
@@ -917,14 +917,21 @@ public partial class AgentCliPanelView : UserControl
 
     private async void OnCliContextRequested(object? sender, TerminalContextRequestedEventArgs e)
     {
-        if (e.HasSelection)
+        try
         {
-            await CopyCliSelectionToClipboardAsync(e.SelectedText);
-            _model.ClearSelection();
-            return;
-        }
+            if (e.HasSelection)
+            {
+                await CopyCliSelectionToClipboardAsync(e.SelectedText);
+                _model.ClearSelection();
+                return;
+            }
 
-        await PasteCliFromClipboardAsync();
+            await PasteCliFromClipboardAsync();
+        }
+        catch
+        {
+            // Clipboard access can fail when locked by another process.
+        }
     }
 
     private async void OnCliPreviewKeyDown(object? sender, KeyEventArgs e)
@@ -938,7 +945,8 @@ public partial class AgentCliPanelView : UserControl
         {
             e.Handled = true;
             _pendingCliKeyboardCopyText = null;
-            await PasteCliFromClipboardAsync();
+            try { await PasteCliFromClipboardAsync(); }
+            catch { /* best-effort clipboard paste */ }
             return;
         }
 
@@ -958,7 +966,8 @@ public partial class AgentCliPanelView : UserControl
         _pendingCliKeyboardCopyText = null;
         DebugLastCliCopiedText = text;
         _model.ClearSelection();
-        await SetCliClipboardTextAsync(text);
+        try { await SetCliClipboardTextAsync(text); }
+        catch { /* best-effort clipboard copy */ }
     }
 
     private void OnCliPreviewKeyUp(object? sender, KeyEventArgs e)

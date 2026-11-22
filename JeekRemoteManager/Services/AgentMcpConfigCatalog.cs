@@ -253,7 +253,10 @@ public static class AgentMcpConfigCatalog
                 var tools = EnsureObject(
                     EnsureObject(EnsureObject(root, "agent"), "tool_permissions"),
                     "tools");
-                foreach (var tool in AgentCliCatalog.RemoteToolNames)
+                var zedTools = string.Equals(serverName, AgentProjectLink.ApplicationMcpServerName, StringComparison.Ordinal)
+                    ? ProductMcpContract.ToolNames
+                    : AgentCliCatalog.RemoteToolNames;
+                foreach (var tool in zedTools)
                 {
                     EnsureObject(tools, ZedToolKey(serverName, tool))["default"] =
                         "allow";
@@ -286,8 +289,13 @@ public static class AgentMcpConfigCatalog
                     return;
                 }
 
-                foreach (var tool in AgentCliCatalog.RemoteToolNames)
-                    tools.Remove(ZedToolKey(serverName, tool));
+                var prefix = $"mcp:{serverName}:";
+                foreach (var key in tools.Select(pair => pair.Key)
+                             .Where(key => key.StartsWith(prefix, StringComparison.Ordinal))
+                             .ToArray())
+                {
+                    tools.Remove(key);
+                }
                 if (tools.Count == 0)
                     permissions.Remove("tools");
                 if (permissions.Count == 0)
@@ -413,7 +421,29 @@ public static class AgentMcpConfigCatalog
             yield return $"| {target.Label} | `{target.RelativePath}` |";
     }
 
-    internal static string EscapeToml(string value) =>
-        value.Replace("\\", "\\\\", System.StringComparison.Ordinal)
-             .Replace("\"", "\\\"", System.StringComparison.Ordinal);
+    internal static string EscapeToml(string value)
+    {
+        var sb = new System.Text.StringBuilder(value.Length);
+        foreach (var ch in value)
+        {
+            switch (ch)
+            {
+                case '\\': sb.Append(@"\\"); break;
+                case '"': sb.Append("\\\""); break;
+                case '\b': sb.Append(@"\b"); break;
+                case '\t': sb.Append(@"\t"); break;
+                case '\n': sb.Append(@"\n"); break;
+                case '\f': sb.Append(@"\f"); break;
+                case '\r': sb.Append(@"\r"); break;
+                default:
+                    if (ch < 0x20 || ch == 0x7f)
+                        sb.Append($"\\u{(int)ch:X4}");
+                    else
+                        sb.Append(ch);
+                    break;
+            }
+        }
+
+        return sb.ToString();
+    }
 }

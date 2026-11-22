@@ -681,7 +681,7 @@ internal static partial class DebugMcpServer
             var keyMissing = ExtractToolText(await session.CallAsync(ToolCall(27, "public_key_install", new JsonObject
             {
                 ["connection"] = connection,
-                ["public_key_path"] = "Z:\no-such-key.pub",
+                ["public_key_path"] = @"Z:\no-such-key.pub",
             })).ConfigureAwait(false));
             Check("public_key_install rejects a missing key file",
                 keyMissing.Contains("No public key file", StringComparison.Ordinal));

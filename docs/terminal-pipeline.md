@@ -8,11 +8,10 @@
 
 ## ITerminalChannel
 
-抽象出四件事：收到字节、出错、关闭、写入 + 改窗口尺寸。三个实现：
+抽象出四件事：收到字节、出错、关闭、写入 + 改窗口尺寸。两个实现：
 
 - `SshTerminalChannel` —— SSH.NET 的 `ShellStream`
-- `LocalConPtyTerminalChannel` —— 本地进程（AI CLI 等）
-- `WslTerminalChannel` —— WSL 发行版
+- `LocalConPtyTerminalChannel` —— 本地 ConPTY 进程（WSL 发行版、AI CLI 等）
 
 SSH 通道在终端订阅后按顺序读取 `ShellStream` 已缓冲的数据。服务端可能在 shell 请求刚发出时就发送二次验证提示，订阅前收到的字节也要进入登录捕获。
 

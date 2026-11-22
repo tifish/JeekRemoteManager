@@ -60,7 +60,7 @@
 
 ## 存储位置迁移
 
-`MoveConfigRoot` / `MoveTreeContents` 支持在三种存储位置之间搬家。两条保护：
+`SettingsService.MoveConfigRoot` 支持在三种存储位置之间搬家。两条保护：
 
 - **拒绝把一棵树拷贝/移动进它自己或它的子树**（会无限递归）。
 - 优先尝试同卷目录重命名（快）；跨卷时 `Directory.Move` 会失败，回退到递归复制 + 删除。

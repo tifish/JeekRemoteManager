@@ -112,7 +112,12 @@ public static class KeyboardInteractiveDialog
             });
         }
 
-        body.Children.Add(new TextBlock { Text = request, Classes = { "label" } });
+        body.Children.Add(new TextBlock
+        {
+            Text = request,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            Classes = { "label" },
+        });
         body.Children.Add(box);
         body.Children.Add(reveal);
         body.Children.Add(new TextBlock

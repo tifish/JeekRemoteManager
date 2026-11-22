@@ -6,6 +6,10 @@ using Renci.SshNet.Common;
 
 namespace JeekRemoteManager.Tests;
 
+[CollectionDefinition("MasterKeyStatic", DisableParallelization = true)]
+public sealed class MasterKeyStaticCollection;
+
+[Collection("MasterKeyStatic")]
 public sealed class SshMfaTests
 {
     private const string RfcSeed = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";

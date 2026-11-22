@@ -462,7 +462,7 @@ try
           && terminalViewCode.Contains("bastion_session_state=", StringComparison.Ordinal)
           && terminalViewCode.Contains("BastionLanding.SelectReusePhases", StringComparison.Ordinal)
           && terminalViewCode.Contains("KeepAndTakeClient", StringComparison.Ordinal)
-          && monitorSessionCode.Contains("LoginCommandSection.ReuseLeave", StringComparison.Ordinal),
+          && monitorSessionCode.Contains("BastionLanding.SelectReusePhases", StringComparison.Ordinal),
           "Bastion channel waits are visible and bounded for terminals and monitors");
     Check(bastionPoolCode.Contains(
               "Dictionary<string, List<Entry>>",
@@ -1588,7 +1588,7 @@ try
           "Pinned YDisp can restore host scroll after Send yank");
 
     // --- AI CLI workspace + dim color filter ---
-    var connectionsRoot = Path.Combine(Path.GetTempPath(), "jrm-agent-ws-smoke", "Connections");
+    var connectionsRoot = Path.Combine(root, "jrm-agent-ws-smoke", "Connections");
     Directory.CreateDirectory(Path.Combine(connectionsRoot, "vps"));
     var bwgFile = Path.Combine(connectionsRoot, "vps", "bwg.json");
     File.WriteAllText(bwgFile, "{}");
@@ -1598,7 +1598,7 @@ try
         "JeekRemoteManager",
         "AgentWorkspaces");
     var isolatedWorkspaceRoot = Path.Combine(
-        Path.GetTempPath(),
+        root,
         "jrm-agent-ws-smoke",
         "AgentWorkspaces");
     Check(string.Equals(
@@ -1710,7 +1710,6 @@ try
           && codexTomlApproved.Contains(smokeAdapter, StringComparison.Ordinal)
           && openCodeApproved?["permission"]?["jrm-remote_*"]?.GetValue<string>() == "allow",
           "Codex and OpenCode store per-server automatic approval without broad CLI overrides");
-    AgentCliWorkspace.WriteProjectMcpConfigs(workspace, "vps/bwg");
 
     var connectionForWorkspace = new Connection
     {
@@ -2215,13 +2214,7 @@ try
           && PasswordProtector.Decrypt(autoSaveAAfterPasswordEdit.EncryptedPassword) == "changed-autosave-password",
           "Editing the password writes a new decryptable password blob");
 
-    var renamePromptCalled = false;
     var inlineRenameFocusRequested = false;
-    vm.PromptAsync = (_, _, _) =>
-    {
-        renamePromptCalled = true;
-        return Task.FromResult<string?>("prompt-rename");
-    };
     vm.RequestFocusTreeNameEditor = node => inlineRenameFocusRequested = ReferenceEquals(node, vm.SelectedNode);
     TreeNodeViewModel? inlineRenameCommittedFocusNode = null;
     vm.RequestFocusTreeNode = node => inlineRenameCommittedFocusNode = node;
@@ -2230,7 +2223,6 @@ try
     Check(vm.SelectedNode is { IsNameEditing: true, EditName: "autosave-a" },
           "RenameCommand starts inline tree name editing");
     Check(inlineRenameFocusRequested, "Inline tree rename requests editor focus");
-    Check(!renamePromptCalled, "RenameCommand does not use the prompt dialog");
     Check(!vm.ConnectCommand.CanExecute(null), "Connection cannot launch while inline tree rename is active");
 
     vm.SelectedNode!.EditName = "autosave-inline";
@@ -2264,7 +2256,7 @@ try
     _ = vmStore.Save(new Connection { Name = "delete-a", Host = "a.example" }, deleteSelectionFolder);
     _ = vmStore.Save(new Connection { Name = "delete-b", Host = "b.example" }, deleteSelectionFolder);
     _ = vmStore.Save(new Connection { Name = "delete-c", Host = "c.example" }, deleteSelectionFolder);
-    vm.RefreshCommand.Execute(null);
+    vm.ReloadTreeFromDisk();
     var deleteSelectionFolderNode = vm.Nodes.Single(n => n.Name == "delete-selection");
     vm.ConfirmAsync = (_, _) => Task.FromResult(true);
     vm.SelectedNode = deleteSelectionFolderNode.Children.Single(n => n.Name == "delete-b");
@@ -2360,33 +2352,6 @@ try
     Check(ConnectionStore.IsSameOrInside(folder, movedFolder), "IsSameOrInside: detects nested folder");
     Check(!ConnectionStore.IsSameOrInside(movedFolder, folder), "IsSameOrInside: parent is not inside child");
 
-    // --- Migration copy (to a separate root, as the app does between storage locations) ---
-    var migrateDest = Path.Combine(Path.GetTempPath(), "jrm_migrate_" + Guid.NewGuid().ToString("N"));
-    try
-    {
-        var sourceMigrationIds = store.AllConnectionFiles()
-            .Select(path => store.Load(path).ConnectionId)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        store.CopyTreeContents(store.RootPath, migrateDest);
-        Check(Directory.Exists(migrateDest) && Directory.GetDirectories(migrateDest).Length >= 1,
-              "CopyTreeContents migrates the tree to a separate root");
-        var migratedStore = new ConnectionStore(migrateDest);
-        var migratedConnectionIds = migratedStore.AllConnectionFiles()
-            .Select(path => migratedStore.Load(path).ConnectionId)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        Check(sourceMigrationIds.SetEquals(migratedConnectionIds),
-              "CopyTreeContents preserves GUIDs during storage-location migration");
-
-        // It must refuse to copy into its own subtree (would otherwise recurse forever).
-        var insideDest = Path.Combine(store.RootPath, "InsideDest");
-        store.CopyTreeContents(store.RootPath, insideDest);
-        Check(!Directory.Exists(insideDest), "CopyTreeContents refuses to copy into its own subtree");
-    }
-    finally
-    {
-        try { if (Directory.Exists(migrateDest)) Directory.Delete(migrateDest, true); } catch { }
-    }
-
     // --- Settings location resolution ---
     var progRoot = SettingsService.ResolveConnectionsRoot(StorageLocation.ProgramDirectory);
     var userRoot = SettingsService.ResolveConnectionsRoot(StorageLocation.UserDirectory);
@@ -2448,15 +2413,6 @@ try
     {
         if (!programConfigRootExisted && Directory.Exists(progConfigRoot))
             Directory.Delete(progConfigRoot, true);
-    }
-    if (!programConfigRootExisted)
-    {
-        Directory.CreateDirectory(progConfigRoot);
-        File.WriteAllText(Path.Combine(progConfigRoot, "settings.json"), "{}");
-        Check(SettingsService.TryDeleteProgramConfig(out var deleteError)
-              && !Directory.Exists(progConfigRoot),
-              "Leaving portable storage deletes the program Config marker");
-        Check(string.IsNullOrEmpty(deleteError), "Deleting the program Config marker reports no error");
     }
     var sourceConfigRoot = Path.Combine(root, "SourceConfig");
     var destConfigRoot = Path.Combine(root, "DestConfig");
@@ -2538,7 +2494,7 @@ try
         "Config",
         "settings.json");
     Check(string.Equals(
-              Path.GetFullPath(SettingsService.DefaultSettingsPath),
+              Path.GetFullPath(SettingsService.DefaultMachineSettingsPath),
               Path.GetFullPath(expectedSettingsPath),
               StringComparison.OrdinalIgnoreCase),
           "settings.json resolves under LocalAppData Config");
@@ -3095,14 +3051,7 @@ try
           && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_BBR").DefaultValue == "true"
           && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_TIME_SYNC").DefaultValue == "true"
           && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_APT_AUTOREMOVE").DefaultValue == "false"
-          && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_COMMAND_COLORS").DefaultValue == "true"
-          && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_FAIL2BAN")
-          && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_FIREWALL")
-          && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_AUTO_UPDATES")
-          && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_BBR")
-          && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_TIME_SYNC")
-          && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_APT_AUTOREMOVE")
-          && runtimeServerOptimizationSuite.Parameters.Any(p => p.Name == "ENABLE_COMMAND_COLORS"),
+          && runtimeServerOptimizationSuite.Parameters.Single(p => p.Name == "ENABLE_COMMAND_COLORS").DefaultValue == "true",
           "Bundled server optimization script exposes boolean feature toggles");
     Check(runtimeServerOptimizationScript.Contains("install_packages fail2ban")
           && runtimeServerOptimizationScript.Contains("systemctl enable fail2ban")
@@ -3794,13 +3743,6 @@ try
           && dedupedConnection.ScriptBindings[0].Params.Single().Value == "new",
           "Each connection keeps only one binding per script suite");
 
-    var copiedScriptRoot = Path.Combine(root, "CopiedScripts");
-    scriptStore.CopyTreeContents(scriptRoot, copiedScriptRoot);
-    Check(Directory.Exists(copiedScriptRoot)
-          && File.Exists(Path.Combine(copiedScriptRoot, "Deploy", RemoteScriptStore.ParameterFileName))
-          && File.Exists(Path.Combine(copiedScriptRoot, "Deploy", "deploy.sh")),
-          "RemoteScriptStore copies script suites during storage migration");
-
     // --- SetRoot ---
     var altRoot = Path.Combine(root, "Alt");
     var store2 = new ConnectionStore(root);
@@ -3830,28 +3772,3 @@ finally
 }
 
 return failures;
-
-sealed class SmokeAgentRemoteTools : IAgentRemoteTools
-{
-    public string ConnectionLabel => "smoke";
-    public bool IsWsl => false;
-    public Task<string> RunCommandAsync(
-        string command,
-        int? timeoutSeconds = null,
-        CancellationToken cancellationToken = default) =>
-        Task.FromResult(timeoutSeconds is { } t ? $"{command}|timeout={t}" : command);
-    public Task<string> TransferFilesAsync(AgentFileTransfer transfer, CancellationToken cancellationToken = default) =>
-        Task.FromResult("ok");
-    public Task<string> RunTerminalActionAsync(AgentTerminalAction action, CancellationToken cancellationToken = default) =>
-        Task.FromResult("ok");
-    public Task<string> GetStatusAsync(CancellationToken cancellationToken = default) =>
-        Task.FromResult("connected=true\ncommand_lock_available=true");
-    public Task<string> GetConnectionInfoAsync(CancellationToken cancellationToken = default) =>
-        Task.FromResult("type=SSH\ntarget=smoke");
-    public Task<string> GetScrollbackAsync(int lines, CancellationToken cancellationToken = default) =>
-        Task.FromResult($"[scrollback lines=0 requested={lines}]");
-    public Task<string> SendKeysAsync(string text, CancellationToken cancellationToken = default) =>
-        Task.FromResult($"[keys sent bytes={text.Length}]");
-    public Task<string> GetMonitorSnapshotAsync(CancellationToken cancellationToken = default) =>
-        Task.FromResult("[monitor unavailable]");
-}

@@ -39,7 +39,11 @@ public static class TerminalClipboardText
             }
 
             if (firstSelectedColumn < 0)
+            {
+                if (hasSelectedRow && line.Length > 0)
+                    break;
                 continue;
+            }
 
             if (hasSelectedRow)
             {

@@ -93,9 +93,10 @@ finally
     {
         await Task.WhenAll(inFlight.Values).ConfigureAwait(false);
     }
-    catch (OperationCanceledException) when (stopping.IsCancellationRequested)
+    catch (Exception ex) when (stopping.IsCancellationRequested
+        && ex is OperationCanceledException or IOException or ObjectDisposedException)
     {
-        // Closing stdin ends the MCP session, including requests still waiting for the app.
+        // Closing stdin/stdout ends the MCP session, including requests still waiting for the app.
     }
 }
 
@@ -470,7 +471,7 @@ internal sealed class PipeConnection(
                     }
                 }
 
-            await _writeGate.WaitAsync(stopping).ConfigureAwait(false);
+                await _writeGate.WaitAsync(stopping).ConfigureAwait(false);
                 try
                 {
                     if (!ReferenceEquals(session, _session) || !session.Pipe.IsConnected)
@@ -484,10 +485,12 @@ internal sealed class PipeConnection(
 
                 return reply is null ? null : await reply.Task.WaitAsync(stopping).ConfigureAwait(false);
             }
-            catch (Exception ex) when (attempt == 0 && ex is IOException or ObjectDisposedException or TimeoutException or JsonException)
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException or TimeoutException or JsonException)
             {
                 if (session is not null)
                     Reset(ex, session);
+                if (attempt > 0)
+                    throw;
             }
             finally
             {
@@ -557,11 +560,26 @@ internal sealed class PipeConnection(
             }
 
             var session = new PipeSession(pipe);
+            var disposed = false;
             lock (_stateGate)
             {
-                ObjectDisposedException.ThrowIf(_disposed, this);
-                _session = session;
-                Interlocked.Exchange(ref _freshConnection, 1);
+                if (_disposed)
+                {
+                    disposed = true;
+                }
+                else
+                {
+                    _session = session;
+                    Interlocked.Exchange(ref _freshConnection, 1);
+                }
+            }
+
+            if (disposed)
+            {
+                try { session.Writer.Dispose(); } catch { }
+                try { session.Reader.Dispose(); } catch { }
+                await session.Pipe.DisposeAsync().ConfigureAwait(false);
+                ObjectDisposedException.ThrowIf(true, this);
             }
             _ = Task.Run(() => ReadLoopAsync(session));
             return;

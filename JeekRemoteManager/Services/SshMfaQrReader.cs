@@ -62,7 +62,10 @@ internal static class SshMfaQrReader
         byte[] bytes;
         try
         {
-            var base64 = data.Replace('-', '+').Replace('_', '/');
+            var base64 = string.Concat(data.Where(ch => !char.IsWhiteSpace(ch)))
+                .Replace('-', '+')
+                .Replace('_', '/')
+                .TrimEnd('=');
             bytes = Convert.FromBase64String(base64.PadRight((base64.Length + 3) / 4 * 4, '='));
         }
         catch (FormatException)

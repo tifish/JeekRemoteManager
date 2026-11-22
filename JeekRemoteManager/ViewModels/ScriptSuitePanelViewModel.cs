@@ -56,9 +56,6 @@ public partial class ScriptSuitePanelViewModel : ViewModelBase
 
     public bool ShowFailureIcon => LastRunSucceeded.HasValue && !LastRunSucceeded.Value;
 
-    [ObservableProperty]
-    private string _output = "";
-
     public void ClearExecutionResult()
     {
         LastRunSucceeded = null;
@@ -83,11 +80,6 @@ public partial class ScriptSuitePanelViewModel : ViewModelBase
             .Select(p => new ConnectionScriptParameterValue { Name = p.Name, Value = p.Value })
             .ToList(),
     };
-
-    public void AppendOutput(string text)
-    {
-        Output += text;
-    }
 
     public void ClearParameters()
     {

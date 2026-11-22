@@ -58,6 +58,7 @@ public partial class MainWindow : Window
     private TreeNodeViewModel? _treeDropTarget;
     private TreeNodeViewModel? _deferredTreeClick;
     private Border? _jumpHostDropTarget;
+    private MainWindowViewModel? _wiredViewModel;
     private AgentCliPanelViewModel? _globalAgentViewModel;
     private readonly BastionSessionPool _bastionSessionPool = new();
 
@@ -136,6 +137,11 @@ public partial class MainWindow : Window
             OnTerminalTabDragPointerReleased,
             RoutingStrategies.Tunnel,
             handledEventsToo: true);
+        RightTabs.AddHandler(
+            InputElement.PointerCaptureLostEvent,
+            OnTerminalTabDragPointerCaptureLost,
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
         AddHandler(
             InputElement.PointerPressedEvent,
             OnPointerActivity,
@@ -176,6 +182,16 @@ public partial class MainWindow : Window
         Closed += (_, _) =>
         {
             Localizer.LanguageChanged -= OnWindowLanguageChanged;
+            StopShowPasswordIdleTimer();
+            ClearPendingTreeFocusRestore();
+            _windowSizeSaveTimer?.Stop();
+            CloseAllTerminalTabs();
+            if (_wiredViewModel is not null)
+            {
+                _wiredViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+                _wiredViewModel.Detach();
+                _wiredViewModel = null;
+            }
             _bastionSessionPool.Dispose();
             if (_globalAgentViewModel is not null)
                 _ = _globalAgentViewModel.DisposeAsync();
@@ -189,6 +205,7 @@ public partial class MainWindow : Window
     {
         BuildMoreActionsMenu();
         UpdateWindowTitle();
+        CommandBar.Classes.Remove("compact");
     }
 
     /// <summary>Localized main-menu labels exposed for Debug MCP verification.</summary>
@@ -383,17 +400,29 @@ public partial class MainWindow : Window
             Content = Localizer.Get("ProjectHomepage"),
             HorizontalAlignment = HorizontalAlignment.Center,
         };
-        homepageButton.Click += (_, _) => Process.Start(new ProcessStartInfo
+        homepageButton.Click += (_, _) =>
         {
-            FileName = ProjectHomepage,
-            UseShellExecute = true,
-        });
+            try
+            {
+                using var _ = Process.Start(new ProcessStartInfo
+                {
+                    FileName = ProjectHomepage,
+                    UseShellExecute = true,
+                });
+            }
+            catch
+            {
+                // Best-effort browser launch.
+            }
+        };
 
         var closeButton = new Button
         {
             Content = Localizer.Get("DialogOk"),
             HorizontalAlignment = HorizontalAlignment.Center,
             MinWidth = 88,
+            IsDefault = true,
+            IsCancel = true,
             Classes = { "accent" },
         };
         var dialog = new Window
@@ -463,12 +492,16 @@ public partial class MainWindow : Window
 
     private void WireUp()
     {
-        if (DataContext is not MainWindowViewModel vm)
+        var vm = DataContext as MainWindowViewModel;
+        if (_wiredViewModel is not null && !ReferenceEquals(_wiredViewModel, vm))
+            _wiredViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+
+        _wiredViewModel = vm;
+        if (vm is null)
             return;
 
         vm.Clipboard = Clipboard;
         vm.ConfirmAsync = ConfirmAsync;
-        vm.PromptAsync = PromptAsync;
         vm.PickKeyFileAsync = PickKeyFileAsync;
         vm.PickSettingsAsync = PickSettingsAsync;
         vm.PickFolderAsync = (path, title) => PickFolderAsync(path, title);
@@ -618,13 +651,15 @@ public partial class MainWindow : Window
     private async void OnForceInterruptTerminalToolbarClick(object? sender, RoutedEventArgs e)
     {
         e.Handled = true;
-        await RequestForceInterruptTerminalAsync();
+        try { await RequestForceInterruptTerminalAsync(); }
+        catch { /* best-effort UI command */ }
     }
 
     private async void OnReconnectTerminalToolbarClick(object? sender, RoutedEventArgs e)
     {
         e.Handled = true;
-        await RequestReconnectTerminalAsync();
+        try { await RequestReconnectTerminalAsync(); }
+        catch { /* best-effort UI command */ }
     }
 
     /// <summary>Confirms and force-interrupts the active terminal. Public for Debug MCP.</summary>
@@ -679,9 +714,16 @@ public partial class MainWindow : Window
             return;
         }
 
-        view.FocusTerminal();
-        await vm.CopyPublicKeyToServerAsync(connection, key => view.InstallPublicKeyAsync(key));
         e.Handled = true;
+        view.FocusTerminal();
+        try
+        {
+            await vm.CopyPublicKeyToServerAsync(connection, key => view.InstallPublicKeyAsync(key));
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = string.Format(Localizer.Get("StatusPublicKeyFailed"), ex.Message);
+        }
     }
 
     private async void OnRunScriptMenuClick(object? sender, RoutedEventArgs e)
@@ -730,8 +772,9 @@ public partial class MainWindow : Window
 
         if (choices.Count == 1)
         {
-            await OpenScriptPanelInNewTerminalAsync(node, choices[0]);
             e.Handled = true;
+            try { await OpenScriptPanelInNewTerminalAsync(node, choices[0]); }
+            catch (Exception ex) { vm.StatusMessage = ex.Message; }
             return;
         }
 
@@ -745,7 +788,8 @@ public partial class MainWindow : Window
             };
             item.Click += async (_, _) =>
             {
-                await OpenScriptPanelInNewTerminalAsync(node, choice);
+                try { await OpenScriptPanelInNewTerminalAsync(node, choice); }
+                catch (Exception ex) { vm.StatusMessage = ex.Message; }
             };
             flyout.Items.Add(item);
         }

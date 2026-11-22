@@ -230,7 +230,9 @@ public sealed class SharedSshClient
                 completed =>
                 {
                     if (completed.Status == TaskStatus.RanToCompletion)
-                        disposeLateResult(completed.Result);
+                    {
+                        try { disposeLateResult(completed.Result); } catch { /* client already gone */ }
+                    }
                     else
                         _ = completed.Exception;
                 },

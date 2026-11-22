@@ -200,9 +200,10 @@ public static class SshConnectionFactory
         void AskForPrompt(AuthenticationPrompt prompt)
         {
             AskForResponse(prompt, context, askUser);
+            var request = prompt.Request ?? "";
             if (generateTotp is not null && !string.IsNullOrWhiteSpace(prompt.Response) && !otherFactorInstruction
-                && !OtherFactorWording.IsMatch(prompt.Request)
-                && (LooksLikeTotpPrompt(prompt.Request) || matchTotp?.Invoke(prompt.Request) == true))
+                && !OtherFactorWording.IsMatch(request)
+                && (LooksLikeTotpPrompt(request) || matchTotp?.Invoke(request) == true))
             {
                 conversation.TotpAnsweredManually = true;
             }
@@ -212,9 +213,13 @@ public static class SshConnectionFactory
         if (generateTotp is not null && !conversation.TotpSupplied
             && !conversation.TotpAnsweredManually && !otherFactorInstruction)
         {
-            var candidates = e.Prompts.Where(prompt => prompt.Response is null && !prompt.IsEchoed
-                && (matchTotp ?? LooksLikeTotpPrompt)(prompt.Request)
-                && !OtherFactorWording.IsMatch(prompt.Request)).Take(2).ToArray();
+            var candidates = e.Prompts.Where(prompt =>
+            {
+                var request = prompt.Request ?? "";
+                return prompt.Response is null && !prompt.IsEchoed
+                    && (matchTotp ?? LooksLikeTotpPrompt)(request)
+                    && !OtherFactorWording.IsMatch(request);
+            }).Take(2).ToArray();
             if (candidates.Length == 1)
                 totpPrompt = candidates[0];
         }
@@ -276,14 +281,20 @@ public static class SshConnectionFactory
         bool allowUnlabelled = true,
         Func<string, bool>? matchTotp = null)
     {
-        bool IsSecondFactor(string request) => LooksLikeSecondFactorPrompt(request) || matchTotp?.Invoke(request) == true;
+        bool IsSecondFactor(string? request)
+        {
+            var text = request ?? "";
+            return LooksLikeSecondFactorPrompt(text) || matchTotp?.Invoke(text) == true;
+        }
+
         var prompts = e.Prompts.ToArray();
         var answered = false;
         foreach (var prompt in prompts)
         {
+            var request = prompt.Request ?? "";
             if (prompt.IsEchoed
-                || IsSecondFactor(prompt.Request)
-                || !LooksLikePasswordPrompt(prompt.Request))
+                || IsSecondFactor(request)
+                || !LooksLikePasswordPrompt(request))
             {
                 continue;
             }

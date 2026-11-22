@@ -84,13 +84,13 @@ public partial class MainWindow
         return true;
     }
 
-    /// <summary>Creates a process-free terminal tab for the Debug MCP lifecycle probe.</summary>
     /// <summary>Debug MCP: the appearance new tabs get, and a way to apply another one.</summary>
     internal TerminalAppearanceSettings DebugTerminalAppearance => _terminalAppearance;
 
     internal void DebugApplyTerminalAppearance(TerminalAppearanceSettings appearance) =>
         ApplyTerminalAppearanceToOpenTabs(appearance);
 
+    /// <summary>Creates a process-free terminal tab for the Debug MCP lifecycle probe.</summary>
     internal TabItem DebugCreateTerminalTabForLifecycleProbe()
     {
         var (_, tab) = CreateTerminalTab(
@@ -252,6 +252,8 @@ public partial class MainWindow
             BastionSessionPool = _bastionSessionPool,
             ResolveConnection = store is null ? null : store.TryLoadById,
         };
+        // Attach identity before adding/selecting the tab so tab-search filtering sees it immediately.
+        view.PreAttachConnectionIdentity(connection, sourcePath);
         view.PanelStateChanged += (_, _) => UpdateTerminalPanelToggleStates();
         var tab = new TabItem
         {
@@ -482,8 +484,16 @@ public partial class MainWindow
         };
         openLogFolder.Click += (_, _) =>
         {
-            Directory.CreateDirectory(TerminalSessionLog.Folder);
-            Process.Start(new ProcessStartInfo(TerminalSessionLog.Folder) { UseShellExecute = true });
+            try
+            {
+                Directory.CreateDirectory(TerminalSessionLog.Folder);
+                using var _ = Process.Start(new ProcessStartInfo(TerminalSessionLog.Folder) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                if (DataContext is MainWindowViewModel vm)
+                    vm.StatusMessage = string.Format(Localizer.Get("StatusOpenFolderFailed"), ex.Message);
+            }
         };
 
         var close = new MenuItem
@@ -537,8 +547,24 @@ public partial class MainWindow
         menu.Items.Add(new Separator());
         menu.Items.Add(sessionLog);
         menu.Items.Add(openLogFolder);
-        menu.Opening += (_, _) => sessionLog.Header = Localizer.Get(
-            tab.Content is TerminalView { IsSessionLogging: true } ? "SessionLogStop" : "SessionLogStart");
+        menu.Opening += (_, _) =>
+        {
+            duplicate.Header = Localizer.Get("DuplicateSession");
+            runScript.Header = Localizer.Get("RunScript");
+            aiPanel.Header = Localizer.Get("AiAssistant");
+            monitor.Header = Localizer.Get("ServerMonitor");
+            fileBrowser.Header = Localizer.Get("FileBrowser");
+            copyKey.Header = Localizer.Get("CopyPublicKeyToServer");
+            ToolTip.SetTip(copyKey, Localizer.Get("CopyPublicKeyToServerTooltip"));
+            sessionLog.Header = Localizer.Get(
+                tab.Content is TerminalView { IsSessionLogging: true } ? "SessionLogStop" : "SessionLogStart");
+            openLogFolder.Header = Localizer.Get("SessionLogOpenFolder");
+            close.Header = Localizer.Get("Close");
+            closeOthers.Header = Localizer.Get("CloseOthers");
+            closeRight.Header = Localizer.Get("CloseTabsToRight");
+            closeLeft.Header = Localizer.Get("CloseTabsToLeft");
+            closeAll.Header = Localizer.Get("CloseAll");
+        };
         menu.Items.Add(new Separator());
         menu.Items.Add(close);
         menu.Items.Add(closeOthers);
@@ -907,11 +933,11 @@ public partial class MainWindow
         return badge;
     }
 
-    private static TextBlock CreateMenuIcon(string text, string? modifierClass = null, bool emoji = false)
+    private static TextBlock CreateMenuIcon(string text, string? modifierClass = null)
     {
         var icon = new TextBlock { Text = text };
         icon.Classes.Add("menu-icon");
-        icon.Classes.Add(emoji ? "emoji" : "icon");
+        icon.Classes.Add("icon");
         if (!string.IsNullOrWhiteSpace(modifierClass))
             icon.Classes.Add(modifierClass);
         return icon;
@@ -1041,14 +1067,27 @@ public partial class MainWindow
         return true;
     }
 
+    private void OnTerminalTabDragPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
+    {
+        if (_draggedTerminalTab is null)
+            return;
+
+        ClearTerminalTabDragState();
+    }
+
     private void ResetTerminalTabDrag(PointerEventArgs e)
+    {
+        ClearTerminalTabDragState();
+        e.Pointer.Capture(null);
+    }
+
+    private void ClearTerminalTabDragState()
     {
         if (_draggedTerminalTab is { } tab)
             tab.Classes.Remove("dragging");
 
         _draggedTerminalTab = null;
         _isTerminalTabDragging = false;
-        e.Pointer.Capture(null);
     }
 
     private static bool IsTerminalTabDragBlockedBySource(object? source) =>
@@ -1188,6 +1227,9 @@ public partial class MainWindow
 
     private void RemoveTerminalTab(TabItem tab)
     {
+        if (ReferenceEquals(_draggedTerminalTab, tab))
+            ClearTerminalTabDragState();
+
         if (tab.Content is TerminalView view)
             view.Close();
 

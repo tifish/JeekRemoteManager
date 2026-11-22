@@ -39,9 +39,10 @@ public static class McpAdapterRegistry
 
     /// <summary>
     /// Installs the adapter built next to the app into the stable per-user path that agents
-    /// launch. Release owns adapter updates; Debug builds may update it only while no Release
-    /// installation is registered. Agents must use this fixed path (or the worktree debug
-    /// launcher that invokes it), not the side-by-side copy under the build output.
+    /// launch. When <paramref name="allowUpdate"/> is true, refreshes the fixed copy whenever
+    /// size or timestamp differs (falling back to the existing file if locked). Agents must
+    /// use this fixed path (or the worktree debug launcher that invokes it), not the
+    /// side-by-side copy under the build output.
     /// </summary>
     public static bool EnsureAdapterInstalled(string sourcePath, bool allowUpdate)
     {

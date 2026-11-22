@@ -59,15 +59,11 @@ public partial class ScriptParameterValueViewModel : ViewModelBase
     partial void OnBoolValueChanged(bool value)
     {
         Value = value ? "true" : "false";
-        if (!_suppressChanged)
-            _changed();
     }
 
     partial void OnSelectedEnumValueChanged(string value)
     {
         Value = value ?? "";
-        if (!_suppressChanged)
-            _changed();
     }
 
     public void Clear()
@@ -105,8 +101,12 @@ public partial class ScriptParameterValueViewModel : ViewModelBase
         Value = value;
     }
 
-    private static bool IsTrue(string value) =>
-        value.Equals("true", StringComparison.OrdinalIgnoreCase)
-        || value == "1"
-        || value.Equals("yes", StringComparison.OrdinalIgnoreCase);
+    private static bool IsTrue(string value)
+    {
+        var trimmed = value.Trim();
+        return trimmed.Equals("true", StringComparison.OrdinalIgnoreCase)
+            || trimmed == "1"
+            || trimmed.Equals("yes", StringComparison.OrdinalIgnoreCase)
+            || trimmed.Equals("y", StringComparison.OrdinalIgnoreCase);
+    }
 }

@@ -80,6 +80,13 @@ public partial class TreeNodeViewModel : ViewModelBase
 
     public bool IsSshConnection => Connection?.Type == ConnectionType.Ssh;
 
+    /// <summary>Notifies bindings when the underlying connection's type changed in place.</summary>
+    public void NotifyConnectionTypeChanged()
+    {
+        OnPropertyChanged(nameof(Glyph));
+        OnPropertyChanged(nameof(IsSshConnection));
+    }
+
     /// <summary>Icon glyph shown in the tree for this node.</summary>
     public string Glyph => IsRecent && IsFolder
         ? "\U0001F551"                                   // clock face (recent group)

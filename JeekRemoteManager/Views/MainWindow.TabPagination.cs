@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using JeekRemoteManager.Controls;
 using JeekRemoteManager.ViewModels;
@@ -10,24 +11,36 @@ namespace JeekRemoteManager.Views;
 public partial class MainWindow
 {
     private PagedTabPanel? _tabPages;
+    private string[] _tabSearchTerms = [];
 
     private void InitializeTabPagination()
     {
-        RightTabs.LayoutUpdated += (_, _) =>
+        RightTabs.TemplateApplied += (_, _) => Dispatcher.UIThread.Post(AttachTabPagesPanel, DispatcherPriority.Loaded);
+        RightTabs.SizeChanged += (_, _) =>
         {
-            if (_tabPages is null && RightTabs.GetVisualDescendants().OfType<PagedTabPanel>().FirstOrDefault() is { } panel)
-            {
-                _tabPages = panel;
-                panel.PaginationChanged += (_, _) => UpdateTabPaginationStatus();
-                ApplyTabSearch();
-                EnsureSelectedTabVisible();
-            }
-            if (_tabPages is { } pages)
-            {
-                pages.MaxRows = (int)(TabMaxRowsBox.Value ?? 5);
-                pages.HeightBudget = Math.Max(34, RightTabs.Bounds.Height - 120);
-            }
+            AttachTabPagesPanel();
+            SyncTabPagesBudget();
         };
+    }
+
+    private void AttachTabPagesPanel()
+    {
+        if (_tabPages is null && RightTabs.GetVisualDescendants().OfType<PagedTabPanel>().FirstOrDefault() is { } panel)
+        {
+            _tabPages = panel;
+            panel.PaginationChanged += (_, _) => UpdateTabPaginationStatus();
+            SyncTabPagesBudget();
+            ApplyTabSearch();
+            EnsureSelectedTabVisible();
+        }
+    }
+
+    private void SyncTabPagesBudget()
+    {
+        if (_tabPages is not { } pages)
+            return;
+        pages.MaxRows = (int)(TabMaxRowsBox.Value ?? 5);
+        pages.HeightBudget = Math.Max(34, RightTabs.Bounds.Height - 120);
     }
 
     internal TabItem DebugCreatePaginationTab(int index)
@@ -49,18 +62,37 @@ public partial class MainWindow
             : "";
     }
 
-    private bool MatchesTabSearch(Control control) =>
-        (TabSearchBox?.Text ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-        .All(term => TabSearchText(control).Contains(term, StringComparison.OrdinalIgnoreCase));
+    private bool MatchesTabSearch(Control control)
+    {
+        var terms = _tabSearchTerms;
+        if (terms.Length == 0)
+            return true;
 
-    private void ApplyTabSearch() => _tabPages?.SetFilter(MatchesTabSearch);
+        var searchText = TabSearchText(control);
+        foreach (var term in terms)
+        {
+            if (!searchText.Contains(term, StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+        return true;
+    }
+
+    private void ApplyTabSearch()
+    {
+        _tabSearchTerms = (TabSearchBox?.Text ?? "").Split(
+            ' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        _tabPages?.SetFilter(MatchesTabSearch);
+    }
 
     private void EnsureSelectedTabVisible()
     {
         if (_tabPages is null || RightTabs?.SelectedItem is not Control selected)
             return;
         if (!MatchesTabSearch(selected))
+        {
             TabSearchBox.Text = "";
+            ApplyTabSearch();
+        }
         _tabPages.EnsureVisible(selected);
     }
 

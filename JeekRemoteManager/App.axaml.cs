@@ -76,11 +76,10 @@ public partial class App : Application
 
             var settings = new SettingsService();
             DebugInstanceContext.SetConfigRoot(settings.ResolveConfigRoot());
-            var store = new ConnectionStore();
+            var store = new ConnectionStore(settings.ResolveConnectionsRoot());
             var launcher = new ConnectionLauncher();
             var master = new MasterKeyService();
             MasterKeyService.Current = master;
-            store.SetRoot(settings.ResolveConnectionsRoot());
 
             ApplyStoredLanguage(settings);
             ApplyStoredTheme(settings);
@@ -148,9 +147,10 @@ public partial class App : Application
         if (!unlocked)
         {
             // The dialog has a single mode (password + confirmation); the title
-            // is just a hint. We call it "unlock" when connection files already
-            // exist, "setup" otherwise.
-            var firstRun = store.AllConnectionFiles().Count == 0;
+            // is just a hint. We call it "unlock" when connection files or MFA
+            // profiles already exist, "setup" otherwise.
+            var firstRun = store.AllConnectionFiles().Count == 0
+                && store.SshMfaProfiles.List().Count == 0;
             var (title, prompt) = firstRun
                 ? (Localizer.Get("MasterSetupTitle"), Localizer.Get("MasterSetupPrompt"))
                 : (Localizer.Get("MasterUnlockTitle"), Localizer.Get("MasterUnlockPrompt"));
@@ -248,7 +248,8 @@ public partial class App : Application
 
     private void FlushSettingsState()
     {
-        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop
+        if (Dispatcher.UIThread.CheckAccess()
+            && ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop
             && desktop.MainWindow is MainWindow window)
         {
             window.FlushCurrentSettingsState();
@@ -368,14 +369,25 @@ public partial class App : Application
             return;
         }
 
+        if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
+            return;
+
         // Tray-invoked commands open dialogs owned by the main window;
-        // ShowDialog over a hidden owner hangs, so surface the window first.
-        ShowMainWindow();
-        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop
-            && desktop.MainWindow is MainWindow window)
+        // ShowDialog over a hidden owner hangs, so surface the window first
+        // sequentially on the UI thread before invoking the action.
+        void Run()
         {
+            if (desktop.MainWindow is not MainWindow window)
+                return;
+
+            window.ActivateMainWindow();
             window.ExecuteApplicationMenuAction(action);
         }
+
+        if (Dispatcher.UIThread.CheckAccess())
+            Run();
+        else
+            Dispatcher.UIThread.Post(Run);
     }
 
     private static void ApplyStoredLanguage(SettingsService settings)

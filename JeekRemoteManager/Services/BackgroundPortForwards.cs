@@ -63,14 +63,20 @@ internal sealed class BackgroundPortForwards : IDisposable
         Guid.TryParse(owner, out var id) && id != Guid.Empty
             ? id.ToString("D") : throw new ArgumentException("owner must be a non-empty GUID.");
 
-    internal async Task<JsonObject> EnsureAsync(string owner, Target target, Func<CancellationToken, Action, ITransport> dial) =>
-        await StartAsync(NormalizeOwner(owner), target, dial).ConfigureAwait(false);
+    internal async Task<JsonObject> EnsureAsync(
+        string owner,
+        Target target,
+        Func<CancellationToken, Action, ITransport> dial,
+        CancellationToken cancellationToken = default) =>
+        await StartAsync(NormalizeOwner(owner), target, dial, cancellationToken: cancellationToken).ConfigureAwait(false);
 
     internal Task<JsonObject> StartFromManagerAsync(Target target, Func<CancellationToken, Action, ITransport> dial,
-        string? resumeId = null) => StartAsync(null, target, dial, resumeId);
+        string? resumeId = null, CancellationToken cancellationToken = default) =>
+        StartAsync(null, target, dial, resumeId, cancellationToken);
 
     private async Task<JsonObject> StartAsync(string? owner, Target target,
-        Func<CancellationToken, Action, ITransport> dial, string? resumeId = null)
+        Func<CancellationToken, Action, ITransport> dial, string? resumeId = null,
+        CancellationToken cancellationToken = default)
     {
         if (target.RemotePort is < 1 or > 65535)
             throw new ArgumentException("remote_loopback_port must be between 1 and 65535.");
@@ -80,6 +86,7 @@ internal sealed class BackgroundPortForwards : IDisposable
         Entry entry;
         Task pending;
         Task prompted;
+        RetiredResources retiredBeforeDial = default;
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -111,7 +118,7 @@ internal sealed class BackgroundPortForwards : IDisposable
                 return Snapshot(entry);
             if (entry.Dial is null || entry.Dial.IsCompleted)
             {
-                Retire(entry, "awaiting_user", "ssh_connecting");
+                retiredBeforeDial = RetireLocked(entry, "awaiting_user", "ssh_connecting");
                 entry.Cancellation = new CancellationTokenSource();
                 var token = entry.Cancellation.Token;
                 var promptSignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -169,13 +176,23 @@ internal sealed class BackgroundPortForwards : IDisposable
             pending = entry.Dial;
             prompted = entry.Prompted!.Task;
         }
+        retiredBeforeDial.Dispose();
         // Like session_open: a GUI challenge/slow dial must not hold an MCP call indefinitely.
-        await Task.WhenAny(pending, prompted, Task.Delay(TimeSpan.FromSeconds(10))).ConfigureAwait(false);
+        using (var waitTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+        {
+            waitTimeout.CancelAfter(TimeSpan.FromSeconds(10));
+            await Task.WhenAny(pending, prompted, Task.Delay(Timeout.Infinite, waitTimeout.Token)).ConfigureAwait(false);
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        RetiredResources retiredOnRefresh;
+        JsonObject snapshot;
         lock (_gate)
         {
-            Refresh(entry);
-            return Snapshot(entry);
+            retiredOnRefresh = RefreshLocked(entry);
+            snapshot = Snapshot(entry);
         }
+        retiredOnRefresh.Dispose();
+        return snapshot;
     }
 
     private static bool SameTarget(Target a, Target b) =>
@@ -193,28 +210,36 @@ internal sealed class BackgroundPortForwards : IDisposable
     {
         owner = NormalizeOwner(owner);
         Sweep();
+        RetiredResources retiredRefresh;
+        RetiredResources retiredClose = default;
+        JsonObject snapshot;
         lock (_gate)
         {
             if (!_entries.TryGetValue(id, out var entry) || entry.Owner != owner)
                 throw new InvalidOperationException("No forward belongs to this forward_id and owner.");
-            Refresh(entry);
+            retiredRefresh = RefreshLocked(entry);
             if (close && !entry.StoppedByUser)
-                Retire(entry, "closed", "");
+                retiredClose = RetireLocked(entry, "closed", "");
             else if (!close && (entry.State != "closed" || entry.StoppedByUser))
                 Renew(entry);
-            return Snapshot(entry);
+            snapshot = Snapshot(entry);
         }
+        retiredRefresh.Dispose();
+        retiredClose.Dispose();
+        return snapshot;
     }
 
     internal void StopFromManager(string id)
     {
+        RetiredResources retired = default;
         lock (_gate)
         {
             if (!_entries.TryGetValue(id, out var entry) || entry.State == "closed")
                 return;
             entry.StoppedByUser = entry.Owner is not null;
-            Retire(entry, "closed", "stopped_by_user");
+            retired = RetireLocked(entry, "closed", "stopped_by_user");
         }
+        retired.Dispose();
     }
 
     internal Overview[] List()
@@ -225,25 +250,42 @@ internal sealed class BackgroundPortForwards : IDisposable
                 e.State, e.Error, e.State == "ready" ? e.LocalPort : 0)).ToArray();
     }
 
-    private void Refresh(Entry entry)
+    private static RetiredResources RefreshLocked(Entry entry) =>
+        entry.State == "ready" && entry.Transport?.IsReady != true
+            ? RetireLocked(entry, "failed", "ssh_or_listener_disconnected")
+            : default;
+
+    // Resource cleanup happens outside _gate so blocking SSH/socket teardown never
+    // stalls List()/Read()/Sweep() or deadlocks with cancellation callbacks.
+    private readonly record struct RetiredResources(CancellationTokenSource? Cancellation, ITransport? Transport)
     {
-        if (entry.State == "ready" && entry.Transport?.IsReady != true)
-            Retire(entry, "failed", "ssh_or_listener_disconnected");
+        public void Dispose()
+        {
+            if (Cancellation is not null)
+            {
+                try { Cancellation.Cancel(); } catch { /* ignore */ }
+                try { Cancellation.Dispose(); } catch { /* ignore */ }
+            }
+
+            if (Transport is not null)
+            {
+                try { Transport.Dispose(); } catch { /* ignore */ }
+            }
+        }
     }
 
-    // Resource cleanup is bounded by SSH.NET's listener shutdown timeout; entries are
-    // invalidated before disposal, and their dedicated clients never belong to a tab.
-    private static void Retire(Entry entry, string state, string error)
+    private static RetiredResources RetireLocked(Entry entry, string state, string error)
     {
         entry.State = state;
         entry.Error = error;
-        entry.Cancellation?.Cancel();
-        entry.Cancellation?.Dispose();
+        entry.LocalPort = 0;
+        var cancellation = entry.Cancellation;
+        var transport = entry.Transport;
         entry.Cancellation = null;
         entry.Dial = null;
         entry.Prompted = null;
-        entry.Transport?.Dispose();
         entry.Transport = null;
+        return new RetiredResources(cancellation, transport);
     }
 
     private static JsonObject Snapshot(Entry e) => new()
@@ -263,20 +305,29 @@ internal sealed class BackgroundPortForwards : IDisposable
 
     internal void Sweep()
     {
+        List<RetiredResources>? retired = null;
         lock (_gate)
         {
             if (_disposed) return;
             foreach (var entry in _entries.Values.ToArray())
             {
                 var now = _now();
+                RetiredResources resources;
                 if (entry.State != "closed" && entry.Expires <= now)
-                    Retire(entry, "closed", "lease_expired");
+                    resources = RetireLocked(entry, "closed", "lease_expired");
                 else
-                    Refresh(entry);
+                    resources = RefreshLocked(entry);
+                if (resources.Cancellation is not null || resources.Transport is not null)
+                    (retired ??= []).Add(resources);
                 // An explicit user stop survives the caller's lease. Keep ordinary tombstones briefly.
                 if (entry.State == "closed" && !entry.StoppedByUser && entry.Expires + TimeSpan.FromMinutes(10) < now)
                     _entries.Remove(entry.Id);
             }
+        }
+        if (retired is not null)
+        {
+            foreach (var item in retired)
+                item.Dispose();
         }
     }
 
@@ -289,13 +340,25 @@ internal sealed class BackgroundPortForwards : IDisposable
 
     public void Dispose()
     {
+        List<RetiredResources>? retired = null;
+        Timer? timer;
         lock (_gate)
         {
             if (_disposed) return;
             _disposed = true;
-            _timer?.Dispose();
+            timer = _timer;
             foreach (var entry in _entries.Values)
-                Retire(entry, "closed", "jrm_stopping");
+            {
+                var resources = RetireLocked(entry, "closed", "jrm_stopping");
+                if (resources.Cancellation is not null || resources.Transport is not null)
+                    (retired ??= []).Add(resources);
+            }
+        }
+        timer?.Dispose();
+        if (retired is not null)
+        {
+            foreach (var item in retired)
+                item.Dispose();
         }
     }
 }

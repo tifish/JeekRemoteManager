@@ -22,16 +22,6 @@ public partial class MainWindowViewModel
 {
     // --- SSH script actions ---
 
-    [RelayCommand(CanExecute = nameof(CanRunSelectedScriptBinding))]
-    private void RunSelectedScriptBinding()
-    {
-        var choices = PrepareScriptSuiteChoicesForSelectedConnection();
-        if (choices.Count == 1)
-            OpenScriptSuiteChoice(choices[0]);
-        else if (choices.Count > 1)
-            StatusMessage = L("StatusChooseScriptSuite");
-    }
-
     public IReadOnlyList<ScriptSuiteChoiceViewModel> PrepareScriptSuiteChoicesForSelectedConnection()
     {
         if (SelectedNode is not { IsConnection: true, Connection: not null } node)
@@ -103,7 +93,7 @@ public partial class MainWindowViewModel
     {
         if (connection.Type != ConnectionType.Ssh)
         {
-            StatusMessage = L("StatusScriptOnlySsh");
+            StatusMessage = L("StatusPublicKeyOnlySsh");
             return;
         }
 
@@ -174,8 +164,6 @@ public partial class MainWindowViewModel
         RunScriptFileCommand.NotifyCanExecuteChanged();
         StatusMessage = L("StatusScriptSuiteOpened", suite.Name);
     }
-
-    private bool CanRunSelectedScriptBinding() => IsShellConnectionContext;
 
     private IReadOnlyList<ScriptSuiteChoiceViewModel> BuildScriptSuiteChoices(Connection connection) =>
         SortScriptSuiteChoices(ScriptSuites, connection.ScriptBindings);
@@ -595,7 +583,6 @@ public partial class MainWindowViewModel
                 ScheduleAutoSave();
         }
 
-        RunSelectedScriptBindingCommand.NotifyCanExecuteChanged();
         return protectedBinding;
     }
 
@@ -651,7 +638,9 @@ public partial class MainWindowViewModel
         RemoteScriptSuite suite,
         ConnectionScriptBinding binding)
     {
-        var values = binding.Params.ToDictionary(v => v.Name, v => v.Value, StringComparer.OrdinalIgnoreCase);
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var v in binding.Params)
+            values[v.Name] = v.Value;
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var parameter in suite.Parameters)
@@ -751,16 +740,6 @@ public partial class MainWindowViewModel
     }
 
     [RelayCommand]
-    private async Task CopyScriptOutput()
-    {
-        if (Clipboard is null || ScriptPanel is null)
-            return;
-
-        await Clipboard.SetTextAsync(ScriptPanel.Output);
-        StatusMessage = L("StatusScriptOutputCopied");
-    }
-
-    [RelayCommand]
     private void ClearScriptParameters()
     {
         if (ScriptPanel is null
@@ -786,17 +765,7 @@ public partial class MainWindowViewModel
         {
             SaveScriptContextConnection(node);
         }
-        RunSelectedScriptBindingCommand.NotifyCanExecuteChanged();
         StatusMessage = L("StatusScriptParametersCleared", ScriptPanel.SuiteName);
-    }
-
-    [RelayCommand]
-    private void ClearScriptOutput()
-    {
-        if (ScriptPanel is null)
-            return;
-
-        ScriptPanel.Output = "";
     }
 
     [RelayCommand]

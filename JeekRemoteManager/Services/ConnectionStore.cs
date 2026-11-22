@@ -230,6 +230,21 @@ public class ConnectionStore
 
             if (!string.IsNullOrEmpty(connection?.EncryptedPassword))
                 yield return connection.EncryptedPassword;
+
+            if (!string.IsNullOrEmpty(connection?.EncryptedPrivateKeyPassphrase))
+                yield return connection.EncryptedPrivateKeyPassphrase;
+
+            if (connection?.ScriptBindings is { Count: > 0 } bindings)
+            {
+                foreach (var binding in bindings)
+                {
+                    foreach (var param in binding.Params)
+                    {
+                        if (MasterKeyService.IsPasswordBlob(param.Value))
+                            yield return param.Value;
+                    }
+                }
+            }
         }
     }
 
@@ -399,7 +414,13 @@ public class ConnectionStore
         foreach (var file in AllConnectionFiles())
         {
             Connection candidate;
-            try { candidate = LoadFromText(file, ReadConnectionText(new FileInfo(file))); }
+            try
+            {
+                var text = ReadConnectionText(new FileInfo(file));
+                if (!text.Contains(id, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                candidate = LoadFromText(file, text);
+            }
             catch { continue; }
             if (!string.Equals(candidate.ConnectionId, id, StringComparison.OrdinalIgnoreCase))
                 continue;
@@ -677,44 +698,6 @@ public class ConnectionStore
         return b.StartsWith(a + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Copies every file and sub-folder from one folder into another (used for migration).</summary>
-    public void CopyTreeContents(string sourceRoot, string destRoot)
-    {
-        using var lease = SharedDataFile.AcquireMany(RootPath, sourceRoot, destRoot);
-        // Refuse to copy a tree into itself or its own subtree (would recurse forever).
-        if (!Directory.Exists(sourceRoot) || IsSameOrInside(sourceRoot, destRoot))
-            return;
-
-        Directory.CreateDirectory(destRoot);
-
-        foreach (var file in Directory.GetFiles(sourceRoot, "*" + FileExtension))
-            CopyFileIntoCore(file, destRoot, includeSshScriptBindings: true, createNewConnectionId: false);
-
-        foreach (var dir in Directory.GetDirectories(sourceRoot))
-            CopyFolderIntoCore(dir, destRoot, includeSshScriptBindings: true, createNewConnectionIds: false);
-    }
-
-    /// <summary>
-    /// Moves every file and sub-folder from one folder into another, then removes
-    /// the now-empty source folder. Used to migrate between storage locations
-    /// without keeping the old location.
-    /// </summary>
-    public void MoveTreeContents(string sourceRoot, string destRoot)
-    {
-        using var lease = SharedDataFile.AcquireMany(RootPath, sourceRoot, destRoot);
-        // Refuse to move a tree into itself or its own subtree.
-        if (!Directory.Exists(sourceRoot) || IsSameOrInside(sourceRoot, destRoot))
-            return;
-
-        Directory.CreateDirectory(destRoot);
-
-        foreach (var file in Directory.GetFiles(sourceRoot, "*" + FileExtension))
-            MoveFileInto(file, destRoot);
-
-        foreach (var dir in Directory.GetDirectories(sourceRoot))
-            MoveFolderInto(dir, destRoot);
-    }
-
     private void CopyDirectory(
         string sourceDir,
         string destDir,
@@ -804,24 +787,46 @@ public class ConnectionStore
     private static readonly SearchValues<char> InvalidFileNameChars =
         SearchValues.Create(Path.GetInvalidFileNameChars());
 
-    /// <summary>Strips characters that are invalid in Windows file names.</summary>
+    private static readonly HashSet<string> WindowsReservedDeviceNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    };
+
+    /// <summary>Strips characters that are invalid in Windows file names and neutralizes
+    /// trailing dots/spaces, dot segments, and reserved device names.</summary>
     public static string SanitizeName(string name)
     {
         if (string.IsNullOrWhiteSpace(name))
             return "Unnamed";
 
+        string cleaned;
         // Most names are already clean, so avoid building a new string for them.
         if (!name.AsSpan().ContainsAny(InvalidFileNameChars))
         {
-            var trimmedOnly = name.Trim();
-            return trimmedOnly.Length == 0 ? "Unnamed" : trimmedOnly;
+            cleaned = name.Trim();
+        }
+        else
+        {
+            var buffer = new char[name.Length];
+            for (var i = 0; i < name.Length; i++)
+                buffer[i] = InvalidFileNameChars.Contains(name[i]) ? '_' : name[i];
+
+            cleaned = new string(buffer).Trim();
         }
 
-        var buffer = new char[name.Length];
-        for (var i = 0; i < name.Length; i++)
-            buffer[i] = InvalidFileNameChars.Contains(name[i]) ? '_' : name[i];
+        // Windows file APIs silently strip trailing dots and spaces, and "." / ".."
+        // would traverse directories.
+        cleaned = cleaned.TrimEnd('.', ' ');
+        if (cleaned.Length == 0)
+            return "Unnamed";
 
-        var cleaned = new string(buffer).Trim();
-        return cleaned.Length == 0 ? "Unnamed" : cleaned;
+        var dotIndex = cleaned.IndexOf('.');
+        var stem = dotIndex >= 0 ? cleaned[..dotIndex] : cleaned;
+        if (WindowsReservedDeviceNames.Contains(stem))
+            cleaned = "_" + cleaned;
+
+        return cleaned;
     }
 }

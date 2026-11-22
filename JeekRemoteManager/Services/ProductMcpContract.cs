@@ -32,6 +32,14 @@ public static class ProductMcpContract
         + "If login takes longer than wait_seconds, returns status 'awaiting_user' and a session id to poll "
         + "with session_list. Status 'failed' includes the connection error.";
 
+    /// <summary>Cached list of all advertised product MCP tool names.</summary>
+    public static string[] ToolNames { get; } = BuildToolList()
+        .OfType<JsonObject>()
+        .Select(t => t["name"]?.GetValue<string>())
+        .Where(name => !string.IsNullOrEmpty(name))
+        .Cast<string>()
+        .ToArray();
+
     public static JsonArray BuildToolList() => new(
         Tool("port_forward_ensure",
             "Ensure an owner-scoped background SSH forward, without a terminal or shell. Fixed 127.0.0.1:OS-port to remote 127.0.0.1:remote_loopback_port. "
@@ -212,6 +220,7 @@ public static class ProductMcpContract
                 ["connections"] = new JsonObject
                 {
                     ["type"] = "array",
+                    ["items"] = new JsonObject { ["type"] = "string" },
                     ["description"] = "Connection tree paths to run on.",
                 },
                 ["suite"] = Prop("string", "Suite name from script_list."),
@@ -306,7 +315,12 @@ public static class ProductMcpContract
             + "(ZMODEM on SSH, so jump hosts work).",
             SessionArgs(new()
             {
-                ["sources"] = new JsonObject { ["type"] = "array", ["description"] = "Local file paths." },
+                ["sources"] = new JsonObject
+                {
+                    ["type"] = "array",
+                    ["items"] = new JsonObject { ["type"] = "string" },
+                    ["description"] = "Local file paths.",
+                },
                 ["destination"] = Prop("string", "Remote directory; empty = the shell's current directory."),
             }),
             ["sources"]),
@@ -314,7 +328,12 @@ public static class ProductMcpContract
             "Download files from the session's remote host to this Windows machine.",
             SessionArgs(new()
             {
-                ["sources"] = new JsonObject { ["type"] = "array", ["description"] = "Remote file paths." },
+                ["sources"] = new JsonObject
+                {
+                    ["type"] = "array",
+                    ["items"] = new JsonObject { ["type"] = "string" },
+                    ["description"] = "Remote file paths.",
+                },
                 ["destination"] = Prop("string", "Local directory; empty = the user's Downloads folder."),
             }),
             ["sources"]),
@@ -401,6 +420,7 @@ public static class ProductMcpContract
         ["connections"] = new JsonObject
         {
             ["type"] = "array",
+            ["items"] = new JsonObject { ["type"] = "string" },
             ["description"] = "Explicit connection tree paths to run on.",
         },
         ["command"] = Prop("string", "Command line to run on every connection."),

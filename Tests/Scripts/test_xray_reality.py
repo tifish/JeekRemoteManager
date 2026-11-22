@@ -16,7 +16,10 @@ import unittest
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--xray", required=True, type=Path)
-parser.add_argument("--shell", default=shutil.which("bash") if os.name != "nt" else "C:/Program Files/Git/bin/bash.exe")
+default_shell = shutil.which("bash")
+if not default_shell and os.name == "nt":
+    default_shell = os.path.join(os.environ.get("ProgramFiles", "C:/Program Files"), "Git", "bin", "bash.exe")
+parser.add_argument("--shell", default=default_shell)
 args = parser.parse_args()
 scripts = Path(__file__).resolve().parents[2] / "bin/Data/Scripts"
 xray = args.xray.resolve()
@@ -31,7 +34,6 @@ class RealityScripts(unittest.TestCase):
             (self.root / directory).mkdir(parents=True, exist_ok=True)
         self.config = self.root / "usr/local/etc/xray/config.json"
         self.log = self.root / "operations.log"
-        self.capture = self.root / "checked.json"
         wrapper = self.root / "usr/local/bin/xray"
         wrapper.write_text('''#!/bin/sh
 if [ "$1" = run ]; then

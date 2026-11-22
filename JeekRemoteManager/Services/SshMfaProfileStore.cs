@@ -84,7 +84,9 @@ internal sealed class SshMfaProfileStore(string configRoot)
         catch
         {
             foreach (var profile in pending.Take(written))
-                File.Delete(ProfilePath(profile.Id));
+            {
+                try { File.Delete(ProfilePath(profile.Id)); } catch { /* best-effort rollback */ }
+            }
             throw;
         }
 

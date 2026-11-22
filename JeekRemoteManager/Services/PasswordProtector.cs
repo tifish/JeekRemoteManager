@@ -51,7 +51,14 @@ public static class PasswordProtector
             return "";
 
         var data = Encoding.Unicode.GetBytes(clearText); // UTF-16LE
-        var encrypted = ProtectedData.Protect(data, null, DataProtectionScope.CurrentUser);
-        return Convert.ToHexString(encrypted);
+        try
+        {
+            var encrypted = ProtectedData.Protect(data, null, DataProtectionScope.CurrentUser);
+            return Convert.ToHexString(encrypted);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(data);
+        }
     }
 }

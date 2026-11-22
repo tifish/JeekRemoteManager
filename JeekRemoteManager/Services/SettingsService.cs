@@ -25,9 +25,6 @@ public class SettingsService
     /// <summary>The machine-local settings file.</summary>
     public static string DefaultMachineSettingsPath => Storage.MachineSettingsPath;
 
-    /// <summary>Compatibility alias for the machine-local settings file.</summary>
-    public static string DefaultSettingsPath => DefaultMachineSettingsPath;
-
     /// <summary>The default roaming settings file under %APPDATA%.</summary>
     public static string DefaultRoamingSettingsPath => ResolveSettingsPath(StorageLocation.UserDirectory);
 
@@ -556,8 +553,4 @@ public class SettingsService
     /// </summary>
     public static void MoveConfigRoot(string sourceRoot, string destRoot) =>
         SettingsStorage.MoveConfigRoot(sourceRoot, destRoot);
-
-    /// <summary>Deletes the executable-side Config folder after leaving portable mode.</summary>
-    public static bool TryDeleteProgramConfig(out string? error) =>
-        Storage.TryDeleteProgramConfig(out error);
 }

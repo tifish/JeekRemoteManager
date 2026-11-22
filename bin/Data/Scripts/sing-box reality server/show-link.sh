@@ -51,9 +51,9 @@ download_to_stdout() {
     url=$1
 
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "$url"
+        curl -fsSL --connect-timeout 5 --max-time 10 "$url"
     elif command -v wget >/dev/null 2>&1; then
-        wget -qO- "$url"
+        wget -qO- -T 10 -t 1 "$url"
     else
         return 1
     fi

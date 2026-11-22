@@ -482,7 +482,10 @@ public static class AgentCliLocator
             string full;
             try
             {
-                full = Path.Combine(dir.Trim(), fileName);
+                var cleanedDir = dir.Trim().Trim('"');
+                if (cleanedDir.Length == 0)
+                    continue;
+                full = Path.Combine(cleanedDir, fileName);
             }
             catch
             {

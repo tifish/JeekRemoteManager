@@ -33,10 +33,6 @@ public partial class TerminalView
     /// <summary>Adapts this terminal tab's harness to the product MCP tool surface.</summary>
     private sealed class TerminalAgentRemoteTools(TerminalView owner) : IAgentRemoteTools
     {
-        public string ConnectionLabel => owner.BuildAiConversationLabel();
-
-        public bool IsWsl => owner._connection?.IsWsl == true;
-
         public Task<string> RunCommandAsync(
             string command,
             int? timeoutSeconds = null,
@@ -51,9 +47,6 @@ public partial class TerminalView
 
         public Task<string> GetStatusAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(owner.BuildAgentTerminalStatus());
-
-        public Task<string> GetConnectionInfoAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(owner.BuildAgentConnectionInfo());
 
         public Task<string> GetScrollbackAsync(int lines, CancellationToken cancellationToken = default) =>
             owner.GetAgentScrollbackAsync(lines);
@@ -216,29 +209,6 @@ public partial class TerminalView
             $"unresponsive_reconnect_count={UnresponsiveChannelReconnectCount}\n" +
             $"is_wsl={_connection?.IsWsl == true}\n" +
             $"auto_reconnect_state={AiAutoReconnectState}";
-    }
-
-    internal string BuildAgentConnectionInfo()
-    {
-        var c = _connection;
-        if (c is null)
-            return "label=(none)\ntype=unknown\nconnected=false";
-
-        var kind = c.Type.ToDisplayName();
-        var target = c.IsWsl
-            ? (string.IsNullOrWhiteSpace(c.WslDistro) ? "default WSL distribution" : c.WslDistro.Trim())
-            : string.IsNullOrWhiteSpace(c.Host)
-                ? "(unknown host)"
-                : $"{c.Username}@{c.Host}:{c.Port}";
-
-        var notes = string.IsNullOrWhiteSpace(c.Notes) ? "(none)" : c.Notes.Trim();
-        return
-            $"label={BuildAiConversationLabel()}\n" +
-            $"type={kind}\n" +
-            $"target={target}\n" +
-            $"source_path={_sourcePath ?? "(none)"}\n" +
-            $"connected={IsConnected}\n" +
-            $"notes={notes}";
     }
 
     internal async Task<string> GetAgentScrollbackAsync(int lines)

@@ -10,8 +10,6 @@ insert_final_newline = true
 # 去除行尾空白符有利于统一文件内容
 trim_trailing_whitespace = true
 
-# Prettier 支持的文件都在 .prettierrc.yaml 中配置，因为 Prettier 不会再读取 .editorconfig 文件。
-
 # ---------- 需要 CRLF 的 Windows 生态文件 ----------
 [*.{sln,rc,reg,inf,ini}]
 end_of_line = crlf

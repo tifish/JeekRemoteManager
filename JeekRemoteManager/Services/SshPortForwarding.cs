@@ -102,11 +102,11 @@ public static class SshPortForwarding
             bindText = parts[1];
             targetText = parts[2];
         }
-        else if (parts.Length == 2 && parts[1].Split(':') is { Length: 3 or 4 } fields)
+        else if (parts.Length == 2 && SplitCompactFields(parts[1]) is { Count: 3 or 4 } fields)
         {
-            // ssh -L form: [bind:]port:host:hostport.
-            bindText = string.Join(':', fields[..^2]);
-            targetText = string.Join(':', fields[^2..]);
+            // ssh -L form: [bind:]port:host:hostport (supports bracketed IPv6 hosts).
+            bindText = string.Join(':', fields.Take(fields.Count - 2));
+            targetText = string.Join(':', fields.Skip(fields.Count - 2));
         }
         else
         {
@@ -118,11 +118,60 @@ public static class SshPortForwarding
         return new PortForwardSpec(kind, bind.Host, bind.Port, target.Host, target.Port);
     }
 
+    private static List<string>? SplitCompactFields(string spec)
+    {
+        var fields = new List<string>();
+        var start = 0;
+        var inBrackets = false;
+        for (var i = 0; i < spec.Length; i++)
+        {
+            var ch = spec[i];
+            if (ch == '[')
+            {
+                if (inBrackets)
+                    return null;
+                inBrackets = true;
+            }
+            else if (ch == ']')
+            {
+                if (!inBrackets)
+                    return null;
+                inBrackets = false;
+            }
+            else if (ch == ':' && !inBrackets)
+            {
+                fields.Add(spec[start..i]);
+                start = i + 1;
+            }
+        }
+
+        if (inBrackets)
+            return null;
+        fields.Add(spec[start..]);
+        return fields;
+    }
+
     private static (string Host, uint Port) ParseEndpoint(string value, string defaultHost, bool requireHost = false)
     {
-        var separator = value.LastIndexOf(':');
-        var host = separator < 0 ? "" : value[..separator].Trim();
-        var portText = separator < 0 ? value : value[(separator + 1)..];
+        string host;
+        string portText;
+        if (value.StartsWith('['))
+        {
+            var close = value.IndexOf(']');
+            if (close < 2 || close + 1 >= value.Length || value[close + 1] != ':')
+                throw new FormatException($"'{value}' must be [host]:port.");
+            host = value[1..close].Trim();
+            portText = value[(close + 2)..];
+        }
+        else
+        {
+            var separator = value.LastIndexOf(':');
+            host = separator < 0 ? "" : value[..separator].Trim();
+            portText = separator < 0 ? value : value[(separator + 1)..];
+            if (host.Contains('[') || host.Contains(']'))
+                throw new FormatException($"'{value}' has invalid brackets.");
+        }
+
         if (host.Length == 0)
         {
             if (requireHost)

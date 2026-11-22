@@ -25,7 +25,8 @@ public static class WslDistroService
     // cache the result briefly instead of spawning wsl.exe on every evaluation.
     private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(5);
     private static readonly object CacheLock = new();
-    private static List<WslDistroInfo>? _cache;
+    private static readonly string[] WslUncPrefixes = [@"\\wsl.localhost\", @"\\wsl$\"];
+    private static WslDistroInfo[]? _cache;
     private static DateTime _cacheAtUtc;
 
     public static string WslExePath =>
@@ -35,7 +36,7 @@ public static class WslDistroService
 
     /// <summary>Installed distributions, the default one first. Empty when WSL is
     /// not installed or has no distributions.</summary>
-    public static List<WslDistroInfo> ListDistros()
+    public static IReadOnlyList<WslDistroInfo> ListDistros()
     {
         lock (CacheLock)
         {
@@ -48,7 +49,7 @@ public static class WslDistroService
             _cache = distros
                 .OrderByDescending(d => d.IsDefault)
                 .ThenBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
-                .ToList();
+                .ToArray();
             _cacheAtUtc = DateTime.UtcNow;
             return _cache;
         }
@@ -96,7 +97,7 @@ public static class WslDistroService
         if (path.Length >= 2 && path[1] == ':' && char.IsAsciiLetter(path[0]))
             return "/mnt/" + char.ToLowerInvariant(path[0]) + path[2..].Replace('\\', '/');
 
-        foreach (var prefix in new[] { @"\\wsl.localhost\", @"\\wsl$\" })
+        foreach (var prefix in WslUncPrefixes)
         {
             if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 continue;

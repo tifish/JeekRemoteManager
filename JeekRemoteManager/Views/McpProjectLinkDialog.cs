@@ -236,6 +236,7 @@ public sealed class McpProjectLinkDialog : Window
             },
         };
 
+        _directoryBox.TextChanged += (_, _) => UpdateActionState();
         _directoryBox.LostFocus += (_, _) => ScanDirectory();
         _directoryBox.KeyDown += (_, e) =>
         {
@@ -298,15 +299,19 @@ public sealed class McpProjectLinkDialog : Window
             },
             (directory, selected) =>
             {
-                if (!panel.WriteToProject(directory, selected))
-                    throw new InvalidOperationException(panel.StatusText);
-                return directory;
+                if (panel.ResolveLinkContext?.Invoke() is not { } link)
+                    throw new InvalidOperationException(Localizer.Get("AiLinkProjectUnavailable"));
+                var project = AgentProjectLink.WriteInto(link, directory, selected);
+                panel.StatusText = string.Format(Localizer.Get("AiLinkProjectDone"), project);
+                return project;
             },
             directory =>
             {
-                if (!panel.RemoveFromProject(directory))
-                    throw new InvalidOperationException(panel.StatusText);
-                return directory;
+                if (panel.ResolveLinkContext?.Invoke() is not { } link)
+                    throw new InvalidOperationException(Localizer.Get("AiLinkProjectUnavailable"));
+                var project = AgentProjectLink.RemoveFrom(link, directory);
+                panel.StatusText = string.Format(Localizer.Get("AiUnlinkProjectDone"), project);
+                return project;
             });
 
     public static Task ShowApplicationAsync(Window owner, MainWindowViewModel vm) =>

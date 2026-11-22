@@ -29,6 +29,7 @@ def accept_code(value):
 
 class FixtureServer(paramiko.ServerInterface):
     def __init__(self):
+        self._lock = threading.Lock()
         self.channels = 0
         self.verified = False
 
@@ -41,10 +42,11 @@ class FixtureServer(paramiko.ServerInterface):
         return "password"
 
     def check_channel_request(self, kind, chanid):
-        if kind != "session" or self.channels >= 2:
-            return paramiko.OPEN_FAILED_RESOURCE_SHORTAGE
-        self.channels += 1
-        return paramiko.OPEN_SUCCEEDED
+        with self._lock:
+            if kind != "session" or self.channels >= 2:
+                return paramiko.OPEN_FAILED_RESOURCE_SHORTAGE
+            self.channels += 1
+            return paramiko.OPEN_SUCCEEDED
 
     def check_channel_pty_request(self, channel, term, width, height, pixelwidth, pixelheight, modes):
         return True
@@ -55,7 +57,9 @@ class FixtureServer(paramiko.ServerInterface):
 
     def serve_shell(self, channel):
         try:
-            if not self.verified:
+            with self._lock:
+                verified = self.verified
+            if not verified:
                 channel.settimeout(12)
                 channel.sendall(b"2nd Password:")
                 value = bytearray()
@@ -70,7 +74,8 @@ class FixtureServer(paramiko.ServerInterface):
                         channel.sendall(b"\r\n2nd Password:")
                     else:
                         value.extend(char)
-                self.verified = True
+                with self._lock:
+                    self.verified = True
                 channel.sendall(b"\r\nFixture MFA accepted\r\nfixture@target:~$ ")
             else:
                 channel.sendall(b"Fixture reused\r\nfixture@target:~$ ")

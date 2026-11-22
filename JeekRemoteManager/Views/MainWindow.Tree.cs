@@ -318,9 +318,18 @@ public partial class MainWindow
             var all = FlattenVisibleTreeNodes(vm.Nodes).Where(n => !n.IsRecent).ToList();
             if (all.Count > 0 && Tree.SelectedItems is { } items)
             {
-                items.Clear();
-                foreach (var node in all)
-                    items.Add(node);
+                _suppressTreeSelectionSync = true;
+                try
+                {
+                    items.Clear();
+                    foreach (var node in all)
+                        items.Add(node);
+                }
+                finally
+                {
+                    _suppressTreeSelectionSync = false;
+                }
+                vm.SetSelectedNodes(all);
             }
             e.Handled = true;
         }
@@ -391,11 +400,13 @@ public partial class MainWindow
         }
     }
 
+    private bool _suppressTreeSelectionSync;
+
     /// <summary>Mirrors the TreeView's multi-selection into the view model so
     /// batch-capable commands can act on it.</summary>
     private void OnTreeSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (DataContext is not MainWindowViewModel vm)
+        if (_suppressTreeSelectionSync || DataContext is not MainWindowViewModel vm)
             return;
 
         var nodes = Tree.SelectedItems?.OfType<TreeNodeViewModel>().ToList()
@@ -630,6 +641,8 @@ public partial class MainWindow
     private void CollapseSelectionTo(TreeNodeViewModel node)
     {
         if (Tree.SelectedItems is not { } items)
+            return;
+        if (items.Count == 1 && ReferenceEquals(items[0], node))
             return;
 
         items.Clear();

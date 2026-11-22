@@ -177,7 +177,7 @@ internal static partial class DebugMcpServer
                         : shell.LoginCommands;
                     // Let the tab lay out so the terminal has a real size before the PTY starts.
                     await Task.Delay(200);
-                    await OnUiAsync(() => view.DebugStartLocalShellAsync(
+                    await await OnUiAsync(() => view.DebugStartLocalShellAsync(
                         new Models.Connection { Name = "login menu probe", LoginCommands = loginCommands },
                         shell.ExePath,
                         shell.Arguments,
@@ -1179,6 +1179,7 @@ internal static partial class DebugMcpServer
         var dead = await pool.TryAcquireAsync(second);
         dead?.Abandon();
         dead?.Dispose();
+        client.Release();
         var droppedAfterAbandon = !pool.HasKnownSession(first);
 
         // A transport registered straight after authentication has entered nothing yet:
@@ -1197,6 +1198,8 @@ internal static partial class DebugMcpServer
         var arrivalRelearnsRoute = arrived is { ReuseStart: BastionReuseStart.Duplicate };
         arrived?.KeepAndRelease();
         arrived?.Dispose();
+        entryClient.Release();
+        entryClient.Release();
 
         // While one connection authenticates, the others for that bastion identity must
         // wait for it rather than start a second login — that is a second 2FA code.
@@ -1209,8 +1212,10 @@ internal static partial class DebugMcpServer
         var waiterParked = !waiter.IsCompleted;
         reservation?.Dispose();
         var waiterReleased = await Task.WhenAny(waiter, Task.Delay(2000)) == waiter && waiter.Result;
-        var claimFreeAfterRelease = !loginPool.HasPendingFreshLogin(first)
-                                    && loginPool.TryReserveFreshLogin(first) is not null;
+        var noPendingAfterRelease = !loginPool.HasPendingFreshLogin(first);
+        using var secondReservation = loginPool.TryReserveFreshLogin(first);
+        var claimFreeAfterRelease = noPendingAfterRelease
+                                    && secondReservation is not null;
 
         var passed = registered
                      && reusableAfterRegister

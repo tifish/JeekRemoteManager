@@ -100,7 +100,7 @@
                 <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="models:RemoteScriptFile">
                         <Button Classes="toolbar"
-                                Margin="0,0,8,0"
+                                Margin="0,0,8,8"
                                 Command="{Binding $parent[ItemsControl].((vm:BatchScriptPanelViewModel)DataContext).RunScriptCommand}"
                                 CommandParameter="{Binding}">
                             <StackPanel Orientation="Horizontal" Spacing="7">

@@ -165,9 +165,6 @@ public class FinalShellImporter
         [JsonPropertyName("user_name")]
         public string? UserName { get; set; }
 
-        [JsonPropertyName("password")]
-        public string? Password { get; set; }
-
         [JsonPropertyName("name")]
         public string? Name { get; set; }
 

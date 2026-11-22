@@ -32,10 +32,6 @@ public enum AgentTerminalAction
 /// </summary>
 public interface IAgentRemoteTools
 {
-    string ConnectionLabel { get; }
-
-    bool IsWsl { get; }
-
     /// <summary>
     /// Runs a command on the shared interactive shell. Optional
     /// <paramref name="timeoutSeconds"/> aborts with interrupt when exceeded
@@ -52,9 +48,6 @@ public interface IAgentRemoteTools
 
     /// <summary>Connection + shell lock/running snapshot (does not acquire the command lock).</summary>
     Task<string> GetStatusAsync(CancellationToken cancellationToken = default);
-
-    /// <summary>Connection metadata safe for the agent (no secrets).</summary>
-    Task<string> GetConnectionInfoAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Last N lines of terminal scrollback / viewport text.</summary>
     Task<string> GetScrollbackAsync(int lines, CancellationToken cancellationToken = default);
@@ -182,7 +175,9 @@ public static class AgentCliCatalog
         "terminal_status",
         "terminal_scrollback",
         "terminal_send_keys",
-        "connection_info",
+        "connection_get",
+        "session_list",
+        "session_open",
         "monitor_snapshot",
         "file_upload",
         "file_download",
@@ -238,31 +233,34 @@ public static class AgentCliCatalog
         return probed;
     }
 
-    private static IReadOnlyList<AgentCliDescriptor> Probe() =>
-    [
-        new(AgentCliKind.Claude, "Claude", new Dictionary<AgentSurfaceKind, AgentSurface>
-        {
-            [AgentSurfaceKind.Terminal] = Surface(
-                AgentCliKind.Claude, AgentSurfaceKind.Terminal, AgentCliLocator.FindClaude()),
-            // Claude Desktop also ships as an MSIX package, which registers the claude: scheme
-            // without a shell open command — so the scheme itself is the availability signal
-            // and the handler command, when there is one, is only shown to the user.
-            [AgentSurfaceKind.Desktop] = Surface(
-                AgentCliKind.Claude, AgentSurfaceKind.Desktop,
-                AgentCliLocator.FindProtocolHandler("claude"),
-                isAvailableWithoutExecutable: AgentCliLocator.IsUriSchemeRegistered("claude")),
-        }),
-        new(AgentCliKind.Codex, "Codex", new Dictionary<AgentSurfaceKind, AgentSurface>
-        {
-            [AgentSurfaceKind.Terminal] = Surface(
-                AgentCliKind.Codex, AgentSurfaceKind.Terminal, AgentCliLocator.FindCodex()),
-            // Codex Desktop is opened through the codex: deep link it registers, which is
-            // available on its own. The CLI still backs this surface because `codex app`
-            // starts the app installer when the desktop app is missing.
-            [AgentSurfaceKind.Desktop] = Surface(
-                AgentCliKind.Codex, AgentSurfaceKind.Desktop, AgentCliLocator.FindCodex(),
-                isAvailableWithoutExecutable: AgentCliLocator.IsUriSchemeRegistered("codex")),
-        }),
+    private static IReadOnlyList<AgentCliDescriptor> Probe()
+    {
+        var codexPath = AgentCliLocator.FindCodex();
+        return
+        [
+            new(AgentCliKind.Claude, "Claude", new Dictionary<AgentSurfaceKind, AgentSurface>
+            {
+                [AgentSurfaceKind.Terminal] = Surface(
+                    AgentCliKind.Claude, AgentSurfaceKind.Terminal, AgentCliLocator.FindClaude()),
+                // Claude Desktop also ships as an MSIX package, which registers the claude: scheme
+                // without a shell open command — so the scheme itself is the availability signal
+                // and the handler command, when there is one, is only shown to the user.
+                [AgentSurfaceKind.Desktop] = Surface(
+                    AgentCliKind.Claude, AgentSurfaceKind.Desktop,
+                    AgentCliLocator.FindProtocolHandler("claude"),
+                    isAvailableWithoutExecutable: AgentCliLocator.IsUriSchemeRegistered("claude")),
+            }),
+            new(AgentCliKind.Codex, "Codex", new Dictionary<AgentSurfaceKind, AgentSurface>
+            {
+                [AgentSurfaceKind.Terminal] = Surface(
+                    AgentCliKind.Codex, AgentSurfaceKind.Terminal, codexPath),
+                // Codex Desktop is opened through the codex: deep link it registers, which is
+                // available on its own. The CLI still backs this surface because `codex app`
+                // starts the app installer when the desktop app is missing.
+                [AgentSurfaceKind.Desktop] = Surface(
+                    AgentCliKind.Codex, AgentSurfaceKind.Desktop, codexPath,
+                    isAvailableWithoutExecutable: AgentCliLocator.IsUriSchemeRegistered("codex")),
+            }),
         Terminal(AgentCliKind.Grok, "Grok", AgentCliLocator.FindGrok()),
         new(AgentCliKind.Copilot, "GitHub Copilot", new Dictionary<AgentSurfaceKind, AgentSurface>
         {
@@ -306,7 +304,8 @@ public static class AgentCliCatalog
         }),
         Editor(AgentCliKind.VsCode, "VS Code", AgentCliLocator.FindVsCode()),
         Editor(AgentCliKind.Zed, "Zed", AgentCliLocator.FindZed()),
-    ];
+        ];
+    }
 
     private static AgentCliDescriptor Terminal(AgentCliKind kind, string label, string? path) =>
         new(kind, label, new Dictionary<AgentSurfaceKind, AgentSurface>
@@ -366,13 +365,14 @@ public static class AgentCliCatalog
     /// written into the workspace by <see cref="AgentCliWorkspace.Ensure"/> before launch.
     /// </summary>
     public static IReadOnlyList<string> BuildInteractiveArguments(
-        AgentCliKind kind) =>
+        AgentCliKind kind,
+        string serverName = AgentCliWorkspace.McpServerName) =>
         kind switch
         {
-            AgentCliKind.Claude => BuildClaudeArguments(),
+            AgentCliKind.Claude => BuildClaudeArguments(serverName),
             AgentCliKind.Codex => BuildCodexArguments(),
-            AgentCliKind.Grok => BuildGrokArguments(),
-            AgentCliKind.Copilot => BuildCopilotArguments(),
+            AgentCliKind.Grok => BuildGrokArguments(serverName),
+            AgentCliKind.Copilot => BuildCopilotArguments(serverName),
             AgentCliKind.Cursor => BuildCursorArguments(),
             AgentCliKind.Pi => BuildPiArguments(),
             AgentCliKind.Antigravity => BuildAntigravityArguments(),
@@ -458,13 +458,18 @@ public static class AgentCliCatalog
         };
     }
 
-    private static IReadOnlyList<string> BuildClaudeArguments()
+    private static string[] ToolNamesForServer(string serverName) =>
+        string.Equals(serverName, AgentProjectLink.ApplicationMcpServerName, StringComparison.Ordinal)
+            ? ProductMcpContract.ToolNames
+            : RemoteToolNames;
+
+    private static IReadOnlyList<string> BuildClaudeArguments(string serverName)
     {
         // MCP URL + instructions: workspace .mcp.json and AGENTS.md/CLAUDE.md (cwd = workspace).
         return
         [
             "--allowedTools",
-            string.Join(',', RemoteToolNames.Select(n => $"mcp__jrm-remote__{n}")),
+            string.Join(',', ToolNamesForServer(serverName).Select(n => $"mcp__{serverName}__{n}")),
         ];
     }
 
@@ -482,11 +487,11 @@ public static class AgentCliCatalog
             : ["--no-alt-screen"];
     }
 
-    private static IReadOnlyList<string> BuildCopilotArguments()
+    private static IReadOnlyList<string> BuildCopilotArguments(string serverName)
     {
         // Copilot CLI accepts an MCP server name here and grants all tools from that one server.
         // This is narrower than --yolo, which would also auto-approve local shell/file work.
-        return ["--allow-tool=jrm-remote"];
+        return [$"--allow-tool={serverName}"];
     }
 
     private static IReadOnlyList<string> BuildCursorArguments()
@@ -523,13 +528,13 @@ public static class AgentCliCatalog
         return Array.Empty<string>();
     }
 
-    private static IReadOnlyList<string> BuildGrokArguments()
+    private static IReadOnlyList<string> BuildGrokArguments(string serverName)
     {
         var args = new List<string>();
-        foreach (var name in RemoteToolNames)
+        foreach (var name in ToolNamesForServer(serverName))
         {
             args.Add("--allow");
-            args.Add($"MCPTool(jrm-remote__{name})");
+            args.Add($"MCPTool({serverName}__{name})");
         }
 
         return args;

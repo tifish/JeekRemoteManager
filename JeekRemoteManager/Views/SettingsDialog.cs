@@ -210,9 +210,10 @@ internal static class SettingsDialog
             Content = Localizer.Get("Browse"),
             MinWidth = 88,
         };
+        Window? dialog = null;
         editorBrowse.Click += async (_, _) =>
         {
-            var files = await owner.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            var files = await (dialog ?? owner).StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
             {
                 Title = Localizer.Get("DialogPickEditorTitle"),
                 AllowMultiple = false,
@@ -466,7 +467,7 @@ internal static class SettingsDialog
         dialogLayout.Children.Add(scroller);
         dialogLayout.Children.Add(footer);
 
-        var dialog = new Window
+        dialog = new Window
         {
             Name = "SettingsDialog",
             Title = Localizer.Get("DialogSettingsTitle"),

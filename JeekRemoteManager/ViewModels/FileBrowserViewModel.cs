@@ -120,6 +120,8 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     private IFileSystemSession? _transferSession;
     private CancellationTokenSource? _hiddenSessionRelease;
     private int _activeSessionOperations;
+    private int _busyCount;
+    private long _loadGeneration;
     private bool _isPanelVisible;
     private bool _sessionsReleasedWhileHidden;
     private bool _loadedOnce;
@@ -279,15 +281,20 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         if (string.IsNullOrEmpty(input))
             return;
 
+        string target;
         if (input == "~" || input.StartsWith("~/", StringComparison.Ordinal))
         {
             var home = _browseSession?.HomePath;
-            if (home is null)
-                return;
-            input = input.Length == 1 ? home : CombineRemote(home, input[2..]);
+            target = home is null
+                ? input
+                : input.Length == 1 ? home : CombineRemote(home, input[2..]);
+        }
+        else
+        {
+            target = NormalizeRemotePath(input, CurrentPath);
         }
 
-        if (!await LoadDirectoryAsync(NormalizeRemotePath(input, CurrentPath)))
+        if (!await LoadDirectoryAsync(target))
             RequestFocusPathInput?.Invoke();
     }
 
@@ -316,17 +323,35 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     /// listing renders instantly and revalidates in the background; explicit
     /// refreshes and post-mutation reloads set <paramref name="bypassCache"/>.
     /// Returns false and keeps the current listing when it fails.</summary>
+    private void BeginBusy()
+    {
+        _busyCount++;
+        IsBusy = true;
+    }
+
+    private void EndBusy()
+    {
+        if (_busyCount > 0)
+            _busyCount--;
+        if (!_disposed)
+            IsBusy = _busyCount > 0;
+    }
+
     private async Task<bool> LoadDirectoryAsync(
         string? path, string? selectName = null, bool bypassCache = false)
     {
         if (_disposed)
             return false;
 
+        var generation = ++_loadGeneration;
+        var hasTildePrefix = path is not null
+            && (path == "~" || path.StartsWith("~/", StringComparison.Ordinal));
+
         // Rebuilding the rows destroys a focused row's container and loses
         // keyboard focus, so remember whether the list had it and restore after.
         var hadFocus = IsListFocused?.Invoke() == true;
 
-        if (path is not null && !bypassCache && _listingCache.TryGetValue(path, out var cached))
+        if (path is not null && !hasTildePrefix && !bypassCache && _listingCache.TryGetValue(path, out var cached))
         {
             ApplyListing(path, cached, selectName);
             if (hadFocus)
@@ -335,7 +360,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
             return true;
         }
 
-        IsBusy = true;
+        BeginBusy();
         if (!_loadedOnce)
             StatusText = L("FileBrowserConnecting");
 
@@ -346,12 +371,20 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
                 session,
                 ops =>
                 {
-                    var dir = path ?? session.HomePath ?? ops.WorkingDirectory;
+                    var dir = path is null
+                        ? (session.HomePath ?? ops.WorkingDirectory)
+                        : hasTildePrefix
+                            ? NormalizeRemotePath(
+                                path.Length == 1
+                                    ? (session.HomePath ?? ops.WorkingDirectory)
+                                    : CombineRemote(session.HomePath ?? ops.WorkingDirectory, path[2..]),
+                                CurrentPath)
+                            : path;
                     return (dir, ListEntries(ops, dir));
                 },
                 FileSystemRetry.Idempotent);
 
-            if (_disposed)
+            if (_disposed || generation != _loadGeneration)
                 return false;
 
             CacheListing(target, entries);
@@ -367,14 +400,13 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         }
         catch (Exception ex)
         {
-            if (!_disposed)
+            if (!_disposed && generation == _loadGeneration)
                 StatusText = ex.Message;
             return false;
         }
         finally
         {
-            if (!_disposed)
-                IsBusy = false;
+            EndBusy();
         }
     }
 
@@ -676,7 +708,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         if (_disposed)
             return;
 
-        IsBusy = true;
+        BeginBusy();
         try
         {
             var session = _browseSession ??= _createSession();
@@ -694,8 +726,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         }
         finally
         {
-            if (!_disposed)
-                IsBusy = false;
+            EndBusy();
         }
 
         if (string.IsNullOrEmpty(CurrentPath))
@@ -777,6 +808,9 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
                 continue;
             }
 
+            if (_disposed)
+                return;
+
             foreach (var (local, remote, dir) in expanded)
                 EnqueueUpload(local, remote, dir, remoteDir);
         }
@@ -803,11 +837,14 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
             return;
 
         var folder = await PickDownloadFolderAsync();
-        if (string.IsNullOrEmpty(folder))
+        if (_disposed || string.IsNullOrEmpty(folder))
             return;
 
         foreach (var entry in selection)
         {
+            if (_disposed)
+                return;
+
             if (!entry.IsDirectory)
             {
                 EnqueueDownload(entry.FullPath, Path.Combine(folder, entry.Name), entry.Length, openWhenDone: false);
@@ -830,6 +867,9 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
                         return found;
                     },
                     FileSystemRetry.Idempotent);
+
+                if (_disposed)
+                    return;
 
                 foreach (var (remote, relative, length) in files)
                 {
@@ -868,7 +908,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         EnqueueDownload(entry.FullPath, Path.Combine(tempDir, entry.Name), entry.Length, openWhenDone: true);
     }
 
-    // ---- Remote editing (F3): download, open locally, auto-upload saves ----
+    // ---- Remote editing (F4): download, open locally, auto-upload saves ----
 
     [RelayCommand]
     private void EditSelected()
@@ -880,6 +920,13 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         if (_editSessions.TryGetValue(entry.FullPath, out var existing))
         {
             TryOpenLocalFile(existing.LocalPath);
+            return;
+        }
+
+        // Already downloading for remote edit: avoid queuing a duplicate download.
+        if (Transfers.Any(t => !t.IsFinished && !t.IsUpload && t.WatchForEdits
+                && string.Equals(t.RemotePath, entry.FullPath, StringComparison.Ordinal)))
+        {
             return;
         }
 
@@ -930,14 +977,24 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     /// file renamed over the target), so the signal is debounced.</summary>
     private sealed class RemoteEditSession : IDisposable
     {
+        private readonly object _gate = new();
         private readonly FileSystemWatcher _watcher;
         private readonly Timer _debounce;
+        private bool _disposed;
 
         public RemoteEditSession(FileSystemWatcher watcher, string localPath, Action uploadRequested)
         {
             _watcher = watcher;
             LocalPath = localPath;
-            _debounce = new Timer(_ => uploadRequested(), null, Timeout.Infinite, Timeout.Infinite);
+            _debounce = new Timer(_ =>
+            {
+                lock (_gate)
+                {
+                    if (_disposed)
+                        return;
+                }
+                uploadRequested();
+            }, null, Timeout.Infinite, Timeout.Infinite);
             watcher.Changed += (_, _) => Touch();
             watcher.Created += (_, _) => Touch();
             watcher.Renamed += (_, _) => Touch();
@@ -945,18 +1002,38 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
 
         public string LocalPath { get; }
 
-        private void Touch() => _debounce.Change(600, Timeout.Infinite);
+        private void Touch()
+        {
+            lock (_gate)
+            {
+                if (_disposed)
+                    return;
+                _debounce.Change(600, Timeout.Infinite);
+            }
+        }
 
         public void Dispose()
         {
-            _debounce.Dispose();
+            lock (_gate)
+            {
+                if (_disposed)
+                    return;
+                _disposed = true;
+            }
+
             try
             {
+                _watcher.EnableRaisingEvents = false;
                 _watcher.Dispose();
             }
             catch
             {
                 // Watcher teardown is best-effort.
+            }
+
+            lock (_gate)
+            {
+                _debounce.Dispose();
             }
         }
     }
@@ -1016,8 +1093,16 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
                 TryOpenLocalFile(item.LocalPath);
                 if (item.WatchForEdits)
                 {
-                    await Dispatcher.UIThread.InvokeAsync(() =>
-                        StartEditWatch(item.RemotePath, item.LocalPath));
+                    try
+                    {
+                        await Dispatcher.UIThread.InvokeAsync(() =>
+                            StartEditWatch(item.RemotePath, item.LocalPath));
+                    }
+                    catch (Exception ex)
+                    {
+                        if (!_disposed)
+                            await Dispatcher.UIThread.InvokeAsync(() => StatusText = ex.Message);
+                    }
                 }
             }
         }
@@ -1222,11 +1307,11 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
             {
                 var info = new ProcessStartInfo(editor);
                 info.ArgumentList.Add(path);
-                Process.Start(info);
+                using var _ = Process.Start(info);
                 return;
             }
 
-            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+            using var shellProcess = Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
         }
         catch
         {
@@ -1318,12 +1403,13 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         return value.ToString(value >= 100 ? "F0" : "F1", CultureInfo.InvariantCulture) + " " + units[unit];
     }
 
-    /// <summary>"rwxr-xr-x" → "755", used to prefill the permissions prompt.</summary>
+    /// <summary>"-rwxr-xr-x" → "755" (or "-rwsr-xr-x" → "4755"), used to prefill the permissions prompt.</summary>
     internal static string OctalFromPermissions(string permissions)
     {
         if (permissions.Length != 10)
             return "644";
 
+        var special = 0;
         var digits = new char[3];
         for (var group = 0; group < 3; group++)
         {
@@ -1333,11 +1419,21 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
                 value += 4;
             if (permissions[offset + 1] == 'w')
                 value += 2;
-            if (permissions[offset + 2] != '-')
+            var exec = permissions[offset + 2];
+            if (exec is 'x' or 's' or 't')
                 value += 1;
+            if ((group == 0 && exec is 's' or 'S'))
+                special += 4;
+            else if ((group == 1 && exec is 's' or 'S'))
+                special += 2;
+            else if ((group == 2 && exec is 't' or 'T'))
+                special += 1;
             digits[group] = (char)('0' + value);
         }
-        return new string(digits);
+
+        return special > 0
+            ? (char)('0' + special) + new string(digits)
+            : new string(digits);
     }
 
     public void Dispose()

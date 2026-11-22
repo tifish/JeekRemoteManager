@@ -179,11 +179,18 @@ public sealed class ConnectionStoreTests : IDisposable
     {
         var folder = _store.CreateFolder(_root, "vps");
         _store.Save(new Connection { Name = "bwg", Host = "bwg.invalid" }, folder);
-        File.WriteAllText(Path.Combine(Path.GetDirectoryName(_root)!, "outside-" + Path.GetFileName(_root) + ".json"), "{}");
-
-        Assert.Equal("bwg.invalid", _store.TryLoadByTreePath("vps/bwg")?.Host);
-        Assert.Equal("bwg.invalid", _store.TryLoadByTreePath("vps\\bwg.json")?.Host);
-        Assert.Null(_store.TryLoadByTreePath("vps/missing"));
-        Assert.Null(_store.TryLoadByTreePath("../outside-" + Path.GetFileName(_root)));
+        var outsideFile = Path.Combine(Path.GetDirectoryName(_root)!, "outside-" + Path.GetFileName(_root) + ".json");
+        File.WriteAllText(outsideFile, "{}");
+        try
+        {
+            Assert.Equal("bwg.invalid", _store.TryLoadByTreePath("vps/bwg")?.Host);
+            Assert.Equal("bwg.invalid", _store.TryLoadByTreePath("vps\\bwg.json")?.Host);
+            Assert.Null(_store.TryLoadByTreePath("vps/missing"));
+            Assert.Null(_store.TryLoadByTreePath("../outside-" + Path.GetFileName(_root)));
+        }
+        finally
+        {
+            try { File.Delete(outsideFile); } catch { /* ignore */ }
+        }
     }
 }

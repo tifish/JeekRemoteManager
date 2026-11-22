@@ -288,7 +288,8 @@ public class SecureCrtImporter
             aes.IV = new byte[16];
             aes.Mode = CipherMode.CBC;
             aes.Padding = PaddingMode.None;
-            var padded = aes.CreateDecryptor().TransformFinalBlock(cipherBytes, 0, cipherBytes.Length);
+            using var decryptor = aes.CreateDecryptor();
+            var padded = decryptor.TransformFinalBlock(cipherBytes, 0, cipherBytes.Length);
             if (padded.Length < 4 + 32)
                 return null;
 
@@ -345,9 +346,6 @@ public class SecureCrtImporter
         // SecureCRT D: fields are usually 8 hex digits (e.g. 00000016 = 22).
         if (int.TryParse(raw, System.Globalization.NumberStyles.HexNumber, null, out var hex))
             return hex;
-
-        if (int.TryParse(raw, out var dec))
-            return dec;
 
         return 0;
     }

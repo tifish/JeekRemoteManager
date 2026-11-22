@@ -40,7 +40,7 @@ public class ConnectionLauncher
         };
         psi.ArgumentList.Add(rdpPath);
 
-        Process.Start(psi);
+        using var _ = Process.Start(psi);
 
         // mstsc reads the file at startup; remove it shortly after so the
         // (DPAPI-encrypted) password does not linger on disk.
@@ -49,14 +49,18 @@ public class ConnectionLauncher
 
     private static string WriteRdpFile(Connection connection)
     {
+        var host = SanitizeRdpValue(connection.Host);
+        if (host.Contains(':') && !host.StartsWith('[') && !host.EndsWith(']'))
+            host = $"[{host}]";
         var port = connection.Port > 0 ? connection.Port : 3389;
-        var address = $"{connection.Host}:{port}";
+        var address = $"{host}:{port}";
 
         var sb = new StringBuilder();
         sb.AppendLine($"full address:s:{address}");
 
-        if (!string.IsNullOrWhiteSpace(connection.Username))
-            sb.AppendLine($"username:s:{connection.Username}");
+        var username = SanitizeRdpValue(connection.Username);
+        if (username.Length > 0)
+            sb.AppendLine($"username:s:{username}");
 
         var clearPassword = PasswordProtector.Decrypt(connection.EncryptedPassword);
         if (!string.IsNullOrEmpty(clearPassword))
@@ -98,6 +102,13 @@ public class ConnectionLauncher
         File.WriteAllText(path, sb.ToString(), Encoding.Unicode);
         return path;
     }
+
+    private static string SanitizeRdpValue(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? ""
+            : value.Replace("\r", "", StringComparison.Ordinal)
+                .Replace("\n", "", StringComparison.Ordinal)
+                .Trim();
 
     private static void ScheduleDelete(string path, TimeSpan delay)
     {

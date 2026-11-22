@@ -18,7 +18,7 @@ internal static partial class ProductMcpServer
 
     internal static JsonArray PortForwardsForDebug() => BackgroundForwards.SnapshotForDebug();
 
-    private static async Task<JsonObject> PortForwardEnsureAsync(JsonObject args)
+    private static async Task<JsonObject> PortForwardEnsureAsync(JsonObject args, CancellationToken cancellationToken)
     {
         var owner = BackgroundPortForwards.NormalizeOwner(McpHost.RequiredString(args, "owner"));
         var port = args["remote_loopback_port"]?.GetValue<int>()
@@ -37,7 +37,7 @@ internal static partial class ProductMcpServer
             return SshForwardTransport.Prepare(connection, resolved, port, MainVm.Store.TryLoadById,
                 MainWindow.ActivateMainWindow);
         }).ConfigureAwait(false);
-        var report = await BackgroundForwards.EnsureAsync(owner, plan.Target, plan.Dial).ConfigureAwait(false);
+        var report = await BackgroundForwards.EnsureAsync(owner, plan.Target, plan.Dial, cancellationToken).ConfigureAwait(false);
         return ToolText(report.ToJsonString(PrettyOptions));
     }
 
@@ -123,6 +123,7 @@ internal sealed class SshForwardTransport(SshClient client, ForwardedPortLocal f
         }
         catch
         {
+            try { forward?.Stop(); } catch { }
             try { forward?.Dispose(); } catch { }
             try { client.Dispose(); } catch { }
             try { jump?.Dispose(); } catch { }

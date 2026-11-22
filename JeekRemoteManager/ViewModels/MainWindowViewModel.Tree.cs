@@ -143,7 +143,7 @@ public partial class MainWindowViewModel
         // Folder expand/collapse state is persisted in AppSettings.CollapsedFolderPaths
         // and applied as each folder node is built, so it survives both in-session
         // rebuilds and restarts. Drop stale entries for folders that no longer exist.
-        PruneMissingCollapsedFolders();
+        PruneMissingCollapsedFolders(snapshot);
         var previousSelection = SelectedNode?.FullPath;
 
         // Full rebuild already reflects the current Recent paths; drop any pending
@@ -198,15 +198,14 @@ public partial class MainWindowViewModel
         Nodes.Clear();
         _recentGroup = null;
 
-        var recentGroup = BuildRecentGroup();
+        var recentGroup = BuildRecentGroup(snapshot);
         if (recentGroup != null)
         {
             _recentGroup = recentGroup;
             Nodes.Add(recentGroup);
         }
 
-        foreach (var child in BuildChildren(snapshot, parent: null))
-            Nodes.Add(child);
+        BuildChildren(snapshot, parent: null, Nodes);
 
         // Re-apply the "cut" dimming to the source nodes so it survives reloads.
         if (_clipboardIsCut)
@@ -291,7 +290,8 @@ public partial class MainWindowViewModel
     private int PruneMissingScriptBindingsForCurrentConnection(Connection connection)
     {
         var removed = PruneMissingScriptBindings(connection.ScriptBindings, ScriptSuites);
-        if (Editor is not null)
+        var isEditingThisConnection = ReferenceEquals(_editingNode?.Connection, connection);
+        if (isEditingThisConnection && Editor is not null)
             PruneMissingScriptBindingViewModels(Editor.ScriptBindings, ScriptSuites);
 
         if (removed > 0)
@@ -303,8 +303,8 @@ public partial class MainWindowViewModel
                 ScriptPanel = null;
             }
 
-            ScheduleAutoSave();
-            RunSelectedScriptBindingCommand.NotifyCanExecuteChanged();
+            if (isEditingThisConnection)
+                ScheduleAutoSave();
         }
 
         return removed;
@@ -338,31 +338,55 @@ public partial class MainWindowViewModel
     /// pruning entries whose files no longer exist. Returns null when no usable
     /// entries remain (so the group doesn't appear empty).
     /// </summary>
-    private TreeNodeViewModel? BuildRecentGroup()
+    private TreeNodeViewModel? BuildRecentGroup(ConnectionFolderSnapshot? snapshot = null)
     {
         var paths = _settings.Settings.RecentConnectionPaths;
         if (paths.Count == 0)
             return null;
 
+        Dictionary<string, Connection>? snapshotIndex = null;
+        if (snapshot is not null)
+        {
+            snapshotIndex = new Dictionary<string, Connection>(StringComparer.OrdinalIgnoreCase);
+            IndexSnapshotConnections(snapshot, snapshotIndex);
+        }
+
         var children = new List<TreeNodeViewModel>();
 
         foreach (var path in paths.ToArray())
         {
-            if (!File.Exists(path))
-            {
-                paths.RemoveAll(p => PathEquals(p, path));
-                continue;
-            }
-
             Connection connection;
-            try
+            if (snapshotIndex is not null && ConnectionStore.IsSameOrInside(_store.RootPath, path))
             {
-                connection = _store.Load(path);
+                string fullPath;
+                try { fullPath = Path.GetFullPath(path); }
+                catch { fullPath = path; }
+
+                if (!snapshotIndex.TryGetValue(fullPath, out var cached))
+                {
+                    paths.RemoveAll(p => PathEquals(p, path));
+                    continue;
+                }
+
+                connection = cached;
             }
-            catch
+            else
             {
-                paths.RemoveAll(p => PathEquals(p, path));
-                continue;
+                if (!File.Exists(path))
+                {
+                    paths.RemoveAll(p => PathEquals(p, path));
+                    continue;
+                }
+
+                try
+                {
+                    connection = _store.Load(path);
+                }
+                catch
+                {
+                    paths.RemoveAll(p => PathEquals(p, path));
+                    continue;
+                }
             }
 
             children.Add(new TreeNodeViewModel(path, isFolder: false, connection)
@@ -400,27 +424,49 @@ public partial class MainWindowViewModel
         return group;
     }
 
+    private static void IndexSnapshotConnections(
+        ConnectionFolderSnapshot folder,
+        Dictionary<string, Connection> index)
+    {
+        foreach (var sub in folder.Folders)
+            IndexSnapshotConnections(sub, index);
+
+        foreach (var (file, connection) in folder.Connections)
+        {
+            try { index[Path.GetFullPath(file)] = connection; }
+            catch { index[file] = connection; }
+        }
+    }
+
+    private static void CollectSnapshotFolderPaths(
+        ConnectionFolderSnapshot folder,
+        HashSet<string> paths)
+    {
+        foreach (var sub in folder.Folders)
+        {
+            try { paths.Add(Path.GetFullPath(sub.Path)); }
+            catch { paths.Add(sub.Path); }
+            CollectSnapshotFolderPaths(sub, paths);
+        }
+    }
+
     /// <summary>Turns an already-read folder snapshot into tree nodes. Pure in-memory
     /// work, so it stays on the UI thread where the nodes are bound.</summary>
-    private ObservableCollection<TreeNodeViewModel> BuildChildren(
+    private void BuildChildren(
         ConnectionFolderSnapshot folder,
-        TreeNodeViewModel? parent)
+        TreeNodeViewModel? parent,
+        ObservableCollection<TreeNodeViewModel> target)
     {
-        var result = new ObservableCollection<TreeNodeViewModel>();
-
         foreach (var directory in folder.Folders)
         {
             var node = new TreeNodeViewModel(directory.Path, isFolder: true) { Parent = parent };
-            foreach (var child in BuildChildren(directory, node))
-                node.Children.Add(child);
+            BuildChildren(directory, node, node.Children);
             ApplyPersistedExpansion(node);
-            result.Add(node);
+            target.Add(node);
         }
 
         foreach (var (file, connection) in folder.Connections)
-            result.Add(new TreeNodeViewModel(file, isFolder: false, connection) { Parent = parent });
-
-        return result;
+            target.Add(new TreeNodeViewModel(file, isFolder: false, connection) { Parent = parent });
     }
 
     /// <summary>
@@ -466,16 +512,28 @@ public partial class MainWindowViewModel
 
     /// <summary>Removes collapsed-folder entries whose directories no longer exist,
     /// so renamed/deleted folders don't accumulate stale state.</summary>
-    private void PruneMissingCollapsedFolders()
+    private void PruneMissingCollapsedFolders(ConnectionFolderSnapshot snapshot)
     {
         var collapsed = _settings.Settings.CollapsedFolderPaths;
         if (collapsed.Count == 0)
             return;
 
+        var existingFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        CollectSnapshotFolderPaths(snapshot, existingFolders);
+
         collapsed.RemoveAll(p =>
         {
-            try { return !Directory.Exists(p); }
-            catch { return true; }
+            try
+            {
+                var full = Path.GetFullPath(p);
+                return ConnectionStore.IsSameOrInside(_store.RootPath, full)
+                    ? !existingFolders.Contains(full)
+                    : !Directory.Exists(full);
+            }
+            catch
+            {
+                return true;
+            }
         });
     }
 
