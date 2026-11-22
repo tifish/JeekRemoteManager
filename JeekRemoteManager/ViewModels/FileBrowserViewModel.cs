@@ -847,14 +847,14 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
 
             if (!entry.IsDirectory)
             {
-                EnqueueDownload(entry.FullPath, Path.Combine(folder, entry.Name), entry.Length, openWhenDone: false);
+                EnqueueDownload(entry.FullPath, Path.Combine(folder, SanitizeLocalFileName(entry.Name)), entry.Length, openWhenDone: false);
                 continue;
             }
 
             // Expand the remote folder on the transfer session so the listing
             // session stays free for browsing.
             var remoteRoot = entry.FullPath;
-            var localRoot = Path.Combine(folder, entry.Name);
+            var localRoot = Path.Combine(folder, SanitizeLocalFileName(entry.Name));
             try
             {
                 var session = _transferSession ??= _createSession();
@@ -873,7 +873,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
 
                 foreach (var (remote, relative, length) in files)
                 {
-                    var local = Path.Combine(localRoot, relative.Replace('/', Path.DirectorySeparatorChar));
+                    var local = Path.Combine(localRoot, SanitizeLocalRelativePath(relative));
                     EnqueueDownload(remote, local, length, openWhenDone: false);
                 }
             }
@@ -905,7 +905,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     {
         var tempDir = Path.Combine(
             DebugInstanceContext.RuntimeTempRoot, "sftp", Guid.NewGuid().ToString("N"));
-        EnqueueDownload(entry.FullPath, Path.Combine(tempDir, entry.Name), entry.Length, openWhenDone: true);
+        EnqueueDownload(entry.FullPath, Path.Combine(tempDir, SanitizeLocalFileName(entry.Name)), entry.Length, openWhenDone: true);
     }
 
     // ---- Remote editing (F4): download, open locally, auto-upload saves ----
@@ -947,7 +947,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     {
         var hash = Convert.ToHexString(
             MD5.HashData(Encoding.UTF8.GetBytes(ConnectionLabel + ":" + remotePath)))[..12];
-        return Path.Combine(DebugInstanceContext.RuntimeTempRoot, "edit", hash, name);
+        return Path.Combine(DebugInstanceContext.RuntimeTempRoot, "edit", hash, SanitizeLocalFileName(name));
     }
 
     private void StartEditWatch(string remotePath, string localPath)
@@ -1171,7 +1171,9 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
             if (item.EnsureRemoteDirectory is not null)
                 EnsureRemoteDirectories(ops, item.EnsureRemoteDirectory);
 
-            using var local = File.OpenRead(item.LocalPath);
+            // FileShare.ReadWrite lets uploads succeed even while an external editor keeps the file open.
+            using var local = new FileStream(
+                item.LocalPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             item.TotalBytes = total = local.Length;
             ops.UploadFile(local, item.RemotePath, Report);
         }
@@ -1346,6 +1348,31 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     }
 
     // ---- Path helpers ----
+
+    private static readonly HashSet<char> InvalidLocalFileNameChars =
+        new(Path.GetInvalidFileNameChars().Concat(['/', '\\']));
+
+    internal static string SanitizeLocalFileName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "_";
+
+        var sb = new StringBuilder(name.Length);
+        foreach (var ch in name)
+            sb.Append(InvalidLocalFileNameChars.Contains(ch) ? '_' : ch);
+
+        var cleaned = sb.ToString().TrimEnd(' ', '.');
+        if (cleaned.Length == 0 || cleaned is "." or "..")
+            return "_";
+        return cleaned;
+    }
+
+    internal static string SanitizeLocalRelativePath(string relative)
+    {
+        var parts = relative.Split('/', StringSplitOptions.RemoveEmptyEntries)
+            .Select(SanitizeLocalFileName);
+        return string.Join(Path.DirectorySeparatorChar, parts);
+    }
 
     internal static string CombineRemote(string directory, string name) =>
         directory == "/" ? "/" + name : directory.TrimEnd('/') + "/" + name;

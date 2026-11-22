@@ -16,7 +16,7 @@ dotnet build --configuration Release "%~dp0JeekRemoteManager\JeekRemoteManager.c
 if errorlevel 1 (
     echo.
     echo Build FAILED.
-    pause
+    echo %cmdcmdline% | find /i "/c" >nul && pause
     exit /b 1
 )
 

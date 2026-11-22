@@ -56,6 +56,10 @@ jobs:
             - name: Smoke test
               run: dotnet run --project Tests\SmokeTest\SmokeTest.csproj -c Release -p:Version=${{ steps.ver.outputs.count }}
 
+            - name: Install copy test
+              shell: pwsh
+              run: pwsh -NoProfile -File Tests\InstallCopyTest.ps1
+
             - name: Zip files
               shell: pwsh
               run: |

@@ -42,66 +42,89 @@ public class FinalShellImporter
         var skipped = 0;
         var folders = 0;
 
-        foreach (var groupDir in Directory.GetDirectories(finalShellConnRoot))
+        ImportDirectory(finalShellConnRoot, _store.RootPath, isRoot: true, ref imported, ref skipped, ref folders);
+
+        return new ImportResult(imported, skipped, folders);
+    }
+
+    private void ImportDirectory(
+        string sourceDir,
+        string targetParent,
+        bool isRoot,
+        ref int imported,
+        ref int skipped,
+        ref int folders)
+    {
+        var targetFolder = targetParent;
+        if (!isRoot)
         {
-            var folderJsonPath = Path.Combine(groupDir, "folder.json");
-            if (!File.Exists(folderJsonPath))
-                continue;
+            var folderJsonPath = Path.Combine(sourceDir, "folder.json");
+            var hasSubItems = File.Exists(folderJsonPath)
+                              || Directory.EnumerateFiles(sourceDir, "*_connect_config.json", SearchOption.AllDirectories).Any();
+            if (!hasSubItems)
+                return;
 
-            string groupName;
-            try
-            {
-                var folderInfo = JsonSerializer.Deserialize<FinalShellFolder>(
-                    File.ReadAllText(folderJsonPath));
-                groupName = string.IsNullOrWhiteSpace(folderInfo?.Name)
-                    ? Path.GetFileName(groupDir)
-                    : folderInfo!.Name!;
-            }
-            catch
-            {
-                groupName = Path.GetFileName(groupDir);
-            }
-
+            var groupName = ReadGroupName(sourceDir, folderJsonPath);
             // Merge into an existing folder with the same name; otherwise create.
-            var targetFolder = Path.Combine(_store.RootPath, ConnectionStore.SanitizeName(groupName));
+            targetFolder = Path.Combine(targetParent, ConnectionStore.SanitizeName(groupName));
             if (!Directory.Exists(targetFolder))
             {
-                targetFolder = _store.CreateFolder(_store.RootPath, groupName);
+                targetFolder = _store.CreateFolder(targetParent, groupName);
                 folders++;
-            }
-
-            foreach (var file in Directory.GetFiles(groupDir, "*_connect_config.json"))
-            {
-                FinalShellConnection? raw;
-                try
-                {
-                    raw = JsonSerializer.Deserialize<FinalShellConnection>(File.ReadAllText(file));
-                }
-                catch
-                {
-                    skipped++;
-                    continue;
-                }
-
-                if (raw is null)
-                {
-                    skipped++;
-                    continue;
-                }
-
-                var connection = MapToConnection(raw);
-                if (connection is null)
-                {
-                    skipped++;
-                    continue;
-                }
-
-                _store.Save(connection, targetFolder);
-                imported++;
             }
         }
 
-        return new ImportResult(imported, skipped, folders);
+        foreach (var file in Directory.GetFiles(sourceDir, "*_connect_config.json"))
+        {
+            FinalShellConnection? raw;
+            try
+            {
+                raw = JsonSerializer.Deserialize<FinalShellConnection>(File.ReadAllText(file));
+            }
+            catch
+            {
+                skipped++;
+                continue;
+            }
+
+            if (raw is null)
+            {
+                skipped++;
+                continue;
+            }
+
+            var connection = MapToConnection(raw);
+            if (connection is null)
+            {
+                skipped++;
+                continue;
+            }
+
+            _store.Save(connection, targetFolder);
+            imported++;
+        }
+
+        foreach (var childDir in Directory.GetDirectories(sourceDir))
+            ImportDirectory(childDir, targetFolder, isRoot: false, ref imported, ref skipped, ref folders);
+    }
+
+    private static string ReadGroupName(string groupDir, string folderJsonPath)
+    {
+        if (!File.Exists(folderJsonPath))
+            return Path.GetFileName(groupDir);
+
+        try
+        {
+            var folderInfo = JsonSerializer.Deserialize<FinalShellFolder>(
+                File.ReadAllText(folderJsonPath));
+            return string.IsNullOrWhiteSpace(folderInfo?.Name)
+                ? Path.GetFileName(groupDir)
+                : folderInfo.Name;
+        }
+        catch
+        {
+            return Path.GetFileName(groupDir);
+        }
     }
 
     private static Connection? MapToConnection(FinalShellConnection raw)

@@ -506,12 +506,14 @@ public sealed class BastionSessionPool : IDisposable
     private static string BuildTransportKey(Connection connection)
     {
         var key = BuildKey(connection);
-        if (!IsDirectMfa(connection, connection.EffectiveLoginCommands))
-            return key;
-
-        // Direct logins encode the destination in the SSH identity. The new shell
-        // inherits the transport's jump path and port forwarding as well.
-        var material = $"direct\n{key}\n{connection.SshMfaProfileId}\n{connection.JumpHostConnectionId.Trim()}\n{connection.PortForwards.Trim()}";
+        var jump = connection.JumpHostConnectionId.Trim();
+        var forwards = connection.PortForwards.Trim();
+        // Both direct MFA and structured reuse share the SSH transport's jump path and
+        // port forwards, so distinct jump/forward topologies must never share one pool entry.
+        var kind = IsDirectMfa(connection, connection.EffectiveLoginCommands)
+            ? $"direct\n{connection.SshMfaProfileId}"
+            : "structured";
+        var material = $"{kind}\n{key}\n{jump}\n{forwards}";
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material)));
     }
 

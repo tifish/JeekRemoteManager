@@ -27,6 +27,7 @@ public sealed class TerminalSessionOutputBuffer
     private int _pendingPacketCount;
     private int _pendingByteCount;
     private long _droppedByteCount;
+    private int? _droppedGeneration;
 
     public int PendingPacketCount
     {
@@ -67,13 +68,18 @@ public sealed class TerminalSessionOutputBuffer
 
         lock (_gate)
         {
+            if (_droppedGeneration is { } droppedGen && droppedGen != generation)
+            {
+                _droppedByteCount = 0;
+                _droppedGeneration = null;
+            }
             if (_pending.Count == 0 || _pending[^1].Generation != generation)
                 _pending.Add(new PendingChunk(generation));
             _pending[^1].Buffer.Write(data);
             _pending[^1].PacketCount++;
             _pendingPacketCount++;
             _pendingByteCount += data.Length;
-            TrimToCapacityLocked();
+            TrimToCapacityLocked(generation);
             if (_drainScheduled)
                 return false;
 
@@ -87,7 +93,7 @@ public sealed class TerminalSessionOutputBuffer
     /// the ones the user is waiting to see. Whole chunks from earlier generations go
     /// first (a drain would discard those anyway), then the head of the newest chunk.
     /// </summary>
-    private void TrimToCapacityLocked()
+    private void TrimToCapacityLocked(int currentGeneration)
     {
         if (_pendingByteCount <= MaxPendingBytes)
             return;
@@ -98,7 +104,11 @@ public sealed class TerminalSessionOutputBuffer
             _pending.RemoveAt(0);
             _pendingByteCount -= oldest.Buffer.WrittenCount;
             _pendingPacketCount -= oldest.PacketCount;
-            _droppedByteCount += oldest.Buffer.WrittenCount;
+            if (oldest.Generation == currentGeneration)
+            {
+                _droppedByteCount += oldest.Buffer.WrittenCount;
+                _droppedGeneration = currentGeneration;
+            }
         }
 
         if (_pendingByteCount <= MaxPendingBytes)
@@ -117,7 +127,11 @@ public sealed class TerminalSessionOutputBuffer
         replacement.PacketCount = 1;
         _pendingPacketCount -= crowded.PacketCount - 1;
         _pending[0] = replacement;
-        _droppedByteCount += _pendingByteCount - keep;
+        if (crowded.Generation == currentGeneration)
+        {
+            _droppedByteCount += _pendingByteCount - keep;
+            _droppedGeneration = currentGeneration;
+        }
         _pendingByteCount = keep;
     }
 
@@ -171,6 +185,7 @@ public sealed class TerminalSessionOutputBuffer
         {
             var dropped = _droppedByteCount;
             _droppedByteCount = 0;
+            _droppedGeneration = null;
             return dropped;
         }
     }
@@ -183,6 +198,7 @@ public sealed class TerminalSessionOutputBuffer
             _pendingPacketCount = 0;
             _pendingByteCount = 0;
             _droppedByteCount = 0;
+            _droppedGeneration = null;
             _drainScheduled = false;
         }
     }

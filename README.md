@@ -10,10 +10,12 @@ Built with .NET 10 and Avalonia. Windows only.
 
 - Manage SSH, RDP, and VNC connections in a folder tree
 - VNC opens in the TigerVNC viewer (installed through winget on first use), optionally through an SSH tunnel
-- Built-in SSH terminal with tabs, drag-to-reorder, and ZMODEM (rz/sz) file transfer
-- Shared SSH MFA profiles with Google Authenticator QR import and automatic TOTP entry for connections that select a profile
+- Built-in SSH terminal with tabs, drag-to-reorder, session logging, and ZMODEM (rz/sz) file transfer
+- SSH jump hosts, local/remote/dynamic port forwarding, and managed background loopback port forwards
+- Bastion login templates with automatic session reuse and shared SSH MFA profiles (Google Authenticator QR import and automatic TOTP entry)
+- Built-in live server monitor panel (CPU, memory, disk, network) over SSH
 - Integrated AI agents: use Claude, Codex, Grok, GitHub Copilot, OpenCode, Pi, OMP, Cursor CLI, or Antigravity to operate the current SSH terminal, or use the global AI Agent to manage the application and work across multiple connections; Copilot also supports its desktop app, and generated workspaces open in VS Code, Cursor, Zed, or Antigravity IDE
-- SFTP file browser for remote hosts
+- SFTP file browser with remote editing for remote hosts
 - WSL support: open terminals and browse files in local WSL distros
 - Remote scripts: define reusable scripts with parameters and run them on connections
 - Import connections from FinalShell, SecureCRT, and Xshell

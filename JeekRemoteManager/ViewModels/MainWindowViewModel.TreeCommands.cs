@@ -628,6 +628,7 @@ public partial class MainWindowViewModel
         try
         {
             var newPath = RenameNode(node, newName);
+            UpdateRecentPathsAfterMove(oldPath, newPath, node.IsFolder);
 
             DetachEditorIfEditingPath(oldPath);
             ReloadTree(newPath, requestFocus);
@@ -784,6 +785,7 @@ public partial class MainWindowViewModel
                 newPaths.Add(newPath);
                 if (_clipboardIsCut)
                 {
+                    UpdateRecentPathsAfterMove(entry.Path, newPath, entry.IsFolder);
                     DetachEditorIfEditingPath(entry.Path);
                     movedEntries.Add(entry);
                 }
@@ -875,6 +877,7 @@ public partial class MainWindowViewModel
 
                 // A pending copy/cut whose source just moved now points at a stale path.
                 RemoveClipboardEntriesUnder(source);
+                UpdateRecentPathsAfterMove(source, newPath, node.IsFolder);
 
                 DetachEditorIfEditingPath(source);
                 movedPaths.Add(newPath);
@@ -901,6 +904,43 @@ public partial class MainWindowViewModel
             : movedPaths.Count == 1
                 ? L("StatusMoved")
                 : L("StatusMovedMultiple", movedPaths.Count);
+    }
+
+    private void UpdateRecentPathsAfterMove(string oldPath, string newPath, bool isFolder)
+    {
+        var list = _settings.Settings.RecentConnectionPaths;
+        if (list.Count == 0 || string.Equals(oldPath, newPath, StringComparison.Ordinal))
+            return;
+
+        var normalizedOld = Path.GetFullPath(oldPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var normalizedNew = Path.GetFullPath(newPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var oldPrefix = normalizedOld + Path.DirectorySeparatorChar;
+        var changed = false;
+
+        for (var i = 0; i < list.Count; i++)
+        {
+            var entry = list[i];
+            if (!isFolder)
+            {
+                if (PathEquals(entry, normalizedOld))
+                {
+                    list[i] = normalizedNew;
+                    changed = true;
+                }
+            }
+            else
+            {
+                var normalizedEntry = Path.GetFullPath(entry).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (normalizedEntry.StartsWith(oldPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    list[i] = normalizedNew + normalizedEntry[normalizedOld.Length..];
+                    changed = true;
+                }
+            }
+        }
+
+        if (changed)
+            _settings.SaveIfChanged();
     }
 
     private void RequestTreeFocus(TreeNodeViewModel? node)

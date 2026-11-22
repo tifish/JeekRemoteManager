@@ -23,6 +23,7 @@ fi
 
 backup_and_remove_config() {
     config_file=/etc/sing-box/config.json
+    link_info_file=/etc/sing-box/jeekremote-reality-link.conf
 
     if [ -f "$config_file" ]; then
         backup_file="/root/sing-box-config-backup-before-uninstall-$(date +%Y%m%d-%H%M%S).json"
@@ -33,6 +34,7 @@ backup_and_remove_config() {
         printf 'sing-box config not found: %s\n' "$config_file"
     fi
 
+    rm -f "$link_info_file"
     rmdir /etc/sing-box 2>/dev/null || true
 }
 

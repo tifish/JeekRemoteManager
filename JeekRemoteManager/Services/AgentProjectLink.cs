@@ -519,9 +519,11 @@ public static class AgentProjectLink
         string serverName,
         JsonObject entry)
     {
-        var root = ParseJsonObject(path) ?? new JsonObject();
+        var root = ParseJsonObject(path, throwOnMalformed: true) ?? new JsonObject();
         if (root[target.JsonRootKey!] is not JsonObject servers)
         {
+            if (root[target.JsonRootKey!] is not null)
+                throw new InvalidOperationException($"Existing config '{path}' has a non-object '{target.JsonRootKey}' property.");
             servers = new JsonObject();
             root[target.JsonRootKey!] = servers;
         }
@@ -559,24 +561,30 @@ public static class AgentProjectLink
         WriteJson(path, root);
     }
 
-    private static JsonObject? ParseJsonObject(string path)
+    private static JsonObject? ParseJsonObject(string path, bool throwOnMalformed = false)
     {
         if (!File.Exists(path))
             return null;
 
         try
         {
-            return JsonNode.Parse(
+            var node = JsonNode.Parse(
                 File.ReadAllText(path),
                 documentOptions: new JsonDocumentOptions
                 {
                     CommentHandling = JsonCommentHandling.Skip,
                     AllowTrailingCommas = true,
-                }) as JsonObject;
+                });
+            if (node is JsonObject obj)
+                return obj;
+            if (throwOnMalformed)
+                throw new InvalidOperationException($"Existing config '{path}' does not contain a JSON object.");
+            return null;
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
-            // Unreadable project config: start from scratch rather than failing the link.
+            if (throwOnMalformed)
+                throw new InvalidOperationException($"Existing config '{path}' is not valid JSON: {ex.Message}", ex);
             return null;
         }
     }
@@ -669,7 +677,9 @@ public static class AgentProjectLink
             return (-1, -1);
 
         var endIndex = text.IndexOf(end, start, StringComparison.Ordinal);
-        var stop = endIndex < 0 ? text.Length : endIndex + end.Length;
+        if (endIndex < 0)
+            throw new InvalidOperationException($"Found '{begin}' without matching '{end}'. Refusing to modify the file.");
+        var stop = endIndex + end.Length;
 
         // Swallow the single line break that terminated the block, not following blank lines.
         if (stop < text.Length && text[stop] == '\r')

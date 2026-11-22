@@ -14,7 +14,7 @@ dotnet build "%~dp0JeekRemoteManager\JeekRemoteManager.csproj" -c %CONFIG%
 if errorlevel 1 (
     echo.
     echo Build FAILED.
-    pause
+    echo %cmdcmdline% | find /i "/c" >nul && pause
     exit /b 1
 )
 

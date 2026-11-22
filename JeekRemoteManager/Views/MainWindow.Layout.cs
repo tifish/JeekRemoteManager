@@ -95,19 +95,23 @@ public partial class MainWindow
         _ignoreWindowSizeChange = true;
         try
         {
-            var size = ClampWindowSizeToCurrentScreen(width, height);
-            Width = size.Width;
-            Height = size.Height;
-
             // Restore the last position only when a grabbable part of the title
             // bar still lands on a live screen; otherwise keep CenterScreen so a
             // window saved on a since-removed monitor stays reachable.
+            PixelPoint? restoredPosition = null;
             if (vm.TryGetSavedMainWindowPosition(out var x, out var y)
                 && IsPositionOnAnyScreen(x, y))
             {
+                restoredPosition = new PixelPoint(x, y);
                 WindowStartupLocation = WindowStartupLocation.Manual;
-                Position = new PixelPoint(x, y);
+                Position = restoredPosition.Value;
             }
+
+            // Clamp against the target monitor rather than the primary monitor, so a
+            // window saved on a larger secondary display is not shrunk on startup.
+            var size = ClampWindowSizeToCurrentScreen(width, height, restoredPosition);
+            Width = size.Width;
+            Height = size.Height;
 
             // Set after normal bounds so un-maximizing returns to them.
             if (vm.MainWindowMaximized)
@@ -271,14 +275,14 @@ public partial class MainWindow
         return false;
     }
 
-    private Size ClampWindowSizeToCurrentScreen(double width, double height)
+    private Size ClampWindowSizeToCurrentScreen(double width, double height, PixelPoint? targetPosition = null)
     {
         if (!double.IsFinite(width) || width <= 0)
             width = Width;
         if (!double.IsFinite(height) || height <= 0)
             height = Height;
 
-        if (TryGetCurrentScreenWorkingSize(out var workingSize))
+        if (TryGetCurrentScreenWorkingSize(out var workingSize, targetPosition))
         {
             MinWidth = Math.Min(_defaultMinWidth, workingSize.Width);
             MinHeight = Math.Min(_defaultMinHeight, workingSize.Height);
@@ -291,11 +295,13 @@ public partial class MainWindow
         return new Size(width, height);
     }
 
-    private bool TryGetCurrentScreenWorkingSize(out Size workingSize)
+    private bool TryGetCurrentScreenWorkingSize(out Size workingSize, PixelPoint? targetPosition = null)
     {
         workingSize = default;
 
-        var screen = Screens.ScreenFromWindow(this) ?? Screens.Primary;
+        var screen = (targetPosition is { } point ? Screens.ScreenFromPoint(point) : null)
+                     ?? Screens.ScreenFromWindow(this)
+                     ?? Screens.Primary;
         if (screen is null)
             return false;
 

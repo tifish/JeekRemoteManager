@@ -164,6 +164,9 @@ public static class PublicKeyInstaller
         "if grep -qxF \"$KEY\" \"$HOME/.ssh/authorized_keys\" 2>/dev/null; then\n" +
         "  printf '%s\\n' " + ShellQuote(alreadyPresentLine) + "\n" +
         "else\n" +
+        "  if [ -s \"$HOME/.ssh/authorized_keys\" ] && [ -n \"$(tail -c 1 \"$HOME/.ssh/authorized_keys\" 2>/dev/null || true)\" ]; then\n" +
+        "    printf '\\n' >> \"$HOME/.ssh/authorized_keys\"\n" +
+        "  fi\n" +
         "  printf '%s\\n' \"$KEY\" >> \"$HOME/.ssh/authorized_keys\"\n" +
         "  printf '%s\\n' " + ShellQuote(addedLine) + "\n" +
         "fi\n" +

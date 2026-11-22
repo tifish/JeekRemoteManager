@@ -213,16 +213,24 @@ public partial class MainWindow
             return;
 
         var selectedItem = RightTabs.SelectedItem;
-        RightTabs.Items.Remove(tab);
-        terminalTabs.Remove(tab);
+        _suppressTabSelectionChanged = true;
+        try
+        {
+            RightTabs.Items.Remove(tab);
+            terminalTabs.Remove(tab);
 
-        var insertIndex = position >= terminalTabs.Count
-            ? terminalTabs.Count == 0
-                ? FirstTerminalTabIndex()
-                : RightTabs.Items.IndexOf(terminalTabs[^1]) + 1
-            : RightTabs.Items.IndexOf(terminalTabs[position]);
-        RightTabs.Items.Insert(insertIndex, tab);
-        RightTabs.SelectedItem = selectedItem;
+            var insertIndex = position >= terminalTabs.Count
+                ? terminalTabs.Count == 0
+                    ? FirstTerminalTabIndex()
+                    : RightTabs.Items.IndexOf(terminalTabs[^1]) + 1
+                : RightTabs.Items.IndexOf(terminalTabs[position]);
+            RightTabs.Items.Insert(insertIndex, tab);
+            RightTabs.SelectedItem = selectedItem;
+        }
+        finally
+        {
+            _suppressTabSelectionChanged = false;
+        }
     }
 
     private void ActivateWindow()
@@ -1019,9 +1027,17 @@ public partial class MainWindow
             return;
 
         var selectedItem = RightTabs.SelectedItem;
-        RightTabs.Items.RemoveAt(currentIndex);
-        RightTabs.Items.Insert(insertIndex, dragged);
-        RightTabs.SelectedItem = selectedItem;
+        _suppressTabSelectionChanged = true;
+        try
+        {
+            RightTabs.Items.RemoveAt(currentIndex);
+            RightTabs.Items.Insert(insertIndex, dragged);
+            RightTabs.SelectedItem = selectedItem;
+        }
+        finally
+        {
+            _suppressTabSelectionChanged = false;
+        }
     }
 
     private int GetTerminalTabInsertionIndex(Point pointerPosition, TabItem dragged)
@@ -1320,6 +1336,9 @@ public partial class MainWindow
     // focus in that tab (the shell, file browser, AI panel, etc.).
     private void OnRightTabsSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
+        if (_suppressTabSelectionChanged)
+            return;
+
         // SelectionChanged bubbles: a selection change in any list INSIDE a tab
         // (e.g. the file browser's list) reaches this handler too, and refocusing
         // the terminal for those would yank keyboard focus out of that list.
@@ -1332,9 +1351,13 @@ public partial class MainWindow
         // (the TabControl auto-selects the first tab) before the field is assigned.
         var view = (sender as TabControl)?.SelectedItem is TabItem { Content: TerminalView v } ? v : null;
 
-        // The font-size buttons are only relevant while a terminal tab is active.
+        // The font-size buttons are only relevant while a terminal tab is active;
+        // monitor and copy-public-key only apply to SSH sessions.
         if (DataContext is MainWindowViewModel vm)
+        {
             vm.IsTerminalActive = view is not null;
+            vm.IsSshTerminalActive = view?.Connection?.IsSsh == true;
+        }
 
         if (ReferenceEquals((sender as TabControl)?.SelectedItem, GlobalAgentTab))
         {

@@ -101,13 +101,10 @@
     Before overwriting, rename any existing exe (Windows allows renaming a running image). That
     way a leftover side-by-side MCP process cannot fail the main project build.
   -->
-  <Target
-    Name="PublishJeekRemoteManagerMcpAfterBuild"
-    AfterTargets="Build"
-    Condition="'$(DesignTimeBuild)' != 'true' and '$(PublishDir)' == '$(OutDir)'">
+  <Target Name="_PublishJeekRemoteManagerMcp">
     <PropertyGroup>
-      <JeekRemoteManagerMcpBuildDir>$([System.IO.Path]::GetFullPath('$(OutDir)', '$(MSBuildProjectDirectory)'))</JeekRemoteManagerMcpBuildDir>
-      <_McpUnlockExe>$([System.IO.Path]::Combine('$(JeekRemoteManagerMcpBuildDir)', 'JeekRemoteManagerMcp.exe'))</_McpUnlockExe>
+      <_McpTargetDir>$([System.IO.Path]::GetFullPath('$(_McpPublishTargetDir)', '$(MSBuildProjectDirectory)'))</_McpTargetDir>
+      <_McpUnlockExe>$([System.IO.Path]::Combine('$(_McpTargetDir)', 'JeekRemoteManagerMcp.exe'))</_McpUnlockExe>
       <_McpUnlockStamp>$([System.DateTime]::UtcNow.ToString('yyyyMMddHHmmssfff'))</_McpUnlockStamp>
     </PropertyGroup>
     <Exec
@@ -117,38 +114,33 @@
       StandardOutputImportance="low"
       StandardErrorImportance="low" />
     <ItemGroup>
-      <_McpUnlockOld Include="$(JeekRemoteManagerMcpBuildDir)\JeekRemoteManagerMcp.exe.*.old" />
+      <_McpUnlockOld Include="$(_McpTargetDir)\JeekRemoteManagerMcp.exe.*.old" />
     </ItemGroup>
     <Delete Files="@(_McpUnlockOld)" TreatErrorsAsWarnings="true" ContinueOnError="true" />
     <MSBuild
       Projects="..\Tools\JeekRemoteManagerMcp\JeekRemoteManagerMcp.csproj"
       Targets="Restore;Publish"
-      Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishSingleFile=true;PublishDir=$(JeekRemoteManagerMcpBuildDir)" />
+      Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishSingleFile=true;PublishDir=$(_McpTargetDir)" />
+  </Target>
+
+  <Target
+    Name="PublishJeekRemoteManagerMcpAfterBuild"
+    AfterTargets="Build"
+    Condition="'$(DesignTimeBuild)' != 'true' and '$(PublishDir)' == '$(OutDir)'">
+    <MSBuild
+      Projects="$(MSBuildProjectFullPath)"
+      Targets="_PublishJeekRemoteManagerMcp"
+      Properties="_McpPublishTargetDir=$(OutDir);Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained)" />
   </Target>
 
   <Target
     Name="PublishJeekRemoteManagerMcpAfterPublish"
     AfterTargets="Publish"
     Condition="'$(DesignTimeBuild)' != 'true' and '$(PublishDir)' != '$(OutDir)'">
-    <PropertyGroup>
-      <JeekRemoteManagerMcpPublishDir>$([System.IO.Path]::GetFullPath('$(PublishDir)', '$(MSBuildProjectDirectory)'))</JeekRemoteManagerMcpPublishDir>
-      <_McpUnlockExe>$([System.IO.Path]::Combine('$(JeekRemoteManagerMcpPublishDir)', 'JeekRemoteManagerMcp.exe'))</_McpUnlockExe>
-      <_McpUnlockStamp>$([System.DateTime]::UtcNow.ToString('yyyyMMddHHmmssfff'))</_McpUnlockStamp>
-    </PropertyGroup>
-    <Exec
-      Condition="Exists('$(_McpUnlockExe)')"
-      Command="move /Y &quot;$(_McpUnlockExe)&quot; &quot;$(_McpUnlockExe).$(_McpUnlockStamp).old&quot;"
-      IgnoreExitCode="true"
-      StandardOutputImportance="low"
-      StandardErrorImportance="low" />
-    <ItemGroup>
-      <_McpUnlockOld Include="$(JeekRemoteManagerMcpPublishDir)\JeekRemoteManagerMcp.exe.*.old" />
-    </ItemGroup>
-    <Delete Files="@(_McpUnlockOld)" TreatErrorsAsWarnings="true" ContinueOnError="true" />
     <MSBuild
-      Projects="..\Tools\JeekRemoteManagerMcp\JeekRemoteManagerMcp.csproj"
-      Targets="Restore;Publish"
-      Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained);PublishSingleFile=true;PublishDir=$(JeekRemoteManagerMcpPublishDir)" />
+      Projects="$(MSBuildProjectFullPath)"
+      Targets="_PublishJeekRemoteManagerMcp"
+      Properties="_McpPublishTargetDir=$(PublishDir);Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=$(SelfContained)" />
   </Target>
 
 </Project>

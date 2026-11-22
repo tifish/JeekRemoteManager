@@ -228,7 +228,7 @@ parse_server_link() {
     esac
 
     case "$transport_type" in
-        ""|tcp)
+        ""|tcp|raw)
             transport_type=tcp
             ;;
         *)

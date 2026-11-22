@@ -249,4 +249,148 @@ public sealed class AuditRegressionTests
             host.Stop();
         }
     }
+
+    [Fact]
+    public void TerminalSessionOutputBuffer_isolates_dropped_bytes_across_generations()
+    {
+        var buffer = new TerminalSessionOutputBuffer();
+        var chunk = new byte[1024 * 1024];
+        // Flood generation 1 past MaxPendingBytes.
+        for (var i = 0; i < 20; i++)
+            buffer.Append(chunk, generation: 1);
+        Assert.True(buffer.DroppedByteCount > 0);
+
+        // Moving to generation 2 clears stale generation-1 dropped telemetry and does not
+        // count dropped generation-1 chunks as generation-2 loss.
+        buffer.Append(chunk, generation: 2);
+        Assert.Equal(0, buffer.TakeDroppedByteCount());
+    }
+
+    [Fact]
+    public void AgentProjectLink_rejects_malformed_json_and_unterminated_markdown_block()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "jrm-audit-link-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var mcpPath = Path.Combine(dir, ".mcp.json");
+            File.WriteAllText(mcpPath, "{ broken json");
+            Assert.Throws<InvalidOperationException>(() =>
+                AgentProjectLink.WriteApplicationInto(dir, [".mcp.json"]));
+            Assert.Equal("{ broken json", File.ReadAllText(mcpPath));
+
+            File.Delete(mcpPath);
+            var agentsPath = Path.Combine(dir, "AGENTS.md");
+            var brokenMarkdown = "Header\n<!-- BEGIN JeekRemoteManager link: application -->\nUser tail that must survive\n";
+            File.WriteAllText(agentsPath, brokenMarkdown);
+            Assert.Throws<InvalidOperationException>(() =>
+                AgentProjectLink.WriteApplicationInto(dir, [".mcp.json"]));
+            Assert.Equal(brokenMarkdown, File.ReadAllText(agentsPath));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void PublicKeyInstaller_ensures_trailing_newline_before_appending()
+    {
+        var payload = PublicKeyInstaller.BuildTerminalPayload("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITest user@host");
+        Assert.Contains("tail -c 1 \"$HOME/.ssh/authorized_keys\"", payload, StringComparison.Ordinal);
+        Assert.Contains("printf '\\n' >> \"$HOME/.ssh/authorized_keys\"", payload, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FinalShellImporter_recursively_imports_root_and_nested_folders()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "jrm-audit-fs-" + Guid.NewGuid().ToString("N"));
+        var connDir = Path.Combine(root, "finalshell");
+        var storeDir = Path.Combine(root, "store");
+        Directory.CreateDirectory(Path.Combine(connDir, "grp1", "sub1"));
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(connDir, "root_connect_config.json"),
+                """{"conection_type":100,"name":"RootBox","host":"10.0.0.1","port":22,"user_name":"root"}""");
+            File.WriteAllText(Path.Combine(connDir, "grp1", "folder.json"), """{"name":"Prod"}""");
+            File.WriteAllText(Path.Combine(connDir, "grp1", "sub1", "folder.json"), """{"name":"EU"}""");
+            File.WriteAllText(
+                Path.Combine(connDir, "grp1", "sub1", "eu_connect_config.json"),
+                """{"conection_type":100,"name":"EuBox","host":"10.0.0.2","port":22,"user_name":"ubuntu"}""");
+
+            var store = new ConnectionStore(storeDir);
+            var result = new FinalShellImporter(store).Import(connDir);
+            Assert.Equal(2, result.Imported);
+            Assert.Equal(2, result.Folders);
+            Assert.True(File.Exists(Path.Combine(storeDir, "RootBox" + ConnectionStore.FileExtension)));
+            Assert.True(File.Exists(Path.Combine(storeDir, "Prod", "EU", "EuBox" + ConnectionStore.FileExtension)));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void BastionLanding_detects_traditional_chinese_auth_prompts()
+    {
+        Assert.Equal(BastionLandingKind.AuthPrompt, BastionLanding.Classify("請輸入二次驗證碼：\n驗證碼："));
+        Assert.Equal(BastionLandingKind.AuthPrompt, BastionLanding.Classify("請輸入動態口令:"));
+        Assert.Equal(BastionLandingKind.AuthPrompt, BastionLanding.Classify("密碼："));
+    }
+
+    [Fact]
+    public void BastionLoginProfileStore_backs_up_corrupted_file_on_reload()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "jrm-audit-bastion-" + Guid.NewGuid().ToString("N"));
+        var connectionsDir = Path.Combine(root, "Connections");
+        Directory.CreateDirectory(connectionsDir);
+        try
+        {
+            var templatePath = Path.Combine(root, "bastion-login-templates.json");
+            File.WriteAllText(templatePath, "{ invalid json");
+
+            var store = new BastionLoginProfileStore(connectionsDir);
+            Assert.Empty(store.Profiles);
+            Assert.True(File.Exists(templatePath + ".bak"));
+            Assert.Equal("{ invalid json", File.ReadAllText(templatePath + ".bak"));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void FileBrowserViewModel_sanitizes_invalid_local_file_names()
+    {
+        Assert.Equal("a_b_c", FileBrowserViewModel.SanitizeLocalFileName("a:b*c"));
+        Assert.Equal("_", FileBrowserViewModel.SanitizeLocalFileName(".."));
+        Assert.Equal(
+            Path.Combine("dir_1", "file_name.txt"),
+            FileBrowserViewModel.SanitizeLocalRelativePath("dir:1/file?name.txt"));
+    }
+
+    [Fact]
+    public void SettingsService_normalizes_ide_run_mode_to_cli()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "jrm-audit-settings-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var machinePath = Path.Combine(root, "machine.json");
+            var roamingPath = Path.Combine(root, "roaming.json");
+            File.WriteAllText(machinePath, """{"AiRunMode":3,"AiGrokRunMode":3}""");
+            File.WriteAllText(roamingPath, "{}");
+
+            var service = new SettingsService(machinePath, roamingPath);
+            Assert.Equal(AgentCliRunMode.Cli, service.Settings.AiRunMode);
+            Assert.Equal(AgentCliRunMode.Cli, service.Settings.AiGrokRunMode);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 }

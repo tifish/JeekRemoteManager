@@ -40,6 +40,7 @@ public static class BastionLanding
     private static readonly string[] AuthPromptKeywords =
     [
         "二次验证",
+        "二次驗證",
         "verification code",
         "verify code",
         "one-time",
@@ -52,8 +53,11 @@ public static class BastionLanding
         "two factor",
         "2fa",
         "动态口令",
+        "動態口令",
         "动态码",
+        "動態碼",
         "验证码",
+        "驗證碼",
         "令牌",
         // Plain credential prompts count too: this bastion's second factor is just
         // "2nd Password:", which matches none of the words above.
@@ -62,6 +66,8 @@ public static class BastionLanding
         "passphrase",
         "密码：",
         "密码:",
+        "密碼：",
+        "密碼:",
     ];
 
     public static BastionLandingKind Classify(string output)

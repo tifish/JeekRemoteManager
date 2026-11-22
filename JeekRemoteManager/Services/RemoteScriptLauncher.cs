@@ -25,7 +25,12 @@ public class RemoteScriptLauncher
 
         foreach (var parameter in suite.Parameters)
         {
-            var value = ResolveValue(parameter, binding, out _);
+            var value = ResolveValue(parameter, binding, out var decryptFailed);
+            if (decryptFailed)
+            {
+                throw new InvalidOperationException(
+                    $"Secret parameter '{parameter.Name}' cannot be decrypted with the current master password.");
+            }
             sb.Append("export ");
             sb.Append(parameter.Name);
             sb.Append('=');

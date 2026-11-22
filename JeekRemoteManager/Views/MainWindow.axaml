@@ -165,7 +165,7 @@
                     <Button x:Name="MonitorToolbarButton"
                             Click="OnMonitorToolbarClick"
                             ToolTip.Tip="{l:Localize ServerMonitorTooltip}"
-                            IsVisible="{Binding IsTerminalActive}"
+                            IsVisible="{Binding IsSshTerminalActive}"
                             Classes="toolbar">
                         <StackPanel Orientation="Horizontal" Spacing="7">
                             <TextBlock Classes="toolbar-action-icon monitor" Text="&#xE9D2;" />
@@ -202,9 +202,10 @@
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center" />
                     </Button>
-                    <Button Click="OnCopyPublicKeyTerminalToolbarClick"
+                    <Button x:Name="CopyPublicKeyToolbarButton"
+                            Click="OnCopyPublicKeyTerminalToolbarClick"
                             ToolTip.Tip="{l:Localize CopyPublicKeyToServerTooltip}"
-                            IsVisible="{Binding IsTerminalActive}"
+                            IsVisible="{Binding IsSshTerminalActive}"
                             Classes="toolbar icon-button">
                         <TextBlock Classes="toolbar-action-icon key"
                                    Text="&#xE8D7;"
@@ -939,7 +940,7 @@
                                             IsVisible="{Binding IsWsl}">
                                         <StackPanel Spacing="12">
                                             <TextBlock Classes="section-title" Text="{l:Localize WslOptions}" />
-                                            <Grid ColumnDefinitions="128,*" RowDefinitions="Auto,Auto" RowSpacing="10">
+                                            <Grid ColumnDefinitions="128,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10">
                                                 <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="{l:Localize WslStartDirectory}" />
                                                 <TextBox Grid.Row="0" Grid.Column="1"
                                                          Text="{Binding WslStartDirectory, Mode=TwoWay}"
@@ -951,7 +952,15 @@
                                                          Grid.Row="1" Grid.Column="1"
                                                          Text="{Binding LoginCommands, Mode=TwoWay}"
                                                          AcceptsReturn="True" TextWrapping="NoWrap" MinHeight="82"
+                                                         LostFocus="OnLoginCommandsLostFocus"
                                                          PlaceholderText="{l:Localize LoginCommandsWatermark}" />
+
+                                                <TextBlock x:Name="WslLoginCommandsValidationMessage"
+                                                           Grid.Row="2" Grid.Column="1"
+                                                           Text="{Binding LoginCommandsValidationMessage}"
+                                                           IsVisible="{Binding HasLoginCommandsValidationMessage}"
+                                                           TextWrapping="Wrap"
+                                                           Foreground="{DynamicResource WarningBrush}" FontSize="11" />
                                             </Grid>
                                         </StackPanel>
                                     </Border>

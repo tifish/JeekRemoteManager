@@ -102,14 +102,22 @@ finally
 
 async Task HandleAsync(JsonNode message)
 {
-    var envelope = message as JsonObject;
-    var method = envelope?["method"]?.GetValue<string>();
-    var id = envelope?["id"]?.DeepClone();
+    if (message is not JsonObject envelope)
+    {
+        var error = message is JsonArray
+            ? "Invalid Request: JSON-RPC batch requests are not supported."
+            : "Invalid Request: expected a JSON-RPC object.";
+        await WriteStdoutAsync(AdapterText.RpcError(null, -32600, error).ToJsonString()).ConfigureAwait(false);
+        return;
+    }
+
+    var method = envelope["method"]?.GetValue<string>();
+    var id = envelope["id"]?.DeepClone();
 
     // Only a real tool call is worth starting the GUI for: MCP clients open stdio servers
     // when a session begins, and popping a window on every session start would be rude.
     var mayLaunch = options.AutoLaunch && method == "tools/call";
-    if (envelope is not null && method == "tools/call")
+    if (method == "tools/call")
         ApplyDefaultArguments(envelope);
 
     string? response;

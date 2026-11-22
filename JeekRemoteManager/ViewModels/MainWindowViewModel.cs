@@ -610,9 +610,14 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>True when a terminal tab is the active right-pane tab. Drives the
-    /// visibility of the terminal font-size toolbar buttons.</summary>
+    /// visibility of the terminal toolbar buttons.</summary>
     [ObservableProperty]
     private bool _isTerminalActive;
+
+    /// <summary>True when an SSH terminal tab is active. Hides SSH-only toolbar buttons
+    /// (server monitor, copy public key) on local WSL tabs.</summary>
+    [ObservableProperty]
+    private bool _isSshTerminalActive;
 
     private const int TerminalFontMin = 8;
     private const int TerminalFontMax = 36;

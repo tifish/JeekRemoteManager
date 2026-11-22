@@ -49,6 +49,7 @@ public static class HostKeyDialog
         var tcs = new TaskCompletionSource<bool>();
 
         var replace = new Button { Content = Localizer.Get("HostKeyReplace"), MinWidth = 90 };
+        replace[!Button.ForegroundProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("DangerBrush");
         var reject = new Button
         {
             Content = Localizer.Get("HostKeyReject"),
@@ -56,7 +57,6 @@ public static class HostKeyDialog
             IsDefault = true,
             IsCancel = true,
         };
-        replace.Classes.Add("accent");
 
         var hint = new TextBlock
         {

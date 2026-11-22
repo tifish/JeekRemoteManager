@@ -629,6 +629,7 @@ public partial class MainWindowViewModel
                 throw new InvalidOperationException(L("MasterChangeUnreadablePasswords", unreadable));
 
             var mfaWrites = 0;
+            var writtenConnectionBackups = new List<(string File, byte[] OriginalBytes)>();
             try
             {
                 foreach (var profile in migratedMfaProfiles)
@@ -640,6 +641,7 @@ public partial class MainWindowViewModel
                 {
                     foreach (var item in pending)
                     {
+                        var originalBytes = File.ReadAllBytes(item.File);
                         if (item.ClearPassword is not null)
                             item.Connection.EncryptedPassword =
                                 MasterKeyService.EncryptWithPassword(newPassword, item.ClearPassword);
@@ -649,13 +651,26 @@ public partial class MainWindowViewModel
                         foreach (var (param, clear) in item.ScriptSecrets)
                             param.Value = MasterKeyService.EncryptWithPassword(newPassword, clear);
                         _store.SaveInPlace(item.Connection, item.File);
+                        writtenConnectionBackups.Add((item.File, originalBytes));
                     }
                 });
             }
             catch
             {
+                if (writtenConnectionBackups.Count > 0)
+                {
+                    _store.RunBatch(() =>
+                    {
+                        foreach (var (file, originalBytes) in writtenConnectionBackups)
+                        {
+                            try { File.WriteAllBytes(file, originalBytes); } catch { /* best-effort rollback */ }
+                        }
+                    });
+                }
                 foreach (var original in originalMfaProfiles.Take(mfaWrites))
-                    mfaStore.Write(original);
+                {
+                    try { mfaStore.Write(original); } catch { /* best-effort rollback */ }
+                }
                 throw;
             }
 

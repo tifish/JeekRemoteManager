@@ -69,6 +69,9 @@ internal sealed class BackgroundPortForwardWindow : Window
                 return null;
             var target = row.Target;
             var localPort = row.LocalPort > 0 ? row.LocalPort : target.RequestedLocalPort;
+            var stateText = Text(Localizer.Get(StateLabel(row)));
+            if (StateBrushKey(row) is { } brushKey)
+                stateText[!TextBlock.ForegroundProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension(brushKey);
             return Columns(
                 new StackPanel
                 {
@@ -84,7 +87,7 @@ internal sealed class BackgroundPortForwardWindow : Window
                 {
                     Children =
                     {
-                        Text(Localizer.Get(StateLabel(row))),
+                        stateText,
                         Text(Localizer.Get(row.IsManual ? "BackgroundForwardManual" : "BackgroundForwardMcp"), "hint"),
                     },
                 });
@@ -323,6 +326,22 @@ internal sealed class BackgroundPortForwardWindow : Window
     {
         _message.Text = key is null ? null : Localizer.Get(key);
         _message.IsVisible = key is not null;
+        var brushKey = key is null || key == "BackgroundForwardCopied"
+            ? "TextMutedBrush"
+            : "DangerBrush";
+        _message[!TextBlock.ForegroundProperty] =
+            new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension(brushKey);
+    }
+
+    private static string? StateBrushKey(BackgroundPortForwards.Overview row)
+    {
+        if (row.State == "ready")
+            return "SuccessBrush";
+        if (row.State == "failed" || row.Error is "local_port_unavailable" or "ssh_or_listener_disconnected")
+            return "DangerBrush";
+        if (row.Error is "host_key_requires_user" or "complete_authentication_in_jrm")
+            return "WarningBrush";
+        return null;
     }
 
     private static string StateLabel(BackgroundPortForwards.Overview row) => row.Error switch

@@ -51,6 +51,7 @@ public partial class MainWindow : Window
     private TabItem? _draggedTerminalTab;
     private Point _terminalTabDragStart;
     private bool _isTerminalTabDragging;
+    private bool _suppressTabSelectionChanged;
     private TreeNodeViewModel? _treeDragNode;
     private System.Collections.Generic.List<TreeNodeViewModel>? _treeDragNodes;
     private Point _treeDragStart;

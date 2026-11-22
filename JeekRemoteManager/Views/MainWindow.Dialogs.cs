@@ -211,11 +211,21 @@ public partial class MainWindow
             MinHeight = 560,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
         };
+        var errorBanner = new TextBlock
+        {
+            Name = "BastionTemplateErrorText",
+            TextWrapping = TextWrapping.Wrap,
+            IsVisible = false,
+        };
+        errorBanner[!TextBlock.ForegroundProperty] = new DynamicResourceExtension("DangerBrush");
+        foreach (var fragment in fragments)
+            fragment.TextChanged += (_, _) => errorBanner.IsVisible = false;
+
         var content = new Grid
         {
-            RowDefinitions = new RowDefinitions("*,Auto"),
+            RowDefinitions = new RowDefinitions("*,Auto,Auto"),
             Margin = new Thickness(22),
-            RowSpacing = 14,
+            RowSpacing = 12,
         };
         content.Children.Add(new ScrollViewer
         {
@@ -239,6 +249,8 @@ public partial class MainWindow
                 },
             },
         });
+        Grid.SetRow(errorBanner, 1);
+        content.Children.Add(errorBanner);
         var actions = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -246,9 +258,17 @@ public partial class MainWindow
             Spacing = 8,
             Children = { save, cancel },
         };
-        Grid.SetRow(actions, 1);
+        Grid.SetRow(actions, 2);
         content.Children.Add(actions);
         dialog.Content = content;
+
+        void ShowInlineError(string message)
+        {
+            errorBanner.Text = message;
+            errorBanner.IsVisible = true;
+            if (DataContext is MainWindowViewModel vm)
+                vm.StatusMessage = message;
+        }
 
         var requestConfirmation = confirmAsync ?? ((title, message) => ConfirmAsync(dialog, title, message));
         insertTypical.Click += async (_, _) =>
@@ -282,12 +302,9 @@ public partial class MainWindow
                 LoginCommandSequence.ContainsTemplateDirective);
             if (invalid >= 0)
             {
-                if (DataContext is MainWindowViewModel vm)
-                {
-                    vm.StatusMessage = string.Format(
-                        Localizer.Get("BastionTemplateInvalid"),
-                        $"#{invalid + 1}: #template");
-                }
+                ShowInlineError(string.Format(
+                    Localizer.Get("BastionTemplateInvalid"),
+                    $"#{invalid + 1}: #template"));
                 fragments[invalid].Focus();
                 return;
             }
@@ -298,12 +315,9 @@ public partial class MainWindow
                 if (errors.Count == 0)
                     continue;
 
-                if (DataContext is MainWindowViewModel vm)
-                {
-                    vm.StatusMessage = string.Format(
-                        Localizer.Get("BastionTemplateInvalid"),
-                        $"#{index + 1}: {errors[0]}");
-                }
+                ShowInlineError(string.Format(
+                    Localizer.Get("BastionTemplateInvalid"),
+                    $"#{index + 1}: {errors[0]}"));
                 fragments[index].Focus();
                 return;
             }

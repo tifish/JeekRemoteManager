@@ -150,34 +150,49 @@ public partial class FileBrowserView : UserControl
                 vm.DeleteSelectedCommand.Execute(null);
                 break;
             // The ListBox only scrolls the viewport for these; move the selection
-            // with them, like a file manager.
+            // with them, like a file manager. Shift extends the selection range.
             case Key.Home:
                 e.Handled = true;
-                MoveSelectionTo(0);
+                MoveSelectionTo(0, extend: e.KeyModifiers.HasFlag(KeyModifiers.Shift));
                 break;
             case Key.End:
                 e.Handled = true;
-                MoveSelectionTo(vm.Items.Count - 1);
+                MoveSelectionTo(vm.Items.Count - 1, extend: e.KeyModifiers.HasFlag(KeyModifiers.Shift));
                 break;
             case Key.PageUp:
                 e.Handled = true;
-                MoveSelectionTo(Math.Max(0, FileList.SelectedIndex) - VisibleRowCount());
+                MoveSelectionTo(
+                    Math.Max(0, FileList.SelectedIndex) - VisibleRowCount(),
+                    extend: e.KeyModifiers.HasFlag(KeyModifiers.Shift));
                 break;
             case Key.PageDown:
                 e.Handled = true;
-                MoveSelectionTo(Math.Max(0, FileList.SelectedIndex) + VisibleRowCount());
+                MoveSelectionTo(
+                    Math.Max(0, FileList.SelectedIndex) + VisibleRowCount(),
+                    extend: e.KeyModifiers.HasFlag(KeyModifiers.Shift));
                 break;
         }
     }
 
-    private void MoveSelectionTo(int index)
+    private void MoveSelectionTo(int index, bool extend = false)
     {
         var count = FileList.ItemCount;
         if (count == 0)
             return;
 
-        FileList.SelectedIndex = Math.Clamp(index, 0, count - 1);
-        FileList.ScrollIntoView(FileList.SelectedIndex);
+        var target = Math.Clamp(index, 0, count - 1);
+        if (extend)
+        {
+            var anchor = FileList.Selection.AnchorIndex >= 0
+                ? FileList.Selection.AnchorIndex
+                : Math.Max(0, FileList.SelectedIndex);
+            FileList.Selection.SelectRange(anchor, target);
+        }
+        else
+        {
+            FileList.SelectedIndex = target;
+        }
+        FileList.ScrollIntoView(target);
         KeepFocusInList();
     }
 

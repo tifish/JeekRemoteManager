@@ -66,8 +66,17 @@ public sealed class BastionLoginProfileStore
         }
         catch
         {
-            // A malformed external edit must not destroy connection files. Keep
-            // profiles unavailable until the file is corrected.
+            // A malformed external edit must not destroy connection files. Preserve a
+            // backup before a later Save rewrites the file, and keep profiles empty until fixed.
+            try
+            {
+                if (File.Exists(FilePath))
+                    File.Copy(FilePath, FilePath + ".bak", overwrite: true);
+            }
+            catch
+            {
+                // Best-effort backup.
+            }
         }
 
         lock (_gate)

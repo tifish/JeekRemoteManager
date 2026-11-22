@@ -368,10 +368,11 @@ public class SettingsService
         if (string.IsNullOrWhiteSpace(settings.LastMcpProjectDirectory))
             settings.LastMcpProjectDirectory = null;
         settings.LastMcpWrittenTargetPaths = NormalizeMcpWrittenTargetPaths(settings.LastMcpWrittenTargetPaths);
-        if (!Enum.IsDefined(settings.AiRunMode))
+        if (!Enum.IsDefined(settings.AiRunMode) || settings.AiRunMode == AgentCliRunMode.Ide)
             settings.AiRunMode = AgentCliRunMode.Cli;
-        // Grok has no Desktop protocol; never persist/restore Desktop for that slot.
-        if (!Enum.IsDefined(settings.AiGrokRunMode) || settings.AiGrokRunMode == AgentCliRunMode.Desktop)
+        // Grok has no Desktop protocol and Ide is single-mode only; never persist/restore either here.
+        if (!Enum.IsDefined(settings.AiGrokRunMode)
+            || settings.AiGrokRunMode is AgentCliRunMode.Desktop or AgentCliRunMode.Ide)
             settings.AiGrokRunMode = AgentCliRunMode.Cli;
     }
 
