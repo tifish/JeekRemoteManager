@@ -3,24 +3,26 @@
     <!-- Shared chrome palette used by MainWindow and every code-built dialog. -->
     <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Light">
-            <SolidColorBrush x:Key="AppBackgroundBrush" Color="#EEF2F6" />
-            <SolidColorBrush x:Key="ChromeSurfaceBrush" Color="#FBFCFE" />
+            <SolidColorBrush x:Key="AppBackgroundBrush" Color="#EDF1F6" />
+            <SolidColorBrush x:Key="ChromeSurfaceBrush" Color="#F9FBFD" />
             <SolidColorBrush x:Key="SurfaceBrush" Color="#FFFFFF" />
-            <SolidColorBrush x:Key="SurfaceAltBrush" Color="#F6F8FA" />
+            <SolidColorBrush x:Key="SurfaceAltBrush" Color="#F4F7FB" />
+            <SolidColorBrush x:Key="SubtleSurfaceBrush" Color="#EBF0F6" />
             <SolidColorBrush x:Key="InputBackgroundBrush" Color="#FFFFFF" />
             <SolidColorBrush x:Key="PopupSurfaceBrush" Color="#FFFFFF" />
-            <SolidColorBrush x:Key="PopupBorderBrush" Color="#B9C4D0" />
-            <SolidColorBrush x:Key="BorderBrushSoft" Color="#D4DCE5" />
-            <SolidColorBrush x:Key="BorderBrushStrong" Color="#AEBBC8" />
-            <SolidColorBrush x:Key="TextPrimaryBrush" Color="#17212B" />
-            <SolidColorBrush x:Key="TextMutedBrush" Color="#657385" />
+            <SolidColorBrush x:Key="PopupBorderBrush" Color="#C8D3E0" />
+            <SolidColorBrush x:Key="DividerBrush" Color="#E3EAF2" />
+            <SolidColorBrush x:Key="BorderBrushSoft" Color="#D5DFE9" />
+            <SolidColorBrush x:Key="BorderBrushStrong" Color="#ADBFD1" />
+            <SolidColorBrush x:Key="TextPrimaryBrush" Color="#141D26" />
+            <SolidColorBrush x:Key="TextMutedBrush" Color="#5F6F82" />
             <SolidColorBrush x:Key="AccentBrush" Color="#0F766E" />
-            <SolidColorBrush x:Key="AccentHoverBrush" Color="#0B5F59" />
-            <SolidColorBrush x:Key="AccentPressedBrush" Color="#084C47" />
-            <SolidColorBrush x:Key="AccentSoftBrush" Color="#DFF4EE" />
+            <SolidColorBrush x:Key="AccentHoverBrush" Color="#0C625B" />
+            <SolidColorBrush x:Key="AccentPressedBrush" Color="#094E48" />
+            <SolidColorBrush x:Key="AccentSoftBrush" Color="#DFF4F0" />
             <SolidColorBrush x:Key="AccentForegroundBrush" Color="#FFFFFF" />
-            <SolidColorBrush x:Key="FloatingActionBrush" Color="#E617212B" />
-            <SolidColorBrush x:Key="SshIconBackgroundBrush" Color="#DBEAFE" />
+            <SolidColorBrush x:Key="FloatingActionBrush" Color="#EB141D26" />
+            <SolidColorBrush x:Key="SshIconBackgroundBrush" Color="#E0EDFF" />
             <SolidColorBrush x:Key="SshIconBorderBrush" Color="#93C5FD" />
             <SolidColorBrush x:Key="SshIconBrush" Color="#1D4ED8" />
             <SolidColorBrush x:Key="ToolbarDuplicateIconBrush" Color="#2563EB" />
@@ -29,33 +31,51 @@
             <SolidColorBrush x:Key="ToolbarFileBrowserIconBrush" Color="#0284C7" />
             <SolidColorBrush x:Key="ToolbarMonitorIconBrush" Color="#7C3AED" />
             <SolidColorBrush x:Key="ToolbarKeyIconBrush" Color="#CA8A04" />
-            <SolidColorBrush x:Key="HoverBrush" Color="#EEF6F4" />
-            <SolidColorBrush x:Key="SelectedBrush" Color="#E6F4F1" />
-            <SolidColorBrush x:Key="SelectedBorderBrush" Color="#8CCFC3" />
+            <SolidColorBrush x:Key="HoverBrush" Color="#ECF5F3" />
+            <SolidColorBrush x:Key="SelectedBrush" Color="#E0F3EF" />
+            <SolidColorBrush x:Key="SelectedBorderBrush" Color="#65C0B3" />
             <SolidColorBrush x:Key="SuccessBrush" Color="#15803D" />
             <SolidColorBrush x:Key="WarningBrush" Color="#D97706" />
-            <SolidColorBrush x:Key="DangerBrush" Color="#C2410C" />
+            <SolidColorBrush x:Key="DangerBrush" Color="#DC2626" />
+            <SolidColorBrush x:Key="DangerSoftBrush" Color="#FEE2E2" />
+            <SolidColorBrush x:Key="ChartGridBrush" Color="#E2E9F1" />
+            <SolidColorBrush x:Key="NetDownloadAreaBrush" Color="#220F766E" />
+            <SolidColorBrush x:Key="NetUploadAreaBrush" Color="#22D97706" />
+
+            <!-- Harmonize Fluent scrollbar colors with the Light palette while keeping full track size. -->
+            <SolidColorBrush x:Key="ScrollBarTrackFill" Color="#F2F6FA" />
+            <SolidColorBrush x:Key="ScrollBarTrackFillPointerOver" Color="#EBF0F6" />
+            <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" Color="#BCC9D6" />
+            <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#BCC9D6" />
+            <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver" Color="#96A8BC" />
+            <SolidColorBrush x:Key="ScrollBarThumbFillPressed" Color="#748AA1" />
+            <SolidColorBrush x:Key="ScrollBarButtonArrowForeground" Color="#7A8C9F" />
+            <SolidColorBrush x:Key="ScrollBarButtonArrowForegroundPointerOver" Color="#334155" />
+            <SolidColorBrush x:Key="ScrollBarButtonArrowForegroundPressed" Color="#0F172A" />
+            <SolidColorBrush x:Key="TabItemHeaderSelectedPipeFill" Color="Transparent" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Dark">
-            <SolidColorBrush x:Key="AppBackgroundBrush" Color="#111417" />
-            <SolidColorBrush x:Key="ChromeSurfaceBrush" Color="#171B20" />
-            <SolidColorBrush x:Key="SurfaceBrush" Color="#1C2229" />
-            <SolidColorBrush x:Key="SurfaceAltBrush" Color="#222A32" />
-            <SolidColorBrush x:Key="InputBackgroundBrush" Color="#151A1F" />
-            <SolidColorBrush x:Key="PopupSurfaceBrush" Color="#1A2027" />
-            <SolidColorBrush x:Key="PopupBorderBrush" Color="#46515E" />
-            <SolidColorBrush x:Key="BorderBrushSoft" Color="#303943" />
-            <SolidColorBrush x:Key="BorderBrushStrong" Color="#4C5967" />
-            <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F2F5F7" />
-            <SolidColorBrush x:Key="TextMutedBrush" Color="#A4AFBB" />
+            <SolidColorBrush x:Key="AppBackgroundBrush" Color="#0E1217" />
+            <SolidColorBrush x:Key="ChromeSurfaceBrush" Color="#141920" />
+            <SolidColorBrush x:Key="SurfaceBrush" Color="#192028" />
+            <SolidColorBrush x:Key="SurfaceAltBrush" Color="#1F2731" />
+            <SolidColorBrush x:Key="SubtleSurfaceBrush" Color="#242E3A" />
+            <SolidColorBrush x:Key="InputBackgroundBrush" Color="#12171D" />
+            <SolidColorBrush x:Key="PopupSurfaceBrush" Color="#1B222C" />
+            <SolidColorBrush x:Key="PopupBorderBrush" Color="#384554" />
+            <SolidColorBrush x:Key="DividerBrush" Color="#232C37" />
+            <SolidColorBrush x:Key="BorderBrushSoft" Color="#2B3542" />
+            <SolidColorBrush x:Key="BorderBrushStrong" Color="#465566" />
+            <SolidColorBrush x:Key="TextPrimaryBrush" Color="#EFF3F7" />
+            <SolidColorBrush x:Key="TextMutedBrush" Color="#8F9EAE" />
             <SolidColorBrush x:Key="AccentBrush" Color="#2DD4BF" />
             <SolidColorBrush x:Key="AccentHoverBrush" Color="#5EEAD4" />
             <SolidColorBrush x:Key="AccentPressedBrush" Color="#14B8A6" />
-            <SolidColorBrush x:Key="AccentSoftBrush" Color="#123B38" />
-            <SolidColorBrush x:Key="AccentForegroundBrush" Color="#06201D" />
-            <SolidColorBrush x:Key="FloatingActionBrush" Color="#E6323B46" />
-            <SolidColorBrush x:Key="SshIconBackgroundBrush" Color="#123A66" />
-            <SolidColorBrush x:Key="SshIconBorderBrush" Color="#60A5FA" />
+            <SolidColorBrush x:Key="AccentSoftBrush" Color="#133434" />
+            <SolidColorBrush x:Key="AccentForegroundBrush" Color="#04201D" />
+            <SolidColorBrush x:Key="FloatingActionBrush" Color="#EB242D38" />
+            <SolidColorBrush x:Key="SshIconBackgroundBrush" Color="#132E52" />
+            <SolidColorBrush x:Key="SshIconBorderBrush" Color="#4B91F7" />
             <SolidColorBrush x:Key="SshIconBrush" Color="#BFDBFE" />
             <SolidColorBrush x:Key="ToolbarDuplicateIconBrush" Color="#93C5FD" />
             <SolidColorBrush x:Key="ToolbarScriptIconBrush" Color="#F59E0B" />
@@ -63,14 +83,30 @@
             <SolidColorBrush x:Key="ToolbarFileBrowserIconBrush" Color="#38BDF8" />
             <SolidColorBrush x:Key="ToolbarMonitorIconBrush" Color="#C4B5FD" />
             <SolidColorBrush x:Key="ToolbarKeyIconBrush" Color="#FACC15" />
-            <SolidColorBrush x:Key="HoverBrush" Color="#243332" />
-            <SolidColorBrush x:Key="SelectedBrush" Color="#1F3B39" />
-            <SolidColorBrush x:Key="SelectedBorderBrush" Color="#2DD4BF" />
+            <SolidColorBrush x:Key="HoverBrush" Color="#222D38" />
+            <SolidColorBrush x:Key="SelectedBrush" Color="#173837" />
+            <SolidColorBrush x:Key="SelectedBorderBrush" Color="#2AB8A7" />
             <SolidColorBrush x:Key="SuccessBrush" Color="#4ADE80" />
             <SolidColorBrush x:Key="WarningBrush" Color="#F59E0B" />
             <SolidColorBrush x:Key="DangerBrush" Color="#FB7185" />
+            <SolidColorBrush x:Key="DangerSoftBrush" Color="#3C1C25" />
+            <SolidColorBrush x:Key="ChartGridBrush" Color="#26313E" />
+            <SolidColorBrush x:Key="NetDownloadAreaBrush" Color="#262DD4BF" />
+            <SolidColorBrush x:Key="NetUploadAreaBrush" Color="#26F59E0B" />
+
+            <!-- Harmonize Fluent scrollbar colors with the Dark palette while keeping full track size. -->
+            <SolidColorBrush x:Key="ScrollBarTrackFill" Color="#141A21" />
+            <SolidColorBrush x:Key="ScrollBarTrackFillPointerOver" Color="#182028" />
+            <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" Color="#384452" />
+            <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#384452" />
+            <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver" Color="#4E5F72" />
+            <SolidColorBrush x:Key="ScrollBarThumbFillPressed" Color="#64788E" />
+            <SolidColorBrush x:Key="ScrollBarButtonArrowForeground" Color="#657587" />
+            <SolidColorBrush x:Key="ScrollBarButtonArrowForegroundPointerOver" Color="#B3C0CE" />
+            <SolidColorBrush x:Key="ScrollBarButtonArrowForegroundPressed" Color="#EFF3F7" />
+            <SolidColorBrush x:Key="TabItemHeaderSelectedPipeFill" Color="Transparent" />
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
 
-    <SolidColorBrush x:Key="FloatingActionBorderBrush" Color="#66FFFFFF" />
+    <SolidColorBrush x:Key="FloatingActionBorderBrush" Color="#55FFFFFF" />
 </ResourceDictionary>

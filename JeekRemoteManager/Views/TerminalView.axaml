@@ -7,6 +7,9 @@
              x:Class="JeekRemoteManager.Views.TerminalView"
              x:Name="TerminalRoot"
              x:DataType="vm:MainWindowViewModel">
+    <Border BorderBrush="{DynamicResource DividerBrush}"
+            BorderThickness="0,1,0,0"
+            Margin="0,4,0,0">
     <DockPanel LastChildFill="True">
         <!-- Compact AI bar: the AI panel moves here, header only, while its agent runs
              outside the tab (Windows Terminal / Desktop / IDE). -->
@@ -66,38 +69,46 @@
                 </Button>
                 <!-- Find in terminal (Ctrl+Shift+F). Plain Ctrl+F belongs to the remote shell. -->
                 <Border x:Name="FindBar"
+                        Classes="floating-surface"
                         HorizontalAlignment="Right"
                         VerticalAlignment="Top"
-                        Margin="0,8,28,0"
-                        Padding="6"
-                        CornerRadius="6"
-                        BorderThickness="1"
-                        Background="{DynamicResource ChromeSurfaceBrush}"
-                        BorderBrush="{DynamicResource BorderBrushSoft}"
+                        Margin="0,10,28,0"
+                        Padding="7,6"
                         IsVisible="False">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
+                    <StackPanel Orientation="Horizontal" Spacing="5">
                         <TextBox x:Name="FindBox"
+                                 Classes="compact-input"
                                  Width="220"
                                  KeyDown="OnFindBoxKeyDown"
-                                 TextChanged="OnFindTextChanged" />
+                                 TextChanged="OnFindTextChanged">
+                            <TextBox.InnerLeftContent>
+                                <TextBlock Classes="icon"
+                                           FontSize="12"
+                                           Margin="8,0,0,0"
+                                           Foreground="{DynamicResource TextMutedBrush}"
+                                           Text="&#xE721;" />
+                            </TextBox.InnerLeftContent>
+                        </TextBox>
                         <TextBlock x:Name="FindCountText"
-                                   MinWidth="56"
+                                   Classes="mono"
+                                   FontSize="12"
+                                   MinWidth="52"
                                    VerticalAlignment="Center"
                                    TextAlignment="Center"
                                    Foreground="{DynamicResource TextMutedBrush}" />
                         <Button x:Name="FindPreviousButton" Click="OnFindPreviousClick"
-                                Width="30" Height="30" MinWidth="0" Padding="0">
-                            <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="12" Text="&#xE70E;"
+                                Classes="toolbar compact-icon-button">
+                            <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="11" Text="&#xE70E;"
                                        HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Button>
                         <Button x:Name="FindNextButton" Click="OnFindNextClick"
-                                Width="30" Height="30" MinWidth="0" Padding="0">
-                            <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="12" Text="&#xE70D;"
+                                Classes="toolbar compact-icon-button">
+                            <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="11" Text="&#xE70D;"
                                        HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Button>
                         <Button x:Name="FindCloseButton" Click="OnFindCloseClick"
-                                Width="30" Height="30" MinWidth="0" Padding="0">
-                            <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="11" Text="&#xE711;"
+                                Classes="toolbar compact-icon-button">
+                            <TextBlock FontFamily="Segoe MDL2 Assets" FontSize="10" Text="&#xE711;"
                                        HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Button>
                     </StackPanel>
@@ -145,23 +156,26 @@
                     Grid.ColumnSpan="5"
                     Grid.RowSpan="3"
                     IsVisible="False"
-                    Background="#88000000"
-                    Padding="14">
-                <Border Classes="panel"
-                        Padding="12"
+                    Background="#80000000"
+                    Padding="16">
+                <Border Classes="floating-surface"
+                        Padding="16"
+                        CornerRadius="12"
                         MaxWidth="760"
                         HorizontalAlignment="Right"
                         VerticalAlignment="Top">
-                    <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
+                    <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10">
                         <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
                             <TextBlock Grid.Column="0"
                                        Classes="page-title"
+                                       VerticalAlignment="Center"
                                        Text="{Binding ScriptPanel.SuiteName}" />
                             <Button x:Name="CloseScriptPanelButton"
                                     Grid.Column="1"
-                                    Classes="toolbar icon-button"
+                                    Classes="toolbar compact-icon-button"
                                     Command="{Binding CloseScriptExecutionCommand}">
                                 <TextBlock Classes="icon"
+                                           FontSize="11"
                                            Text="&#xE711;"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center"
@@ -170,10 +184,8 @@
                         </Grid>
 
                         <Border Grid.Row="1"
-                                BorderBrush="{DynamicResource BorderBrushSoft}"
-                                BorderThickness="1"
-                                CornerRadius="6"
-                                Padding="8,6">
+                                Classes="form-card"
+                                Padding="10,8">
                             <ScrollViewer MinHeight="0"
                                           MaxHeight="260"
                                           HorizontalScrollBarVisibility="Disabled"
@@ -222,7 +234,6 @@
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate DataType="models:RemoteScriptFile">
                                                 <Button Content="{Binding DisplayName}"
-                                                        Classes="toolbar"
                                                         HorizontalAlignment="Stretch"
                                                         HorizontalContentAlignment="Center"
                                                         Margin="0,0,0,6"
@@ -235,7 +246,7 @@
                             </ScrollViewer>
                         </Border>
 
-                        <Grid Grid.Row="2" ColumnDefinitions="Auto,*" ColumnSpacing="9" MinHeight="30">
+                        <Grid Grid.Row="2" ColumnDefinitions="Auto,*" ColumnSpacing="9" MinHeight="28">
                             <Grid Grid.Column="0"
                                   Width="24"
                                   Height="24"
@@ -243,7 +254,7 @@
                                   IsVisible="{Binding ScriptPanel.ShowResultIcon}">
                                 <TextBlock Classes="icon"
                                            Text="&#xE73E;"
-                                           FontSize="22"
+                                           FontSize="20"
                                            Foreground="{DynamicResource SuccessBrush}"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center"
@@ -251,7 +262,7 @@
                                            IsVisible="{Binding ScriptPanel.ShowSuccessIcon}" />
                                 <TextBlock Classes="icon"
                                            Text="&#xE711;"
-                                           FontSize="22"
+                                           FontSize="20"
                                            Foreground="{DynamicResource DangerBrush}"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center"
@@ -261,7 +272,7 @@
                             <TextBlock Grid.Column="1"
                                        Classes="hint"
                                        Text="{Binding ScriptPanel.StatusText}"
-                                       FontSize="14"
+                                       FontSize="13.5"
                                        FontWeight="SemiBold"
                                        Foreground="{DynamicResource TextPrimaryBrush}"
                                        VerticalAlignment="Center" />
@@ -269,7 +280,6 @@
 
                         <Button x:Name="ClearScriptParametersButton"
                                 Grid.Row="3"
-                                Classes="toolbar"
                                 HorizontalAlignment="Left"
                                 Command="{Binding ClearScriptParametersCommand}" />
                     </Grid>
@@ -277,4 +287,5 @@
             </Border>
         </Grid>
     </DockPanel>
+    </Border>
 </UserControl>

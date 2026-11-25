@@ -11,72 +11,88 @@
         </Style>
     </UserControl.Styles>
 
-    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto">
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto" Background="{DynamicResource SurfaceBrush}">
 
         <!-- Path bar -->
-        <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto,Auto" ColumnSpacing="4"
-              Margin="6,5,6,3">
-            <!-- Direct SFTP target: makes it visible that the panel operates on the
-                 configured host, not on servers jumped to inside the terminal. -->
-            <Border Grid.Column="0" Classes="status-pill"
-                    ToolTip.Tip="{l:Localize FileBrowserTargetTip}"
-                    VerticalAlignment="Center">
-                <TextBlock Classes="hint"
-                           Text="{Binding ConnectionLabel}"
-                           MaxWidth="240"
-                           TextTrimming="CharacterEllipsis" />
-            </Border>
-            <Button Grid.Column="1" Classes="toolbar icon-button"
-                    ToolTip.Tip="{l:Localize FileBrowserUp}"
-                    Command="{Binding GoUpCommand}">
-                <TextBlock Classes="icon" Text="&#xE74A;" />
-            </Button>
-            <Button Grid.Column="2" Classes="toolbar icon-button"
-                    ToolTip.Tip="{l:Localize FileBrowserHome}"
-                    Command="{Binding GoHomeCommand}">
-                <TextBlock Classes="icon" Text="&#xE80F;" />
-            </Button>
-            <Button Grid.Column="3" Classes="toolbar icon-button"
-                    ToolTip.Tip="{l:Localize FileBrowserRefresh}"
-                    Command="{Binding RefreshCommand}">
-                <TextBlock Classes="icon" Text="&#xE72C;" />
-            </Button>
-            <TextBox Grid.Column="4" x:Name="PathBox"
-                     Text="{Binding PathInput, Mode=TwoWay}"
-                     VerticalContentAlignment="Center"
-                     KeyDown="OnPathBoxKeyDown" />
-            <Button Grid.Column="5" Classes="toolbar icon-button"
-                    ToolTip.Tip="{l:Localize NewFolder}"
-                    Command="{Binding NewFolderCommand}">
-                <TextBlock Classes="icon" Text="&#xE8F4;" />
-            </Button>
-            <Button Grid.Column="6" Classes="toolbar icon-button"
-                    ToolTip.Tip="{l:Localize FileBrowserUpload}"
-                    Command="{Binding UploadCommand}">
-                <TextBlock Classes="icon" Text="&#xE898;" />
-            </Button>
-            <Button Grid.Column="7" Classes="toolbar icon-button"
-                    ToolTip.Tip="{l:Localize Close}"
-                    Click="OnCloseClick">
-                <TextBlock Classes="icon" FontSize="10" Text="&#xE711;" />
-            </Button>
-        </Grid>
+        <Border Grid.Row="0"
+                Background="{DynamicResource ChromeSurfaceBrush}"
+                BorderBrush="{DynamicResource DividerBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="8,5">
+            <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto,Auto" ColumnSpacing="4">
+                <!-- Direct SFTP target: makes it visible that the panel operates on the
+                     configured host, not on servers jumped to inside the terminal. -->
+                <Border Grid.Column="0" Classes="status-pill"
+                        ToolTip.Tip="{l:Localize FileBrowserTargetTip}"
+                        VerticalAlignment="Center"
+                        Margin="0,0,4,0">
+                    <TextBlock Classes="hint mono"
+                               FontSize="11.5"
+                               Text="{Binding ConnectionLabel}"
+                               MaxWidth="240"
+                               TextTrimming="CharacterEllipsis" />
+                </Border>
+                <Button Grid.Column="1" Classes="toolbar compact-icon-button"
+                        ToolTip.Tip="{l:Localize FileBrowserUp}"
+                        Command="{Binding GoUpCommand}">
+                    <TextBlock Classes="icon" FontSize="12.5" Text="&#xE74A;" />
+                </Button>
+                <Button Grid.Column="2" Classes="toolbar compact-icon-button"
+                        ToolTip.Tip="{l:Localize FileBrowserHome}"
+                        Command="{Binding GoHomeCommand}">
+                    <TextBlock Classes="icon" FontSize="12.5" Text="&#xE80F;" />
+                </Button>
+                <Button Grid.Column="3" Classes="toolbar compact-icon-button"
+                        ToolTip.Tip="{l:Localize FileBrowserRefresh}"
+                        Command="{Binding RefreshCommand}">
+                    <TextBlock Classes="icon" FontSize="12.5" Text="&#xE72C;" />
+                </Button>
+                <TextBox Grid.Column="4" x:Name="PathBox"
+                         Classes="compact-input"
+                         FontFamily="Cascadia Mono, Consolas, monospace"
+                         Text="{Binding PathInput, Mode=TwoWay}"
+                         VerticalContentAlignment="Center"
+                         KeyDown="OnPathBoxKeyDown" />
+                <Button Grid.Column="5" Classes="toolbar compact-icon-button"
+                        ToolTip.Tip="{l:Localize NewFolder}"
+                        Command="{Binding NewFolderCommand}">
+                    <TextBlock Classes="icon" FontSize="12.5" Text="&#xE8F4;" />
+                </Button>
+                <Button Grid.Column="6" Classes="toolbar compact-icon-button"
+                        ToolTip.Tip="{l:Localize FileBrowserUpload}"
+                        Command="{Binding UploadCommand}">
+                    <TextBlock Classes="icon" FontSize="12.5" Text="&#xE898;" />
+                </Button>
+                <Button Grid.Column="7" Classes="toolbar compact-icon-button"
+                        ToolTip.Tip="{l:Localize Close}"
+                        Click="OnCloseClick">
+                    <TextBlock Classes="icon" FontSize="10" Text="&#xE711;" />
+                </Button>
+            </Grid>
+        </Border>
 
-        <ProgressBar Grid.Row="1" Height="2" MinHeight="2" Margin="6,0"
+        <ProgressBar Grid.Row="1" Height="2" MinHeight="2" Margin="0"
+                     CornerRadius="0"
                      IsIndeterminate="True"
                      IsVisible="{Binding IsBusy}" />
 
         <!-- Column headers, aligned with the item template below -->
-        <Grid Grid.Row="2" ColumnDefinitions="26,*,90,140,100" Margin="14,2,24,2">
-            <TextBlock Grid.Column="1" Classes="hint" Text="{l:Localize Name}" />
-            <TextBlock Grid.Column="2" Classes="hint" Text="{l:Localize FileBrowserSize}"
-                       HorizontalAlignment="Right" />
-            <TextBlock Grid.Column="3" Classes="hint" Text="{l:Localize FileBrowserModified}"
-                       Margin="12,0,0,0" />
-            <TextBlock Grid.Column="4" Classes="hint" Text="{l:Localize FileBrowserPermissionsColumn}"
-                       Margin="12,0,0,0"
-                       IsVisible="{Binding SupportsPermissions}" />
-        </Grid>
+        <Border Grid.Row="2"
+                Background="{DynamicResource SurfaceAltBrush}"
+                BorderBrush="{DynamicResource DividerBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="14,4,24,4">
+            <Grid ColumnDefinitions="26,*,90,140,100">
+                <TextBlock Grid.Column="1" Classes="label" FontSize="11.5" FontWeight="SemiBold" Text="{l:Localize Name}" />
+                <TextBlock Grid.Column="2" Classes="label" FontSize="11.5" FontWeight="SemiBold" Text="{l:Localize FileBrowserSize}"
+                           HorizontalAlignment="Right" />
+                <TextBlock Grid.Column="3" Classes="label" FontSize="11.5" FontWeight="SemiBold" Text="{l:Localize FileBrowserModified}"
+                           Margin="12,0,0,0" />
+                <TextBlock Grid.Column="4" Classes="label" FontSize="11.5" FontWeight="SemiBold" Text="{l:Localize FileBrowserPermissionsColumn}"
+                           Margin="12,0,0,0"
+                           IsVisible="{Binding SupportsPermissions}" />
+            </Grid>
+        </Border>
 
         <!-- File list -->
         <!-- Focusable: an Avalonia ListBox is not focusable by default (only its
@@ -181,14 +197,22 @@
                                      LostFocus="OnRenameEditorLostFocus" />
                         </Grid>
                         <TextBlock Grid.Column="2" Text="{Binding SizeText}"
+                                   Classes="mono"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource TextMutedBrush}"
                                    HorizontalAlignment="Right"
                                    VerticalAlignment="Center" />
                         <TextBlock Grid.Column="3" Text="{Binding ModifiedText}"
+                                   Classes="mono"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource TextMutedBrush}"
                                    Margin="12,0,0,0"
                                    VerticalAlignment="Center" />
                         <TextBlock Grid.Column="4" Text="{Binding Permissions}"
                                    Margin="12,0,0,0"
-                                   FontFamily="Cascadia Mono, Consolas"
+                                   Classes="mono"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource TextMutedBrush}"
                                    VerticalAlignment="Center" />
                     </Grid>
                 </DataTemplate>
@@ -197,24 +221,26 @@
 
         <!-- Status line (connect errors, empty-dir hint) -->
         <TextBlock Grid.Row="4" Classes="hint"
-                   Margin="10,2,10,4"
+                   Margin="12,4,12,6"
                    TextWrapping="Wrap"
                    Text="{Binding StatusText}"
                    IsVisible="{Binding HasStatus}" />
 
         <!-- Transfer queue -->
         <Border Grid.Row="5"
-                BorderBrush="{DynamicResource BorderBrushSoft}"
+                Background="{DynamicResource ChromeSurfaceBrush}"
+                BorderBrush="{DynamicResource DividerBrush}"
                 BorderThickness="0,1,0,0"
                 IsVisible="{Binding HasTransfers}">
             <Grid RowDefinitions="Auto,Auto">
-                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="10,4,10,0">
-                    <TextBlock Grid.Column="0" Classes="hint"
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="10,5,10,2">
+                    <TextBlock Grid.Column="0" Classes="label" FontWeight="SemiBold"
                                Text="{l:Localize FileBrowserTransfers}"
                                VerticalAlignment="Center" />
                     <Button Grid.Column="1" Classes="toolbar"
+                            MinHeight="24" Padding="8,2"
                             Command="{Binding ClearFinishedTransfersCommand}">
-                        <TextBlock Classes="hint" Text="{l:Localize FileBrowserClearFinished}" />
+                        <TextBlock Classes="hint" FontSize="11.5" Text="{l:Localize FileBrowserClearFinished}" />
                     </Button>
                 </Grid>
                 <ScrollViewer Grid.Row="1" MaxHeight="120"
@@ -231,13 +257,16 @@
                                                TextTrimming="CharacterEllipsis"
                                                VerticalAlignment="Center" />
                                     <ProgressBar Grid.Column="2" Minimum="0" Maximum="100"
+                                                 Height="6" MinHeight="6"
                                                  Value="{Binding Progress}"
                                                  VerticalAlignment="Center" />
-                                    <TextBlock Grid.Column="3" Classes="hint"
+                                    <TextBlock Grid.Column="3" Classes="hint mono"
+                                               FontSize="11.5"
                                                Text="{Binding StatusText}"
                                                MinWidth="90"
                                                VerticalAlignment="Center" />
-                                    <Button Grid.Column="4" Classes="toolbar icon-button"
+                                    <Button Grid.Column="4" Classes="toolbar compact-icon-button"
+                                            Width="24" Height="24" MinWidth="24" MinHeight="24"
                                             ToolTip.Tip="{l:Localize DialogCancel}"
                                             Command="{Binding CancelCommand}"
                                             IsVisible="{Binding !IsFinished}">

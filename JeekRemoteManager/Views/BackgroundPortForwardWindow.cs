@@ -81,8 +81,8 @@ internal sealed class BackgroundPortForwardWindow : Window
                         Text(target.Host, "hint"),
                     },
                 },
-                Text(localPort > 0 ? Endpoint(localPort) : "—", row.LocalPort == 0 ? "hint" : null),
-                Text(Endpoint(target.RemotePort)),
+                Text(localPort > 0 ? Endpoint(localPort) : "—", row.LocalPort == 0 ? "hint mono" : "mono"),
+                Text(Endpoint(target.RemotePort), "mono"),
                 new StackPanel
                 {
                     Children =
@@ -109,13 +109,33 @@ internal sealed class BackgroundPortForwardWindow : Window
         _open.VerticalAlignment = VerticalAlignment.Bottom;
         form.Children.Add(_open);
 
+        var formCard = new Border
+        {
+            Classes = { "form-card" },
+            Padding = new Thickness(14),
+            Child = form,
+        };
+
         var headers = Columns(Text(connectionLabel, "label"), Text(Localizer.Get("BackgroundForwardLocalAddress"), "label"),
             Text(Localizer.Get("BackgroundForwardRemoteAddress"), "label"), Text(Localizer.Get("BackgroundForwardStatus"), "label"));
-        headers.Margin = new Thickness(12, 8, 12, 0);
-        var table = new Grid { RowDefinitions = new RowDefinitions("Auto,*"), RowSpacing = 4, Children = { headers } };
+        var headerBar = new Border
+        {
+            Padding = new Thickness(14, 8),
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Child = headers,
+        };
+        headerBar[!Border.BackgroundProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("SurfaceAltBrush");
+        headerBar[!Border.BorderBrushProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("DividerBrush");
+        var table = new Grid { RowDefinitions = new RowDefinitions("Auto,*"), Children = { headerBar } };
         var listArea = new Grid { Children = { _list, _empty } };
         Grid.SetRow(listArea, 1);
         table.Children.Add(listArea);
+        var tableCard = new Border
+        {
+            Classes = { "panel" },
+            ClipToBounds = true,
+            Child = table,
+        };
 
         var close = Button("Close");
         close.IsCancel = true;
@@ -128,10 +148,10 @@ internal sealed class BackgroundPortForwardWindow : Window
         footer.Children.Add(close);
         var layout = new Grid
         {
-            Margin = new Thickness(18), RowDefinitions = new RowDefinitions("Auto,*,Auto,Auto"), RowSpacing = 8,
-            Children = { form, table, _message, footer },
+            Margin = new Thickness(18), RowDefinitions = new RowDefinitions("Auto,*,Auto,Auto"), RowSpacing = 12,
+            Children = { formCard, tableCard, _message, footer },
         };
-        Grid.SetRow(table, 1);
+        Grid.SetRow(tableCard, 1);
         Grid.SetRow(_message, 2);
         Grid.SetRow(footer, 3);
         Content = layout;
@@ -380,7 +400,10 @@ internal sealed class BackgroundPortForwardWindow : Window
     {
         var text = new TextBlock { Text = content, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
         if (style is not null)
-            text.Classes.Add(style);
+        {
+            foreach (var cls in style.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                text.Classes.Add(cls);
+        }
         ToolTip.SetTip(text, content);
         return text;
     }

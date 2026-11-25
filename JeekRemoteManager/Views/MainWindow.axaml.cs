@@ -426,24 +426,42 @@ public partial class MainWindow : Window
             IsCancel = true,
             Classes = { "accent" },
         };
+        var iconTile = new Border
+        {
+            Width = 56,
+            Height = 56,
+            CornerRadius = new CornerRadius(14),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Classes = { "icon-tile" },
+            Child = new Image
+            {
+                Source = new Avalonia.Media.Imaging.Bitmap(
+                    Avalonia.Platform.AssetLoader.Open(new Uri("avares://JeekRemoteManager/Assets/Icon.png"))),
+                Width = 38,
+                Height = 38,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            },
+        };
         var dialog = new Window
         {
             Title = Localizer.Get("About"),
             Width = 440,
-            Height = 300,
+            Height = 340,
             CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Content = new StackPanel
             {
-                Margin = new Thickness(28),
-                Spacing = 14,
+                Margin = new Thickness(28, 24),
+                Spacing = 12,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 Children =
                 {
+                    iconTile,
                     new TextBlock
                     {
                         Text = Localizer.Get("WindowTitle"),
-                        FontSize = 24,
+                        FontSize = 22,
                         FontWeight = FontWeight.SemiBold,
                         HorizontalAlignment = HorizontalAlignment.Center,
                     },

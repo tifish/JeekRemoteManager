@@ -10,12 +10,18 @@
             <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
+        <Style Selector="TextBlock.monitor-num">
+            <Setter Property="FontSize" Value="11.5" />
+            <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, monospace" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
         <Style Selector="ProgressBar.monitor-gauge">
             <Setter Property="Minimum" Value="0" />
             <Setter Property="Maximum" Value="100" />
             <Setter Property="MinWidth" Value="40" />
-            <Setter Property="Height" Value="8" />
-            <Setter Property="MinHeight" Value="8" />
+            <Setter Property="Height" Value="7" />
+            <Setter Property="MinHeight" Value="7" />
             <Setter Property="CornerRadius" Value="4" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
@@ -24,12 +30,20 @@
             <Setter Property="MinWidth" Value="0" />
             <Setter Property="MinHeight" Value="20" />
             <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="HorizontalContentAlignment" Value="Right" />
         </Style>
+        <Style Selector="Button.process-sort /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="Button.process-sort:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
+        </Style>
     </UserControl.Styles>
 
-    <Grid Background="{DynamicResource AppBackgroundBrush}">
+    <Grid Background="{DynamicResource ChromeSurfaceBrush}">
 
         <!-- Live stats -->
         <ScrollViewer x:Name="MonitorScrollViewer"
@@ -38,16 +52,17 @@
             <StackPanel Spacing="8" Margin="8">
 
                 <!-- Host -->
-                <Border Classes="panel" Padding="10,8">
-                    <StackPanel Spacing="3">
+                <Border Classes="panel" CornerRadius="8" Padding="11,9">
+                    <StackPanel Spacing="5">
                         <TextBlock Classes="section-title"
                                    Text="{Binding HostLabel}"
                                    TextTrimming="CharacterEllipsis"
-                                   Margin="0,0,24,0" />
+                                   Margin="0,0,26,0" />
+                        <Border Classes="section-divider" />
                         <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto"
-                              ColumnSpacing="8" RowSpacing="2">
+                              ColumnSpacing="8" RowSpacing="3">
                             <TextBlock Classes="label" Text="IP" />
-                            <TextBlock Grid.Column="1" Classes="monitor-value"
+                            <TextBlock Grid.Column="1" Classes="monitor-num"
                                        Text="{Binding AddressText}"
                                        TextTrimming="CharacterEllipsis" />
                             <Button x:Name="CopyIpButton"
@@ -55,9 +70,10 @@
                                     Classes="toolbar"
                                     Click="OnCopyIpClick"
                                     ToolTip.Tip="{l:Localize Copy}"
-                                    Width="20" Height="20"
+                                    Width="22" Height="22"
                                     MinWidth="0" MinHeight="0"
                                     Padding="0"
+                                    CornerRadius="5"
                                     HorizontalContentAlignment="Center"
                                     VerticalContentAlignment="Center">
                                 <TextBlock FontFamily="Segoe MDL2 Assets"
@@ -66,70 +82,87 @@
                                            Foreground="{DynamicResource TextMutedBrush}" />
                             </Button>
                             <TextBlock Grid.Row="1" Classes="label" Text="{l:Localize MonitorUptime}" />
-                            <TextBlock Grid.Row="1" Grid.Column="1" Classes="monitor-value"
+                            <TextBlock Grid.Row="1" Grid.Column="1" Classes="monitor-num"
                                        Text="{Binding UptimeText}" />
                             <TextBlock Grid.Row="2" Classes="label" Text="{l:Localize MonitorLatency}" />
-                            <TextBlock Grid.Row="2" Grid.Column="1" Classes="monitor-value"
+                            <TextBlock Grid.Row="2" Grid.Column="1" Classes="monitor-num"
                                        Text="{Binding LatencyText}" />
                             <TextBlock Grid.Row="3" Classes="label" Text="{l:Localize MonitorLoadAverage}" />
-                            <TextBlock Grid.Row="3" Grid.Column="1" Classes="monitor-value"
+                            <TextBlock Grid.Row="3" Grid.Column="1" Classes="monitor-num"
                                        Text="{Binding LoadText}" />
                         </Grid>
                     </StackPanel>
                 </Border>
 
                 <!-- CPU / memory / swap gauges -->
-                <Border Classes="panel" Padding="10,8">
-                    <StackPanel Spacing="6">
-                        <Grid ColumnDefinitions="44,*,Auto" ColumnSpacing="6">
+                <Border Classes="panel" CornerRadius="8" Padding="11,9">
+                    <StackPanel Spacing="7">
+                        <Grid ColumnDefinitions="44,*,Auto" ColumnSpacing="8">
                             <TextBlock Classes="label" Text="{l:Localize MonitorCpu}" />
                             <ProgressBar Grid.Column="1" Classes="monitor-gauge"
                                          Value="{Binding CpuPercent}" />
-                            <TextBlock Grid.Column="2" Classes="monitor-value" Text="{Binding CpuText}" />
+                            <TextBlock Grid.Column="2" Classes="monitor-num" Text="{Binding CpuText}" />
                         </Grid>
-                        <Grid ColumnDefinitions="44,*,Auto" ColumnSpacing="6">
+                        <Grid ColumnDefinitions="44,*,Auto" ColumnSpacing="8">
                             <TextBlock Classes="label" Text="{l:Localize MonitorMemory}" />
                             <ProgressBar Grid.Column="1" Classes="monitor-gauge"
                                          Value="{Binding MemPercent}" />
-                            <TextBlock Grid.Column="2" Classes="monitor-value" Text="{Binding MemText}" />
+                            <TextBlock Grid.Column="2" Classes="monitor-num" Text="{Binding MemText}" />
                         </Grid>
-                        <Grid ColumnDefinitions="44,*,Auto" ColumnSpacing="6">
+                        <Grid ColumnDefinitions="44,*,Auto" ColumnSpacing="8">
                             <TextBlock Classes="label" Text="{l:Localize MonitorSwap}" />
                             <ProgressBar Grid.Column="1" Classes="monitor-gauge"
                                          Value="{Binding SwapPercent}" />
-                            <TextBlock Grid.Column="2" Classes="monitor-value" Text="{Binding SwapText}" />
+                            <TextBlock Grid.Column="2" Classes="monitor-num" Text="{Binding SwapText}" />
                         </Grid>
                     </StackPanel>
                 </Border>
 
                 <!-- Network -->
-                <Border Classes="panel" Padding="10,8">
-                    <StackPanel Spacing="6">
+                <Border Classes="panel" CornerRadius="8" Padding="11,9">
+                    <StackPanel Spacing="7">
                         <StackPanel Orientation="Horizontal" Spacing="14">
                             <TextBlock x:Name="UploadRateValue"
-                                       Classes="monitor-value"
+                                       Classes="monitor-num"
+                                       FontWeight="SemiBold"
                                        Foreground="{DynamicResource ToolbarScriptIconBrush}"
                                        Text="{Binding UploadRateText}" />
                             <TextBlock x:Name="DownloadRateValue"
-                                       Classes="monitor-value"
+                                       Classes="monitor-num"
+                                       FontWeight="SemiBold"
                                        Foreground="{DynamicResource AccentBrush}"
                                        Text="{Binding DownloadRateText}" />
                         </StackPanel>
-                        <Grid x:Name="NetChart" Height="40" ClipToBounds="True">
-                            <Polyline x:Name="DownloadLine"
-                                      Stroke="{DynamicResource AccentBrush}"
-                                      StrokeThickness="1.25" />
-                            <Polyline x:Name="UploadLine"
-                                      Stroke="{DynamicResource ToolbarScriptIconBrush}"
-                                      StrokeThickness="1.25" />
-                        </Grid>
+                        <Border Background="{DynamicResource InputBackgroundBrush}"
+                                BorderBrush="{DynamicResource DividerBrush}"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Padding="2">
+                            <Grid x:Name="NetChart" Height="46" ClipToBounds="True">
+                                <Border Height="1"
+                                        VerticalAlignment="Center"
+                                        Background="{DynamicResource ChartGridBrush}" />
+                                <Polygon x:Name="DownloadArea"
+                                         Fill="{DynamicResource NetDownloadAreaBrush}" />
+                                <Polygon x:Name="UploadArea"
+                                         Fill="{DynamicResource NetUploadAreaBrush}" />
+                                <Polyline x:Name="DownloadLine"
+                                          Stroke="{DynamicResource AccentBrush}"
+                                          StrokeThickness="1.5"
+                                          StrokeJoin="Round" />
+                                <Polyline x:Name="UploadLine"
+                                          Stroke="{DynamicResource ToolbarScriptIconBrush}"
+                                          StrokeThickness="1.5"
+                                          StrokeJoin="Round" />
+                            </Grid>
+                        </Border>
                     </StackPanel>
                 </Border>
 
                 <!-- Top processes -->
-                <Border Classes="panel" Padding="10,8">
-                    <StackPanel Spacing="4">
-                        <TextBlock Classes="label" Text="{l:Localize MonitorProcesses}" />
+                <Border Classes="panel" CornerRadius="8" Padding="11,9">
+                    <StackPanel Spacing="5">
+                        <TextBlock Classes="label" FontWeight="SemiBold" Text="{l:Localize MonitorProcesses}" />
                         <Grid ColumnDefinitions="62,54,*" ColumnSpacing="6">
                             <Button x:Name="ProcessMemorySortButton"
                                     Classes="process-sort"
@@ -156,16 +189,17 @@
                             </Button>
                             <TextBlock Grid.Column="2" Classes="label" Text="{l:Localize MonitorProcessCommand}" />
                         </Grid>
+                        <Border Classes="section-divider" />
                         <ItemsControl ItemsSource="{Binding Processes}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:ServerMonitorProcessRow">
-                                    <Grid ColumnDefinitions="62,54,*" ColumnSpacing="6" Margin="0,1">
+                                    <Grid ColumnDefinitions="62,54,*" ColumnSpacing="6" Margin="0,2">
                                         <TextBlock x:Name="ProcessMemoryValue"
-                                                   Classes="monitor-value"
+                                                   Classes="monitor-num"
                                                    Text="{Binding MemText}"
                                                    TextAlignment="Right" />
                                         <TextBlock x:Name="ProcessCpuValue"
-                                                   Grid.Column="1" Classes="monitor-value"
+                                                   Grid.Column="1" Classes="monitor-num"
                                                    Text="{Binding CpuText}"
                                                    TextAlignment="Right" />
                                         <TextBlock Grid.Column="2" Classes="monitor-value"
@@ -179,20 +213,20 @@
                 </Border>
 
                 <!-- Disks -->
-                <Border Classes="panel" Padding="10,8">
-                    <StackPanel Spacing="4">
-                        <TextBlock Classes="label" Text="{l:Localize MonitorDisks}" />
+                <Border Classes="panel" CornerRadius="8" Padding="11,9">
+                    <StackPanel Spacing="6">
+                        <TextBlock Classes="label" FontWeight="SemiBold" Text="{l:Localize MonitorDisks}" />
                         <ItemsControl ItemsSource="{Binding Disks}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:ServerMonitorDiskRow">
-                                    <StackPanel Spacing="2" Margin="0,2">
+                                    <StackPanel Spacing="3" Margin="0,3">
                                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                                            <TextBlock Classes="monitor-value"
+                                            <TextBlock Classes="monitor-num"
                                                        Text="{Binding MountPoint}"
                                                        TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Grid.Column="1" Classes="label" Text="{Binding SizeText}" />
+                                            <TextBlock Grid.Column="1" Classes="label mono" FontSize="11" Text="{Binding SizeText}" />
                                         </Grid>
-                                        <ProgressBar Classes="monitor-gauge" Height="4" MinHeight="4"
+                                        <ProgressBar Classes="monitor-gauge" Height="5" MinHeight="5"
                                                      Value="{Binding UsedPercent}" />
                                     </StackPanel>
                                 </DataTemplate>

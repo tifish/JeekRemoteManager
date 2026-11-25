@@ -41,9 +41,12 @@ internal static class SshMfaDialog
         var codeText = new TextBlock
         {
             Name = CurrentCodeElementName,
-            FontFamily = new FontFamily("Consolas, monospace"),
-            FontSize = 24,
+            FontFamily = new FontFamily("Cascadia Mono, Consolas, monospace"),
+            FontSize = 26,
+            FontWeight = FontWeight.SemiBold,
+            LetterSpacing = 2.5,
         };
+        codeText[!TextBlock.ForegroundProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AccentBrush");
         var remaining = new TextBlock { Name = "SshMfaCodeRemaining", Classes = { "hint" }, TextWrapping = TextWrapping.Wrap };
         var feedback = new TextBlock { Name = "SshMfaCopyFeedback", Classes = { "hint" }, IsVisible = false };
         var copy = new Button { Name = "SshMfaCopyCodeButton", Content = Localizer.Get("Copy"), IsEnabled = false };
@@ -67,7 +70,18 @@ internal static class SshMfaDialog
         };
         Grid.SetColumn(copy, 1);
         copy.VerticalAlignment = VerticalAlignment.Center;
-        var manager = CreateWindow("SshMfaManagerTitle", list, codePanel, error, Buttons(add, edit, remove, close));
+        var listCard = new Border
+        {
+            Classes = { "panel" },
+            Padding = new Thickness(4),
+            Child = list,
+        };
+        var codeCard = new Border
+        {
+            Classes = { "form-card" },
+            Child = codePanel,
+        };
+        var manager = CreateWindow("SshMfaManagerTitle", listCard, codeCard, error, Buttons(add, edit, remove, close));
 
         (long ValidFrom, long ExpiresAt)? displayedWindow = null;
         long? lastShownRemainingSeconds = null;

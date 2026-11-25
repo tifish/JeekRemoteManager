@@ -66,6 +66,34 @@ public static class HostKeyDialog
             Classes = { "hint" },
         };
 
+        var fingerprintsCard = new Border
+        {
+            Classes = { "form-card" },
+            Padding = new Avalonia.Thickness(12, 10),
+            Child = new StackPanel
+            {
+                Spacing = 6,
+                Children =
+                {
+                    new SelectableTextBlock
+                    {
+                        Text = string.Format(Localizer.Get("HostKeyPrevious"), $"SHA256:{oldFingerprintSha256}"),
+                        FontFamily = new FontFamily("Cascadia Mono, Consolas, monospace"),
+                        FontSize = 12,
+                        TextWrapping = TextWrapping.Wrap,
+                    },
+                    new SelectableTextBlock
+                    {
+                        Text = $"SHA256:{newFingerprintSha256}",
+                        FontFamily = new FontFamily("Cascadia Mono, Consolas, monospace"),
+                        FontSize = 12,
+                        FontWeight = FontWeight.SemiBold,
+                        TextWrapping = TextWrapping.Wrap,
+                    },
+                },
+            },
+        };
+
         var children = new List<Control>
         {
             new TextBlock
@@ -73,18 +101,7 @@ public static class HostKeyDialog
                 Text = string.Format(Localizer.Get("HostKeyChangedPrompt"), $"{host}:{port}", keyType),
                 TextWrapping = TextWrapping.Wrap,
             },
-            new SelectableTextBlock
-            {
-                Text = string.Format(Localizer.Get("HostKeyPrevious"), $"SHA256:{oldFingerprintSha256}"),
-                FontFamily = new FontFamily("Consolas"),
-                TextWrapping = TextWrapping.Wrap,
-            },
-            new SelectableTextBlock
-            {
-                Text = $"SHA256:{newFingerprintSha256}",
-                FontFamily = new FontFamily("Consolas"),
-                TextWrapping = TextWrapping.Wrap,
-            },
+            fingerprintsCard,
             hint,
             new StackPanel
             {

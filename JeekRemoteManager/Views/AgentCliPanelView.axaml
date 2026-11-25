@@ -8,15 +8,18 @@
     <DockPanel LastChildFill="True">
         <Border x:Name="AiHeader"
                 DockPanel.Dock="Top"
-                Padding="6,4"
-                BorderBrush="{DynamicResource BorderBrushSoft}"
+                Padding="8,5"
+                BorderBrush="{DynamicResource DividerBrush}"
                 BorderThickness="0,0,0,1"
                 Background="{DynamicResource ChromeSurfaceBrush}">
             <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="6">
                 <ComboBox Grid.Column="0"
                           MinWidth="92"
-                          MaxWidth="120"
+                          MaxWidth="124"
                           MinHeight="28"
+                          Height="28"
+                          Padding="8,3"
+                          FontSize="12.5"
                           ItemsSource="{Binding Providers}"
                           SelectedItem="{Binding SelectedProvider}"
                           ToolTip.Tip="{l:Localize AiProvider}">
@@ -29,8 +32,11 @@
 
                 <ComboBox Grid.Column="1"
                           MinWidth="108"
-                          MaxWidth="150"
+                          MaxWidth="154"
                           MinHeight="28"
+                          Height="28"
+                          Padding="8,3"
+                          FontSize="12.5"
                           ItemsSource="{Binding RunModeOptions}"
                           SelectedItem="{Binding SelectedRunModeOption}"
                           ToolTip.Tip="{l:Localize AiCliRunMode}">
@@ -46,36 +52,27 @@
                            Text="{Binding StatusText}"
                            TextTrimming="CharacterEllipsis"
                            MaxLines="1"
-                           FontSize="11"
+                           FontSize="11.5"
                            Foreground="{DynamicResource TextMutedBrush}"
                            ToolTip.Tip="{Binding StatusToolTip}" />
 
-                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
-                    <Button Classes="toolbar icon-button"
+                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                    <Button Classes="toolbar compact-icon-button"
                             Command="{Binding StartCommand}"
                             IsVisible="{Binding ShowStartButton}"
-                            ToolTip.Tip="{l:Localize AiCliStart}"
-                            MinHeight="28"
-                            MinWidth="28"
-                            Padding="0">
+                            ToolTip.Tip="{l:Localize AiCliStart}">
                         <TextBlock Classes="icon" FontSize="12" Text="&#xE768;" />
                     </Button>
-                    <Button Classes="toolbar icon-button"
+                    <Button Classes="toolbar compact-icon-button"
                             Command="{Binding RestartCommand}"
                             IsVisible="{Binding IsRunning}"
-                            ToolTip.Tip="{l:Localize AiCliRestart}"
-                            MinHeight="28"
-                            MinWidth="28"
-                            Padding="0">
+                            ToolTip.Tip="{l:Localize AiCliRestart}">
                         <TextBlock Classes="icon" FontSize="12" Text="&#xE72C;" />
                     </Button>
-                    <Button Classes="toolbar icon-button"
+                    <Button Classes="toolbar compact-icon-button"
                             Command="{Binding StopCommand}"
                             IsVisible="{Binding IsRunning}"
-                            ToolTip.Tip="{l:Localize AiCliStop}"
-                            MinHeight="28"
-                            MinWidth="28"
-                            Padding="0">
+                            ToolTip.Tip="{l:Localize AiCliStop}">
                         <TextBlock Classes="icon" FontSize="12" Text="&#xE71A;" />
                     </Button>
                     <Button Command="{Binding InstallCommand}"
@@ -83,22 +80,17 @@
                             IsVisible="{Binding ShowCompactInstallButton}"
                             ToolTip.Tip="{Binding InstallHelpText}"
                             MinHeight="28"
+                            Height="28"
                             Padding="10,0" />
-                    <Button Classes="toolbar icon-button"
+                    <Button Classes="toolbar compact-icon-button"
                             Command="{Binding InstallCommand}"
                             IsVisible="{Binding ShowHeaderInstallIcon}"
-                            ToolTip.Tip="{Binding InstallActionText}"
-                            MinHeight="28"
-                            MinWidth="28"
-                            Padding="0">
+                            ToolTip.Tip="{Binding InstallActionText}">
                         <TextBlock Classes="icon" FontSize="12" Text="&#xE896;" />
                     </Button>
                     <Button x:Name="AiOptionsButton"
-                            Classes="toolbar icon-button"
-                            ToolTip.Tip="{l:Localize AiCliOptions}"
-                            MinWidth="28"
-                            MinHeight="28"
-                            Padding="0">
+                            Classes="toolbar compact-icon-button"
+                            ToolTip.Tip="{l:Localize AiCliOptions}">
                         <TextBlock Classes="icon" FontSize="12" Text="&#xE713;" />
                         <Button.Flyout>
                             <MenuFlyout Opening="OnOptionsMenuOpening">
@@ -126,17 +118,11 @@
                             </MenuFlyout>
                         </Button.Flyout>
                     </Button>
-                    <Button Classes="toolbar icon-button"
+                    <Button Classes="toolbar compact-icon-button"
                             ToolTip.Tip="{l:Localize Close}"
-                            Click="OnCloseClick"
-                            MinWidth="28"
-                            MinHeight="28"
-                            Padding="0"
-                            HorizontalContentAlignment="Center"
-                            VerticalContentAlignment="Center"
-                            VerticalAlignment="Center">
+                            Click="OnCloseClick">
                         <TextBlock Classes="icon"
-                                   FontSize="9"
+                                   FontSize="9.5"
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center"
                                    Text="&#xE711;" />
@@ -152,26 +138,30 @@
               IsVisible="{Binding ShowPanelBody}">
             <!-- Not installed: prompt + one-click install. -->
             <Border IsVisible="{Binding ShowInstallPrompt}"
-                    Padding="24"
+                    Classes="form-card"
+                    CornerRadius="12"
+                    Padding="28,22"
+                    Margin="20"
+                    MaxWidth="420"
                     VerticalAlignment="Center"
                     HorizontalAlignment="Center">
-                <StackPanel Spacing="12" MaxWidth="420" HorizontalAlignment="Center">
+                <StackPanel Spacing="12" HorizontalAlignment="Center">
                     <TextBlock Text="{Binding StatusText}"
                                TextWrapping="Wrap"
                                TextAlignment="Center"
-                               FontSize="13" />
+                               FontSize="13.5"
+                               FontWeight="SemiBold" />
                     <Button Content="{Binding InstallActionText}"
                             Command="{Binding InstallCommand}"
                             HorizontalAlignment="Center"
                             MinHeight="32"
-                            Padding="16,6"
+                            Padding="18,6"
                             Classes="accent" />
                     <TextBlock Text="{Binding InstallHelpText}"
                                TextWrapping="Wrap"
                                TextAlignment="Center"
-                               FontSize="11"
-                               Foreground="{DynamicResource TextMutedBrush}"
-                               Opacity="0.85" />
+                               FontSize="11.5"
+                               Foreground="{DynamicResource TextMutedBrush}" />
                 </StackPanel>
             </Border>
 

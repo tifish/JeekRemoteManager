@@ -120,6 +120,8 @@ public partial class ServerMonitorView : UserControl
         {
             UploadLine.Points = new List<Point>();
             DownloadLine.Points = new List<Point>();
+            UploadArea.Points = new List<Point>();
+            DownloadArea.Points = new List<Point>();
             return;
         }
 
@@ -129,8 +131,26 @@ public partial class ServerMonitorView : UserControl
             upload.DefaultIfEmpty(0).Max(),
             download.DefaultIfEmpty(0).Max()));
 
-        UploadLine.Points = BuildPoints(upload, width, height, max);
-        DownloadLine.Points = BuildPoints(download, width, height, max);
+        var uploadPoints = BuildPoints(upload, width, height, max);
+        var downloadPoints = BuildPoints(download, width, height, max);
+        UploadLine.Points = uploadPoints;
+        DownloadLine.Points = downloadPoints;
+        UploadArea.Points = BuildAreaPoints(uploadPoints, height);
+        DownloadArea.Points = BuildAreaPoints(downloadPoints, height);
+    }
+
+    private static List<Point> BuildAreaPoints(List<Point> linePoints, double height)
+    {
+        if (linePoints.Count < 2)
+            return [];
+
+        var area = new List<Point>(linePoints.Count + 2)
+        {
+            new(linePoints[0].X, height),
+        };
+        area.AddRange(linePoints);
+        area.Add(new(linePoints[^1].X, height));
+        return area;
     }
 
     /// <summary>Maps samples into chart coordinates, right-aligned so new samples

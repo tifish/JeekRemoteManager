@@ -30,7 +30,16 @@
     </TrayIcon.Icons>
 
     <Application.Styles>
-        <FluentTheme />
+        <FluentTheme>
+            <FluentTheme.Palettes>
+                <ColorPaletteResources x:Key="Light"
+                                       Accent="#0F766E"
+                                       RegionColor="#EDF1F6" />
+                <ColorPaletteResources x:Key="Dark"
+                                       Accent="#14B8A6"
+                                       RegionColor="#0E1217" />
+            </FluentTheme.Palettes>
+        </FluentTheme>
         <!-- Terminal control default font + 256-color palette resources. -->
         <terminal:TerminalTheme />
         <!-- Shared chrome styles (buttons, inputs, window background, etc.). -->

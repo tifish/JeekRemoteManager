@@ -407,7 +407,8 @@ internal static class SettingsDialog
         var header = new Border
         {
             Name = "SettingsDialogHeader",
-            Padding = new Avalonia.Thickness(24, 20, 24, 16),
+            BorderThickness = new Avalonia.Thickness(0, 0, 0, 1),
+            Padding = new Avalonia.Thickness(24, 18, 24, 16),
             Child = new StackPanel
             {
                 Spacing = 4,
@@ -426,6 +427,8 @@ internal static class SettingsDialog
                 },
             },
         };
+        header[!Border.BackgroundProperty] = new DynamicResourceExtension("ChromeSurfaceBrush");
+        header[!Border.BorderBrushProperty] = new DynamicResourceExtension("BorderBrushSoft");
 
         var scroller = new ScrollViewer
         {
@@ -434,7 +437,7 @@ internal static class SettingsDialog
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             Content = new StackPanel
             {
-                Margin = new Avalonia.Thickness(24, 4, 24, 20),
+                Margin = new Avalonia.Thickness(24, 16, 24, 20),
                 Spacing = 12,
                 Children = { appearanceCard, terminalCard, filesCard, securityCard, updatesCard },
             },

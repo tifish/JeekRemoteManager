@@ -32,13 +32,13 @@
                 Background="{DynamicResource ChromeSurfaceBrush}"
                 BorderBrush="{DynamicResource BorderBrushSoft}"
                 BorderThickness="0,0,0,1"
-                Padding="18,10">
-            <Grid x:Name="CommandBar" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="18">
-                <StackPanel x:Name="ToolbarBrand" Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                    <Border Width="38" Height="38" Classes="icon-tile">
+                Padding="14,7">
+            <Grid x:Name="CommandBar" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+                <StackPanel x:Name="ToolbarBrand" Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Border Width="34" Height="34" Classes="brand-tile">
                         <Image Source="/Assets/Icon.png"
-                               Width="30"
-                               Height="30"
+                               Width="24"
+                               Height="24"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center" />
                     </Border>
@@ -54,112 +54,109 @@
                     </Button>
                 </StackPanel>
 
-                <StackPanel x:Name="ToolbarNew" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <StackPanel x:Name="ToolbarNew" Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                     <Button Command="{Binding NewFolderCommand}" ToolTip.Tip="{l:Localize NewFolder}" Classes="toolbar">
-                        <StackPanel Orientation="Horizontal" Spacing="7">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
                             <Border Classes="connection-icon-badge">
                                 <TextBlock Classes="connection-icon emoji"
                                            Text="&#x1F4C1;"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center" />
                             </Border>
-                            <TextBlock Classes="toolbar-label" Text="{l:Localize Folder}" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize Folder}" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
                     <Button Command="{Binding NewSshCommand}" ToolTip.Tip="{l:Localize NewSsh}" Classes="toolbar">
-                        <StackPanel Orientation="Horizontal" Spacing="7">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
                             <Border Classes="connection-icon-badge ssh-connection-icon">
                                 <TextBlock Classes="connection-icon ssh-connection-icon"
                                            Text=">_"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center" />
                             </Border>
-                            <TextBlock Classes="toolbar-label" Text="{l:Localize SSH}" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize SSH}" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
                     <Button Command="{Binding NewWslCommand}" ToolTip.Tip="{l:Localize NewWsl}" Classes="toolbar">
-                        <StackPanel Orientation="Horizontal" Spacing="7">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
                             <Border Classes="connection-icon-badge">
                                 <TextBlock Classes="connection-icon emoji"
                                            Text="&#x1F427;"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center" />
                             </Border>
-                            <TextBlock Classes="toolbar-label" Text="{l:Localize WSL}" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize WSL}" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
                     <Button x:Name="NewRdpToolbarButton"
                             Command="{Binding NewRdpCommand}"
                             ToolTip.Tip="{l:Localize NewRdp}"
                             Classes="toolbar">
-                        <StackPanel Orientation="Horizontal" Spacing="7">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
                             <Border Classes="connection-icon-badge">
                                 <TextBlock Classes="connection-icon emoji"
                                            Text="&#x1F5A5;"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center" />
                             </Border>
-                            <TextBlock Classes="toolbar-label" Text="{l:Localize RDP}" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize RDP}" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
                     <Button x:Name="NewVncToolbarButton"
                             Command="{Binding NewVncCommand}"
                             ToolTip.Tip="{l:Localize NewVnc}"
                             Classes="toolbar">
-                        <StackPanel Orientation="Horizontal" Spacing="7">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
                             <Border Classes="connection-icon-badge">
                                 <TextBlock Classes="connection-icon emoji"
                                            Text="&#x1F4FA;"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center" />
                             </Border>
-                            <TextBlock Classes="toolbar-label" Text="{l:Localize VNC}" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize VNC}" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
                     <Border x:Name="GlobalAgentToolbarSeparator"
-                            Width="1"
-                            Height="24"
-                            Margin="4,0"
-                            VerticalAlignment="Center"
-                            Background="{DynamicResource BorderBrushSoft}" />
+                            Classes="toolbar-separator" />
                     <Button x:Name="GlobalAgentToolbarButton"
                             Click="OnGlobalAgentToolbarClick"
                             ToolTip.Tip="{l:Localize GlobalAiAgentTooltip}"
                             Classes="toolbar">
-                        <StackPanel Orientation="Horizontal" Spacing="7">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
                             <TextBlock Classes="toolbar-action-icon ai" Text="&#xE99A;" />
-                            <TextBlock Classes="toolbar-label" Text="{l:Localize GlobalAiAgentShort}" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize GlobalAiAgentShort}" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
                 </StackPanel>
 
-                <StackPanel x:Name="ToolbarTerminal" Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <StackPanel x:Name="ToolbarTerminal" Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                     <Button Click="OnDuplicateSessionToolbarClick"
                             ToolTip.Tip="{l:Localize DuplicateSession}"
                             IsVisible="{Binding IsTerminalActive}"
                             Classes="toolbar">
-                        <StackPanel Orientation="Horizontal" Spacing="7">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
                             <TextBlock Classes="toolbar-action-icon duplicate" Text="&#xE8C8;" />
-                            <TextBlock Classes="toolbar-label" Text="{l:Localize DuplicateSessionShort}" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize DuplicateSessionShort}" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
                     <Button Click="OnRunScriptTerminalToolbarClick"
                             ToolTip.Tip="{l:Localize RunScript}"
                             IsVisible="{Binding IsTerminalActive}"
                             Classes="toolbar">
-                        <StackPanel Orientation="Horizontal" Spacing="7">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
                             <TextBlock Classes="toolbar-action-icon script" Text="&#xE756;" />
-                            <TextBlock Classes="toolbar-label" Text="{l:Localize RunScriptShort}" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize RunScriptShort}" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
+                    <Border Classes="toolbar-separator" IsVisible="{Binding IsTerminalActive}" />
                     <Button x:Name="AiPanelToolbarButton"
                             Click="OnAiPanelToolbarClick"
                             ToolTip.Tip="{l:Localize AiAssistant}"
                             IsVisible="{Binding IsTerminalActive}"
                             Classes="toolbar">
-                        <StackPanel Orientation="Horizontal" Spacing="7">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
                             <TextBlock Classes="toolbar-action-icon ai" Text="&#xE99A;" />
-                            <TextBlock Classes="toolbar-label" Text="{l:Localize AiAssistantShort}" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize AiAssistantShort}" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
                     <Button x:Name="MonitorToolbarButton"
@@ -167,9 +164,9 @@
                             ToolTip.Tip="{l:Localize ServerMonitorTooltip}"
                             IsVisible="{Binding IsSshTerminalActive}"
                             Classes="toolbar">
-                        <StackPanel Orientation="Horizontal" Spacing="7">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
                             <TextBlock Classes="toolbar-action-icon monitor" Text="&#xE9D2;" />
-                            <TextBlock Classes="toolbar-label" Text="{l:Localize ServerMonitor}" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize ServerMonitor}" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
                     <Button x:Name="FileBrowserToolbarButton"
@@ -177,11 +174,12 @@
                             ToolTip.Tip="{l:Localize FileBrowserTooltip}"
                             IsVisible="{Binding IsTerminalActive}"
                             Classes="toolbar">
-                        <StackPanel Orientation="Horizontal" Spacing="7">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
                             <TextBlock Classes="toolbar-action-icon file-browser" Text="&#xE8B7;" />
-                            <TextBlock Classes="toolbar-label" Text="{l:Localize FileBrowserShort}" />
+                            <TextBlock Classes="toolbar-label" Text="{l:Localize FileBrowserShort}" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
+                    <Border Classes="toolbar-separator" IsVisible="{Binding IsTerminalActive}" />
                     <Button x:Name="ForceInterruptToolbarButton"
                             Click="OnForceInterruptTerminalToolbarClick"
                             ToolTip.Tip="{l:Localize TerminalForceInterruptHint}"
@@ -212,31 +210,33 @@
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center" />
                     </Button>
-                    <StackPanel Orientation="Horizontal"
-                                Spacing="6"
-                                VerticalAlignment="Center"
-                                IsVisible="{Binding IsTerminalActive}">
-                        <Button Command="{Binding DecreaseTerminalFontCommand}"
-                                ToolTip.Tip="{l:Localize FontDecrease}"
-                                Classes="toolbar font-step-button">
-                            <TextBlock Text="A-"
-                                       HorizontalAlignment="Center"
-                                       VerticalAlignment="Center" />
-                        </Button>
-                        <Border Classes="font-size-display">
-                            <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                                <TextBlock Text="{Binding TerminalFontSize}" Classes="font-size-value" />
-                                <TextBlock Text="pt" Classes="font-size-unit" />
-                            </StackPanel>
-                        </Border>
-                        <Button Command="{Binding IncreaseTerminalFontCommand}"
-                                ToolTip.Tip="{l:Localize FontIncrease}"
-                                Classes="toolbar font-step-button">
-                            <TextBlock Text="A+"
-                                       HorizontalAlignment="Center"
-                                       VerticalAlignment="Center" />
-                        </Button>
-                    </StackPanel>
+                    <Border Classes="segmented-group"
+                            Margin="4,0"
+                            VerticalAlignment="Center"
+                            IsVisible="{Binding IsTerminalActive}">
+                        <StackPanel Orientation="Horizontal" Spacing="1" VerticalAlignment="Center">
+                            <Button Command="{Binding DecreaseTerminalFontCommand}"
+                                    ToolTip.Tip="{l:Localize FontDecrease}"
+                                    Classes="toolbar font-step-button">
+                                <TextBlock Text="A-"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" />
+                            </Button>
+                            <Border Classes="font-size-display">
+                                <StackPanel Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding TerminalFontSize}" Classes="font-size-value" />
+                                    <TextBlock Text="pt" Classes="font-size-unit" />
+                                </StackPanel>
+                            </Border>
+                            <Button Command="{Binding IncreaseTerminalFontCommand}"
+                                    ToolTip.Tip="{l:Localize FontIncrease}"
+                                    Classes="toolbar font-step-button">
+                                <TextBlock Text="A+"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" />
+                            </Button>
+                        </StackPanel>
+                    </Border>
                     <Button x:Name="MoreActionsButton"
                             ToolTip.Tip="{l:Localize MoreActions}"
                             Classes="toolbar icon-button">
@@ -254,46 +254,60 @@
 
         <!-- Status bar -->
         <Border DockPanel.Dock="Bottom"
-                Padding="18,7"
+                Padding="14,5"
                 Background="{DynamicResource ChromeSurfaceBrush}"
                 BorderBrush="{DynamicResource BorderBrushSoft}"
                 BorderThickness="0,1,0,0">
             <Grid ColumnDefinitions="*,Auto">
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <Border Width="7" Height="7" CornerRadius="4" Background="{DynamicResource AccentBrush}" />
-                    <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" />
+                    <Border Width="8" Height="8" CornerRadius="4"
+                            Background="{DynamicResource AccentSoftBrush}"
+                            BorderBrush="{DynamicResource AccentBrush}"
+                            BorderThickness="2"
+                            VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding StatusMessage}"
+                               FontSize="12"
+                               Foreground="{DynamicResource TextMutedBrush}"
+                               VerticalAlignment="Center" />
                 </StackPanel>
                 <Border Grid.Column="1" Classes="status-pill" Margin="16,0,0,0">
-                    <TextBlock Text="{Binding VersionDisplay}" VerticalAlignment="Center"
+                    <TextBlock Text="{Binding VersionDisplay}"
+                               FontSize="11"
+                               VerticalAlignment="Center"
                                Foreground="{DynamicResource TextMutedBrush}" />
                 </Border>
             </Grid>
         </Border>
 
         <!-- Main area: tree | editor -->
-        <Grid x:Name="MainGrid" ColumnDefinitions="306,Auto,*" Margin="10" ColumnSpacing="8">
-            <Border x:Name="TreePanel" Grid.Column="0" Classes="panel" Padding="10">
+        <Grid x:Name="MainGrid" ColumnDefinitions="306,Auto,*" Margin="10,8,10,8" ColumnSpacing="8">
+            <Border x:Name="TreePanel" Grid.Column="0" Classes="panel" Padding="0" ClipToBounds="True">
                 <DockPanel>
-                    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6" Margin="2,0,2,12">
-                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
-                            <TextBlock Classes="page-title" Text="{l:Localize Connection}" TextTrimming="CharacterEllipsis" />
-                        </StackPanel>
-                        <Button x:Name="ConnectionPanelMfaButton" Grid.Column="1"
-                                VerticalAlignment="Center"
-                                Classes="toolbar icon-button"
-                                AutomationProperties.Name="{l:Localize SshMfaManagerTitle}"
-                                ToolTip.Tip="{l:Localize SshMfaManagerTitle}"
-                                Click="OnSshMfaManageClick">
-                            <TextBlock Classes="icon"
-                                       Text="&#xE72E;"
-                                       HorizontalAlignment="Center"
-                                       VerticalAlignment="Center"
-                                       TextAlignment="Center" />
-                        </Button>
-                        <Button x:Name="ConnectionPanelActionsButton" Grid.Column="2"
-                                VerticalAlignment="Center"
-                                ToolTip.Tip="{l:Localize MoreActions}"
-                                Classes="toolbar icon-button">
+                    <Border DockPanel.Dock="Top"
+                            Padding="12,9,10,9"
+                            BorderBrush="{DynamicResource DividerBrush}"
+                            BorderThickness="0,0,0,1">
+                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4">
+                            <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                <TextBlock Classes="page-title" FontSize="15.5" Text="{l:Localize Connection}" TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                            <Button x:Name="ConnectionPanelMfaButton" Grid.Column="1"
+                                    VerticalAlignment="Center"
+                                    Classes="toolbar compact-icon-button"
+                                    AutomationProperties.Name="{l:Localize SshMfaManagerTitle}"
+                                    ToolTip.Tip="{l:Localize SshMfaManagerTitle}"
+                                    Click="OnSshMfaManageClick">
+                                <TextBlock Classes="icon"
+                                           FontSize="13"
+                                           Text="&#xE72E;"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           TextAlignment="Center" />
+                            </Button>
+                            <Button x:Name="ConnectionPanelActionsButton" Grid.Column="2"
+                                    VerticalAlignment="Center"
+                                    ToolTip.Tip="{l:Localize MoreActions}"
+                                    Classes="toolbar compact-icon-button">
                             <Button.Content>
                                 <TextBlock Classes="icon"
                                            Text="&#xE712;"
@@ -424,9 +438,11 @@
                                 </MenuFlyout>
                             </Button.Flyout>
                         </Button>
-                    </Grid>
+                        </Grid>
+                    </Border>
 
                     <TreeView x:Name="Tree"
+                              Margin="6,6,6,6"
                               ItemsSource="{Binding Nodes}"
                               SelectionMode="Multiple"
                               SelectedItem="{Binding SelectedNode, Mode=TwoWay}">
@@ -624,27 +640,72 @@
                           Background="Transparent" />
 
             <!-- Right pane: fixed editor + optional global-agent and terminal tabs added in code-behind -->
-            <Border Grid.Column="2" Classes="panel" Padding="6" ClipToBounds="True">
+            <Border Grid.Column="2" Classes="panel" Padding="8,6,8,8" ClipToBounds="True">
             <Grid RowDefinitions="Auto,*">
-                <Grid x:Name="TabOperationsBar" IsVisible="False" ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="6" Margin="2,0,2,4">
-                    <TextBox x:Name="TabSearchBox" MinWidth="60" HorizontalAlignment="Stretch"
-                             PlaceholderText="{l:Localize TabSearch}" TextChanged="OnTabSearchChanged" KeyDown="OnTabSearchKeyDown" />
-                    <Button Grid.Column="1" x:Name="ClearTabSearchButton" Content="&#xD7;" Click="OnClearTabSearch"
-                            ToolTip.Tip="{l:Localize TabSearchClear}" />
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
-                        <TextBlock Text="{l:Localize TabMaxRows}" VerticalAlignment="Center" />
-                        <NumericUpDown x:Name="TabMaxRowsBox" Minimum="1" Maximum="20" Increment="1"
-                                       FormatString="0" Width="112" Value="{Binding TerminalTabMaxRows, Mode=TwoWay}"
-                                       ValueChanged="OnTabMaxRowsChanged" />
-                    </StackPanel>
-                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4">
-                        <Button x:Name="PreviousTabPageButton" Content="&#x2039;" Click="OnPreviousTabPage"
-                                ToolTip.Tip="{l:Localize TabPreviousPage}" />
-                        <TextBlock x:Name="TabPageText" Text="1 / 1" MinWidth="58" TextAlignment="Center" VerticalAlignment="Center" />
-                        <Button x:Name="NextTabPageButton" Content="&#x203A;" Click="OnNextTabPage"
-                                ToolTip.Tip="{l:Localize TabNextPage}" />
-                    </StackPanel>
-                    <TextBlock Grid.Column="4" x:Name="TabSearchCount" VerticalAlignment="Center" />
+                <Grid x:Name="TabOperationsBar" IsVisible="False" Margin="0,0,0,6">
+                    <Border Background="{DynamicResource SurfaceAltBrush}"
+                            BorderBrush="{DynamicResource DividerBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="8,5">
+                        <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="8">
+                            <TextBox x:Name="TabSearchBox"
+                                     Classes="compact-input"
+                                     MinWidth="80"
+                                     HorizontalAlignment="Stretch"
+                                     PlaceholderText="{l:Localize TabSearch}"
+                                     TextChanged="OnTabSearchChanged"
+                                     KeyDown="OnTabSearchKeyDown">
+                                <TextBox.InnerLeftContent>
+                                    <TextBlock Classes="icon"
+                                               FontSize="12"
+                                               Margin="8,0,0,0"
+                                               Foreground="{DynamicResource TextMutedBrush}"
+                                               Text="&#xE721;" />
+                                </TextBox.InnerLeftContent>
+                            </TextBox>
+                            <Button Grid.Column="1" x:Name="ClearTabSearchButton"
+                                    Classes="toolbar compact-icon-button"
+                                    Click="OnClearTabSearch"
+                                    ToolTip.Tip="{l:Localize TabSearchClear}">
+                                <TextBlock Classes="icon" FontSize="10" Text="&#xE711;" />
+                            </Button>
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <TextBlock Classes="label" Text="{l:Localize TabMaxRows}" VerticalAlignment="Center" />
+                                <NumericUpDown x:Name="TabMaxRowsBox" Minimum="1" Maximum="20" Increment="1"
+                                               FormatString="0" Width="92" Value="{Binding TerminalTabMaxRows, Mode=TwoWay}"
+                                               ValueChanged="OnTabMaxRowsChanged" />
+                            </StackPanel>
+                            <Border Grid.Column="3" Classes="segmented-group" VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                                    <Button x:Name="PreviousTabPageButton"
+                                            Classes="toolbar compact-icon-button"
+                                            Width="24" Height="24" MinWidth="24" MinHeight="24"
+                                            Click="OnPreviousTabPage"
+                                            ToolTip.Tip="{l:Localize TabPreviousPage}">
+                                        <TextBlock Classes="icon" FontSize="10" Text="&#xE76B;" />
+                                    </Button>
+                                    <TextBlock x:Name="TabPageText"
+                                               Classes="mono"
+                                               FontSize="12"
+                                               Text="1 / 1"
+                                               MinWidth="48"
+                                               TextAlignment="Center"
+                                               VerticalAlignment="Center" />
+                                    <Button x:Name="NextTabPageButton"
+                                            Classes="toolbar compact-icon-button"
+                                            Width="24" Height="24" MinWidth="24" MinHeight="24"
+                                            Click="OnNextTabPage"
+                                            ToolTip.Tip="{l:Localize TabNextPage}">
+                                        <TextBlock Classes="icon" FontSize="10" Text="&#xE76C;" />
+                                    </Button>
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Grid.Column="4" x:Name="TabSearchCount"
+                                       Classes="label mono"
+                                       VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
                 </Grid>
             <TabControl Grid.Row="1" x:Name="RightTabs"
                         SelectionChanged="OnRightTabsSelectionChanged">
@@ -663,6 +724,9 @@
                             </StackPanel>
                         </Border>
                     </TabItem.Header>
+                    <Border BorderBrush="{DynamicResource DividerBrush}"
+                            BorderThickness="0,1,0,0"
+                            Margin="0,4,0,0">
                     <Grid>
                 <ContentControl Content="{Binding Editor}"
                                 IsVisible="{Binding ShowConnectionEditor}">
@@ -670,26 +734,26 @@
                     <DataTemplate DataType="vm:ConnectionEditorViewModel">
                         <Grid>
                             <ScrollViewer>
-                                <StackPanel Spacing="12" Margin="14,12,16,14">
+                                <StackPanel Spacing="14" Margin="18,16,18,20" MaxWidth="920">
                                     <Grid ColumnDefinitions="*,Auto">
-                                        <StackPanel Spacing="2">
+                                        <StackPanel Spacing="3">
                                             <TextBlock Classes="page-title" Text="{l:Localize Edit}" />
                                             <TextBlock Classes="hint" Text="{l:Localize AutoSaveHint}" />
                                         </StackPanel>
-                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                             <Button Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).ConnectCommand}"
-                                                    Classes="accent">
+                                                    Classes="accent"
+                                                    Padding="14,6">
                                                 <StackPanel Orientation="Horizontal" Spacing="7">
                                                     <TextBlock Classes="toolbar-action-icon connect" Text="&#xE768;" />
-                                                    <TextBlock Text="{l:Localize Connect}" />
+                                                    <TextBlock Text="{l:Localize Connect}" VerticalAlignment="Center" />
                                                 </StackPanel>
                                             </Button>
                                             <Button Click="OnRunScriptMenuClick"
-                                                    IsVisible="{Binding SupportsScripts}"
-                                                    Classes="toolbar">
+                                                    IsVisible="{Binding SupportsScripts}">
                                                 <StackPanel Orientation="Horizontal" Spacing="7">
                                                     <TextBlock Classes="toolbar-action-icon script" Text="&#xE756;" />
-                                                    <TextBlock Text="{l:Localize RunScript}" />
+                                                    <TextBlock Text="{l:Localize RunScript}" VerticalAlignment="Center" />
                                                 </StackPanel>
                                             </Button>
                                         </StackPanel>
@@ -854,7 +918,9 @@
                                                             Spacing="8">
                                                     <Border x:Name="BastionTemplateCard"
                                                             IsVisible="{Binding HasBastionProfile}"
-                                                            Padding="12" CornerRadius="6"
+                                                            Padding="12" CornerRadius="8"
+                                                            BorderBrush="{DynamicResource SelectedBorderBrush}"
+                                                            BorderThickness="3,1,1,1"
                                                             Background="{DynamicResource SurfaceBrush}">
                                                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                                                             <StackPanel Spacing="3">
@@ -1069,22 +1135,32 @@
 
             <!-- Placeholder when nothing is selected -->
             <Grid IsVisible="{Binding ShowPlaceholder}">
-                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14" MaxWidth="360">
-                    <Border Width="58" Height="58" Classes="icon-tile">
-                        <Image Source="/Assets/Icon.png"
-                               Width="44"
-                               Height="44"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center" />
-                    </Border>
-                    <TextBlock Classes="page-title" Text="{l:Localize Connection}"
-                               HorizontalAlignment="Center" />
-                    <TextBlock Classes="hint"
-                               Text="{Binding PlaceholderHint}"
-                               TextAlignment="Center" />
-                </StackPanel>
+                <Border Classes="form-card"
+                        Padding="36,30"
+                        CornerRadius="14"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        MaxWidth="400">
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                        <Border Width="64" Height="64" CornerRadius="16" Classes="icon-tile" HorizontalAlignment="Center">
+                            <Image Source="/Assets/Icon.png"
+                                   Width="42"
+                                   Height="42"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center" />
+                        </Border>
+                        <TextBlock Classes="page-title" Text="{l:Localize Connection}"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,4,0,0" />
+                        <TextBlock Classes="hint"
+                                   Text="{Binding PlaceholderHint}"
+                                   TextAlignment="Center"
+                                   LineHeight="20" />
+                    </StackPanel>
+                </Border>
             </Grid>
                     </Grid>
+                    </Border>
                 </TabItem>
                 <TabItem x:Name="GlobalAgentTab">
                     <TabItem.Header>
@@ -1095,7 +1171,11 @@
                             </StackPanel>
                         </Border>
                     </TabItem.Header>
-                    <views:AgentCliPanelView x:Name="GlobalAgentPanel" />
+                    <Border BorderBrush="{DynamicResource DividerBrush}"
+                            BorderThickness="0,1,0,0"
+                            Margin="0,4,0,0">
+                        <views:AgentCliPanelView x:Name="GlobalAgentPanel" />
+                    </Border>
                 </TabItem>
             </TabControl>
             </Grid>
