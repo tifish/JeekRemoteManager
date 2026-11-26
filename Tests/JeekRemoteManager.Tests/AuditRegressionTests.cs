@@ -367,6 +367,7 @@ public sealed class AuditRegressionTests
     {
         Assert.Equal("a_b_c", FileBrowserViewModel.SanitizeLocalFileName("a:b*c"));
         Assert.Equal("_", FileBrowserViewModel.SanitizeLocalFileName(".."));
+        Assert.Equal("_con.txt", FileBrowserViewModel.SanitizeLocalFileName("con.txt"));
         Assert.Equal(
             Path.Combine("dir_1", "file_name.txt"),
             FileBrowserViewModel.SanitizeLocalRelativePath("dir:1/file?name.txt"));

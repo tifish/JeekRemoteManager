@@ -600,13 +600,6 @@ public class ConnectionStore
 
     /// <summary>Copies a connection file into a folder, giving it a unique name. Returns the new path.</summary>
     public string CopyFileInto(string filePath, string targetFolder, bool includeSshScriptBindings = true)
-        => CopyFileIntoCore(filePath, targetFolder, includeSshScriptBindings, createNewConnectionId: true);
-
-    private string CopyFileIntoCore(
-        string filePath,
-        string targetFolder,
-        bool includeSshScriptBindings,
-        bool createNewConnectionId)
     {
         using var lease = SharedDataFile.Acquire(RootPath);
         return OwnWrite(() =>
@@ -614,7 +607,7 @@ public class ConnectionStore
             Directory.CreateDirectory(targetFolder);
             var baseName = Path.GetFileNameWithoutExtension(filePath);
             var target = UniqueFilePath(targetFolder, baseName);
-            CopyConnectionFile(filePath, target, includeSshScriptBindings, createNewConnectionId);
+            CopyConnectionFile(filePath, target, includeSshScriptBindings);
             return target;
         });
     }
@@ -643,21 +636,16 @@ public class ConnectionStore
 
     /// <summary>Recursively copies a folder into a parent folder, with a unique name. Returns the new path.</summary>
     public string CopyFolderInto(string folderPath, string targetParent, bool includeSshScriptBindings = true)
-        => CopyFolderIntoCore(folderPath, targetParent, includeSshScriptBindings, createNewConnectionIds: true);
-
-    private string CopyFolderIntoCore(
-        string folderPath,
-        string targetParent,
-        bool includeSshScriptBindings,
-        bool createNewConnectionIds)
     {
+        if (IsSameOrInside(folderPath, targetParent))
+            throw new IOException("Cannot copy a folder into itself or a descendant.");
         using var lease = SharedDataFile.Acquire(RootPath);
         return OwnWrite(() =>
         {
             Directory.CreateDirectory(targetParent);
             var name = Path.GetFileName(folderPath.TrimEnd(Path.DirectorySeparatorChar));
             var target = UniqueFolderPath(targetParent, name);
-            CopyDirectory(folderPath, target, includeSshScriptBindings, createNewConnectionIds);
+            CopyDirectory(folderPath, target, includeSshScriptBindings);
             return target;
         });
     }
@@ -668,6 +656,8 @@ public class ConnectionStore
     /// </summary>
     public string MoveFolderInto(string folderPath, string targetParent)
     {
+        if (IsSameOrInside(folderPath, targetParent))
+            throw new IOException("Cannot move a folder into itself or a descendant.");
         using var lease = SharedDataFile.Acquire(RootPath);
         var currentParent = Path.GetDirectoryName(folderPath.TrimEnd(Path.DirectorySeparatorChar));
         if (PathsEqual(currentParent, targetParent))
@@ -701,8 +691,7 @@ public class ConnectionStore
     private void CopyDirectory(
         string sourceDir,
         string destDir,
-        bool includeSshScriptBindings,
-        bool createNewConnectionIds)
+        bool includeSshScriptBindings)
     {
         Directory.CreateDirectory(destDir);
 
@@ -710,7 +699,7 @@ public class ConnectionStore
         {
             var target = Path.Combine(destDir, Path.GetFileName(file));
             if (string.Equals(Path.GetExtension(target), FileExtension, StringComparison.OrdinalIgnoreCase))
-                CopyConnectionFile(file, target, includeSshScriptBindings, createNewConnectionIds);
+                CopyConnectionFile(file, target, includeSshScriptBindings);
             else
                 SharedDataFile.CopyAtomic(file, target);
         }
@@ -719,22 +708,19 @@ public class ConnectionStore
             CopyDirectory(
                 dir,
                 Path.Combine(destDir, Path.GetFileName(dir)),
-                includeSshScriptBindings,
-                createNewConnectionIds);
+                includeSshScriptBindings);
     }
 
     private void CopyConnectionFile(
         string sourcePath,
         string targetPath,
-        bool includeSshScriptBindings,
-        bool createNewConnectionId)
+        bool includeSshScriptBindings)
     {
         // Loading first also persists an id into a legacy source file. Storage-location
         // migration can then copy that same id, while an ordinary duplicate replaces it.
         var connection = Load(sourcePath);
         connection.Name = Path.GetFileNameWithoutExtension(targetPath);
-        if (createNewConnectionId)
-            connection.ConnectionId = NewConnectionId();
+        connection.ConnectionId = NewConnectionId();
 
         if (!includeSshScriptBindings && connection.IsSsh)
             connection.ScriptBindings.Clear();
@@ -822,11 +808,13 @@ public class ConnectionStore
         if (cleaned.Length == 0)
             return "Unnamed";
 
-        var dotIndex = cleaned.IndexOf('.');
-        var stem = dotIndex >= 0 ? cleaned[..dotIndex] : cleaned;
-        if (WindowsReservedDeviceNames.Contains(stem))
-            cleaned = "_" + cleaned;
+        return EscapeWindowsDeviceName(cleaned);
+    }
 
-        return cleaned;
+    internal static string EscapeWindowsDeviceName(string name)
+    {
+        var dotIndex = name.IndexOf('.');
+        var stem = dotIndex >= 0 ? name[..dotIndex] : name;
+        return WindowsReservedDeviceNames.Contains(stem.TrimEnd(' ')) ? "_" + name : name;
     }
 }

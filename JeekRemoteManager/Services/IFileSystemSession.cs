@@ -39,7 +39,8 @@ public interface IFileSystemOps
 
     bool Exists(string path);
 
-    /// <summary>Only valid when the session's <see cref="IFileSystemSession.SupportsPermissions"/> is true.</summary>
+    /// <summary>Pass the octal digits as written (e.g. 755). Only valid when the
+    /// session's <see cref="IFileSystemSession.SupportsPermissions"/> is true.</summary>
     void ChangePermissions(string path, short mode);
 
     void UploadFile(Stream source, string remotePath, Action<ulong> progress);

@@ -24,6 +24,7 @@ public sealed class TerminalSessionLog : IDisposable
     private readonly StreamWriter _writer;
     private readonly Timer _flushTimer;
     private readonly AnsiTextStripper _stripper = new();
+    private bool _writeFailed;
     private bool _disposed;
 
     private TerminalSessionLog(string path)
@@ -53,13 +54,31 @@ public sealed class TerminalSessionLog : IDisposable
         if (safe.Length == 0)
             safe = "session";
         var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-        var path = System.IO.Path.Combine(root, $"{safe}-{stamp}.log");
-        for (var i = 2; File.Exists(path); i++)
-            path = System.IO.Path.Combine(root, $"{safe}-{stamp}-{i}.log");
-
-        var log = new TerminalSessionLog(path);
-        log.WriteHeader(connectionName ?? "");
-        return log;
+        for (var i = 1; ; i++)
+        {
+            var suffix = i == 1 ? "" : $"-{i}";
+            var path = System.IO.Path.Combine(root, $"{safe}-{stamp}{suffix}.log");
+            TerminalSessionLog log;
+            try
+            {
+                log = new TerminalSessionLog(path);
+            }
+            catch (IOException ex) when ((ex.HResult & 0xffff) is 80 or 183)
+            {
+                // Another process may start logging the same connection in this second.
+                continue;
+            }
+            try
+            {
+                log.WriteHeader(connectionName ?? "");
+                return log;
+            }
+            catch
+            {
+                log.Dispose();
+                throw;
+            }
+        }
     }
 
     private void WriteHeader(string connectionName)
@@ -76,7 +95,7 @@ public sealed class TerminalSessionLog : IDisposable
 
         lock (_gate)
         {
-            if (_disposed)
+            if (_disposed || _writeFailed)
                 return;
             var plain = _stripper.Strip(terminalText);
             if (plain.Length > 0)
@@ -88,7 +107,7 @@ public sealed class TerminalSessionLog : IDisposable
                 catch
                 {
                     // Disk full or stream unavailable; keep the terminal session running.
-                    _disposed = true;
+                    _writeFailed = true;
                 }
             }
         }
@@ -98,7 +117,7 @@ public sealed class TerminalSessionLog : IDisposable
     {
         lock (_gate)
         {
-            if (_disposed)
+            if (_disposed || _writeFailed)
                 return;
             try
             {
@@ -121,12 +140,16 @@ public sealed class TerminalSessionLog : IDisposable
             _disposed = true;
             try
             {
-                _writer.Write($"\n# session log ended {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n");
-                _writer.Dispose();
+                if (!_writeFailed)
+                    _writer.Write($"\n# session log ended {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n");
             }
             catch
             {
                 // Best effort.
+            }
+            finally
+            {
+                try { _writer.Dispose(); } catch (IOException) { /* Best effort. */ }
             }
         }
     }
@@ -179,7 +202,7 @@ public sealed class AnsiTextStripper
                         case '\u009b':
                             _state = State.Csi;
                             break;
-                        case '\u009d' or '\u0090' or '\u009e' or '\u009f':
+                        case '\u009d' or '\u0090' or '\u0098' or '\u009e' or '\u009f':
                             _state = State.String;
                             break;
                         case '\r':

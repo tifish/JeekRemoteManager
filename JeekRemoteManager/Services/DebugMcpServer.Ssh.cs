@@ -98,6 +98,21 @@ internal static partial class DebugMcpServer
         Require("rename", FileSystemRetry.Once);
         Require("mkdir", FileSystemRetry.Once);
 
+        var permissionOps = new PermissionProbeOps();
+        await OnUiAsync(async () =>
+        {
+            using var vm = new FileBrowserViewModel(
+                () => new LifecycleProbeFileSystemSession(() => { }, permissionOps), _ => { }, "chmod-probe");
+            foreach (var (symbolic, digits) in new[] { ("-rwxr-xr-x", "755"), ("drwxrwxrwt", "1777") })
+            {
+                vm.GetSelection = () => [new RemoteFileEntry("entry", "/entry", false, false, 0, default, symbolic)];
+                vm.PromptAsync = (_, _, initial) => Task.FromResult<string?>(initial);
+                await vm.ChangePermissionsCommand.ExecuteAsync(null);
+                if (permissionOps.Mode.ToString(System.Globalization.CultureInfo.InvariantCulture) != digits)
+                    failures.Add($"chmod expected {digits}, received {permissionOps.Mode}");
+            }
+        }).Unwrap();
+
         var passed = failures.Count == 0;
         var report =
             $"{(passed ? "PASS" : "FAIL")}: SFTP reconnect replays only idempotent operations\n"
@@ -107,6 +122,12 @@ internal static partial class DebugMcpServer
             + $"\nfailures={failures.Count}"
             + (passed ? "" : "\n" + string.Join("\n", failures));
         return ToolText(report, isError: !passed);
+    }
+
+    private sealed class PermissionProbeOps : LifecycleProbeFileSystemOps
+    {
+        public short Mode;
+        public override void ChangePermissions(string path, short mode) => Mode = mode;
     }
 
     /// <summary>

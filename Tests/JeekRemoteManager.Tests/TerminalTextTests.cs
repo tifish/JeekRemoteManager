@@ -98,10 +98,33 @@ public class TerminalTextTests
     }
 
     [Fact]
+    public async Task Concurrent_transcripts_with_the_same_name_get_distinct_files()
+    {
+        var folder = Directory.CreateTempSubdirectory("jrm-transcripts-");
+        try
+        {
+            var paths = await Task.WhenAll(Enumerable.Range(0, 12).Select(i => Task.Run(() =>
+            {
+                using var log = TerminalSessionLog.Create("server", folder.FullName);
+                log.Write($"session {i}\n");
+                return log.Path;
+            })));
+            Assert.Equal(paths.Length, paths.Distinct().Count());
+            Assert.All(paths, path => Assert.Contains("# session log ended", File.ReadAllText(path)));
+        }
+        finally
+        {
+            folder.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public void Stripper_handles_osc_terminated_by_string_terminator()
     {
         var stripper = new AnsiTextStripper();
 
         Assert.Equal("after", stripper.Strip("\u001b]8;;http://x\u001b\\after"));
+        Assert.Equal("before", stripper.Strip("before\u0098hidden"));
+        Assert.Equal("after", stripper.Strip("still hidden\u009cafter"));
     }
 }

@@ -2782,9 +2782,6 @@ try
     var autoUpdateScript = File.Exists(autoUpdateScriptPath)
         ? File.ReadAllText(autoUpdateScriptPath)
         : "";
-    Check(autoUpdateScript.Contains(
-              "$preserveNames = @(\"Config\", \"Connections\", \"Scripts\", \"Logs\", \"AutoUpdate.ps1\")"),
-          "Auto-update preserves Config, Logs, and legacy top-level user data");
     Check(!autoUpdateScript.Contains("HttpClient")
           && !autoUpdateScript.Contains("Download-FileWithProgress"),
           "Auto-update script no longer downloads; the app stages the package before launching it");

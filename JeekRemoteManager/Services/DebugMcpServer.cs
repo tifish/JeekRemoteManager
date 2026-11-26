@@ -156,6 +156,7 @@ internal static partial class DebugMcpServer
         host.AddTool("ai_panel_auto_open_check", _ => AiPanelAutoOpenCheckAsync());
         host.AddTool("ai_panel_compact_layout_check", _ => AiPanelCompactLayoutCheckAsync());
         host.AddTool("file_browser_session_lifecycle_check", _ => FileBrowserSessionLifecycleCheckAsync());
+        host.AddTool("file_browser_download_check", _ => FileBrowserDownloadCheckAsync());
         host.AddTool("ai_cli_ctrl_c_check", _ => AiCliCtrlCCheckAsync());
         host.AddTool("agent_cli_locate_check", AgentCliLocateCheckAsync);
         host.AddTool("agent_desktop_launch_check", AgentDesktopLaunchCheckAsync);
@@ -408,7 +409,79 @@ internal static partial class DebugMcpServer
         }
     }
 
-    private sealed class LifecycleProbeFileSystemSession(Action onDispose) : IFileSystemSession
+    private static async Task<JsonObject> FileBrowserDownloadCheckAsync()
+    {
+        var folder = Directory.CreateTempSubdirectory("jrm-download-");
+        var ops = new DownloadProbeOps();
+        try
+        {
+            var checks = await OnUiAsync(async () =>
+            {
+                using var vm = new FileBrowserViewModel(
+                    () => new LifecycleProbeFileSystemSession(() => { }, ops), _ => { }, "download-probe");
+                vm.PickDownloadFolderAsync = () => Task.FromResult<string?>(folder.FullName);
+                vm.GetSelection = () => [new RemoteFileEntry("tree", "/tree", true, false, 0, default, "")];
+                var target = Path.Combine(folder.FullName, "tree", "file");
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.WriteAllText(target, "original");
+                var results = new List<string>();
+                foreach (var mode in new[] { "failure", "cancel", "success" })
+                {
+                    ops.AfterWrite = () =>
+                    {
+                        if (mode == "failure") throw new IOException("Simulated transfer failure.");
+                        if (mode == "cancel") vm.Transfers.Last().CancelCommand.Execute(null);
+                    };
+                    await vm.DownloadSelectedCommand.ExecuteAsync(null);
+                    await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+                    var expected = mode == "success" ? "complete" : "original";
+                    if (!File.Exists(target) || File.ReadAllText(target) != expected
+                        || Directory.EnumerateFiles(Path.GetDirectoryName(target)!).Count() != 1
+                        || vm.Transfers.LastOrDefault()?.IsFinished != true)
+                        results.Add(mode);
+                }
+                if (ops.Downloads != 3 || ops.FollowedLink)
+                    results.Add("directory traversal");
+                return results;
+            }).Unwrap();
+            return checks.Count == 0
+                ? ToolText("PASS: failed and canceled downloads preserved the destination, success replaced it, and directory links were skipped.")
+                : ToolText("FAIL: " + string.Join(", ", checks), isError: true);
+        }
+        finally
+        {
+            folder.Delete(recursive: true);
+        }
+    }
+
+    private sealed class DownloadProbeOps : LifecycleProbeFileSystemOps
+    {
+        public Action? AfterWrite;
+        public bool FollowedLink;
+        public int Downloads;
+
+        public override IEnumerable<FileSystemEntry> ListDirectory(string path)
+        {
+            if (path != "/tree")
+            {
+                FollowedLink = true;
+                return [];
+            }
+            return [
+                new("file", "/tree/file", false, false, 8, default, ""),
+                new("link", "/tree/link", true, true, 0, default, ""),
+            ];
+        }
+
+        public override void DownloadFile(string remotePath, Stream destination, Action<ulong> progress)
+        {
+            Downloads++;
+            destination.Write("complete"u8);
+            AfterWrite?.Invoke();
+        }
+    }
+
+    private sealed class LifecycleProbeFileSystemSession(Action onDispose, IFileSystemOps? ops = null) : IFileSystemSession
     {
         private bool _disposed;
 
@@ -423,7 +496,7 @@ internal static partial class DebugMcpServer
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             cancellationToken.ThrowIfCancellationRequested();
-            return Task.FromResult(operation(LifecycleProbeFileSystemOps.Instance));
+            return Task.FromResult(operation(ops ?? LifecycleProbeFileSystemOps.Instance));
         }
 
         public void Dispose()
@@ -435,13 +508,13 @@ internal static partial class DebugMcpServer
         }
     }
 
-    private sealed class LifecycleProbeFileSystemOps : IFileSystemOps
+    private class LifecycleProbeFileSystemOps : IFileSystemOps
     {
         public static readonly LifecycleProbeFileSystemOps Instance = new();
 
         public string WorkingDirectory => "/home/probe";
 
-        public IEnumerable<FileSystemEntry> ListDirectory(string path) => [];
+        public virtual IEnumerable<FileSystemEntry> ListDirectory(string path) => [];
 
         public void CreateDirectory(string path)
         {
@@ -461,7 +534,7 @@ internal static partial class DebugMcpServer
 
         public bool Exists(string path) => false;
 
-        public void ChangePermissions(string path, short mode)
+        public virtual void ChangePermissions(string path, short mode)
         {
         }
 
@@ -469,7 +542,7 @@ internal static partial class DebugMcpServer
         {
         }
 
-        public void DownloadFile(string remotePath, Stream destination, Action<ulong> progress)
+        public virtual void DownloadFile(string remotePath, Stream destination, Action<ulong> progress)
         {
         }
     }

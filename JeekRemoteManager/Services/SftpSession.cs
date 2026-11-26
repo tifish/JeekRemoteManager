@@ -160,6 +160,13 @@ public sealed class SftpSession : IFileSystemSession
             chars[7] = file.OthersCanRead ? 'r' : '-';
             chars[8] = file.OthersCanWrite ? 'w' : '-';
             chars[9] = file.OthersCanExecute ? 'x' : '-';
+            var attributes = file.Attributes;
+            if (attributes.IsUIDBitSet)
+                chars[3] = file.OwnerCanExecute ? 's' : 'S';
+            if (attributes.IsGroupIDBitSet)
+                chars[6] = file.GroupCanExecute ? 's' : 'S';
+            if (attributes.IsStickyBitSet)
+                chars[9] = file.OthersCanExecute ? 't' : 'T';
             return new string(chars);
         }
     }

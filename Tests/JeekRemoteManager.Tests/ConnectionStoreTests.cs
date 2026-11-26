@@ -19,6 +19,16 @@ public sealed class ConnectionStoreTests : IDisposable
         folder.Connections.Concat(folder.Folders.SelectMany(All));
 
     [Fact]
+    public void Copying_or_moving_a_folder_into_a_descendant_fails_before_creating_anything()
+    {
+        var source = _store.CreateFolder(_root, "source");
+        var descendant = Path.Combine(source, "child");
+        Assert.Throws<IOException>(() => _store.CopyFolderInto(source, descendant));
+        Assert.Throws<IOException>(() => _store.MoveFolderInto(source, descendant));
+        Assert.False(Directory.Exists(descendant));
+    }
+
+    [Fact]
     public void Folder_case_only_renames_change_the_disk_name_and_preserve_contents()
     {
         var folder = _store.CreateFolder(_root, "group");

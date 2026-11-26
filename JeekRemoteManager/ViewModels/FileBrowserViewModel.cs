@@ -116,6 +116,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     // Live remote-edit sessions, keyed by remote path: local file watched, saves
     // auto-uploaded. Torn down with the panel.
     private readonly Dictionary<string, RemoteEditSession> _editSessions = new();
+    private readonly string _editWorkspace = Guid.NewGuid().ToString("N");
     private IFileSystemSession? _browseSession;
     private IFileSystemSession? _transferSession;
     private CancellationTokenSource? _hiddenSessionRelease;
@@ -434,9 +435,9 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
 
     private void CacheListing(string path, List<RemoteFileEntry> entries)
     {
-        // Crude cap: visiting this many distinct directories in one session is
-        // rare, and a full reset is simpler than LRU bookkeeping.
-        if (_listingCache.Count >= ListingCacheCapacity)
+        // Only a new directory needs a slot. Revalidating a cached directory
+        // at capacity should leave the other listings intact.
+        if (_listingCache.Count >= ListingCacheCapacity && !_listingCache.ContainsKey(path))
             _listingCache.Clear();
         _listingCache[path] = entries;
     }
@@ -560,6 +561,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
             return;
 
         var hadFocus = IsListFocused?.Invoke() == true;
+        var parent = CurrentPath;
         var name = (await PromptAsync(L("NewFolder"), L("FileBrowserNewFolderPrompt"), ""))?.Trim();
         if (string.IsNullOrEmpty(name) || name.Contains('/'))
         {
@@ -570,7 +572,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         }
 
         await RunBrowseOperationAsync(
-            ops => ops.CreateDirectory(CombineRemote(CurrentPath, name)),
+            ops => ops.CreateDirectory(CombineRemote(parent, name)),
             refocusList: hadFocus,
             selectName: name);
     }
@@ -659,7 +661,8 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
             return;
         }
 
-        var mode = Convert.ToInt16(input, 8);
+        // SSH.NET accepts the octal digits as written (755), not their bitmask (493).
+        var mode = short.Parse(input, CultureInfo.InvariantCulture);
         await RunBrowseOperationAsync(ops =>
         {
             foreach (var entry in selection)
@@ -793,7 +796,12 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
             try
             {
                 expanded = await Task.Run(() =>
-                    Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+                    Directory.EnumerateFiles(root, "*", new EnumerationOptions
+                        {
+                            RecurseSubdirectories = true,
+                            AttributesToSkip = FileAttributes.ReparsePoint,
+                            IgnoreInaccessible = false,
+                        })
                         .Select(file =>
                         {
                             var relative = Path.GetRelativePath(root, file).Replace('\\', '/');
@@ -891,10 +899,12 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     {
         foreach (var child in ops.ListDirectory(path))
         {
+            if (child.IsSymbolicLink)
+                continue;
             var relative = relativePrefix.Length == 0 ? child.Name : relativePrefix + "/" + child.Name;
             if (child.IsDirectory)
                 CollectFilesRecursive(ops, child.FullName, relative, found);
-            else if (!child.IsSymbolicLink)
+            else
                 found.Add((child.FullName, relative, child.Length));
         }
     }
@@ -946,8 +956,8 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
     private string BuildEditLocalPath(string remotePath, string name)
     {
         var hash = Convert.ToHexString(
-            MD5.HashData(Encoding.UTF8.GetBytes(ConnectionLabel + ":" + remotePath)))[..12];
-        return Path.Combine(DebugInstanceContext.RuntimeTempRoot, "edit", hash, SanitizeLocalFileName(name));
+            SHA256.HashData(Encoding.UTF8.GetBytes(remotePath)))[..24];
+        return Path.Combine(DebugInstanceContext.RuntimeTempRoot, "edit", _editWorkspace, hash, SanitizeLocalFileName(name));
     }
 
     private void StartEditWatch(string remotePath, string localPath)
@@ -1109,14 +1119,10 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         catch (OperationCanceledException)
         {
             SetTransferState(item, L("TransferCanceled"), finished: true);
-            if (!item.IsUpload)
-                TryDeleteLocalFile(item.LocalPath);
         }
         catch (Exception ex)
         {
             SetTransferState(item, L("TransferFailed", ex.Message), finished: true);
-            if (!item.IsUpload)
-                TryDeleteLocalFile(item.LocalPath);
         }
         finally
         {
@@ -1179,9 +1185,21 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         }
         else
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(item.LocalPath)!);
-            using var local = File.Create(item.LocalPath);
-            ops.DownloadFile(item.RemotePath, local, Report);
+            var directory = Path.GetDirectoryName(item.LocalPath)!;
+            Directory.CreateDirectory(directory);
+            var temporary = Path.Combine(directory, Path.GetRandomFileName());
+            var local = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            try
+            {
+                using (local)
+                    ops.DownloadFile(item.RemotePath, local, Report);
+                item.Cancellation.Token.ThrowIfCancellationRequested();
+                File.Move(temporary, item.LocalPath, overwrite: true);
+            }
+            finally
+            {
+                TryDeleteLocalFile(temporary);
+            }
         }
     }
 
@@ -1364,7 +1382,7 @@ public partial class FileBrowserViewModel : ViewModelBase, IDisposable
         var cleaned = sb.ToString().TrimEnd(' ', '.');
         if (cleaned.Length == 0 || cleaned is "." or "..")
             return "_";
-        return cleaned;
+        return ConnectionStore.EscapeWindowsDeviceName(cleaned);
     }
 
     internal static string SanitizeLocalRelativePath(string relative)

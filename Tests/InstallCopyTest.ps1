@@ -6,10 +6,13 @@ $installer = Get-Content -LiteralPath (Join-Path $repoRoot "install.ps1") -Raw
 $copyStart = $installer.IndexOf('# 4. Mirror the package')
 $copyEnd = $installer.IndexOf('Remove-Item -Recurse -Force $tempRoot', $copyStart)
 if ($copyStart -lt 0 -or $copyEnd -lt 0) { throw "Installer copy step not found." }
-$copyStep = [scriptblock]::Create($installer.Substring($copyStart, $copyEnd - $copyStart))
+$installerStep = [scriptblock]::Create($installer.Substring($copyStart, $copyEnd - $copyStart))
+$updater = Get-Content -LiteralPath (Join-Path $repoRoot "bin\AutoUpdate.ps1") -Raw
+$copyStart = $updater.IndexOf('Write-Host "[2/3] Installing files..."')
+$copyEnd = $updater.IndexOf('# Remove the update root', $copyStart)
+$updaterStep = [scriptblock]::Create($updater.Substring($copyStart, $copyEnd - $copyStart))
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ("Jrm install test " + [guid]::NewGuid())
 $stageDir = Join-Path $testRoot "package"
-$InstallDir = Join-Path $testRoot "installed app"
 
 function Write-FixtureFile([string]$root, [string]$relativePath, [string]$value) {
     $path = Join-Path $root $relativePath
@@ -24,7 +27,7 @@ function Assert-File([string]$relativePath, [string]$expected) {
     }
 }
 
-try {
+function Test-CopyStep($copyStep, $InstallDir) {
     Write-FixtureFile $stageDir "JeekRemoteManager.exe" "fixture"
     Write-FixtureFile $stageDir "Data\Scripts\Example suite\params.conf" "TARGET=string"
     Write-FixtureFile $stageDir "Data\Scripts\Example suite\run.sh" "echo first"
@@ -46,6 +49,7 @@ try {
     Write-FixtureFile $InstallDir "Scripts\Custom suite\run.sh" "keep custom script"
     Write-FixtureFile $InstallDir "Data\Scripts\Obsolete suite\run.sh" "remove old suite"
     Write-FixtureFile $InstallDir "stale.dll" "remove old binary"
+    Write-FixtureFile $InstallDir "AutoUpdate.ps1" "existing updater"
     Write-FixtureFile $stageDir "Data\Scripts\Example suite\run.sh" "echo updated"
     & $copyStep
     Assert-File "Data\Scripts\Example suite\run.sh" "echo updated"
@@ -57,6 +61,17 @@ try {
     foreach ($relativePath in @("Data\Scripts\Obsolete suite", "stale.dll")) {
         if (Test-Path -LiteralPath (Join-Path $InstallDir $relativePath)) { throw "Stale package content survived: $relativePath" }
     }
+    if ($copyStep -eq $updaterStep) {
+        Assert-File "AutoUpdate.ps1" "existing updater"
+        Write-FixtureFile $stageDir "AutoUpdate.ps1" "updated updater"
+        & $copyStep
+        Assert-File "AutoUpdate.ps1" "updated updater"
+    }
+}
+
+try {
+    Test-CopyStep $installerStep (Join-Path $testRoot "installed app")
+    Test-CopyStep $updaterStep (Join-Path $testRoot "updated app")
     Write-Host "PASS: fresh install, update, root user data preservation, and stale package cleanup."
 }
 finally {

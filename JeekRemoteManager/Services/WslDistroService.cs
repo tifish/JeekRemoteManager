@@ -185,6 +185,9 @@ public static class WslDistroService
                 return result;
             }
 
+            if (process.ExitCode != 0)
+                return result;
+
             var output = outputTask.GetAwaiter().GetResult();
 
             foreach (var line in output.Split('\n'))

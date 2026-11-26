@@ -140,7 +140,7 @@ if (-not (Test-Path (Join-Path $stageDir "$AppName.exe"))) {
 Get-Process -Name $AppName -ErrorAction SilentlyContinue | ForEach-Object {
     $exePath = $null
     try { $exePath = $_.Path } catch {}
-    if ($exePath -and $exePath.StartsWith("$InstallDir\", [System.StringComparison]::OrdinalIgnoreCase)) {
+    if ($exePath -and $exePath -eq (Join-Path $InstallDir "$AppName.exe")) {
         Write-Host "Stopping running instance (PID $($_.Id))..."
         Stop-Process -Id $_.Id -Force
         $_.WaitForExit()
@@ -149,8 +149,7 @@ Get-Process -Name $AppName -ErrorAction SilentlyContinue | ForEach-Object {
 
 # 4. Mirror the package into the install directory, cleaning up files the new
 #    version no longer ships while preserving user data folders. Keep this
-#    exclusion list in sync with bin/AutoUpdate.ps1 $preserveNames (minus the
-#    updater script itself, which is only needed mid-update).
+#    exclusion list in sync with bin/AutoUpdate.ps1.
 Write-Host "Installing to $InstallDir"
 # Bare /XD names match at every depth and would also skip bundled Data/Scripts.
 # Exclude both source and destination paths to preserve only root user folders.
@@ -158,7 +157,7 @@ $excludedDirectories = foreach ($name in @("Config", "Connections", "Scripts", "
     Join-Path $stageDir $name
     Join-Path $InstallDir $name
 }
-robocopy $stageDir $InstallDir /MIR /XD $excludedDirectories /NFL /NDL /NJH /NJS /NP | Out-Null
+robocopy $stageDir $InstallDir /MIR /XD $excludedDirectories /R:2 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
 if ($LASTEXITCODE -ge 8) {
     Write-Host "Failed to copy files (robocopy exit code $LASTEXITCODE)." -ForegroundColor Red
     exit 1
