@@ -32,13 +32,13 @@
                 Background="{DynamicResource ChromeSurfaceBrush}"
                 BorderBrush="{DynamicResource BorderBrushSoft}"
                 BorderThickness="0,0,0,1"
-                Padding="14,7">
-            <Grid x:Name="CommandBar" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+                Padding="12,6">
+            <Grid x:Name="CommandBar" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
                 <StackPanel x:Name="ToolbarBrand" Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <Border Width="34" Height="34" Classes="brand-tile">
+                    <Border Width="32" Height="32" Classes="brand-tile">
                         <Image Source="/Assets/Icon.png"
-                               Width="24"
-                               Height="24"
+                               Width="22"
+                               Height="22"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center" />
                     </Border>
@@ -254,43 +254,43 @@
 
         <!-- Status bar -->
         <Border DockPanel.Dock="Bottom"
-                Padding="14,5"
+                Padding="12,5"
                 Background="{DynamicResource ChromeSurfaceBrush}"
                 BorderBrush="{DynamicResource BorderBrushSoft}"
                 BorderThickness="0,1,0,0">
-            <Grid ColumnDefinitions="*,Auto">
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <Border Width="8" Height="8" CornerRadius="4"
-                            Background="{DynamicResource AccentSoftBrush}"
-                            BorderBrush="{DynamicResource AccentBrush}"
-                            BorderThickness="2"
-                            VerticalAlignment="Center" />
-                    <TextBlock Text="{Binding StatusMessage}"
-                               FontSize="12"
-                               Foreground="{DynamicResource TextMutedBrush}"
-                               VerticalAlignment="Center" />
-                </StackPanel>
-                <Border Grid.Column="1" Classes="status-pill" Margin="16,0,0,0">
-                    <TextBlock Text="{Binding VersionDisplay}"
-                               FontSize="11"
-                               VerticalAlignment="Center"
-                               Foreground="{DynamicResource TextMutedBrush}" />
-                </Border>
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                <TextBlock Grid.Column="0"
+                           Text="{Binding StatusMessage}"
+                           FontSize="12"
+                           Foreground="{DynamicResource TextMutedBrush}"
+                           TextTrimming="CharacterEllipsis"
+                           ToolTip.Tip="{Binding StatusMessage}"
+                           VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1"
+                           Classes="mono"
+                           Text="{Binding VersionDisplay}"
+                           FontSize="11"
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource TextMutedBrush}" />
             </Grid>
         </Border>
 
         <!-- Main area: tree | editor -->
-        <Grid x:Name="MainGrid" ColumnDefinitions="306,Auto,*" Margin="10,8,10,8" ColumnSpacing="8">
+        <Grid x:Name="MainGrid" Margin="8" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="306" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" MinWidth="320" />
+            </Grid.ColumnDefinitions>
             <Border x:Name="TreePanel" Grid.Column="0" Classes="panel" Padding="0" ClipToBounds="True">
                 <DockPanel>
                     <Border DockPanel.Dock="Top"
-                            Padding="12,9,10,9"
+                            Padding="12,8,8,8"
                             BorderBrush="{DynamicResource DividerBrush}"
                             BorderThickness="0,0,0,1">
                         <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4">
-                            <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
-                                <TextBlock Classes="page-title" FontSize="15.5" Text="{l:Localize Connection}" TextTrimming="CharacterEllipsis" />
-                            </StackPanel>
+                            <TextBlock Grid.Column="0" Classes="section-title" Text="{l:Localize Connection}"
+                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                             <Button x:Name="ConnectionPanelMfaButton" Grid.Column="1"
                                     VerticalAlignment="Center"
                                     Classes="toolbar compact-icon-button"
@@ -443,6 +443,7 @@
 
                     <TreeView x:Name="Tree"
                               Margin="6,6,6,6"
+                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                               ItemsSource="{Binding Nodes}"
                               SelectionMode="Multiple"
                               SelectedItem="{Binding SelectedNode, Mode=TwoWay}">
@@ -606,8 +607,9 @@
                         <TreeView.ItemTemplate>
                             <TreeDataTemplate ItemsSource="{Binding Children}" x:DataType="vm:TreeNodeViewModel">
                                 <Border Classes="tree-row" Opacity="{Binding NodeOpacity}"
-                                        Classes.drag-over="{Binding IsDragOver}">
-                                    <Grid ColumnDefinitions="26,*" ColumnSpacing="8">
+                                        Classes.drag-over="{Binding IsDragOver}"
+                                        ToolTip.Tip="{Binding DisplayName}">
+                                    <Grid ColumnDefinitions="24,*" ColumnSpacing="8">
                                         <Border Grid.Column="0"
                                                 Classes="connection-icon-badge"
                                                 Classes.ssh-connection-icon="{Binding IsSshConnection}">
@@ -733,25 +735,26 @@
                 <ContentControl.DataTemplates>
                     <DataTemplate DataType="vm:ConnectionEditorViewModel">
                         <Grid>
-                            <ScrollViewer>
-                                <StackPanel Spacing="14" Margin="18,16,18,20" MaxWidth="920">
-                                    <Grid ColumnDefinitions="*,Auto">
-                                        <StackPanel Spacing="3">
+                            <ScrollViewer x:Name="EditorScrollViewer"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel Spacing="16" Margin="20,16,20,24" MaxWidth="920">
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                        <StackPanel Spacing="4">
                                             <TextBlock Classes="page-title" Text="{l:Localize Edit}" />
                                             <TextBlock Classes="hint" Text="{l:Localize AutoSaveHint}" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                             <Button Command="{Binding #Root.((vm:MainWindowViewModel)DataContext).ConnectCommand}"
                                                     Classes="accent"
-                                                    Padding="14,6">
-                                                <StackPanel Orientation="Horizontal" Spacing="7">
+                                                    Padding="16,4">
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
                                                     <TextBlock Classes="toolbar-action-icon connect" Text="&#xE768;" />
                                                     <TextBlock Text="{l:Localize Connect}" VerticalAlignment="Center" />
                                                 </StackPanel>
                                             </Button>
                                             <Button Click="OnRunScriptMenuClick"
                                                     IsVisible="{Binding SupportsScripts}">
-                                                <StackPanel Orientation="Horizontal" Spacing="7">
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
                                                     <TextBlock Classes="toolbar-action-icon script" Text="&#xE756;" />
                                                     <TextBlock Text="{l:Localize RunScript}" VerticalAlignment="Center" />
                                                 </StackPanel>
@@ -763,14 +766,14 @@
                                         <StackPanel Spacing="12">
                                             <TextBlock Classes="section-title" Text="{l:Localize Connection}" />
 
-                                            <Grid ColumnDefinitions="128,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10">
+                                            <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="8">
                                                 <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="{l:Localize Type}" />
                                                 <ComboBox Grid.Row="0" Grid.Column="1" HorizontalAlignment="Stretch"
                                                           ItemsSource="{Binding AvailableTypeDisplays}"
                                                           SelectedItem="{Binding TypeDisplay, Mode=TwoWay}" />
 
                                                 <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="{l:Localize Name}" />
-                                                <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,86,96" ColumnSpacing="10">
+                                                <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,84,96" ColumnSpacing="8">
                                                     <TextBox Grid.Column="0" Text="{Binding Name, Mode=TwoWay}" />
                                                     <TextBlock Grid.Column="1" Classes="label" Text="{l:Localize ShortName}"
                                                                HorizontalAlignment="Right" />
@@ -780,18 +783,18 @@
 
                                                 <TextBlock Grid.Row="2" Grid.Column="0" Classes="label" Text="{l:Localize Host}"
                                                            IsVisible="{Binding HasHostPort}" />
-                                                <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,86,96" ColumnSpacing="10"
+                                                <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,84,96" ColumnSpacing="8"
                                                       IsVisible="{Binding HasHostPort}">
                                                     <TextBox Grid.Column="0" Text="{Binding Host, Mode=TwoWay}"
                                                              PlaceholderText="{l:Localize HostWatermark}" />
                                                     <TextBlock Grid.Column="1" Classes="label" Text="{l:Localize Port}"
                                                                HorizontalAlignment="Right" />
-                                                    <TextBox Grid.Column="2" Text="{Binding Port, Mode=TwoWay}" />
+                                                    <TextBox Grid.Column="2" Classes="mono" Text="{Binding Port, Mode=TwoWay}" />
                                                 </Grid>
 
                                                 <TextBlock Grid.Row="3" Grid.Column="0" Classes="label" Text="{l:Localize WslDistro}"
                                                            IsVisible="{Binding IsWsl}" />
-                                                <StackPanel Grid.Row="3" Grid.Column="1" Spacing="6"
+                                                <StackPanel Grid.Row="3" Grid.Column="1" Spacing="8"
                                                             IsVisible="{Binding IsWsl}">
                                                     <ComboBox HorizontalAlignment="Stretch"
                                                               ItemsSource="{Binding AvailableWslDistros}"
@@ -806,15 +809,15 @@
 
                                     <Border Classes="form-card">
                                         <StackPanel Spacing="12">
-                                            <TextBlock Classes="section-title" Text="{l:Localize Username}" />
+                                            <TextBlock Classes="section-title" Text="{l:Localize Credentials}" />
 
-                                            <Grid ColumnDefinitions="128,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10">
+                                            <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="8">
                                                 <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="{l:Localize Username}" />
                                                 <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Username, Mode=TwoWay}" />
 
                                                 <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="{l:Localize Password}"
                                                            IsVisible="{Binding HasPassword}" />
-                                                <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="10"
+                                                <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8"
                                                       IsVisible="{Binding HasPassword}">
                                                     <TextBox Grid.Column="0" x:Name="PasswordBox"
                                                              Text="{Binding Password, Mode=TwoWay}"
@@ -828,8 +831,9 @@
                                                 </Grid>
 
                                                 <TextBlock Grid.Row="2" Grid.Column="1"
+                                                           Classes="hint"
                                                            Text="{l:Localize PasswordDecryptFailed}"
-                                                           Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap"
+                                                           Foreground="{DynamicResource DangerBrush}"
                                                            IsVisible="{Binding PasswordDecryptFailed}" />
                                             </Grid>
                                         </StackPanel>
@@ -840,7 +844,7 @@
                                             IsVisible="{Binding IsSsh}">
                                         <StackPanel Spacing="12">
                                             <TextBlock Classes="section-title" Text="{l:Localize SshOptions}" />
-                                            <Grid ColumnDefinitions="128,*,Auto" ColumnSpacing="10">
+                                            <Grid ColumnDefinitions="120,*,Auto" ColumnSpacing="8">
                                                 <TextBlock Classes="label" Text="{l:Localize SshMfaTitle}" />
                                                 <ComboBox x:Name="SshMfaProfileCombo" Grid.Column="1"
                                                           HorizontalAlignment="Stretch"
@@ -857,7 +861,7 @@
                                                         Content="{l:Localize SshMfaManage}"
                                                         Click="OnSshMfaManageClick" />
                                             </Grid>
-                                            <Grid ColumnDefinitions="128,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                                            <Grid ColumnDefinitions="120,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="8">
                                                 <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="{l:Localize TerminalType}" />
                                                 <ComboBox Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2"
                                                           HorizontalAlignment="Stretch"
@@ -874,6 +878,7 @@
 
                                                 <TextBlock Grid.Row="2" Grid.Column="0" Classes="label" Text="{l:Localize PrivateKey}" />
                                                 <TextBox x:Name="PrivateKeyPathBox" Grid.Row="2" Grid.Column="1"
+                                                         Classes="mono"
                                                          Text="{Binding PrivateKeyPath, Mode=TwoWay}"
                                                          DragDrop.AllowDrop="True"
                                                          DragDrop.DragOver="OnPrivateKeyFileDragOver"
@@ -890,14 +895,15 @@
                                                              PasswordChar="&#x2022;"
                                                              RevealPassword="{Binding #Root.((vm:MainWindowViewModel)DataContext).ShowPassword}"
                                                              PlaceholderText="{l:Localize PassphraseWatermark}" />
-                                                    <TextBlock Text="{l:Localize PassphraseDecryptFailed}"
-                                                               Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap"
+                                                    <TextBlock Classes="hint"
+                                                               Text="{l:Localize PassphraseDecryptFailed}"
+                                                               Foreground="{DynamicResource DangerBrush}"
                                                                IsVisible="{Binding PassphraseDecryptFailed}" />
                                                 </StackPanel>
 
                                                 <StackPanel Grid.Row="4" Grid.Column="0"
                                                             Orientation="Horizontal" Spacing="6"
-                                                            VerticalAlignment="Top" Margin="0,3,0,0">
+                                                            VerticalAlignment="Top" Margin="0,4,0,0">
                                                     <TextBlock Classes="label" Text="{l:Localize LoginCommands}"
                                                                VerticalAlignment="Center" />
                                                     <Button x:Name="LoginCommandsHelpButton"
@@ -918,16 +924,18 @@
                                                             Spacing="8">
                                                     <Border x:Name="BastionTemplateCard"
                                                             IsVisible="{Binding HasBastionProfile}"
-                                                            Padding="12" CornerRadius="8"
+                                                            Padding="12" CornerRadius="6"
                                                             BorderBrush="{DynamicResource SelectedBorderBrush}"
                                                             BorderThickness="3,1,1,1"
                                                             Background="{DynamicResource SurfaceBrush}">
                                                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                                                            <StackPanel Spacing="3">
+                                                            <StackPanel Spacing="4">
                                                                 <TextBlock Text="{l:Localize BastionTemplateAutoLinked}"
                                                                            FontWeight="SemiBold" />
-                                                                <TextBlock Text="{Binding BastionProfileEndpoint}"
-                                                                           FontFamily="Consolas" />
+                                                                <TextBlock Classes="mono hint"
+                                                                           Text="{Binding BastionProfileEndpoint}"
+                                                                           TextTrimming="CharacterEllipsis"
+                                                                           ToolTip.Tip="{Binding BastionProfileEndpoint}" />
                                                             </StackPanel>
                                                             <Button x:Name="EditBastionTemplateButton"
                                                                     Grid.Column="1"
@@ -938,64 +946,67 @@
                                                     </Border>
 
                                                     <controls:LoginCommandsTextBox x:Name="LoginCommandsEditor"
+                                                             Classes="mono"
                                                              Text="{Binding LoginCommands, Mode=TwoWay}"
-                                                             AcceptsReturn="True" TextWrapping="NoWrap" MinHeight="82"
+                                                             AcceptsReturn="True" TextWrapping="NoWrap" MinHeight="80"
                                                              LostFocus="OnLoginCommandsLostFocus"
                                                              PlaceholderText="{l:Localize LoginCommandsWatermark}" />
                                                 </StackPanel>
 
                                                 <TextBlock x:Name="LoginCommandsValidationMessage"
                                                            Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2"
+                                                           Classes="hint"
                                                            Text="{Binding LoginCommandsValidationMessage}"
                                                            IsVisible="{Binding HasLoginCommandsValidationMessage}"
-                                                           TextWrapping="Wrap"
-                                                           Foreground="{DynamicResource WarningBrush}" FontSize="11" />
+                                                           Foreground="{DynamicResource WarningBrush}" />
 
                                                 <TextBlock Grid.Row="6" Grid.Column="0" Classes="label"
-                                                           Text="{l:Localize AutoOpenPanels}" VerticalAlignment="Top" Margin="0,4,0,0" />
-                                                <StackPanel Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2"
-                                                             Orientation="Horizontal" Spacing="18">
+                                                           Text="{l:Localize AutoOpenPanels}" VerticalAlignment="Top" Margin="0,6,0,0" />
+                                                <WrapPanel Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2"
+                                                           Orientation="Horizontal" ItemSpacing="16" LineSpacing="8">
                                                     <CheckBox Content="{l:Localize ServerMonitor}"
                                                               IsChecked="{Binding AutoOpenMonitorPanel, Mode=TwoWay}" />
                                                     <CheckBox Content="{l:Localize FileBrowser}"
                                                               IsChecked="{Binding AutoOpenFileBrowserPanel, Mode=TwoWay}" />
                                                     <CheckBox Content="{l:Localize AutoLogSession}"
                                                               IsChecked="{Binding AutoLogSession, Mode=TwoWay}" />
-                                                </StackPanel>
+                                                </WrapPanel>
 
                                                 <TextBlock Grid.Row="7" Grid.Column="0" Classes="label" Text="{l:Localize JumpHost}" />
                                                 <StackPanel Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2" Spacing="4">
                                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                                                         <Border x:Name="JumpHostDropZone" Tag="jump-host-drop" Classes="jump-host-drop"
                                                                 ToolTip.Tip="{l:Localize JumpHostTip}">
-                                                            <StackPanel Spacing="3">
+                                                            <StackPanel Spacing="4">
                                                                 <TextBlock Text="{Binding JumpHostDisplay}" IsVisible="{Binding HasJumpHost}"
                                                                            TextWrapping="Wrap" />
                                                                 <TextBlock Text="{l:Localize JumpHostDragHint}" Classes="hint" TextWrapping="Wrap" />
                                                             </StackPanel>
                                                         </Border>
                                                         <Button Grid.Column="1" Content="{l:Localize JumpHostClear}"
+                                                                VerticalAlignment="Center"
                                                                 IsEnabled="{Binding HasJumpHost}" Click="OnClearJumpHostClick" />
                                                     </Grid>
-                                                    <TextBlock Text="{Binding JumpHostValidationMessage}"
+                                                    <TextBlock Classes="hint"
+                                                               Text="{Binding JumpHostValidationMessage}"
                                                                IsVisible="{Binding HasJumpHostValidationMessage}"
-                                                               TextWrapping="Wrap" Foreground="{DynamicResource WarningBrush}" FontSize="11" />
+                                                               Foreground="{DynamicResource WarningBrush}" />
                                                 </StackPanel>
 
                                                 <TextBlock Grid.Row="8" Grid.Column="0" Classes="label"
                                                            Text="{l:Localize PortForwards}" VerticalAlignment="Top" Margin="0,6,0,0" />
                                                 <TextBox x:Name="PortForwardsBox"
                                                          Grid.Row="8" Grid.Column="1" Grid.ColumnSpan="2"
+                                                         Classes="mono"
                                                          Text="{Binding PortForwards, Mode=TwoWay}"
-                                                         AcceptsReturn="True" TextWrapping="NoWrap" MinHeight="60"
-                                                         FontFamily="Cascadia Mono, Consolas, monospace"
+                                                         AcceptsReturn="True" TextWrapping="NoWrap" MinHeight="64"
                                                          ToolTip.Tip="{l:Localize PortForwardsTip}"
                                                          PlaceholderText="{l:Localize PortForwardsWatermark}" />
                                                 <TextBlock Grid.Row="9" Grid.Column="1" Grid.ColumnSpan="2"
+                                                           Classes="hint"
                                                            Text="{Binding PortForwardsValidationMessage}"
                                                            IsVisible="{Binding HasPortForwardsValidationMessage}"
-                                                           TextWrapping="Wrap"
-                                                           Foreground="{DynamicResource WarningBrush}" FontSize="11" />
+                                                           Foreground="{DynamicResource WarningBrush}" />
                                             </Grid>
 
                                         </StackPanel>
@@ -1006,27 +1017,29 @@
                                             IsVisible="{Binding IsWsl}">
                                         <StackPanel Spacing="12">
                                             <TextBlock Classes="section-title" Text="{l:Localize WslOptions}" />
-                                            <Grid ColumnDefinitions="128,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10">
+                                            <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="8">
                                                 <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="{l:Localize WslStartDirectory}" />
                                                 <TextBox Grid.Row="0" Grid.Column="1"
+                                                         Classes="mono"
                                                          Text="{Binding WslStartDirectory, Mode=TwoWay}"
                                                          PlaceholderText="{l:Localize WslStartDirectoryWatermark}" />
 
                                                 <TextBlock Grid.Row="1" Grid.Column="0" Classes="label" Text="{l:Localize LoginCommands}"
-                                                           VerticalAlignment="Top" Margin="0,7,0,0" />
+                                                           VerticalAlignment="Top" Margin="0,6,0,0" />
                                                 <controls:LoginCommandsTextBox x:Name="WslLoginCommandsEditor"
                                                          Grid.Row="1" Grid.Column="1"
+                                                         Classes="mono"
                                                          Text="{Binding LoginCommands, Mode=TwoWay}"
-                                                         AcceptsReturn="True" TextWrapping="NoWrap" MinHeight="82"
+                                                         AcceptsReturn="True" TextWrapping="NoWrap" MinHeight="80"
                                                          LostFocus="OnLoginCommandsLostFocus"
                                                          PlaceholderText="{l:Localize LoginCommandsWatermark}" />
 
                                                 <TextBlock x:Name="WslLoginCommandsValidationMessage"
                                                            Grid.Row="2" Grid.Column="1"
+                                                           Classes="hint"
                                                            Text="{Binding LoginCommandsValidationMessage}"
                                                            IsVisible="{Binding HasLoginCommandsValidationMessage}"
-                                                           TextWrapping="Wrap"
-                                                           Foreground="{DynamicResource WarningBrush}" FontSize="11" />
+                                                           Foreground="{DynamicResource WarningBrush}" />
                                             </Grid>
                                         </StackPanel>
                                     </Border>
@@ -1036,25 +1049,25 @@
                                             IsVisible="{Binding IsRdp}">
                                         <StackPanel Spacing="12">
                                             <TextBlock Classes="section-title" Text="{l:Localize RdpOptions}" />
-                                            <StackPanel Orientation="Horizontal" Spacing="18">
+                                            <WrapPanel Orientation="Horizontal" ItemSpacing="16" LineSpacing="8">
                                                 <CheckBox Content="{l:Localize FullScreen}"
                                                           IsChecked="{Binding RdpFullScreen, Mode=TwoWay}" />
                                                 <CheckBox Content="{l:Localize UseAllMonitors}"
                                                           IsChecked="{Binding RdpUseAllMonitors, Mode=TwoWay}"
                                                           IsVisible="{Binding RdpFullScreen}" />
-                                            </StackPanel>
+                                            </WrapPanel>
 
-                                            <Grid ColumnDefinitions="128,*,80,*" ColumnSpacing="10"
+                                            <Grid ColumnDefinitions="120,*,84,*" ColumnSpacing="8"
                                                   IsVisible="{Binding !RdpFullScreen}">
                                                 <TextBlock Grid.Column="0" Classes="label" Text="{l:Localize Width}" />
-                                                <TextBox Grid.Column="1" Text="{Binding RdpWidth, Mode=TwoWay}" />
+                                                <TextBox Grid.Column="1" Classes="mono" Text="{Binding RdpWidth, Mode=TwoWay}" />
                                                 <TextBlock Grid.Column="2" Classes="label" Text="{l:Localize Height}"
                                                            HorizontalAlignment="Right" />
-                                                <TextBox Grid.Column="3" Text="{Binding RdpHeight, Mode=TwoWay}" />
+                                                <TextBox Grid.Column="3" Classes="mono" Text="{Binding RdpHeight, Mode=TwoWay}" />
                                             </Grid>
 
                                             <TextBlock Classes="section-title" Text="{l:Localize LocalResources}" Margin="0,4,0,0" />
-                                            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" RowSpacing="8" ColumnSpacing="14">
+                                            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" RowSpacing="8" ColumnSpacing="16">
                                                 <CheckBox Grid.Row="0" Grid.Column="0" Content="{l:Localize ShareClipboard}"
                                                           IsChecked="{Binding RdpRedirectClipboard, Mode=TwoWay}" />
                                                 <CheckBox Grid.Row="0" Grid.Column="1" Content="{l:Localize ShareDrives}"
@@ -1072,7 +1085,7 @@
                                             IsVisible="{Binding IsVnc}">
                                         <StackPanel Spacing="12">
                                             <TextBlock Classes="section-title" Text="{l:Localize VncOptions}" />
-                                            <StackPanel Orientation="Horizontal" Spacing="18">
+                                            <WrapPanel Orientation="Horizontal" ItemSpacing="16" LineSpacing="8">
                                                 <CheckBox Content="{l:Localize FullScreen}"
                                                           IsChecked="{Binding VncFullScreen, Mode=TwoWay}" />
                                                 <CheckBox Content="{l:Localize VncViewOnly}"
@@ -1080,40 +1093,41 @@
                                                 <CheckBox Content="{l:Localize VncShared}"
                                                           ToolTip.Tip="{l:Localize VncSharedTip}"
                                                           IsChecked="{Binding VncShared, Mode=TwoWay}" />
-                                            </StackPanel>
+                                            </WrapPanel>
 
-                                            <Grid ColumnDefinitions="128,*" RowDefinitions="Auto,Auto" RowSpacing="10">
+                                            <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto" RowSpacing="12" ColumnSpacing="8">
                                                 <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="{l:Localize VncTunnel}" />
                                                 <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
                                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                                                         <Border x:Name="VncJumpHostDropZone" Tag="jump-host-drop" Classes="jump-host-drop"
                                                                 ToolTip.Tip="{l:Localize VncTunnelTip}">
-                                                            <StackPanel Spacing="3">
+                                                            <StackPanel Spacing="4">
                                                                 <TextBlock Text="{Binding JumpHostDisplay}" IsVisible="{Binding HasJumpHost}"
                                                                            TextWrapping="Wrap" />
                                                                 <TextBlock Text="{l:Localize JumpHostDragHint}" Classes="hint" TextWrapping="Wrap" />
                                                             </StackPanel>
                                                         </Border>
                                                         <Button Grid.Column="1" Content="{l:Localize JumpHostClear}"
+                                                                VerticalAlignment="Center"
                                                                 IsEnabled="{Binding HasJumpHost}" Click="OnClearJumpHostClick" />
                                                     </Grid>
-                                                    <TextBlock Text="{Binding JumpHostValidationMessage}"
+                                                    <TextBlock Classes="hint"
+                                                               Text="{Binding JumpHostValidationMessage}"
                                                                IsVisible="{Binding HasJumpHostValidationMessage}"
-                                                               TextWrapping="Wrap" Foreground="{DynamicResource WarningBrush}" FontSize="11" />
+                                                               Foreground="{DynamicResource WarningBrush}" />
                                                 </StackPanel>
                                                 <TextBlock Grid.Row="1" Grid.Column="1" Classes="hint"
-                                                           Text="{l:Localize VncCredentialsHint}"
-                                                           TextWrapping="Wrap" />
+                                                           Text="{l:Localize VncCredentialsHint}" />
                                             </Grid>
                                         </StackPanel>
                                     </Border>
 
                                     <Border Classes="form-card">
-                                        <Grid ColumnDefinitions="128,*">
+                                        <Grid ColumnDefinitions="120,*" ColumnSpacing="8">
                                             <TextBlock Grid.Column="0" Classes="label" Text="{l:Localize Notes}"
-                                                       VerticalAlignment="Top" Margin="0,7,0,0" />
+                                                       VerticalAlignment="Top" Margin="0,6,0,0" />
                                             <TextBox Grid.Column="1" Text="{Binding Notes, Mode=TwoWay}"
-                                                     AcceptsReturn="True" TextWrapping="Wrap" MinHeight="82" />
+                                                     AcceptsReturn="True" TextWrapping="Wrap" MinHeight="80" />
                                         </Grid>
                                     </Border>
                                 </StackPanel>
@@ -1135,27 +1149,39 @@
 
             <!-- Placeholder when nothing is selected -->
             <Grid IsVisible="{Binding ShowPlaceholder}">
-                <Border Classes="form-card"
-                        Padding="36,30"
-                        CornerRadius="14"
+                <Border x:Name="EmptyStateCard"
+                        Classes="form-card"
+                        Padding="24,20"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center"
-                        MaxWidth="400">
+                        MaxWidth="380">
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
-                        <Border Width="64" Height="64" CornerRadius="16" Classes="icon-tile" HorizontalAlignment="Center">
+                        <Border Width="44" Height="44" Classes="brand-tile" HorizontalAlignment="Center">
                             <Image Source="/Assets/Icon.png"
-                                   Width="42"
-                                   Height="42"
+                                   Width="28"
+                                   Height="28"
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center" />
                         </Border>
-                        <TextBlock Classes="page-title" Text="{l:Localize Connection}"
-                                   HorizontalAlignment="Center"
-                                   Margin="0,4,0,0" />
+                        <TextBlock Classes="section-title" Text="{l:Localize Connection}"
+                                   HorizontalAlignment="Center" />
                         <TextBlock Classes="hint"
                                    Text="{Binding PlaceholderHint}"
                                    TextAlignment="Center"
-                                   LineHeight="20" />
+                                   LineHeight="18" />
+                        <Button x:Name="EmptyStateNewSshButton"
+                                Command="{Binding NewSshCommand}"
+                                Classes="accent"
+                                HorizontalAlignment="Center"
+                                Padding="16,4"
+                                Margin="0,4,0,0"
+                                IsVisible="{Binding !HasMultiSelection}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Classes="icon" FontSize="12" Text="&#xE710;"
+                                           Foreground="{DynamicResource AccentForegroundBrush}" />
+                                <TextBlock Text="{l:Localize NewSsh}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
                 </Border>
             </Grid>

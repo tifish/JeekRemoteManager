@@ -77,10 +77,9 @@ internal static class SettingsDialog
         var customPathText = new TextBlock
         {
             Name = "SettingsCustomPathText",
-            FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
             VerticalAlignment = VerticalAlignment.Center,
-            Classes = { "hint" },
+            Classes = { "hint", "mono" },
         };
         var browseButton = new Button
         {
@@ -91,9 +90,11 @@ internal static class SettingsDialog
         void RefreshCustomPathText()
         {
             customPathText[!TextBlock.ForegroundProperty] = new DynamicResourceExtension("TextMutedBrush");
-            customPathText.Text = string.IsNullOrWhiteSpace(customPath)
+            var resolved = string.IsNullOrWhiteSpace(customPath)
                 ? Localizer.Get("StorageCustomNotSet")
                 : SettingsService.ResolveConfigRoot(StorageLocation.CustomDirectory, customPath);
+            customPathText.Text = resolved;
+            ToolTip.SetTip(customPathText, resolved);
         }
 
         RefreshCustomPathText();
@@ -106,7 +107,7 @@ internal static class SettingsDialog
             Content = new Grid
             {
                 RowDefinitions = new RowDefinitions("Auto,Auto"),
-                RowSpacing = 7,
+                RowSpacing = 8,
             },
         };
         var customContent = (Grid)customRadio.Content;
@@ -114,7 +115,7 @@ internal static class SettingsDialog
         var customPathRow = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("Auto,*"),
-            ColumnSpacing = 10,
+            ColumnSpacing = 12,
         };
         Grid.SetRow(customPathRow, 1);
         Grid.SetColumn(customPathText, 1);
@@ -250,7 +251,7 @@ internal static class SettingsDialog
         var appearanceFields = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("*,*"),
-            ColumnSpacing = 14,
+            ColumnSpacing = 16,
         };
         var languageField = BuildSettingsField(Localizer.Get("Language"), languageBox);
         var themeField = BuildSettingsField(Localizer.Get("Theme"), themeBox);
@@ -322,8 +323,8 @@ internal static class SettingsDialog
         {
             ColumnDefinitions = new ColumnDefinitions("*,*"),
             RowDefinitions = new RowDefinitions("Auto,Auto"),
-            ColumnSpacing = 14,
-            RowSpacing = 14,
+            ColumnSpacing = 16,
+            RowSpacing = 12,
         };
         var terminalFontField = BuildSettingsField(Localizer.Get("TerminalFontLabel"), terminalFontBox);
         var terminalSchemeField = BuildSettingsField(Localizer.Get("TerminalColorSchemeLabel"), terminalSchemeBox);
@@ -371,7 +372,7 @@ internal static class SettingsDialog
         var securityRow = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("*,Auto"),
-            ColumnSpacing = 18,
+            ColumnSpacing = 16,
             Children =
             {
                 new TextBlock
@@ -392,7 +393,7 @@ internal static class SettingsDialog
         var updatesGrid = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("*,220"),
-            ColumnSpacing = 18,
+            ColumnSpacing = 16,
         };
         checkOnStartupBox.VerticalAlignment = VerticalAlignment.Center;
         var intervalField = BuildSettingsField(Localizer.Get("UpdateCheckInterval"), intervalBox);
@@ -408,7 +409,7 @@ internal static class SettingsDialog
         {
             Name = "SettingsDialogHeader",
             BorderThickness = new Avalonia.Thickness(0, 0, 0, 1),
-            Padding = new Avalonia.Thickness(24, 18, 24, 16),
+            Padding = new Avalonia.Thickness(24, 16, 24, 16),
             Child = new StackPanel
             {
                 Spacing = 4,
@@ -447,12 +448,12 @@ internal static class SettingsDialog
         {
             Name = "SettingsDialogFooter",
             BorderThickness = new Avalonia.Thickness(0, 1, 0, 0),
-            Padding = new Avalonia.Thickness(24, 14),
+            Padding = new Avalonia.Thickness(24, 12),
             Child = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 HorizontalAlignment = HorizontalAlignment.Right,
-                Spacing = 10,
+                Spacing = 8,
                 Children = { ok, cancel },
             },
         };
@@ -570,7 +571,7 @@ internal static class SettingsDialog
 
     private static StackPanel BuildSettingsField(string label, Control control) => new()
     {
-        Spacing = 6,
+        Spacing = 4,
         Children =
         {
             new TextBlock { Text = label, Classes = { "label" } },
@@ -585,7 +586,7 @@ internal static class SettingsDialog
         Padding = new Avalonia.Thickness(16),
         Child = new StackPanel
         {
-            Spacing = 13,
+            Spacing = 12,
             Children =
             {
                 new TextBlock { Text = title, Classes = { "section-title" } },
@@ -594,18 +595,23 @@ internal static class SettingsDialog
         },
     };
 
-    private static Control BuildOption(string title, string path) => new StackPanel
+    private static Control BuildOption(string title, string path)
     {
-        Spacing = 2,
-        Children =
+        var pathText = new TextBlock
         {
-            new TextBlock { Text = title },
-            new TextBlock
+            Text = path,
+            TextWrapping = TextWrapping.Wrap,
+            Classes = { "hint", "mono" },
+        };
+        ToolTip.SetTip(pathText, path);
+        return new StackPanel
+        {
+            Spacing = 2,
+            Children =
             {
-                Text = path,
-                TextWrapping = TextWrapping.Wrap,
-                Classes = { "hint" },
+                new TextBlock { Text = title },
+                pathText,
             },
-        },
-    };
+        };
+    }
 }

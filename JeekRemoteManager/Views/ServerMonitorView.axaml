@@ -52,28 +52,30 @@
             <StackPanel Spacing="8" Margin="8">
 
                 <!-- Host -->
-                <Border Classes="panel" CornerRadius="8" Padding="11,9">
-                    <StackPanel Spacing="5">
+                <Border Classes="panel" Padding="12,10">
+                    <StackPanel Spacing="6">
                         <TextBlock Classes="section-title"
                                    Text="{Binding HostLabel}"
                                    TextTrimming="CharacterEllipsis"
-                                   Margin="0,0,26,0" />
+                                   ToolTip.Tip="{Binding HostLabel}"
+                                   Margin="0,0,28,0" />
                         <Border Classes="section-divider" />
                         <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto"
-                              ColumnSpacing="8" RowSpacing="3">
+                              ColumnSpacing="8" RowSpacing="4">
                             <TextBlock Classes="label" Text="IP" />
                             <TextBlock Grid.Column="1" Classes="monitor-num"
                                        Text="{Binding AddressText}"
-                                       TextTrimming="CharacterEllipsis" />
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding AddressText}" />
                             <Button x:Name="CopyIpButton"
                                     Grid.Column="2"
                                     Classes="toolbar"
                                     Click="OnCopyIpClick"
                                     ToolTip.Tip="{l:Localize Copy}"
-                                    Width="22" Height="22"
+                                    Width="24" Height="24"
                                     MinWidth="0" MinHeight="0"
                                     Padding="0"
-                                    CornerRadius="5"
+                                    CornerRadius="4"
                                     HorizontalContentAlignment="Center"
                                     VerticalContentAlignment="Center">
                                 <TextBlock FontFamily="Segoe MDL2 Assets"
@@ -95,8 +97,8 @@
                 </Border>
 
                 <!-- CPU / memory / swap gauges -->
-                <Border Classes="panel" CornerRadius="8" Padding="11,9">
-                    <StackPanel Spacing="7">
+                <Border Classes="panel" Padding="12,10">
+                    <StackPanel Spacing="8">
                         <Grid ColumnDefinitions="44,*,Auto" ColumnSpacing="8">
                             <TextBlock Classes="label" Text="{l:Localize MonitorCpu}" />
                             <ProgressBar Grid.Column="1" Classes="monitor-gauge"
@@ -119,18 +121,18 @@
                 </Border>
 
                 <!-- Network -->
-                <Border Classes="panel" CornerRadius="8" Padding="11,9">
-                    <StackPanel Spacing="7">
-                        <StackPanel Orientation="Horizontal" Spacing="14">
+                <Border Classes="panel" Padding="12,10">
+                    <StackPanel Spacing="8">
+                        <StackPanel Orientation="Horizontal" Spacing="16">
                             <TextBlock x:Name="UploadRateValue"
                                        Classes="monitor-num"
                                        FontWeight="SemiBold"
-                                       Foreground="{DynamicResource ToolbarScriptIconBrush}"
+                                       Foreground="{DynamicResource NetUploadBrush}"
                                        Text="{Binding UploadRateText}" />
                             <TextBlock x:Name="DownloadRateValue"
                                        Classes="monitor-num"
                                        FontWeight="SemiBold"
-                                       Foreground="{DynamicResource AccentBrush}"
+                                       Foreground="{DynamicResource NetDownloadBrush}"
                                        Text="{Binding DownloadRateText}" />
                         </StackPanel>
                         <Border Background="{DynamicResource InputBackgroundBrush}"
@@ -138,7 +140,7 @@
                                 BorderThickness="1"
                                 CornerRadius="6"
                                 Padding="2">
-                            <Grid x:Name="NetChart" Height="46" ClipToBounds="True">
+                            <Grid x:Name="NetChart" Height="48" ClipToBounds="True">
                                 <Border Height="1"
                                         VerticalAlignment="Center"
                                         Background="{DynamicResource ChartGridBrush}" />
@@ -147,11 +149,11 @@
                                 <Polygon x:Name="UploadArea"
                                          Fill="{DynamicResource NetUploadAreaBrush}" />
                                 <Polyline x:Name="DownloadLine"
-                                          Stroke="{DynamicResource AccentBrush}"
+                                          Stroke="{DynamicResource NetDownloadBrush}"
                                           StrokeThickness="1.5"
                                           StrokeJoin="Round" />
                                 <Polyline x:Name="UploadLine"
-                                          Stroke="{DynamicResource ToolbarScriptIconBrush}"
+                                          Stroke="{DynamicResource NetUploadBrush}"
                                           StrokeThickness="1.5"
                                           StrokeJoin="Round" />
                             </Grid>
@@ -160,8 +162,8 @@
                 </Border>
 
                 <!-- Top processes -->
-                <Border Classes="panel" CornerRadius="8" Padding="11,9">
-                    <StackPanel Spacing="5">
+                <Border Classes="panel" Padding="12,10">
+                    <StackPanel Spacing="6">
                         <TextBlock Classes="label" FontWeight="SemiBold" Text="{l:Localize MonitorProcesses}" />
                         <Grid ColumnDefinitions="62,54,*" ColumnSpacing="6">
                             <Button x:Name="ProcessMemorySortButton"
@@ -204,7 +206,8 @@
                                                    TextAlignment="Right" />
                                         <TextBlock Grid.Column="2" Classes="monitor-value"
                                                    Text="{Binding Command}"
-                                                   TextTrimming="CharacterEllipsis" />
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding Command}" />
                                     </Grid>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
@@ -213,17 +216,18 @@
                 </Border>
 
                 <!-- Disks -->
-                <Border Classes="panel" CornerRadius="8" Padding="11,9">
+                <Border Classes="panel" Padding="12,10">
                     <StackPanel Spacing="6">
                         <TextBlock Classes="label" FontWeight="SemiBold" Text="{l:Localize MonitorDisks}" />
                         <ItemsControl ItemsSource="{Binding Disks}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:ServerMonitorDiskRow">
-                                    <StackPanel Spacing="3" Margin="0,3">
+                                    <StackPanel Spacing="4" Margin="0,3">
                                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
                                             <TextBlock Classes="monitor-num"
                                                        Text="{Binding MountPoint}"
-                                                       TextTrimming="CharacterEllipsis" />
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTip.Tip="{Binding MountPoint}" />
                                             <TextBlock Grid.Column="1" Classes="label mono" FontSize="11" Text="{Binding SizeText}" />
                                         </Grid>
                                         <ProgressBar Classes="monitor-gauge" Height="5" MinHeight="5"
@@ -273,7 +277,7 @@
                 HorizontalContentAlignment="Center"
                 VerticalContentAlignment="Center">
             <TextBlock FontFamily="Segoe MDL2 Assets"
-                       FontSize="9"
+                       FontSize="10"
                        Text="&#xE711;"
                        Foreground="{DynamicResource TextMutedBrush}" />
         </Button>

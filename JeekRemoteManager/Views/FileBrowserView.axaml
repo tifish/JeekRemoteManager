@@ -18,7 +18,7 @@
                 Background="{DynamicResource ChromeSurfaceBrush}"
                 BorderBrush="{DynamicResource DividerBrush}"
                 BorderThickness="0,0,0,1"
-                Padding="8,5">
+                Padding="8,6">
             <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto,Auto" ColumnSpacing="4">
                 <!-- Direct SFTP target: makes it visible that the panel operates on the
                      configured host, not on servers jumped to inside the terminal. -->
@@ -27,7 +27,7 @@
                         VerticalAlignment="Center"
                         Margin="0,0,4,0">
                     <TextBlock Classes="hint mono"
-                               FontSize="11.5"
+                               FontSize="11"
                                Text="{Binding ConnectionLabel}"
                                MaxWidth="240"
                                TextTrimming="CharacterEllipsis" />
@@ -35,33 +35,32 @@
                 <Button Grid.Column="1" Classes="toolbar compact-icon-button"
                         ToolTip.Tip="{l:Localize FileBrowserUp}"
                         Command="{Binding GoUpCommand}">
-                    <TextBlock Classes="icon" FontSize="12.5" Text="&#xE74A;" />
+                    <TextBlock Classes="icon" FontSize="12" Text="&#xE74A;" />
                 </Button>
                 <Button Grid.Column="2" Classes="toolbar compact-icon-button"
                         ToolTip.Tip="{l:Localize FileBrowserHome}"
                         Command="{Binding GoHomeCommand}">
-                    <TextBlock Classes="icon" FontSize="12.5" Text="&#xE80F;" />
+                    <TextBlock Classes="icon" FontSize="12" Text="&#xE80F;" />
                 </Button>
                 <Button Grid.Column="3" Classes="toolbar compact-icon-button"
                         ToolTip.Tip="{l:Localize FileBrowserRefresh}"
                         Command="{Binding RefreshCommand}">
-                    <TextBlock Classes="icon" FontSize="12.5" Text="&#xE72C;" />
+                    <TextBlock Classes="icon" FontSize="12" Text="&#xE72C;" />
                 </Button>
                 <TextBox Grid.Column="4" x:Name="PathBox"
-                         Classes="compact-input"
-                         FontFamily="Cascadia Mono, Consolas, monospace"
+                         Classes="compact-input mono"
                          Text="{Binding PathInput, Mode=TwoWay}"
                          VerticalContentAlignment="Center"
                          KeyDown="OnPathBoxKeyDown" />
                 <Button Grid.Column="5" Classes="toolbar compact-icon-button"
                         ToolTip.Tip="{l:Localize NewFolder}"
                         Command="{Binding NewFolderCommand}">
-                    <TextBlock Classes="icon" FontSize="12.5" Text="&#xE8F4;" />
+                    <TextBlock Classes="icon" FontSize="12" Text="&#xE8F4;" />
                 </Button>
                 <Button Grid.Column="6" Classes="toolbar compact-icon-button"
                         ToolTip.Tip="{l:Localize FileBrowserUpload}"
                         Command="{Binding UploadCommand}">
-                    <TextBlock Classes="icon" FontSize="12.5" Text="&#xE898;" />
+                    <TextBlock Classes="icon" FontSize="12" Text="&#xE898;" />
                 </Button>
                 <Button Grid.Column="7" Classes="toolbar compact-icon-button"
                         ToolTip.Tip="{l:Localize Close}"
@@ -81,7 +80,7 @@
                 Background="{DynamicResource SurfaceAltBrush}"
                 BorderBrush="{DynamicResource DividerBrush}"
                 BorderThickness="0,0,0,1"
-                Padding="14,4,24,4">
+                Padding="12,5,28,5">
             <Grid ColumnDefinitions="26,*,90,140,100">
                 <TextBlock Grid.Column="1" Classes="label" FontSize="11.5" FontWeight="SemiBold" Text="{l:Localize Name}" />
                 <TextBlock Grid.Column="2" Classes="label" FontSize="11.5" FontWeight="SemiBold" Text="{l:Localize FileBrowserSize}"
@@ -101,6 +100,7 @@
                  ItemsSource="{Binding Items}"
                  SelectionMode="Multiple"
                  Focusable="True"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                  Background="Transparent"
                  DoubleTapped="OnFileListDoubleTapped">
             <ListBox.ContextMenu>
@@ -186,6 +186,7 @@
                         <Grid Grid.Column="1">
                             <TextBlock Text="{Binding Name}"
                                        TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding Name}"
                                        VerticalAlignment="Center"
                                        IsVisible="{Binding !IsNameEditing}" />
                             <TextBox Text="{Binding EditName, Mode=TwoWay}"
@@ -255,6 +256,7 @@
                                                Text="{Binding DirectionGlyph}" />
                                     <TextBlock Grid.Column="1" Text="{Binding FileName}"
                                                TextTrimming="CharacterEllipsis"
+                                               ToolTip.Tip="{Binding FileName}"
                                                VerticalAlignment="Center" />
                                     <ProgressBar Grid.Column="2" Minimum="0" Maximum="100"
                                                  Height="6" MinHeight="6"

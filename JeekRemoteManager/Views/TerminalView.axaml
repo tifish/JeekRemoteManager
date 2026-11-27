@@ -156,26 +156,27 @@
                     Grid.ColumnSpan="5"
                     Grid.RowSpan="3"
                     IsVisible="False"
-                    Background="#80000000"
+                    Background="{DynamicResource ScrimBrush}"
                     Padding="16">
                 <Border Classes="floating-surface"
                         Padding="16"
-                        CornerRadius="12"
+                        CornerRadius="8"
                         MaxWidth="760"
                         HorizontalAlignment="Right"
                         VerticalAlignment="Top">
-                    <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10">
-                        <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+                    <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="12">
+                        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="8">
                             <TextBlock Grid.Column="0"
                                        Classes="page-title"
                                        VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"
                                        Text="{Binding ScriptPanel.SuiteName}" />
                             <Button x:Name="CloseScriptPanelButton"
                                     Grid.Column="1"
                                     Classes="toolbar compact-icon-button"
                                     Command="{Binding CloseScriptExecutionCommand}">
                                 <TextBlock Classes="icon"
-                                           FontSize="11"
+                                           FontSize="10"
                                            Text="&#xE711;"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center"
@@ -185,7 +186,7 @@
 
                         <Border Grid.Row="1"
                                 Classes="form-card"
-                                Padding="10,8">
+                                Padding="12,8">
                             <ScrollViewer MinHeight="0"
                                           MaxHeight="260"
                                           HorizontalScrollBarVisibility="Disabled"
@@ -196,7 +197,7 @@
                                                   Grid.IsSharedSizeScope="True">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate DataType="vm:ScriptParameterValueViewModel">
-                                                <Grid ColumnSpacing="10" Margin="0,3">
+                                                <Grid ColumnSpacing="8" Margin="0,4">
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition Width="Auto"
                                                                           MinWidth="120"
@@ -215,7 +216,8 @@
                                                                  IsVisible="{Binding IsSecret}" />
                                                         <CheckBox IsChecked="{Binding BoolValue, Mode=TwoWay}"
                                                                   IsVisible="{Binding IsBool}" />
-                                                        <ComboBox ItemsSource="{Binding EnumOptions}"
+                                                        <ComboBox HorizontalAlignment="Stretch"
+                                                                  ItemsSource="{Binding EnumOptions}"
                                                                   SelectedItem="{Binding SelectedEnumValue, Mode=TwoWay}"
                                                                   IsVisible="{Binding IsEnum}" />
                                                     </Grid>
@@ -228,7 +230,7 @@
                                                   ItemsSource="{Binding ScriptPanel.Scripts}">
                                         <ItemsControl.ItemsPanel>
                                             <ItemsPanelTemplate>
-                                                <StackPanel Orientation="Vertical" />
+                                                <StackPanel Orientation="Vertical" Spacing="8" />
                                             </ItemsPanelTemplate>
                                         </ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
@@ -236,7 +238,6 @@
                                                 <Button Content="{Binding DisplayName}"
                                                         HorizontalAlignment="Stretch"
                                                         HorizontalContentAlignment="Center"
-                                                        Margin="0,0,0,6"
                                                         Command="{Binding #TerminalRoot.((vm:MainWindowViewModel)DataContext).RunScriptFileCommand}"
                                                         CommandParameter="{Binding}" />
                                             </DataTemplate>
@@ -246,15 +247,15 @@
                             </ScrollViewer>
                         </Border>
 
-                        <Grid Grid.Row="2" ColumnDefinitions="Auto,*" ColumnSpacing="9" MinHeight="28">
+                        <Grid Grid.Row="2" ColumnDefinitions="Auto,*" ColumnSpacing="8" MinHeight="24">
                             <Grid Grid.Column="0"
-                                  Width="24"
-                                  Height="24"
+                                  Width="20"
+                                  Height="20"
                                   VerticalAlignment="Center"
                                   IsVisible="{Binding ScriptPanel.ShowResultIcon}">
                                 <TextBlock Classes="icon"
                                            Text="&#xE73E;"
-                                           FontSize="20"
+                                           FontSize="16"
                                            Foreground="{DynamicResource SuccessBrush}"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center"
@@ -262,7 +263,7 @@
                                            IsVisible="{Binding ScriptPanel.ShowSuccessIcon}" />
                                 <TextBlock Classes="icon"
                                            Text="&#xE711;"
-                                           FontSize="20"
+                                           FontSize="16"
                                            Foreground="{DynamicResource DangerBrush}"
                                            HorizontalAlignment="Center"
                                            VerticalAlignment="Center"
@@ -272,7 +273,7 @@
                             <TextBlock Grid.Column="1"
                                        Classes="hint"
                                        Text="{Binding ScriptPanel.StatusText}"
-                                       FontSize="13.5"
+                                       FontSize="13"
                                        FontWeight="SemiBold"
                                        Foreground="{DynamicResource TextPrimaryBrush}"
                                        VerticalAlignment="Center" />

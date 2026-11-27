@@ -28,28 +28,34 @@ internal static class SshMfaDialog
         var list = new ListBox
         {
             Name = "SshMfaProfileList",
-            MinHeight = 110,
-            MaxHeight = 300,
+            MinHeight = 112,
+            MaxHeight = 296,
             ItemTemplate = new FuncDataTemplate<SshMfaProfileChoice>((profile, _) =>
-                new TextBlock { Text = profile?.Name, TextTrimming = TextTrimming.CharacterEllipsis }),
+            {
+                var label = new TextBlock { Text = profile?.Name, TextTrimming = TextTrimming.CharacterEllipsis };
+                if (profile?.Name is { Length: > 0 } name)
+                    ToolTip.SetTip(label, name);
+                return label;
+            }),
         };
+        ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
         var error = CreateError();
         var add = new Button { Name = "SshMfaAddButton", Content = Localizer.Get("SshMfaAdd"), Classes = { "accent" } };
         var edit = new Button { Name = "SshMfaEditButton", Content = Localizer.Get("Edit"), IsEnabled = false };
-        var remove = new Button { Name = "SshMfaRemoveButton", Content = Localizer.Get("SshMfaRemove"), IsEnabled = false };
-        var close = new Button { Content = Localizer.Get("Close"), IsCancel = true };
+        var remove = new Button { Name = "SshMfaRemoveButton", Content = Localizer.Get("SshMfaRemove"), IsEnabled = false, Classes = { "danger" } };
+        var close = new Button { Content = Localizer.Get("Close"), MinWidth = 88, IsCancel = true };
         var codeText = new TextBlock
         {
             Name = CurrentCodeElementName,
             FontFamily = new FontFamily("Cascadia Mono, Consolas, monospace"),
-            FontSize = 26,
+            FontSize = 24,
             FontWeight = FontWeight.SemiBold,
-            LetterSpacing = 2.5,
+            LetterSpacing = 2.0,
         };
         codeText[!TextBlock.ForegroundProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("AccentBrush");
-        var remaining = new TextBlock { Name = "SshMfaCodeRemaining", Classes = { "hint" }, TextWrapping = TextWrapping.Wrap };
+        var remaining = new TextBlock { Name = "SshMfaCodeRemaining", Classes = { "hint", "mono" }, TextWrapping = TextWrapping.Wrap };
         var feedback = new TextBlock { Name = "SshMfaCopyFeedback", Classes = { "hint" }, IsVisible = false };
-        var copy = new Button { Name = "SshMfaCopyCodeButton", Content = Localizer.Get("Copy"), IsEnabled = false };
+        var copy = new Button { Name = "SshMfaCopyCodeButton", Content = Localizer.Get("Copy"), MinWidth = 80, IsEnabled = false };
         var codePanel = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("*,Auto"),
@@ -81,7 +87,23 @@ internal static class SshMfaDialog
             Classes = { "form-card" },
             Child = codePanel,
         };
-        var manager = CreateWindow("SshMfaManagerTitle", listCard, codeCard, error, Buttons(add, edit, remove, close));
+        var managerFooter = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+            ColumnSpacing = 12,
+            Children =
+            {
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 8,
+                    Children = { add, edit, remove },
+                },
+            },
+        };
+        Grid.SetColumn(close, 1);
+        managerFooter.Children.Add(close);
+        var manager = CreateWindow("SshMfaManagerTitle", listCard, codeCard, error, managerFooter);
 
         (long ValidFrom, long ExpiresAt)? displayedWindow = null;
         long? lastShownRemainingSeconds = null;
@@ -266,10 +288,11 @@ internal static class SshMfaDialog
         {
             Name = "SshMfaSaveButton",
             Content = Localizer.Get("DialogOk"),
+            MinWidth = 88,
             IsDefault = true,
             Classes = { "accent" },
         };
-        var cancel = new Button { Content = Localizer.Get("DialogCancel"), IsCancel = true };
+        var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 88, IsCancel = true };
         var openQr = new Button { Name = "SshMfaOpenQrButton", Content = Localizer.Get("SshMfaQrOpen") };
         var pasteQr = new Button { Content = Localizer.Get("SshMfaQrPaste") };
         var useKey = new Button { Content = Localizer.Get("SshMfaQrUseKey") };
@@ -328,8 +351,14 @@ internal static class SshMfaDialog
             Spacing = 6, IsVisible = false,
             Children = { accountLabel, accounts, checkScroll, useKey },
         };
+        var qrButtons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            Children = { openQr, pasteQr },
+        };
         var dialog = CreateWindow(profile is null ? "SshMfaAdd" : "SshMfaEditTitle",
-            nameField, manual, Buttons(openQr, pasteQr), selection, inputField, error, Buttons(save, cancel));
+            nameField, manual, qrButtons, selection, inputField, error, Buttons(save, cancel));
 
         IReadOnlyList<SshMfaQrReader.Account> imported = [];
         string[] labels = [];

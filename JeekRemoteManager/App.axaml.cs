@@ -406,6 +406,10 @@ public partial class App : Application
         RequestedThemeVariant = ThemeVariantFor(settings.Settings.Theme);
     }
 
+    /// <summary>Temporarily switches the application theme variant without saving settings, exposed for Debug MCP visual verification.</summary>
+    public void DebugSetThemeVariant(string? theme) =>
+        RequestedThemeVariant = ThemeVariantFor(theme);
+
     /// <summary>Maps a stored theme string to an Avalonia <see cref="ThemeVariant"/>.
     /// Null / empty / unrecognized values fall back to <see cref="ThemeVariant.Default"/>
     /// (follow system).</summary>

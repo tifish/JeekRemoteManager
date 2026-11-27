@@ -70,13 +70,14 @@ public sealed class McpProjectLinkDialog : Window
         _directoryBox = new TextBox
         {
             Name = "McpTargetDirectory",
+            Classes = { "mono" },
             PlaceholderText = Localizer.Get("McpLinkDirectoryWatermark"),
         };
         var browse = new Button
         {
             Name = "McpBrowseButton",
             Content = Localizer.Get("McpLinkBrowse"),
-            MinWidth = 80,
+            MinWidth = 88,
         };
         browse.Click += async (_, _) => await BrowseAsync();
 
@@ -84,20 +85,20 @@ public sealed class McpProjectLinkDialog : Window
         {
             Name = "McpLastUsedButton",
             Content = Localizer.Get("McpLinkLastUsed"),
-            MinWidth = 88,
+            MinWidth = 84,
             IsEnabled = _lastWrittenAgents.Count > 0,
         };
         _selectAllButton = new Button
         {
             Name = "McpSelectAllButton",
             Content = Localizer.Get("McpLinkSelectAll"),
-            MinWidth = 72,
+            MinWidth = 68,
         };
         _selectNoneButton = new Button
         {
             Name = "McpSelectNoneButton",
             Content = Localizer.Get("McpLinkSelectNone"),
-            MinWidth = 72,
+            MinWidth = 68,
         };
         _lastUsedButton.Click += (_, _) => ApplyLastUsed();
         _selectAllButton.Click += (_, _) => SetAllChecked(true);
@@ -106,7 +107,8 @@ public sealed class McpProjectLinkDialog : Window
         var agentList = new StackPanel
         {
             Name = "McpAgentList",
-            Spacing = 6,
+            Spacing = 8,
+            Margin = new Thickness(12, 8),
         };
         foreach (var target in AgentMcpConfigCatalog.All
                      .OrderBy(item => item.Label, StringComparer.OrdinalIgnoreCase))
@@ -116,14 +118,14 @@ public sealed class McpProjectLinkDialog : Window
                 Name = "McpAgent_" + AgentSlug(target.RelativePath),
                 Content = new StackPanel
                 {
-                    Spacing = 0,
+                    Spacing = 2,
                     Children =
                     {
                         new TextBlock { Text = target.Label, TextWrapping = TextWrapping.Wrap },
                         new TextBlock
                         {
                             Text = target.RelativePath,
-                            Classes = { "hint" },
+                            Classes = { "hint", "mono" },
                             FontSize = 11,
                         },
                     },
@@ -153,12 +155,13 @@ public sealed class McpProjectLinkDialog : Window
             Name = "McpRemoveAllButton",
             Content = Localizer.Get("McpLinkRemoveAll"),
             MinWidth = 88,
+            Classes = { "danger" },
         };
         _cancelButton = new Button
         {
             Name = "McpCancelButton",
             Content = Localizer.Get("DialogCancel"),
-            MinWidth = 80,
+            MinWidth = 88,
             IsCancel = true,
         };
         _writeButton.Click += (_, _) => CommitWrite();
@@ -207,6 +210,19 @@ public sealed class McpProjectLinkDialog : Window
         buttons.Children.Add(_writeButton);
         buttons.Children.Add(_cancelButton);
 
+        var agentCard = new Border
+        {
+            Classes = { "panel" },
+            Margin = new Thickness(0, 8, 0, 8),
+            ClipToBounds = true,
+            Child = new ScrollViewer
+            {
+                HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+                VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+                Content = agentList,
+            },
+        };
+
         Content = new DockPanel
         {
             Margin = new Thickness(20),
@@ -220,7 +236,7 @@ public sealed class McpProjectLinkDialog : Window
                 }, Dock.Top),
                 Place(new Thickness(0, 4, 0, 12), directoryRow, Dock.Top),
                 Place(agentHeader, Dock.Top),
-                Place(new Thickness(0, 10, 0, 0), buttons, Dock.Bottom),
+                Place(new Thickness(0, 12, 0, 0), buttons, Dock.Bottom),
                 Place(new Thickness(0, 8, 0, 0), _status, Dock.Bottom),
                 Place(new Thickness(0, 4, 0, 0), new TextBlock
                 {
@@ -228,11 +244,7 @@ public sealed class McpProjectLinkDialog : Window
                     TextWrapping = TextWrapping.Wrap,
                     Classes = { "hint" },
                 }, Dock.Bottom),
-                new ScrollViewer
-                {
-                    Margin = new Thickness(0, 8, 0, 8),
-                    Content = agentList,
-                },
+                agentCard,
             },
         };
 

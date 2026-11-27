@@ -46,8 +46,8 @@ public static class MasterPasswordDialog
         };
         error[!TextBlock.ForegroundProperty] = new DynamicResourceExtension("DangerBrush");
 
-        var ok = new Button { Content = Localizer.Get("DialogOk"), MinWidth = 80, IsDefault = true };
-        var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 80, IsCancel = true };
+        var ok = new Button { Content = Localizer.Get("DialogOk"), MinWidth = 88, IsDefault = true };
+        var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 88, IsCancel = true };
         ok.Classes.Add("accent");
 
         var dialog = new Window
@@ -62,20 +62,35 @@ public static class MasterPasswordDialog
             Content = new StackPanel
             {
                 Margin = new Avalonia.Thickness(20),
-                Spacing = 10,
+                Spacing = 12,
                 Children =
                 {
                     new TextBlock { Text = prompt, TextWrapping = TextWrapping.Wrap },
-                    new TextBlock { Text = Localizer.Get("MasterNewPassword"), Classes = { "label" } },
-                    newBox,
-                    new TextBlock { Text = Localizer.Get("MasterConfirmPassword"), Classes = { "label" } },
-                    confirmBox,
+                    new StackPanel
+                    {
+                        Spacing = 4,
+                        Children =
+                        {
+                            new TextBlock { Text = Localizer.Get("MasterNewPassword"), Classes = { "label" } },
+                            newBox,
+                        },
+                    },
+                    new StackPanel
+                    {
+                        Spacing = 4,
+                        Children =
+                        {
+                            new TextBlock { Text = Localizer.Get("MasterConfirmPassword"), Classes = { "label" } },
+                            confirmBox,
+                        },
+                    },
                     reveal,
                     error,
                     new StackPanel
                     {
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Right,
+                        Margin = new Avalonia.Thickness(0, 4, 0, 0),
                         Spacing = 8,
                         Children = { ok, cancel },
                     },
@@ -144,8 +159,8 @@ public static class MasterPasswordDialog
         };
         error[!TextBlock.ForegroundProperty] = new DynamicResourceExtension("DangerBrush");
 
-        var ok = new Button { Content = Localizer.Get("DialogOk"), MinWidth = 80, IsDefault = true };
-        var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 80, IsCancel = true };
+        var ok = new Button { Content = Localizer.Get("DialogOk"), MinWidth = 88, IsDefault = true };
+        var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 88, IsCancel = true };
         ok.Classes.Add("accent");
 
         var dialog = new Window
@@ -160,18 +175,26 @@ public static class MasterPasswordDialog
             Content = new StackPanel
             {
                 Margin = new Avalonia.Thickness(20),
-                Spacing = 10,
+                Spacing = 12,
                 Children =
                 {
                     new TextBlock { Text = prompt, TextWrapping = TextWrapping.Wrap },
-                    new TextBlock { Text = Localizer.Get("MasterNewPassword"), Classes = { "label" } },
-                    passwordBox,
+                    new StackPanel
+                    {
+                        Spacing = 4,
+                        Children =
+                        {
+                            new TextBlock { Text = Localizer.Get("MasterNewPassword"), Classes = { "label" } },
+                            passwordBox,
+                        },
+                    },
                     reveal,
                     error,
                     new StackPanel
                     {
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Right,
+                        Margin = new Avalonia.Thickness(0, 4, 0, 0),
                         Spacing = 8,
                         Children = { ok, cancel },
                     },

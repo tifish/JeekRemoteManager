@@ -39,7 +39,7 @@ public partial class MainWindow
         {
             Name = "ConfirmYesButton",
             Content = Localizer.Get("DialogYes"),
-            MinWidth = 80,
+            MinWidth = 88,
             IsDefault = true,
             Classes = { "accent" },
         };
@@ -47,7 +47,7 @@ public partial class MainWindow
         {
             Name = "ConfirmNoButton",
             Content = Localizer.Get("DialogNo"),
-            MinWidth = 80,
+            MinWidth = 88,
             IsCancel = true,
         };
 
@@ -134,8 +134,8 @@ public partial class MainWindow
                 Text = text,
                 AcceptsReturn = true,
                 TextWrapping = TextWrapping.NoWrap,
-                MinHeight = 82,
-                FontFamily = new FontFamily("Consolas"),
+                MinHeight = 80,
+                Classes = { "mono" },
             };
 
         var fragments = new[]
@@ -147,21 +147,25 @@ public partial class MainWindow
         };
         var insertConnectionLoginCommands = false;
 
-        static StackPanel Section(string title, string hint, Control editorControl) =>
+        static Border Section(string title, string hint, Control editorControl) =>
             new()
             {
-                Spacing = 5,
-                Children =
+                Classes = { "form-card" },
+                Padding = new Thickness(12),
+                Child = new StackPanel
                 {
-                    new TextBlock { Text = title, FontWeight = FontWeight.SemiBold },
-                    new TextBlock
+                    Spacing = 6,
+                    Children =
                     {
-                        Text = hint,
-                        TextWrapping = TextWrapping.Wrap,
-                        FontSize = 11,
-                        Classes = { "hint" },
+                        new TextBlock { Text = title, Classes = { "section-title" } },
+                        new TextBlock
+                        {
+                            Text = hint,
+                            TextWrapping = TextWrapping.Wrap,
+                            Classes = { "hint" },
+                        },
+                        editorControl,
                     },
-                    editorControl,
                 },
             };
 
@@ -185,7 +189,6 @@ public partial class MainWindow
             Text = Localizer.Get("BastionTemplateTypicalHint"),
             TextWrapping = TextWrapping.Wrap,
             VerticalAlignment = VerticalAlignment.Center,
-            FontSize = 11,
             Classes = { "hint" },
         };
         var typicalRow = new Grid
@@ -224,14 +227,16 @@ public partial class MainWindow
         var content = new Grid
         {
             RowDefinitions = new RowDefinitions("*,Auto,Auto"),
-            Margin = new Thickness(22),
+            Margin = new Thickness(20),
             RowSpacing = 12,
         };
         content.Children.Add(new ScrollViewer
         {
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             Content = new StackPanel
             {
-                Spacing = 16,
+                Spacing = 12,
                 Children =
                 {
                     new TextBlock
@@ -352,7 +357,7 @@ public partial class MainWindow
             IsCancel = true,
             Classes = { "accent" },
         };
-        var rows = new StackPanel { Spacing = 7 };
+        var rows = new StackPanel { Spacing = 8 };
 
         void AddDirective(string directive, string localizationKey)
         {
@@ -360,7 +365,7 @@ public partial class MainWindow
             row.Children.Add(new SelectableTextBlock
             {
                 Text = directive,
-                FontFamily = new FontFamily("Consolas"),
+                Classes = { "mono" },
                 FontWeight = FontWeight.SemiBold,
             });
             var description = new TextBlock
@@ -387,21 +392,29 @@ public partial class MainWindow
             IsReadOnly = true,
             AcceptsReturn = true,
             TextWrapping = TextWrapping.NoWrap,
-            FontFamily = new FontFamily("Consolas"),
-            MinHeight = 150,
+            Classes = { "mono" },
+            MinHeight = 148,
+        };
+
+        var directivesCard = new Border
+        {
+            Classes = { "form-card" },
+            Child = rows,
         };
 
         var content = new Grid
         {
             RowDefinitions = new RowDefinitions("*,Auto"),
-            Margin = new Thickness(22),
-            RowSpacing = 14,
+            Margin = new Thickness(20),
+            RowSpacing = 12,
         };
         content.Children.Add(new ScrollViewer
         {
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             Content = new StackPanel
             {
-                Spacing = 14,
+                Spacing = 12,
                 Children =
                 {
                     new TextBlock
@@ -409,17 +422,17 @@ public partial class MainWindow
                         Text = Localizer.Get("LoginCommandsHelpIntro"),
                         TextWrapping = TextWrapping.Wrap,
                     },
-                    rows,
+                    directivesCard,
                     new TextBlock
                     {
                         Text = Localizer.Get("LoginCommandsHelpExampleTitle"),
-                        FontWeight = FontWeight.SemiBold,
+                        Classes = { "section-title" },
                     },
                     example,
                     new TextBlock
                     {
                         Text = Localizer.Get("LoginCommandsHelpExampleDescription"),
-                        TextWrapping = TextWrapping.Wrap,
+                        Classes = { "hint" },
                     },
                 },
             },

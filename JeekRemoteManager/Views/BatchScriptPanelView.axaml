@@ -6,23 +6,24 @@
              x:Class="JeekRemoteManager.Views.BatchScriptPanelView"
              x:DataType="vm:BatchScriptPanelViewModel">
 
-    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="12" Margin="14,12,16,14">
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="12" Margin="16">
 
         <!-- Header: suite name + cancel/close -->
-        <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
-            <StackPanel Spacing="2">
-                <TextBlock Classes="page-title" Text="{Binding SuiteName}" />
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel Spacing="4">
+                <TextBlock Classes="page-title" Text="{Binding SuiteName}" TextTrimming="CharacterEllipsis" />
                 <TextBlock Classes="hint" Text="{Binding TargetSummary}" />
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
                 <Button Content="{l:Localize BatchCancel}"
+                        Classes="danger"
                         Command="{Binding CancelCommand}"
                         IsVisible="{Binding IsRunning}" />
                 <Button Classes="toolbar compact-icon-button"
                         ToolTip.Tip="{l:Localize Close}"
                         Command="{Binding CloseCommand}">
                     <TextBlock Classes="icon"
-                               FontSize="11"
+                               FontSize="10"
                                Text="&#xE711;"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"
@@ -94,15 +95,14 @@
             <ItemsControl ItemsSource="{Binding Scripts}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
-                        <WrapPanel Orientation="Horizontal" />
+                        <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8" />
                     </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate DataType="models:RemoteScriptFile">
-                        <Button Margin="0,0,8,8"
-                                Command="{Binding $parent[ItemsControl].((vm:BatchScriptPanelViewModel)DataContext).RunScriptCommand}"
+                        <Button Command="{Binding $parent[ItemsControl].((vm:BatchScriptPanelViewModel)DataContext).RunScriptCommand}"
                                 CommandParameter="{Binding}">
-                            <StackPanel Orientation="Horizontal" Spacing="7">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
                                 <TextBlock Classes="toolbar-action-icon script" Text="&#xE756;" />
                                 <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center" />
                             </StackPanel>
@@ -119,7 +119,7 @@
                 <ItemsControl ItemsSource="{Binding Targets}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="vm:BatchScriptTargetViewModel">
-                            <Grid ColumnDefinitions="24,180,*,Auto" ColumnSpacing="10" Margin="8,5">
+                            <Grid ColumnDefinitions="24,2*,3*,Auto" ColumnSpacing="10" Margin="8,4">
                                 <Grid Grid.Column="0" Width="20" Height="20" VerticalAlignment="Center">
                                     <TextBlock Classes="icon"
                                                Text="&#xE823;"
@@ -151,17 +151,20 @@
                                            Text="{Binding Name}"
                                            FontWeight="SemiBold"
                                            TextTrimming="CharacterEllipsis"
+                                           ToolTip.Tip="{Binding Name}"
                                            VerticalAlignment="Center" />
                                 <TextBlock Grid.Column="2"
                                            Classes="hint"
                                            Text="{Binding StatusText}"
                                            TextTrimming="CharacterEllipsis"
+                                           ToolTip.Tip="{Binding StatusText}"
                                            VerticalAlignment="Center" />
                                 <Button Grid.Column="3"
-                                        Classes="toolbar icon-button"
+                                        Classes="toolbar compact-icon-button"
                                         ToolTip.Tip="{l:Localize BatchOpenTerminal}"
                                         Command="{Binding ActivateCommand}">
                                     <TextBlock Classes="icon"
+                                               FontSize="12"
                                                Text="&#xE768;"
                                                HorizontalAlignment="Center"
                                                VerticalAlignment="Center"

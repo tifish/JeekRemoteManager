@@ -128,7 +128,7 @@ AI 运行模式的持久化被**拆成两个槽**：有桌面 surface 的 agent 
 
 设置窗口按“页头说明 / 可滚动内容 / 固定操作栏”分成三段。内容按外观、文件与存储、安全、更新四张卡片组织；窗口允许缩放，小尺寸下只滚动中间内容，确定和取消按钮始终可见。底部按钮遵循 Windows 从左到右“确定、取消”的顺序，并整体靠右。`settings_dialog_layout_check` 打开真实设置窗口并验证这个结构与按钮顺序，防止新增设置项重新退化成无分组的长列表。
 
-所有普通 `Button` 的内容在水平和垂直方向都默认居中，这条规则放在 `Themes/AppControls.axaml` 的共享样式里，因此 XAML 控件和代码动态创建的对话框按钮保持一致。确实需要其它对齐方式的特殊按钮用更具体的样式或本地属性显式覆写。
+所有普通 `Button` 的内容在水平和垂直方向都默认居中，这条规则放在 `Themes/AppControls.axaml` 的共享样式里，因此 XAML 控件和代码动态创建的对话框按钮保持一致。确实需要其它对齐方式的特殊按钮用更具体的样式或本地属性显式覆写。标准输入控件（`Button`、`TextBox`、`ComboBox`）统一 32 DIP 最小高度，紧凑控件统一 28 DIP；破坏性操作使用 `Button.danger` 并在对话框中与主操作视觉分离；所有主题前景色/背景色对均满足浅色与深色模式下的 WCAG AA 对比度；连接树、编辑器与列表类面板禁用非预期的横向滚动条并配合 `CharacterEllipsis` 与完整名称 tooltip。Debug MCP 的 `ui_design_audit_check` 验证上述对比度、控件高度、滚动条约束、空状态主操作以及最小/宽屏缩放弹性。
 
 全应用的滚动条均关闭自动隐藏与自动变细（`AllowAutoHide = false`），始终保持完整宽度并占用独立轨道，不覆盖后面的内容：`Themes/AppControls.axaml` 对 `:is(ScrollViewer)`、`:is(ScrollBar)` 以及通过 `TemplateBinding` 透传 `ScrollViewer.AllowAutoHide` 的 `:is(ListBox)` / `:is(TreeView)` / `:is(TextBox)` 统一设 `AllowAutoHide = False`；`ScrollBarAutoHideGuard`（`Views/ScrollBarAutoHideGuard.cs`，在 `App.Initialize` 中安装）兜底拦截 `SvcSystems.UI.Terminal.TerminalControl` 等会以本地值写回 `AllowAutoHide = true` 的第三方控件；`ServerMonitorView` 的右上角关闭按钮在纵向滚动条可见时按滚动条宽度向左让位，避免与滚动条重叠。Debug MCP 的 `scrollbar_policy_check` 在隔离窗口和主窗口中验证上述全部控件。
 

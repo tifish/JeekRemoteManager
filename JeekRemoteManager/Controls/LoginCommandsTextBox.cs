@@ -72,7 +72,7 @@ public sealed class LoginCommandsTextBox : TextBox
         {
             MinWidth = 220,
             MaxHeight = 260,
-            FontFamily = new FontFamily("Consolas"),
+            FontFamily = new FontFamily("Cascadia Mono, Consolas, monospace"),
             ItemTemplate = new FuncDataTemplate<LoginCommandCompletion>(
                 (item, _) => CreateCompletionItem(item),
                 supportsRecycling: false),
@@ -101,14 +101,14 @@ public sealed class LoginCommandsTextBox : TextBox
         var border = new Border
         {
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(4),
-            Padding = new Thickness(2),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(4),
             BoxShadow = new BoxShadows(
                 new BoxShadow
                 {
-                    Blur = 10,
-                    OffsetY = 3,
-                    Color = Color.FromArgb(56, 0, 0, 0),
+                    Blur = 12,
+                    OffsetY = 4,
+                    Color = Color.FromArgb(44, 0, 0, 0),
                 }),
             Child = _completionList,
         };

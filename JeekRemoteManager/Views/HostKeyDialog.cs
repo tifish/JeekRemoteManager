@@ -48,21 +48,25 @@ public static class HostKeyDialog
     {
         var tcs = new TaskCompletionSource<bool>();
 
-        var replace = new Button { Content = Localizer.Get("HostKeyReplace"), MinWidth = 90 };
-        replace[!Button.ForegroundProperty] = new Avalonia.Markup.Xaml.MarkupExtensions.DynamicResourceExtension("DangerBrush");
+        var replace = new Button
+        {
+            Content = Localizer.Get("HostKeyReplace"),
+            MinWidth = 96,
+            Classes = { "danger" },
+        };
         var reject = new Button
         {
             Content = Localizer.Get("HostKeyReject"),
-            MinWidth = 90,
+            MinWidth = 96,
             IsDefault = true,
             IsCancel = true,
+            Classes = { "accent" },
         };
 
         var hint = new TextBlock
         {
             Text = Localizer.Get("HostKeyHint"),
             TextWrapping = TextWrapping.Wrap,
-            FontSize = 12,
             Classes = { "hint" },
         };
 
@@ -72,20 +76,20 @@ public static class HostKeyDialog
             Padding = new Avalonia.Thickness(12, 10),
             Child = new StackPanel
             {
-                Spacing = 6,
+                Spacing = 8,
                 Children =
                 {
                     new SelectableTextBlock
                     {
                         Text = string.Format(Localizer.Get("HostKeyPrevious"), $"SHA256:{oldFingerprintSha256}"),
-                        FontFamily = new FontFamily("Cascadia Mono, Consolas, monospace"),
+                        Classes = { "mono" },
                         FontSize = 12,
                         TextWrapping = TextWrapping.Wrap,
                     },
                     new SelectableTextBlock
                     {
                         Text = $"SHA256:{newFingerprintSha256}",
-                        FontFamily = new FontFamily("Cascadia Mono, Consolas, monospace"),
+                        Classes = { "mono" },
                         FontSize = 12,
                         FontWeight = FontWeight.SemiBold,
                         TextWrapping = TextWrapping.Wrap,
@@ -93,6 +97,16 @@ public static class HostKeyDialog
                 },
             },
         };
+
+        // Keep destructive "Replace" visually separated on the left from the safe default "Reject" on the right.
+        var actions = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"),
+            Margin = new Avalonia.Thickness(0, 4, 0, 0),
+            Children = { replace },
+        };
+        Grid.SetColumn(reject, 2);
+        actions.Children.Add(reject);
 
         var children = new List<Control>
         {
@@ -103,19 +117,13 @@ public static class HostKeyDialog
             },
             fingerprintsCard,
             hint,
-            new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                Spacing = 8,
-                Children = { replace, reject },
-            },
+            actions,
         };
 
         var content = new StackPanel
         {
             Margin = new Avalonia.Thickness(20),
-            Spacing = 10,
+            Spacing = 12,
         };
         content.Children.AddRange(children);
 

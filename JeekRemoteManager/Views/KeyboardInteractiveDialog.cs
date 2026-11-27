@@ -85,14 +85,14 @@ public static class KeyboardInteractiveDialog
         reveal.IsCheckedChanged += (_, _) =>
             box.RevealPassword = reveal.IsChecked == true;
 
-        var ok = new Button { Content = Localizer.Get("DialogOk"), MinWidth = 80, IsDefault = true };
-        var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 80, IsCancel = true };
+        var ok = new Button { Content = Localizer.Get("DialogOk"), MinWidth = 88, IsDefault = true };
+        var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 88, IsCancel = true };
         ok.Classes.Add("accent");
 
         var body = new StackPanel
         {
             Margin = new Thickness(20),
-            Spacing = 10,
+            Spacing = 12,
         };
         body.Children.Add(new TextBlock
         {
@@ -112,13 +112,20 @@ public static class KeyboardInteractiveDialog
             });
         }
 
-        body.Children.Add(new TextBlock
+        body.Children.Add(new StackPanel
         {
-            Text = request,
-            TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-            Classes = { "label" },
+            Spacing = 4,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = request,
+                    TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                    Classes = { "label" },
+                },
+                box,
+            },
         });
-        body.Children.Add(box);
         body.Children.Add(reveal);
         body.Children.Add(new TextBlock
         {
@@ -129,6 +136,7 @@ public static class KeyboardInteractiveDialog
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 4, 0, 0),
             Spacing = 8,
             Children = { ok, cancel },
         });

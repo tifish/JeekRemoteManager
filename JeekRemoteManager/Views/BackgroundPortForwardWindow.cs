@@ -23,10 +23,10 @@ internal sealed class BackgroundPortForwardWindow : Window
     private readonly BackgroundPortForwards _forwards;
     private readonly Func<string, string, int, int, SshForwardTransport.Plan> _prepare;
     private readonly ComboBox _connection = new() { Name = "BackgroundForwardConnection", HorizontalAlignment = HorizontalAlignment.Stretch };
-    private readonly TextBox _localPort = new() { Name = "BackgroundForwardLocalPort" };
-    private readonly TextBox _remotePort = new() { Name = "BackgroundForwardRemotePort" };
+    private readonly TextBox _localPort = new() { Name = "BackgroundForwardLocalPort", Classes = { "mono" } };
+    private readonly TextBox _remotePort = new() { Name = "BackgroundForwardRemotePort", Classes = { "mono" } };
     private readonly ListBox _list = new() { Name = "BackgroundForwardList", Padding = new Thickness(0) };
-    private readonly TextBlock _empty = new() { Classes = { "hint" }, Margin = new Thickness(14) };
+    private readonly TextBlock _empty = new() { Classes = { "hint" }, Margin = new Thickness(16), VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
     private readonly TextBlock _message = new() { Name = "BackgroundForwardMessage", TextWrapping = TextWrapping.Wrap, IsVisible = false };
     private readonly Button _open = Button("BackgroundForwardOpen");
     private readonly Button _resume = Button("BackgroundForwardResume");
@@ -62,6 +62,8 @@ internal sealed class BackgroundPortForwardWindow : Window
         _localPort.PlaceholderText = Localizer.Get("BackgroundForwardAutomaticPort");
         _remotePort.PlaceholderText = "1–65535";
         _open.Classes.Add("accent");
+        _stop.Classes.Add("danger");
+        ScrollViewer.SetHorizontalScrollBarVisibility(_list, Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled);
         _empty.Text = Localizer.Get("BackgroundForwardEmpty");
         _list.ItemTemplate = new FuncDataTemplate<BackgroundPortForwards.Overview>((row, _) =>
         {
@@ -97,7 +99,7 @@ internal sealed class BackgroundPortForwardWindow : Window
             Setters = { new Setter(HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch) },
         });
 
-        var form = new Grid { ColumnDefinitions = new ColumnDefinitions("*,135,160,Auto"), ColumnSpacing = 10 };
+        var form = new Grid { ColumnDefinitions = new ColumnDefinitions("*,132,160,Auto"), ColumnSpacing = 12 };
         form.Children.Add(new StackPanel { Spacing = 4, Children = { Text(connectionLabel, "label"), _connection } });
         var localPortInput = new StackPanel { Spacing = 4, Children = { Text(localPortLabel, "label"), _localPort } };
         Grid.SetColumn(localPortInput, 1);
@@ -112,7 +114,7 @@ internal sealed class BackgroundPortForwardWindow : Window
         var formCard = new Border
         {
             Classes = { "form-card" },
-            Padding = new Thickness(14),
+            Padding = new Thickness(16),
             Child = form,
         };
 
@@ -120,7 +122,7 @@ internal sealed class BackgroundPortForwardWindow : Window
             Text(Localizer.Get("BackgroundForwardRemoteAddress"), "label"), Text(Localizer.Get("BackgroundForwardStatus"), "label"));
         var headerBar = new Border
         {
-            Padding = new Thickness(14, 8),
+            Padding = new Thickness(12, 8, 28, 8),
             BorderThickness = new Thickness(0, 0, 0, 1),
             Child = headers,
         };
@@ -138,6 +140,7 @@ internal sealed class BackgroundPortForwardWindow : Window
         };
 
         var close = Button("Close");
+        close.MinWidth = 88;
         close.IsCancel = true;
         var actions = new StackPanel
         {
@@ -148,7 +151,7 @@ internal sealed class BackgroundPortForwardWindow : Window
         footer.Children.Add(close);
         var layout = new Grid
         {
-            Margin = new Thickness(18), RowDefinitions = new RowDefinitions("Auto,*,Auto,Auto"), RowSpacing = 12,
+            Margin = new Thickness(20), RowDefinitions = new RowDefinitions("Auto,*,Auto,Auto"), RowSpacing = 12,
             Children = { formCard, tableCard, _message, footer },
         };
         Grid.SetRow(tableCard, 1);

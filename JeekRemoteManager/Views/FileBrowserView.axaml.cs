@@ -415,16 +415,16 @@ public partial class FileBrowserView : UserControl
         var yes = new Button
         {
             Content = Localizer.Get("DialogYes"),
-            MinWidth = 80,
+            MinWidth = 88,
             IsDefault = true,
-            Classes = { "accent" },
+            Classes = { "danger" },
         };
-        var no = new Button { Content = Localizer.Get("DialogNo"), MinWidth = 80, IsCancel = true };
+        var no = new Button { Content = Localizer.Get("DialogNo"), MinWidth = 88, IsCancel = true };
 
         var dialog = new Window
         {
             Title = title,
-            Width = 380,
+            Width = 400,
             SizeToContent = SizeToContent.Height,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             CanResize = false,
@@ -464,16 +464,16 @@ public partial class FileBrowserView : UserControl
         var ok = new Button
         {
             Content = Localizer.Get("DialogOk"),
-            MinWidth = 80,
+            MinWidth = 88,
             IsDefault = true,
             Classes = { "accent" },
         };
-        var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 80, IsCancel = true };
+        var cancel = new Button { Content = Localizer.Get("DialogCancel"), MinWidth = 88, IsCancel = true };
 
         var dialog = new Window
         {
             Title = title,
-            Width = 380,
+            Width = 400,
             SizeToContent = SizeToContent.Height,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             CanResize = false,
@@ -483,12 +483,20 @@ public partial class FileBrowserView : UserControl
                 Spacing = 12,
                 Children =
                 {
-                    new TextBlock { Text = message, TextWrapping = Avalonia.Media.TextWrapping.Wrap },
-                    input,
+                    new StackPanel
+                    {
+                        Spacing = 4,
+                        Children =
+                        {
+                            new TextBlock { Text = message, TextWrapping = Avalonia.Media.TextWrapping.Wrap, Classes = { "label" } },
+                            input,
+                        },
+                    },
                     new StackPanel
                     {
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Right,
+                        Margin = new Avalonia.Thickness(0, 4, 0, 0),
                         Spacing = 8,
                         Children = { ok, cancel },
                     },

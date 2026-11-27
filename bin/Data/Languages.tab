@@ -48,6 +48,7 @@ ShortNameWatermark	shown before the name	显示在名称前面
 Host	Host	主机
 Port	Port	端口
 HostWatermark	hostname or IP	主机名或 IP
+Credentials	Credentials	凭据
 Username	Username	用户名
 Password	Password	密码
 Show	Show	显示
@@ -523,7 +524,7 @@ MonitorUptime	Uptime	运行
 MonitorUptimeDays	{0} days	{0} 天
 MonitorLatency	Latency	延迟
 MonitorProcesses	Top processes	进程排行
-MonitorProcessMem	MEM	内存
+MonitorProcessMem	Mem	内存
 MonitorProcessCpu	CPU%	CPU%
 MonitorProcessCommand	Command	命令
 MonitorDisks	Disks	磁盘

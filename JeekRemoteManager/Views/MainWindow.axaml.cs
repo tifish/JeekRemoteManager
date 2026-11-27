@@ -386,12 +386,14 @@ public partial class MainWindow : Window
             Name = "AboutVersionText",
             Text = (DataContext as MainWindowViewModel)?.VersionDisplay ?? Localizer.Get("StatusDevBuild"),
             HorizontalAlignment = HorizontalAlignment.Center,
-            Classes = { "hint" },
+            Classes = { "hint", "mono" },
         };
         var homepageText = new SelectableTextBlock
         {
             Name = "AboutHomepageText",
             Text = ProjectHomepage,
+            Classes = { "mono" },
+            FontSize = 12,
             HorizontalAlignment = HorizontalAlignment.Center,
             TextWrapping = TextWrapping.Wrap,
         };
@@ -399,7 +401,7 @@ public partial class MainWindow : Window
         {
             Name = "AboutHomepageButton",
             Content = Localizer.Get("ProjectHomepage"),
-            HorizontalAlignment = HorizontalAlignment.Center,
+            MinWidth = 112,
         };
         homepageButton.Click += (_, _) =>
         {
@@ -420,7 +422,6 @@ public partial class MainWindow : Window
         var closeButton = new Button
         {
             Content = Localizer.Get("DialogOk"),
-            HorizontalAlignment = HorizontalAlignment.Center,
             MinWidth = 88,
             IsDefault = true,
             IsCancel = true,
@@ -428,17 +429,16 @@ public partial class MainWindow : Window
         };
         var iconTile = new Border
         {
-            Width = 56,
-            Height = 56,
-            CornerRadius = new CornerRadius(14),
+            Width = 48,
+            Height = 48,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Classes = { "icon-tile" },
+            Classes = { "brand-tile" },
             Child = new Image
             {
                 Source = new Avalonia.Media.Imaging.Bitmap(
                     Avalonia.Platform.AssetLoader.Open(new Uri("avares://JeekRemoteManager/Assets/Icon.png"))),
-                Width = 38,
-                Height = 38,
+                Width = 32,
+                Height = 32,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
             },
@@ -446,13 +446,13 @@ public partial class MainWindow : Window
         var dialog = new Window
         {
             Title = Localizer.Get("About"),
-            Width = 440,
-            Height = 340,
+            Width = 420,
+            SizeToContent = SizeToContent.Height,
             CanResize = false,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Content = new StackPanel
             {
-                Margin = new Thickness(28, 24),
+                Margin = new Thickness(24),
                 Spacing = 12,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 Children =
@@ -461,14 +461,19 @@ public partial class MainWindow : Window
                     new TextBlock
                     {
                         Text = Localizer.Get("WindowTitle"),
-                        FontSize = 22,
-                        FontWeight = FontWeight.SemiBold,
+                        Classes = { "page-title" },
                         HorizontalAlignment = HorizontalAlignment.Center,
                     },
                     versionText,
                     homepageText,
-                    homepageButton,
-                    closeButton,
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        Margin = new Thickness(0, 8, 0, 0),
+                        Spacing = 8,
+                        Children = { homepageButton, closeButton },
+                    },
                 },
             },
         };
