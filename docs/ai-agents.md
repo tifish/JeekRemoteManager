@@ -70,6 +70,7 @@ AI 面板的选项菜单既能在资源管理器中打开工作区，也能复�
 - GitHub Copilot：`%COPILOT_HOME%\mcp-config.json`（默认 `~/.copilot/mcp-config.json`）
 - Grok：`%GROK_HOME%\config.toml`（默认 `~/.grok/config.toml`）
 - OpenCode：`~/.config/opencode/opencode.json`
+- Pi：`%PI_CODING_AGENT_DIR%\mcp.json`（默认 `~/.pi/agent/mcp.json`，兼容新版 Pi 原生 MCP 与 `pi-mcp-adapter`）
 
 与项目链接的关键区别：
 

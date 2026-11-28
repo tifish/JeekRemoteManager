@@ -494,9 +494,14 @@ public sealed class AuditRegressionTests
         try
         {
             var customCodexHome = Path.Combine(root, "custom-codex");
+            var customPiDir = Path.Combine(root, "custom-pi");
             var env = AgentMcpConfigCatalog.GlobalConfigEnvironment.Isolated(
                 root,
-                new Dictionary<string, string?> { ["CODEX_HOME"] = customCodexHome });
+                new Dictionary<string, string?>
+                {
+                    ["CODEX_HOME"] = customCodexHome,
+                    ["PI_CODING_AGENT_DIR"] = customPiDir,
+                });
 
             // Simulate MSIX Claude Desktop package LocalCache.
             var msixClaudeDir = Path.Combine(
@@ -518,10 +523,10 @@ public sealed class AuditRegressionTests
                 """{"numStartups": 10, "mcpServers": {"other": {"command": "npx"}}}""");
 
             var written = AgentProjectLink.WriteGlobalApplication(
-                ["antigravity", "claude-code", "claude-desktop", "codex", "copilot", "opencode"],
+                ["antigravity", "claude-code", "claude-desktop", "codex", "copilot", "opencode", "pi"],
                 env);
             Assert.Equal(
-                ["antigravity", "claude-code", "claude-desktop", "codex", "copilot", "opencode"],
+                ["antigravity", "claude-code", "claude-desktop", "codex", "copilot", "opencode", "pi"],
                 written);
             Assert.Equal(written, AgentProjectLink.ListWrittenGlobalApplicationTargetIds(env));
 
@@ -560,6 +565,13 @@ public sealed class AuditRegressionTests
             var copilotJson = System.Text.Json.Nodes.JsonNode.Parse(
                 File.ReadAllText(Path.Combine(root, ".copilot", "mcp-config.json")))!.AsObject();
             Assert.Equal("*", copilotJson["mcpServers"]![AgentProjectLink.ApplicationMcpServerName]!["tools"]![0]!.GetValue<string>());
+
+            // Pi honors PI_CODING_AGENT_DIR and writes standard mcpServers.
+            var piJson = System.Text.Json.Nodes.JsonNode.Parse(
+                File.ReadAllText(Path.Combine(customPiDir, "mcp.json")))!.AsObject();
+            Assert.Equal(
+                AgentWorkspaceLink.AdapterPath,
+                piJson["mcpServers"]![AgentProjectLink.ApplicationMcpServerName]!["command"]!.GetValue<string>());
 
             // Selective update removes unchecked agents without deleting parent directories.
             AgentProjectLink.WriteGlobalApplication(["codex"], env);

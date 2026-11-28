@@ -147,8 +147,7 @@ public static class AgentMcpConfigCatalog
 
     /// <summary>
     /// Every user-level global MCP config supported for application-wide writing, sorted
-    /// alphabetically by label. Pi has no built-in global MCP client; T3 Code inherits the
-    /// global configs of the agents it hosts.
+    /// alphabetically by label. T3 Code inherits the global configs of the agents it hosts.
     /// </summary>
     public static IReadOnlyList<GlobalTarget> GlobalAll { get; } =
     [
@@ -207,6 +206,14 @@ public static class AgentMcpConfigCatalog
             env => Path.Combine(env.UserProfile, ".config", "opencode", "opencode.json"),
             JsonRootKey: "mcp",
             JsonStyle: JsonEntryStyle.OpenCodeLocal),
+        new(
+            "pi",
+            "Pi",
+            ConfigFormat.Json,
+            env => Path.Combine(
+                ResolveEnvHome(env, "PI_CODING_AGENT_DIR", Path.Combine(env.UserProfile, ".pi", "agent")),
+                "mcp.json"),
+            JsonRootKey: "mcpServers"),
     ];
 
     private static string ResolveEnvHome(
