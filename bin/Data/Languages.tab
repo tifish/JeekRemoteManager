@@ -419,18 +419,25 @@ AiLinkProjectFailed	Could not update the project folder: {0}	更新项目目录�
 AiLinkProjectUnavailable	This tab cannot be shared with a project folder yet.	此标签页暂时无法提供给项目目录使用。
 AiUnlinkProjectDone	Agents in {0} no longer use this connection.	{0} 中的 AI 不再使用此连接。
 AiLinkApplicationProject	Write this software's MCP…	写入本软件MCP…
-AiLinkApplicationProjectHint	Choose a project folder and which MCP agents should control this application. Unchecked agents are removed.	选择项目目录以及要写入本软件 MCP 的 Agent；未勾选的会从该目录移除。
+AiLinkApplicationProjectHint	Write this software's MCP to global agent configs (for all sessions) or a project folder. Unchecked agents are removed.	将本软件 MCP 写入各 Agent 的全局配置（任意会话可用）或指定项目目录；未勾选的会被移除。
 AiLinkApplicationProjectDone	Agents started in {0} can now control JeekRemoteManager.	在 {0} 中启动的 AI 现在可以控制 JeekRemoteManager。
+AiLinkApplicationGlobalDone	Global MCP configs updated. Selected agents can now control JeekRemoteManager in any session.	已更新全局 MCP 配置，所选 Agent 现在可在任意会话中控制 JeekRemoteManager。
+AiLinkGlobalFailed	Could not update global MCP configs: {0}	更新全局 MCP 配置失败：{0}
 AiUnlinkApplicationProject	Stop agents in a project folder from controlling JeekRemoteManager…	不再让项目目录中的 AI 控制整个软件…
 AiUnlinkApplicationProjectDone	Agents in {0} no longer control JeekRemoteManager.	{0} 中的 AI 不再控制 JeekRemoteManager。
+AiUnlinkApplicationGlobalDone	Removed JeekRemoteManager from global MCP configs.	已从全局 MCP 配置中移除 JeekRemoteManager。
 McpLinkDialogApplicationTitle	Write this software's MCP	写入本软件MCP
 McpLinkDialogConnectionTitle	Write this connection's MCP	写入本连接MCP
+McpLinkScope	Scope	写入范围
+McpLinkScopeGlobal	Global (all sessions)	全局配置（所有会话）
+McpLinkScopeProject	Project folder	项目目录
 McpLinkTargetDirectory	Target folder	目标目录
 McpLinkDirectoryWatermark	Project folder that should receive the MCP config	要写入 MCP 配置的项目目录
 McpLinkBrowse	Browse…	浏览…
 McpLinkPickDirectoryTitle	Choose the project folder	选择项目目录
 McpLinkAgents	MCP agents	MCP Agent
 McpLinkAgentsHint	Write updates the checked agents and removes the unchecked ones. Empty MCP files and folders are deleted.	写入会更新已勾选的 Agent，并移除未勾选的；若 MCP 文件没有其他内容，会删除该文件和目录。
+McpLinkGlobalAgentsHint	Write updates the checked user-level global configs and removes unchecked ones. Other settings in those files are preserved.	写入会更新已勾选的用户级全局配置，并移除未勾选的条目；配置文件中的其他内容会完整保留。
 McpLinkLastUsed	Last used	上次使用
 McpLinkSelectAll	Select all	全选
 McpLinkSelectNone	Select none	全不选
@@ -439,6 +446,8 @@ McpLinkRemoveAll	Remove all	全部移除
 McpLinkDirectoryMissing	Choose an existing folder.	请选择已存在的目录。
 McpLinkWritten	Wrote MCP config to {0}.	已写入 MCP 配置到 {0}。
 McpLinkRemoved	Removed MCP config from {0}.	已从 {0} 移除 MCP 配置。
+McpLinkGlobalWritten	Updated global MCP configs.	已更新全局 MCP 配置。
+McpLinkGlobalRemoved	Removed JeekRemoteManager from global MCP configs.	已从全局 MCP 配置中移除 JeekRemoteManager。
 GlobalAiAgent	Global AI Agent	全局 AI Agent
 GlobalAiAgentShort	Global AI	全局 AI
 GlobalAiAgentTooltip	Use an AI agent to manage connections and operate multiple terminal sessions.	使用 AI Agent 管理连接并操作多个终端会话。

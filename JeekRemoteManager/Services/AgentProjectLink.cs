@@ -212,6 +212,137 @@ public static class AgentProjectLink
         return project;
     }
 
+    /// <summary>
+    /// Global catalog IDs whose user-level config file currently contains the application-wide
+    /// JeekRemoteManager MCP server. Missing or unreadable files are treated as not written.
+    /// </summary>
+    public static IReadOnlyList<string> ListWrittenGlobalApplicationTargetIds(
+        AgentMcpConfigCatalog.GlobalConfigEnvironment? environment = null)
+    {
+        var env = environment ?? AgentMcpConfigCatalog.GlobalConfigEnvironment.Current;
+        var written = new List<string>();
+        foreach (var target in AgentMcpConfigCatalog.GlobalAll)
+        {
+            if (ContainsGlobalServer(target, env, ApplicationMcpServerName))
+                written.Add(target.Id);
+        }
+
+        return written;
+    }
+
+    /// <summary>
+    /// Writes the application-wide product MCP entry into the selected user-level global agent
+    /// configs and removes it from unselected ones. Unlike project links, global configs are
+    /// machine-local and run from any working directory, so they launch the fixed per-user
+    /// adapter directly without creating <c>AGENTS.md</c> or a portable <c>.cmd</c> launcher.
+    /// Other settings in each file are preserved; parent directories are never deleted.
+    /// </summary>
+    public static IReadOnlyList<string> WriteGlobalApplication(
+        IReadOnlyCollection<string>? selectedTargetIds = null,
+        AgentMcpConfigCatalog.GlobalConfigEnvironment? environment = null)
+    {
+        var env = environment ?? AgentMcpConfigCatalog.GlobalConfigEnvironment.Current;
+        var selected = ResolveGlobalTargets(selectedTargetIds);
+        var keep = selected.ToHashSet();
+        var launch = AgentMcpConfigCatalog.AdapterLaunch.Direct(
+            AgentWorkspaceLink.AdapterPath,
+            connectionPath: null,
+            instanceId: AgentWorkspaceLink.AdapterInstanceId);
+
+        foreach (var target in selected)
+        {
+            var path = target.ResolvePath(env);
+            var shape = target.AsTarget();
+            if (target.Format == AgentMcpConfigCatalog.ConfigFormat.Json)
+            {
+                MergeMcpJson(
+                    path,
+                    shape,
+                    ApplicationMcpServerName,
+                    AgentMcpConfigCatalog.BuildJsonEntry(shape, launch));
+            }
+            else
+            {
+                UpsertTomlBlock(
+                    path,
+                    ApplicationMarker,
+                    AgentMcpConfigCatalog.BuildTomlEntry(shape, ApplicationMcpServerName, launch));
+            }
+        }
+
+        foreach (var target in AgentMcpConfigCatalog.GlobalAll)
+        {
+            if (keep.Contains(target))
+                continue;
+            RemoveGlobalTargetEntry(target, env);
+        }
+
+        return selected.Select(target => target.Id).ToArray();
+    }
+
+    /// <summary>
+    /// Removes the application-wide JeekRemoteManager MCP entry from every supported user-level
+    /// global config while preserving all other settings and folders.
+    /// </summary>
+    public static void RemoveGlobalApplication(
+        AgentMcpConfigCatalog.GlobalConfigEnvironment? environment = null)
+    {
+        var env = environment ?? AgentMcpConfigCatalog.GlobalConfigEnvironment.Current;
+        foreach (var target in AgentMcpConfigCatalog.GlobalAll)
+            RemoveGlobalTargetEntry(target, env);
+    }
+
+    private static IReadOnlyList<AgentMcpConfigCatalog.GlobalTarget> ResolveGlobalTargets(
+        IReadOnlyCollection<string>? selectedTargetIds)
+    {
+        if (selectedTargetIds is null)
+            return AgentMcpConfigCatalog.GlobalAll;
+
+        var selected = new HashSet<string>(selectedTargetIds, StringComparer.OrdinalIgnoreCase);
+        return AgentMcpConfigCatalog.GlobalAll
+            .Where(target => selected.Contains(target.Id))
+            .ToArray();
+    }
+
+    private static bool ContainsGlobalServer(
+        AgentMcpConfigCatalog.GlobalTarget target,
+        AgentMcpConfigCatalog.GlobalConfigEnvironment environment,
+        string serverName)
+    {
+        var path = target.ResolvePath(environment);
+        if (!File.Exists(path))
+            return false;
+
+        if (target.Format == AgentMcpConfigCatalog.ConfigFormat.Json)
+        {
+            var root = ParseJsonObject(path);
+            return root?[target.JsonRootKey!]?[serverName] is not null;
+        }
+
+        return ReadTextOrEmpty(path).Contains(
+            $"[mcp_servers.{serverName}]",
+            StringComparison.Ordinal);
+    }
+
+    private static void RemoveGlobalTargetEntry(
+        AgentMcpConfigCatalog.GlobalTarget target,
+        AgentMcpConfigCatalog.GlobalConfigEnvironment environment)
+    {
+        var path = target.ResolvePath(environment);
+        if (!File.Exists(path))
+            return;
+
+        if (target.Format == AgentMcpConfigCatalog.ConfigFormat.Json)
+        {
+            RemoveMcpJsonServer(path, target.AsTarget(), ApplicationMcpServerName);
+        }
+        else
+        {
+            RemoveTomlBlock(path, ApplicationMarker);
+            DeleteIfEmpty(path, removeEmptyFolder: false);
+        }
+    }
+
     private static void Apply(
         string projectDirectory,
         string marker,

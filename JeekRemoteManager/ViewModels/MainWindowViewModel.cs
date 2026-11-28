@@ -609,6 +609,42 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Whether the application-wide MCP write dialog last used Global scope.</summary>
+    public bool LastMcpWriteGlobal
+    {
+        get => _settings.Settings.LastMcpWriteGlobal;
+        set
+        {
+            if (_settings.Settings.LastMcpWriteGlobal == value)
+                return;
+            _settings.Settings.LastMcpWriteGlobal = value;
+            _settings.SaveIfChanged();
+        }
+    }
+
+    /// <summary>Global agent configs written by the last successful global MCP dialog Write.</summary>
+    public IReadOnlyList<string> LastMcpGlobalWrittenTargetIds
+    {
+        get => _settings.Settings.LastMcpGlobalWrittenTargetIds ?? [];
+        set
+        {
+            var next = (value ?? [])
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var current = _settings.Settings.LastMcpGlobalWrittenTargetIds ?? [];
+            if (current.Count == next.Count
+                && current.SequenceEqual(next, StringComparer.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            _settings.Settings.LastMcpGlobalWrittenTargetIds = next;
+            _settings.SaveIfChanged();
+        }
+    }
+
     /// <summary>True when a terminal tab is the active right-pane tab. Drives the
     /// visibility of the terminal toolbar buttons.</summary>
     [ObservableProperty]

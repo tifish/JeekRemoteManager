@@ -305,7 +305,7 @@ public static class DebugMcpContract
                 ["keep"] = Prop("boolean", "Keep the temporary project folder instead of deleting it (default false)."),
             }),
         Tool("agent_application_link_check",
-            "Drives the MCP write dialog against a throwaway project by clicking its buttons. Verifies disabled actions on an empty/missing folder, Select all/none, typing a folder to auto-check written agents, Write of a subset, worktree rejection, Remove all, Cancel without saving, last-directory prefill, the connection-flavor dialog, the portable launcher, and preservation of existing project config.",
+            "Drives the MCP write dialog against a throwaway project and an isolated global config home by clicking its buttons. Verifies both Project and Global scopes (scope switching, hidden directory row, global agent paths, disabled actions on an empty/missing folder, Select all/none, auto-checking written agents, Write of a subset, Last used, worktree rejection, Remove all, Cancel without saving, connection dialog hiding Global scope, and preservation of existing user configs).",
             new() { ["keep"] = Prop("boolean", "Keep the temporary project folder instead of deleting it (default false).") }),
         Tool("global_agent_check",
             "Verifies the in-app global AI Agent starts closed, can be opened, fully closed, and reopened without launching a third-party CLI, then checks its application-wide workspace, unpinned MCP config, connection-only options, and multi-connection product tools.",

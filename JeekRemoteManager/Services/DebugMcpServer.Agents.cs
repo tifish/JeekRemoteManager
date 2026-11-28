@@ -811,6 +811,10 @@ internal static partial class DebugMcpServer
 
         string? previousLastDirectory = null;
         IReadOnlyList<string>? previousLastWritten = null;
+        bool? previousLastWriteGlobal = null;
+        IReadOnlyList<string>? previousLastGlobalWritten = null;
+        var isolatedGlobalRoot = Path.Combine(project, "isolated-global-home");
+        var globalEnv = AgentMcpConfigCatalog.GlobalConfigEnvironment.Isolated(isolatedGlobalRoot);
         Views.McpProjectLinkDialog? dialog = null;
         try
         {
@@ -824,6 +828,15 @@ internal static partial class DebugMcpServer
                 Path.Combine(project, ".codex", "config.toml"),
                 "model = \"gpt-5\"\n");
 
+            // Seed isolated global user configs to confirm global writes merge cleanly.
+            Directory.CreateDirectory(Path.Combine(isolatedGlobalRoot, ".codex"));
+            File.WriteAllText(
+                Path.Combine(isolatedGlobalRoot, ".codex", "config.toml"),
+                "model = \"gpt-5\"\n");
+            File.WriteAllText(
+                Path.Combine(isolatedGlobalRoot, ".claude.json"),
+                "{ \"numStartups\": 42, \"mcpServers\": { \"existing\": { \"command\": \"npx\" } } }\n");
+
             var (menuHeaders, trayHeaders) = await OnUiAsync(() =>
             {
                 if (Desktop?.MainWindow is not Views.MainWindow main)
@@ -832,6 +845,8 @@ internal static partial class DebugMcpServer
                 {
                     previousLastDirectory = vm.LastMcpProjectDirectory;
                     previousLastWritten = vm.LastMcpWrittenTargetPaths.ToArray();
+                    previousLastWriteGlobal = vm.LastMcpWriteGlobal;
+                    previousLastGlobalWritten = vm.LastMcpGlobalWrittenTargetIds.ToArray();
                 }
                 main.WriteApplicationMcpToProject(project);
                 var tray = (Application.Current as App)?.TrayMenuHeaders.ToArray() ?? [];
@@ -915,7 +930,9 @@ internal static partial class DebugMcpServer
 
                 vm.LastMcpProjectDirectory = null;
                 vm.LastMcpWrittenTargetPaths = [];
-                dialog = main.CreateApplicationMcpLinkDialog();
+                vm.LastMcpWriteGlobal = false;
+                vm.LastMcpGlobalWrittenTargetIds = [];
+                dialog = main.CreateApplicationMcpLinkDialog(globalEnv);
                 dialog.Show(main);
                 var emptyDisabled = !dialog.WriteEnabled && !dialog.RemoveAllEnabled
                                     && dialog.TargetDirectoryText.Length == 0;
@@ -990,7 +1007,7 @@ internal static partial class DebugMcpServer
             {
                 if (Desktop?.MainWindow is not Views.MainWindow main)
                     throw new InvalidOperationException("The main window is not available.");
-                dialog = main.CreateApplicationMcpLinkDialog();
+                dialog = main.CreateApplicationMcpLinkDialog(globalEnv);
                 dialog.Show(main);
                 var prefill = dialog.TargetDirectoryText;
                 var restored = dialog.SelectedTargetPaths.ToArray();
@@ -1073,7 +1090,7 @@ internal static partial class DebugMcpServer
             {
                 if (Desktop?.MainWindow is not Views.MainWindow main)
                     throw new InvalidOperationException("The main window is not available.");
-                var cancelDialog = main.CreateApplicationMcpLinkDialog();
+                var cancelDialog = main.CreateApplicationMcpLinkDialog(globalEnv);
                 cancelDialog.Show(main);
                 var prefill = cancelDialog.TargetDirectoryText;
                 cancelDialog.ClickSelectNone();
@@ -1088,10 +1105,102 @@ internal static partial class DebugMcpServer
                 && AgentProjectLink.ListWrittenApplicationTargetPaths(project).Count
                     == AgentMcpConfigCatalog.All.Count);
 
+            // Global scope verification against the isolated user profile (never touches real configs).
+            var globalState = await OnUiAsync(() =>
+            {
+                if (Desktop?.MainWindow is not Views.MainWindow main)
+                    throw new InvalidOperationException("The main window is not available.");
+                if (main.DataContext is not MainWindowViewModel vm)
+                    throw new InvalidOperationException("The main window view model is not available.");
+
+                var globalDialog = main.CreateApplicationMcpLinkDialog(globalEnv);
+                globalDialog.Show(main);
+                var supportsGlobal = globalDialog.SupportsGlobalScope;
+                globalDialog.SelectGlobalScope();
+                var inGlobal = globalDialog.IsGlobalScope
+                               && !globalDialog.TargetDirectoryVisible
+                               && globalDialog.WriteEnabled
+                               && globalDialog.RemoveAllEnabled
+                               && !globalDialog.LastUsedEnabled;
+                var labels = globalDialog.AgentLabels.ToArray();
+                var paths = globalDialog.AgentPaths.ToArray();
+                globalDialog.SetSelectedTargetPaths(["claude-code", "codex", "opencode"]);
+                globalDialog.ClickWrite();
+                var writeClosed = !globalDialog.IsVisible;
+                var rememberedScope = vm.LastMcpWriteGlobal;
+
+                // Reopen: should land on Global scope with written targets checked and Last used enabled.
+                globalDialog = main.CreateApplicationMcpLinkDialog(globalEnv);
+                globalDialog.Show(main);
+                var reopenedGlobal = globalDialog.IsGlobalScope
+                                     && !globalDialog.TargetDirectoryVisible
+                                     && globalDialog.LastUsedEnabled;
+                var detected = globalDialog.SelectedTargetPaths.ToArray();
+                globalDialog.ClickSelectNone();
+                globalDialog.ClickLastUsed();
+                var restoredLastUsed = globalDialog.SelectedTargetPaths.ToArray();
+                globalDialog.SetSelectedTargetPaths(["codex"]);
+                globalDialog.ClickWrite();
+                var narrowClosed = !globalDialog.IsVisible;
+
+                globalDialog = main.CreateApplicationMcpLinkDialog(globalEnv);
+                globalDialog.Show(main);
+                globalDialog.ClickRemoveAll();
+                var removeClosed = !globalDialog.IsVisible;
+
+                return (
+                    supportsGlobal,
+                    inGlobal,
+                    labels,
+                    paths,
+                    writeClosed,
+                    rememberedScope,
+                    reopenedGlobal,
+                    detected,
+                    restoredLastUsed,
+                    narrowClosed,
+                    removeClosed);
+            });
+
+            var globalClaudeText = File.ReadAllText(Path.Combine(isolatedGlobalRoot, ".claude.json"));
+            var globalCodexText = File.ReadAllText(Path.Combine(isolatedGlobalRoot, ".codex", "config.toml"));
+            var globalOpenCodePath = Path.Combine(isolatedGlobalRoot, ".config", "opencode", "opencode.json");
+            Check("application dialog supports Global scope", globalState.supportsGlobal);
+            Check(
+                "Global scope hides target folder and enables Write / Remove all immediately",
+                globalState.inGlobal);
+            Check(
+                "Global scope lists all global agents alphabetically with isolated paths",
+                globalState.labels.SequenceEqual(
+                    AgentMcpConfigCatalog.GlobalAll.Select(t => t.Label))
+                && globalState.paths.All(p =>
+                    p.StartsWith(isolatedGlobalRoot, StringComparison.OrdinalIgnoreCase)));
+            Check(
+                "Global Write remembers scope and auto-detects written agents on reopen",
+                globalState.writeClosed
+                && globalState.rememberedScope
+                && globalState.reopenedGlobal
+                && globalState.detected.SequenceEqual(["claude-code", "codex", "opencode"])
+                && globalState.restoredLastUsed.SequenceEqual(["claude-code", "codex", "opencode"]));
+            Check(
+                "Global Remove all clears JRM entries while preserving existing user configs and folders",
+                globalState.narrowClosed
+                && globalState.removeClosed
+                && AgentProjectLink.ListWrittenGlobalApplicationTargetIds(globalEnv).Count == 0
+                && globalClaudeText.Contains("\"numStartups\": 42", StringComparison.Ordinal)
+                && globalClaudeText.Contains("\"existing\"", StringComparison.Ordinal)
+                && !globalClaudeText.Contains(AgentProjectLink.ApplicationMcpServerName, StringComparison.Ordinal)
+                && globalCodexText.Contains("model = \"gpt-5\"", StringComparison.Ordinal)
+                && !globalCodexText.Contains(AgentProjectLink.ApplicationMcpServerName, StringComparison.Ordinal)
+                && !File.Exists(globalOpenCodePath)
+                && !File.Exists(Path.Combine(isolatedGlobalRoot, "AGENTS.md"))
+                && !File.Exists(Path.Combine(isolatedGlobalRoot, AgentMcpConfigCatalog.ProjectLauncherFileName)));
+
             var connectionWorkspace = Path.Combine(project, "connection-workspace");
             Directory.CreateDirectory(connectionWorkspace);
             var connectionServer = "";
             var connectionTitle = "";
+            var connectionSupportsGlobal = true;
             var connectionWritten = Array.Empty<string>();
             var connectionCleared = Array.Empty<string>();
             AgentCliPanelViewModel? connectionPanel = null;
@@ -1114,6 +1223,7 @@ internal static partial class DebugMcpServer
                 var connectionDialog = McpProjectLinkDialog.CreateConnection(connectionPanel, vm);
                 connectionDialog.Show(main);
                 connectionTitle = connectionDialog.Title ?? "";
+                connectionSupportsGlobal = connectionDialog.SupportsGlobalScope;
                 connectionDialog.EnterDirectoryFromTextBox(project);
                 connectionDialog.SetSelectedTargetPaths([".mcp.json"]);
                 connectionDialog.ClickWrite();
@@ -1134,8 +1244,9 @@ internal static partial class DebugMcpServer
             if (connectionPanel is not null)
                 await connectionPanel.DisposeAsync();
             Check(
-                "connection dialog uses the connection title",
-                connectionTitle == Localizer.Get("McpLinkDialogConnectionTitle"));
+                "connection dialog uses the connection title and hides Global scope",
+                connectionTitle == Localizer.Get("McpLinkDialogConnectionTitle")
+                && !connectionSupportsGlobal);
             Check(
                 "connection Write button writes only the checked agent",
                 connectionWritten.SequenceEqual([".mcp.json"]) && connectionClosed.writeClosed);
@@ -1175,6 +1286,10 @@ internal static partial class DebugMcpServer
                     vm.LastMcpProjectDirectory = previousLastDirectory;
                     if (previousLastWritten is not null)
                         vm.LastMcpWrittenTargetPaths = previousLastWritten;
+                    if (previousLastWriteGlobal is { } lastGlobal)
+                        vm.LastMcpWriteGlobal = lastGlobal;
+                    if (previousLastGlobalWritten is not null)
+                        vm.LastMcpGlobalWrittenTargetIds = previousLastGlobalWritten;
                 }
                 return true;
             });

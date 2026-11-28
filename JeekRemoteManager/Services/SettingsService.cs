@@ -224,6 +224,8 @@ public class SettingsService
             AiAutoOpenPanel = machineSettings.AiAutoOpenPanel,
             LastMcpProjectDirectory = machineSettings.LastMcpProjectDirectory,
             LastMcpWrittenTargetPaths = machineSettings.LastMcpWrittenTargetPaths ?? new List<string>(),
+            LastMcpWriteGlobal = machineSettings.LastMcpWriteGlobal,
+            LastMcpGlobalWrittenTargetIds = machineSettings.LastMcpGlobalWrittenTargetIds ?? new List<string>(),
             Language = roamingSettings.Language,
             Theme = roamingSettings.Theme,
             CheckUpdateOnStartup = roamingSettings.CheckUpdateOnStartup,
@@ -263,6 +265,8 @@ public class SettingsService
             AiAutoOpenPanel = settings.AiAutoOpenPanel,
             LastMcpProjectDirectory = settings.LastMcpProjectDirectory,
             LastMcpWrittenTargetPaths = settings.LastMcpWrittenTargetPaths ?? new List<string>(),
+            LastMcpWriteGlobal = settings.LastMcpWriteGlobal,
+            LastMcpGlobalWrittenTargetIds = settings.LastMcpGlobalWrittenTargetIds ?? new List<string>(),
         };
         NormalizeMachineSettings(machineSettings);
         return machineSettings;
@@ -316,6 +320,8 @@ public class SettingsService
         settings.AiAutoOpenPanel = normalized.AiAutoOpenPanel;
         settings.LastMcpProjectDirectory = normalized.LastMcpProjectDirectory;
         settings.LastMcpWrittenTargetPaths = normalized.LastMcpWrittenTargetPaths;
+        settings.LastMcpWriteGlobal = normalized.LastMcpWriteGlobal;
+        settings.LastMcpGlobalWrittenTargetIds = normalized.LastMcpGlobalWrittenTargetIds;
         settings.Language = normalized.Language;
         settings.Theme = normalized.Theme;
         settings.CheckUpdateOnStartup = normalized.CheckUpdateOnStartup;
@@ -368,6 +374,7 @@ public class SettingsService
         if (string.IsNullOrWhiteSpace(settings.LastMcpProjectDirectory))
             settings.LastMcpProjectDirectory = null;
         settings.LastMcpWrittenTargetPaths = NormalizeMcpWrittenTargetPaths(settings.LastMcpWrittenTargetPaths);
+        settings.LastMcpGlobalWrittenTargetIds = NormalizeMcpWrittenTargetPaths(settings.LastMcpGlobalWrittenTargetIds);
         if (!Enum.IsDefined(settings.AiRunMode) || settings.AiRunMode == AgentCliRunMode.Ide)
             settings.AiRunMode = AgentCliRunMode.Cli;
         // Grok has no Desktop protocol and Ide is single-mode only; never persist/restore either here.

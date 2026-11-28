@@ -341,11 +341,12 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Builds the application-wide MCP write dialog without showing it, for Debug MCP.</summary>
-    public McpProjectLinkDialog CreateApplicationMcpLinkDialog()
+    public McpProjectLinkDialog CreateApplicationMcpLinkDialog(
+        AgentMcpConfigCatalog.GlobalConfigEnvironment? globalEnvironment = null)
     {
         if (DataContext is not MainWindowViewModel vm)
             throw new InvalidOperationException("The main window view model is not available.");
-        return McpProjectLinkDialog.CreateApplication(vm);
+        return McpProjectLinkDialog.CreateApplication(vm, globalEnvironment);
     }
 
     /// <summary>

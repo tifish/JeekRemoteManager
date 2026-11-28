@@ -2555,6 +2555,8 @@ try
           && machineSettingsJson.Contains(nameof(MachineAppSettings.AiAutoOpenPanel))
           && machineSettingsJson.Contains(nameof(MachineAppSettings.LastMcpProjectDirectory))
           && machineSettingsJson.Contains(nameof(MachineAppSettings.LastMcpWrittenTargetPaths))
+          && machineSettingsJson.Contains(nameof(MachineAppSettings.LastMcpWriteGlobal))
+          && machineSettingsJson.Contains(nameof(MachineAppSettings.LastMcpGlobalWrittenTargetIds))
           && !machineSettingsJson.Contains(nameof(RoamingAppSettings.Language))
           && !machineSettingsJson.Contains(nameof(RoamingAppSettings.Theme)),
           "Machine settings persist local paths, window layout, and machine-bound AI options");
@@ -2575,7 +2577,9 @@ try
           && !roamingSettingsJson.Contains(nameof(MachineAppSettings.RecentConnectionPaths))
           && !roamingSettingsJson.Contains(nameof(MachineAppSettings.MainWindowWidth))
           && !roamingSettingsJson.Contains(nameof(MachineAppSettings.LastMcpProjectDirectory))
-          && !roamingSettingsJson.Contains(nameof(MachineAppSettings.LastMcpWrittenTargetPaths)),
+          && !roamingSettingsJson.Contains(nameof(MachineAppSettings.LastMcpWrittenTargetPaths))
+          && !roamingSettingsJson.Contains(nameof(MachineAppSettings.LastMcpWriteGlobal))
+          && !roamingSettingsJson.Contains(nameof(MachineAppSettings.LastMcpGlobalWrittenTargetIds)),
           "Roaming settings persist machine-independent preferences only");
 
     var tempMachineSettingsPath = Path.Combine(root, "LocalConfig", "settings.json");

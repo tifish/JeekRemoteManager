@@ -64,6 +64,72 @@ public static class AgentMcpConfigCatalog
     }
 
     /// <summary>
+    /// Paths and environment variables used to locate user-level global MCP configs.
+    /// Tests pass <see cref="Isolated"/> so probes never touch the user's real configs.
+    /// </summary>
+    public sealed record GlobalConfigEnvironment(
+        string UserProfile,
+        string AppData,
+        string LocalAppData,
+        Func<string, string?> GetEnvironmentVariable)
+    {
+        public static GlobalConfigEnvironment Current { get; } = new(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            Environment.GetEnvironmentVariable);
+
+        /// <summary>Isolated environment rooted under one temporary folder for tests.</summary>
+        public static GlobalConfigEnvironment Isolated(
+            string rootDirectory,
+            IReadOnlyDictionary<string, string?>? environmentVariables = null)
+        {
+            var full = Path.GetFullPath(rootDirectory);
+            return new(
+                UserProfile: full,
+                AppData: Path.Combine(full, "AppData", "Roaming"),
+                LocalAppData: Path.Combine(full, "AppData", "Local"),
+                GetEnvironmentVariable: name =>
+                    environmentVariables is not null
+                    && environmentVariables.TryGetValue(name, out var value)
+                        ? value
+                        : null);
+        }
+    }
+
+    /// <summary>
+    /// One user-level global MCP config written so an agent can reach JeekRemoteManager from any
+    /// session without linking individual project folders.
+    /// </summary>
+    public sealed record GlobalTarget(
+        string Id,
+        string Label,
+        ConfigFormat Format,
+        Func<GlobalConfigEnvironment, string> ResolvePathFunc,
+        string? JsonRootKey = null,
+        bool SupportsApprovalMode = false,
+        JsonEntryStyle JsonStyle = JsonEntryStyle.Stdio,
+        bool IncludeAllTools = false)
+    {
+        /// <summary>Absolute path of this global config in <paramref name="environment"/>.</summary>
+        public string ResolvePath(GlobalConfigEnvironment? environment = null) =>
+            Path.GetFullPath(ResolvePathFunc(environment ?? GlobalConfigEnvironment.Current));
+
+        /// <summary>
+        /// Projects this global target onto <see cref="Target"/> so JSON/TOML entry builders and
+        /// root-setting helpers stay shared with project configs.
+        /// </summary>
+        internal Target AsTarget() => new(
+            Label,
+            Id,
+            Format,
+            JsonRootKey,
+            SupportsApprovalMode,
+            JsonStyle,
+            IncludeAllTools);
+    }
+
+    /// <summary>
     /// Every config written for a workspace or a linked project, sorted alphabetically by label.
     /// Claude, Copilot CLI/Desktop, and the Pi extension share <c>.mcp.json</c>.
     /// </summary>
@@ -78,6 +144,108 @@ public static class AgentMcpConfigCatalog
         new("OpenCode", "opencode.json", ConfigFormat.Json, "mcp",
             JsonStyle: JsonEntryStyle.OpenCodeLocal),
     ];
+
+    /// <summary>
+    /// Every user-level global MCP config supported for application-wide writing, sorted
+    /// alphabetically by label. Pi has no built-in global MCP client; T3 Code inherits the
+    /// global configs of the agents it hosts.
+    /// </summary>
+    public static IReadOnlyList<GlobalTarget> GlobalAll { get; } =
+    [
+        new(
+            "antigravity",
+            "Antigravity (CLI / 2.0 / IDE)",
+            ConfigFormat.Json,
+            env => Path.Combine(env.UserProfile, ".gemini", "config", "mcp_config.json"),
+            JsonRootKey: "mcpServers"),
+        new(
+            "claude-code",
+            "Claude Code",
+            ConfigFormat.Json,
+            env => Path.Combine(env.UserProfile, ".claude.json"),
+            JsonRootKey: "mcpServers"),
+        new(
+            "claude-desktop",
+            "Claude Desktop",
+            ConfigFormat.Json,
+            ResolveClaudeDesktopConfigPath,
+            JsonRootKey: "mcpServers"),
+        new(
+            "codex",
+            "Codex",
+            ConfigFormat.Toml,
+            env => Path.Combine(
+                ResolveEnvHome(env, "CODEX_HOME", Path.Combine(env.UserProfile, ".codex")),
+                "config.toml"),
+            SupportsApprovalMode: true),
+        new(
+            "cursor",
+            "Cursor (IDE / CLI)",
+            ConfigFormat.Json,
+            env => Path.Combine(env.UserProfile, ".cursor", "mcp.json"),
+            JsonRootKey: "mcpServers"),
+        new(
+            "copilot",
+            "GitHub Copilot (CLI / Desktop)",
+            ConfigFormat.Json,
+            env => Path.Combine(
+                ResolveEnvHome(env, "COPILOT_HOME", Path.Combine(env.UserProfile, ".copilot")),
+                "mcp-config.json"),
+            JsonRootKey: "mcpServers",
+            IncludeAllTools: true),
+        new(
+            "grok",
+            "Grok",
+            ConfigFormat.Toml,
+            env => Path.Combine(
+                ResolveEnvHome(env, "GROK_HOME", Path.Combine(env.UserProfile, ".grok")),
+                "config.toml")),
+        new(
+            "opencode",
+            "OpenCode",
+            ConfigFormat.Json,
+            env => Path.Combine(env.UserProfile, ".config", "opencode", "opencode.json"),
+            JsonRootKey: "mcp",
+            JsonStyle: JsonEntryStyle.OpenCodeLocal),
+    ];
+
+    private static string ResolveEnvHome(
+        GlobalConfigEnvironment environment,
+        string variableName,
+        string fallback)
+    {
+        var configured = environment.GetEnvironmentVariable(variableName);
+        return string.IsNullOrWhiteSpace(configured) ? fallback : configured.Trim();
+    }
+
+    /// <summary>
+    /// Claude Desktop packaged as MSIX (Microsoft Store) reads from its package LocalCache
+    /// rather than <c>%APPDATA%\Claude</c>. Prefer that folder when an installed Claude package
+    /// has created it; otherwise use the standard Roaming path.
+    /// </summary>
+    private static string ResolveClaudeDesktopConfigPath(GlobalConfigEnvironment environment)
+    {
+        var packagesRoot = Path.Combine(environment.LocalAppData, "Packages");
+        try
+        {
+            if (Directory.Exists(packagesRoot))
+            {
+                foreach (var packageDir in Directory.EnumerateDirectories(packagesRoot, "Claude_*")
+                             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+                {
+                    var roamingClaude = Path.Combine(packageDir, "LocalCache", "Roaming", "Claude");
+                    if (Directory.Exists(roamingClaude))
+                        return Path.Combine(roamingClaude, "claude_desktop_config.json");
+                }
+            }
+        }
+        catch
+        {
+            // Fall through to the standard Roaming path.
+        }
+
+        return Path.Combine(environment.AppData, "Claude", "claude_desktop_config.json");
+    }
 
     /// <summary>
     /// Context files that only redirect an agent to <c>AGENTS.md</c>, so the operating rules for a

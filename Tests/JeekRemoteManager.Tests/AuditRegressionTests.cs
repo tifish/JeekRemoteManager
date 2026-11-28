@@ -480,4 +480,108 @@ public sealed class AuditRegressionTests
             Directory.Delete(root, recursive: true);
         }
     }
+
+    [Fact]
+    public void Global_application_mcp_writes_direct_adapter_and_preserves_existing_user_configs()
+    {
+        var globalLabels = AgentMcpConfigCatalog.GlobalAll.Select(t => t.Label).ToArray();
+        Assert.Equal(
+            globalLabels.OrderBy(label => label, StringComparer.OrdinalIgnoreCase).ToArray(),
+            globalLabels);
+
+        var root = Path.Combine(Path.GetTempPath(), "jrm-global-mcp-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var customCodexHome = Path.Combine(root, "custom-codex");
+            var env = AgentMcpConfigCatalog.GlobalConfigEnvironment.Isolated(
+                root,
+                new Dictionary<string, string?> { ["CODEX_HOME"] = customCodexHome });
+
+            // Simulate MSIX Claude Desktop package LocalCache.
+            var msixClaudeDir = Path.Combine(
+                root,
+                "AppData",
+                "Local",
+                "Packages",
+                "Claude_pzs8sxrjxfjjc",
+                "LocalCache",
+                "Roaming",
+                "Claude");
+            Directory.CreateDirectory(msixClaudeDir);
+
+            // Pre-populate user configs with existing settings that must survive merge and removal.
+            Directory.CreateDirectory(customCodexHome);
+            File.WriteAllText(Path.Combine(customCodexHome, "config.toml"), "model = \"gpt-5\"\n");
+            File.WriteAllText(
+                Path.Combine(root, ".claude.json"),
+                """{"numStartups": 10, "mcpServers": {"other": {"command": "npx"}}}""");
+
+            var written = AgentProjectLink.WriteGlobalApplication(
+                ["antigravity", "claude-code", "claude-desktop", "codex", "copilot", "opencode"],
+                env);
+            Assert.Equal(
+                ["antigravity", "claude-code", "claude-desktop", "codex", "copilot", "opencode"],
+                written);
+            Assert.Equal(written, AgentProjectLink.ListWrittenGlobalApplicationTargetIds(env));
+
+            // Global writes must never create AGENTS.md or the project-relative cmd launcher.
+            Assert.False(File.Exists(Path.Combine(root, "AGENTS.md")));
+            Assert.False(File.Exists(Path.Combine(root, AgentMcpConfigCatalog.ProjectLauncherFileName)));
+
+            // Claude Desktop MSIX path is selected when package cache exists.
+            var msixConfigPath = Path.Combine(msixClaudeDir, "claude_desktop_config.json");
+            Assert.True(File.Exists(msixConfigPath));
+
+            // Direct adapter path with no cwd and no --connection pin.
+            var claudeJson = System.Text.Json.Nodes.JsonNode.Parse(
+                File.ReadAllText(Path.Combine(root, ".claude.json")))!.AsObject();
+            Assert.Equal(10, claudeJson["numStartups"]!.GetValue<int>());
+            Assert.NotNull(claudeJson["mcpServers"]!["other"]);
+            var jrmEntry = claudeJson["mcpServers"]![AgentProjectLink.ApplicationMcpServerName]!.AsObject();
+            Assert.Equal(AgentWorkspaceLink.AdapterPath, jrmEntry["command"]!.GetValue<string>());
+            Assert.Null(jrmEntry["cwd"]);
+            Assert.DoesNotContain("--connection", jrmEntry.ToJsonString(), StringComparison.Ordinal);
+
+            // Codex honors CODEX_HOME, preserves model, and approves tools.
+            var codexToml = File.ReadAllText(Path.Combine(customCodexHome, "config.toml"));
+            Assert.Contains("model = \"gpt-5\"", codexToml, StringComparison.Ordinal);
+            Assert.Contains($"[mcp_servers.{AgentProjectLink.ApplicationMcpServerName}]", codexToml, StringComparison.Ordinal);
+            Assert.Contains("default_tools_approval_mode = \"approve\"", codexToml, StringComparison.Ordinal);
+            Assert.DoesNotContain("--connection", codexToml, StringComparison.Ordinal);
+
+            // OpenCode uses local command array and permission allow.
+            var openCodeJson = System.Text.Json.Nodes.JsonNode.Parse(
+                File.ReadAllText(Path.Combine(root, ".config", "opencode", "opencode.json")))!.AsObject();
+            Assert.Equal("local", openCodeJson["mcp"]![AgentProjectLink.ApplicationMcpServerName]!["type"]!.GetValue<string>());
+            Assert.Equal("allow", openCodeJson["permission"]![$"{AgentProjectLink.ApplicationMcpServerName}_*"]!.GetValue<string>());
+
+            // Copilot includes tools: ["*"].
+            var copilotJson = System.Text.Json.Nodes.JsonNode.Parse(
+                File.ReadAllText(Path.Combine(root, ".copilot", "mcp-config.json")))!.AsObject();
+            Assert.Equal("*", copilotJson["mcpServers"]![AgentProjectLink.ApplicationMcpServerName]!["tools"]![0]!.GetValue<string>());
+
+            // Selective update removes unchecked agents without deleting parent directories.
+            AgentProjectLink.WriteGlobalApplication(["codex"], env);
+            Assert.Equal(["codex"], AgentProjectLink.ListWrittenGlobalApplicationTargetIds(env));
+            Assert.False(File.Exists(msixConfigPath));
+            Assert.True(Directory.Exists(msixClaudeDir));
+
+            // Remove all restores user files and leaves no JRM entries.
+            AgentProjectLink.RemoveGlobalApplication(env);
+            Assert.Empty(AgentProjectLink.ListWrittenGlobalApplicationTargetIds(env));
+            var restoredClaude = System.Text.Json.Nodes.JsonNode.Parse(
+                File.ReadAllText(Path.Combine(root, ".claude.json")))!.AsObject();
+            Assert.Equal(10, restoredClaude["numStartups"]!.GetValue<int>());
+            Assert.NotNull(restoredClaude["mcpServers"]!["other"]);
+            Assert.Null(restoredClaude["mcpServers"]![AgentProjectLink.ApplicationMcpServerName]);
+            var restoredCodex = File.ReadAllText(Path.Combine(customCodexHome, "config.toml"));
+            Assert.Contains("model = \"gpt-5\"", restoredCodex, StringComparison.Ordinal);
+            Assert.DoesNotContain(AgentProjectLink.ApplicationMcpServerName, restoredCodex, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 }

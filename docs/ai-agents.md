@@ -58,6 +58,25 @@ AI 面板的选项菜单既能在资源管理器中打开工作区，也能复�
 - MCP 服务器名**按连接加后缀**（`vps/bwg (2)` → `vps-bwg-2`），这样多个 JRM 标签页可以链接进同一个项目而不撞名。
 - **拒绝把产品 MCP 配置写进 JeekRemoteManager 自己的 worktree**（靠根目录的 `JeekRemoteManagerDebugMcp.cmd` 识别）——那些文件夹已经有 Debug MCP 了。
 
+### 全局写入本软件 MCP
+
+“写入本软件MCP”对话框支持在**全局配置（所有会话）**和**项目目录**之间切换（单连接的“写入本连接MCP”仅限项目目录）。`AgentMcpConfigCatalog.GlobalAll` 定义各家 agent 的用户级全局配置路径（按显示名排序）：
+
+- Antigravity：`~/.gemini/config/mcp_config.json`
+- Claude Code：`~/.claude.json`
+- Claude Desktop：MSIX 包存在 `LocalCache\Roaming\Claude` 时写包内 `claude_desktop_config.json`，否则写 `%APPDATA%\Claude\claude_desktop_config.json`
+- Codex：`%CODEX_HOME%\config.toml`（默认 `~/.codex/config.toml`）
+- Cursor：`~/.cursor/mcp.json`
+- GitHub Copilot：`%COPILOT_HOME%\mcp-config.json`（默认 `~/.copilot/mcp-config.json`）
+- Grok：`%GROK_HOME%\config.toml`（默认 `~/.grok/config.toml`）
+- OpenCode：`~/.config/opencode/opencode.json`
+
+与项目链接的关键区别：
+
+- 全局配置属于本机用户，不提交版本库，且从任意工作目录启动，因此**直接启动固定适配器** `%LocalAppData%\JeekRemoteManager\Mcp\JeekRemoteManagerMcp.exe`（不写 `cwd`、不生成 `JeekRemoteManagerMcp.cmd`，也不写 `AGENTS.md`/`CLAUDE.md`）。Release 不带 `--instance`，Debug 带 `--instance`。
+- 写入与移除只合并/摘除 `jeek-remote-manager` 条目，保留文件内其余用户配置；文件彻底为空时删除文件，但**绝不删除**父目录（如 `~/.codex`、`%APPDATA%\Claude`）。
+- 单元测试与 Debug MCP 探针通过 `GlobalConfigEnvironment.Isolated` 指向临时目录，不触碰用户真实全局配置。
+
 ## Agent 定位与安装
 
 `AgentCliLocator` 在 PATH 之外还探测各家官方安装器的默认位置，因为**子安装器无法更新本进程继承的 PATH**。

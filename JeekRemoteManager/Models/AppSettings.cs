@@ -157,6 +157,18 @@ public class AppSettings
     /// </summary>
     public List<string> LastMcpWrittenTargetPaths { get; set; } = new();
 
+    /// <summary>
+    /// Whether the application-wide MCP write dialog last used Global scope (true)
+    /// or Project folder scope (false). Defaults to Global so agents work in any session.
+    /// </summary>
+    public bool LastMcpWriteGlobal { get; set; } = true;
+
+    /// <summary>
+    /// Global catalog IDs written by the last successful global MCP dialog Write.
+    /// Used by the "Last used" button in Global scope.
+    /// </summary>
+    public List<string> LastMcpGlobalWrittenTargetIds { get; set; } = new();
+
 }
 
 /// <summary>Settings that are bound to this Windows account and machine.
@@ -238,6 +250,12 @@ public class MachineAppSettings
 
     /// <summary>Catalog relative paths from the last successful MCP dialog Write.</summary>
     public List<string> LastMcpWrittenTargetPaths { get; set; } = new();
+
+    /// <summary>Whether the application-wide MCP write dialog last used Global scope.</summary>
+    public bool LastMcpWriteGlobal { get; set; } = true;
+
+    /// <summary>Global catalog IDs from the last successful global MCP dialog Write.</summary>
+    public List<string> LastMcpGlobalWrittenTargetIds { get; set; } = new();
 
 }
 
