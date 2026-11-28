@@ -93,6 +93,9 @@ public partial class MainWindow
     private void OnSshMfaProfileDropDownOpened(object? sender, EventArgs e) =>
         (DataContext as MainWindowViewModel)?.RefreshSshMfaProfileChoices();
 
+    internal void HandleSshMfaManageClick(object? sender, RoutedEventArgs e) =>
+        OnSshMfaManageClick(sender, e);
+
     private async void OnSshMfaManageClick(object? sender, RoutedEventArgs e)
     {
         if (DataContext is not MainWindowViewModel vm)

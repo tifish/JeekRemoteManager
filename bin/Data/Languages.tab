@@ -566,3 +566,22 @@ TabPreviousPage	Previous tab page	上一页标签
 TabNextPage	Next tab page	下一页标签
 StatusPublicKeyOnlySsh	Public key copy is only supported for SSH connections.	仅 SSH 连接支持复制公钥。
 PassphraseDecryptFailed	Saved passphrase could not be decrypted with the current master password. Leave blank to keep it untouched, or type a new passphrase to replace it.	当前主密码无法解密已保存的私钥口令。留空将保留原密文，输入新口令将覆盖它。
+MultiEditTitle	Edit {0} connections	批量编辑 {0} 个连接
+MultiEditHint	Only modified fields will be updated; unchanged fields keep each connection's own value.	仅更新已修改的字段，未修改的字段保留各连接原有值。
+MultiEditApply	Apply to {0} connections	应用到 {0} 个连接
+MultiEditReset	Reset	重置
+MultiEditNoChanges	No fields modified	尚未修改任何字段
+MultiEditModifiedCount	{0} field(s) modified	已修改 {0} 项
+MultiEditMultipleValues	Multiple values (keep unchanged)	多个不同值（保持不变）
+MultiEditMultipleShort	Multiple	多个值
+MultiEditMultipleChoice	(Multiple values — keep unchanged)	（多个不同值 —— 保持不变）
+MultiEditWillClear	Will be cleared on all selected connections	将在所有所选连接上清空
+MultiEditKeepPasswords	Leave blank to keep each connection's existing password	留空以保留各连接原有密码
+MultiEditKeepPassphrases	Leave blank to keep each connection's existing passphrase	留空以保留各连接原有口令
+MultiEditClearFieldTip	Clear this field on all selected connections	在所有所选连接上清空此字段
+MultiEditRevertFieldTip	Revert this field	还原此字段
+MultiEditInvalidPort	Enter a port between 1 and 65535.	请输入 1 到 65535 之间的端口。
+MultiEditInvalidDimension	Width and height must be positive numbers.	宽度和高度必须是正整数。
+StatusMultiEditSaved	Updated {0} connections.	已更新 {0} 个连接。
+StatusMultiEditFailed	Could not update selected connections: {0}	无法更新所选连接：{0}
+StatusMultiEditReset	Reverted uncommitted batch edits.	已还原未应用的批量修改。

@@ -15,21 +15,21 @@ namespace JeekRemoteManager.Views;
 
 public partial class MainWindow
 {
-    private bool TryFindJumpHostDropTarget(Point position, out Border zone, out ConnectionEditorViewModel editor)
+    private bool TryFindJumpHostDropTarget(Point position, out Border zone, out IJumpHostDropTarget editor)
     {
         zone = null!;
         editor = null!;
         var hit = this.InputHitTest(position) as Visual;
         var target = hit?.GetVisualAncestors().Prepend(hit).OfType<Border>()
             .FirstOrDefault(border => Equals(border.Tag, "jump-host-drop"));
-        if (target?.DataContext is not ConnectionEditorViewModel targetEditor || !target.IsEffectivelyVisible)
+        if (target?.DataContext is not IJumpHostDropTarget targetEditor || !target.IsEffectivelyVisible)
             return false;
         zone = target;
         editor = targetEditor;
         return true;
     }
 
-    private string ValidateJumpHostNodes(ConnectionEditorViewModel editor, IReadOnlyList<TreeNodeViewModel> sources, out string path)
+    private string ValidateJumpHostNodes(IJumpHostDropTarget editor, IReadOnlyList<TreeNodeViewModel> sources, out string path)
     {
         path = "";
         if (sources.Count != 1)
@@ -71,7 +71,7 @@ public partial class MainWindow
 
     private void OnClearJumpHostClick(object? sender, RoutedEventArgs e)
     {
-        if (sender is Control { DataContext: ConnectionEditorViewModel editor })
+        if (sender is Control { DataContext: IJumpHostDropTarget editor })
         {
             editor.ClearJumpHost();
         }
@@ -87,9 +87,11 @@ public partial class MainWindow
         var start = eventSource.TranslatePoint(new Point(12, eventSource.Bounds.Height / 2), this)!.Value;
         using var pointer = new Pointer(Pointer.GetNextFreeId(), PointerType.Mouse, true);
         var pressed = new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed);
-        var editor = (DataContext as MainWindowViewModel)?.Editor;
+        var mainVm = DataContext as MainWindowViewModel;
+        object? editor = mainVm?.ShowMultiConnectionEditor == true ? mainVm.MultiEditor : mainVm?.Editor;
         eventSource.RaiseEvent(new PointerPressedEventArgs(eventSource, pointer, this, start, 1, pressed, KeyModifiers.None, 1));
-        var preserved = ReferenceEquals((DataContext as MainWindowViewModel)?.Editor, editor);
+        object? currentEditor = mainVm?.ShowMultiConnectionEditor == true ? mainVm.MultiEditor : mainVm?.Editor;
+        var preserved = ReferenceEquals(currentEditor, editor);
         if (move)
             Tree.RaiseEvent(new PointerEventArgs(InputElement.PointerMovedEvent, Tree, pointer, this,
                 destination, 2, pressed, KeyModifiers.None));

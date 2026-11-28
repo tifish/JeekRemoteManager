@@ -44,6 +44,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     // Auto-save: which node the current editor is bound to, plus a debounce timer.
     private TreeNodeViewModel? _editingNode;
+    private List<TreeNodeViewModel> _multiEditingNodes = new();
     private DispatcherTimer? _autoSaveTimer;
     private bool _editorHasPendingChanges;
     private bool _suppressEditorAutoSave;
@@ -107,6 +108,7 @@ public partial class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(PlaceholderHint));
         OnPropertyChanged(nameof(EditorTabTitle));
         RefreshSshMfaProfileChoices();
+        MultiEditor?.RefreshLocalization();
         if (_recentGroup != null)
             _recentGroup.Name = L("RecentGroup");
     }
@@ -115,6 +117,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public void Detach()
     {
         Localizer.LanguageChanged -= OnLanguageChanged;
+        ClearMultiEditor();
         _autoSaveTimer?.Stop();
         _recentRebuildTimer?.Stop();
         StopWatching();
@@ -147,6 +150,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(IsRecentConnectionContext))]
     [NotifyPropertyChangedFor(nameof(IsRegularContext))]
     [NotifyPropertyChangedFor(nameof(IsRegularConnectionContext))]
+    [NotifyPropertyChangedFor(nameof(CanEditSelection))]
     [NotifyPropertyChangedFor(nameof(IsSshConnectionContext))]
     [NotifyPropertyChangedFor(nameof(IsShellConnectionContext))]
     [NotifyPropertyChangedFor(nameof(IsShellSelectionContext))]
@@ -173,15 +177,19 @@ public partial class MainWindowViewModel : ViewModelBase
         if (_selectedNodes.Count <= 1 && BatchPanel is { IsRunning: false })
             BatchPanel = null;
 
+        UpdateMultiEditorFromSelection();
+
         OnPropertyChanged(nameof(HasMultiSelection));
         OnPropertyChanged(nameof(IsRecentGroupContext));
         OnPropertyChanged(nameof(IsRecentConnectionContext));
         OnPropertyChanged(nameof(IsRegularContext));
         OnPropertyChanged(nameof(IsRegularConnectionContext));
+        OnPropertyChanged(nameof(CanEditSelection));
         OnPropertyChanged(nameof(IsSshConnectionContext));
         OnPropertyChanged(nameof(IsShellConnectionContext));
         OnPropertyChanged(nameof(IsShellSelectionContext));
         OnPropertyChanged(nameof(ShowConnectionEditor));
+        OnPropertyChanged(nameof(ShowMultiConnectionEditor));
         OnPropertyChanged(nameof(ShowPlaceholder));
         OnPropertyChanged(nameof(PlaceholderHint));
         NotifyTreeActionCanExecuteChanged();
@@ -189,7 +197,148 @@ public partial class MainWindowViewModel : ViewModelBase
         ConnectNewTcpConnectionCommand.NotifyCanExecuteChanged();
         RevealInTreeCommand.NotifyCanExecuteChanged();
         RemoveFromRecentCommand.NotifyCanExecuteChanged();
+        BrowseKeyCommand.NotifyCanExecuteChanged();
+        ApplyMultiEditCommand.NotifyCanExecuteChanged();
+        ResetMultiEditCommand.NotifyCanExecuteChanged();
     }
+
+    private void UpdateMultiEditorFromSelection()
+    {
+        if (_selectedNodes.Count <= 1)
+        {
+            ClearMultiEditor();
+            return;
+        }
+
+        var targets = new List<TreeNodeViewModel>();
+        foreach (var node in _selectedNodes)
+        {
+            if (node is not { IsRecent: false, IsConnection: true, Connection: not null })
+                continue;
+            if (targets.Any(existing => PathEquals(existing.FullPath, node.FullPath)))
+                continue;
+            targets.Add(node);
+        }
+
+        if (targets.Count < 2)
+        {
+            ClearMultiEditor();
+            return;
+        }
+
+        if (MultiEditor is not null
+            && _multiEditingNodes.Count == targets.Count
+            && _multiEditingNodes.SequenceEqual(targets))
+        {
+            return;
+        }
+
+        // Persist any pending single-editor changes before snapshotting the targets.
+        FlushPendingAutoSave();
+
+        if (MultiEditor is not null)
+            MultiEditor.PropertyChanged -= OnMultiEditorPropertyChanged;
+
+        _multiEditingNodes = targets;
+        MultiEditor = MultiConnectionEditorViewModel.FromConnections(
+            targets.Select(n => n.Connection!).ToArray(),
+            _store.BastionProfiles);
+        MultiEditor.PropertyChanged += OnMultiEditorPropertyChanged;
+        RefreshJumpHostChoices();
+        RefreshSshMfaProfileChoices();
+    }
+
+    private void ClearMultiEditor()
+    {
+        if (MultiEditor is not null)
+            MultiEditor.PropertyChanged -= OnMultiEditorPropertyChanged;
+        _multiEditingNodes.Clear();
+        MultiEditor = null;
+    }
+
+    private void OnMultiEditorPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(MultiConnectionEditorViewModel.CanApply)
+            or nameof(MultiConnectionEditorViewModel.HasPendingChanges))
+        {
+            ApplyMultiEditCommand.NotifyCanExecuteChanged();
+            ResetMultiEditCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanApplyMultiEdit))]
+    private void ApplyMultiEdit()
+    {
+        var editor = MultiEditor;
+        if (editor is not { CanApply: true } || _multiEditingNodes.Count < 2)
+            return;
+
+        var targets = _multiEditingNodes
+            .Where(node => node.Connection is not null)
+            .ToList();
+        if (targets.Count < 2)
+            return;
+
+        try
+        {
+            editor.ApplyToTargets();
+
+            foreach (var node in targets)
+            {
+                ProtectConnectionScriptBindings(node.Connection!);
+                if (node.Connection!.IsSsh)
+                    _store.BastionProfiles.Resolve(node.Connection!);
+            }
+
+            var savedCount = _store.SaveEdits(
+                targets.Select(node => (node.Connection!, node.FullPath)).ToList());
+
+            var refreshRecent = false;
+            foreach (var node in targets)
+            {
+                node.ShortName = node.Connection!.ShortName;
+                if (!refreshRecent
+                    && _recentGroup?.Children.Any(child => PathEquals(child.FullPath, node.FullPath)) == true)
+                {
+                    refreshRecent = true;
+                }
+            }
+
+            if (refreshRecent)
+                RebuildRecentGroupInPlace();
+
+            editor.Reset();
+            RefreshJumpHostChoices();
+            RefreshSshMfaProfileChoices();
+            ApplyMultiEditCommand.NotifyCanExecuteChanged();
+            ResetMultiEditCommand.NotifyCanExecuteChanged();
+            StatusMessage = L("StatusMultiEditSaved", savedCount);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = L("StatusMultiEditFailed", ex.Message);
+        }
+    }
+
+    private bool CanApplyMultiEdit() =>
+        ShowMultiConnectionEditor && MultiEditor is { CanApply: true } && _multiEditingNodes.Count >= 2;
+
+    [RelayCommand(CanExecute = nameof(CanResetMultiEdit))]
+    private void ResetMultiEdit()
+    {
+        if (MultiEditor is not { HasPendingChanges: true } editor)
+            return;
+
+        editor.Reset();
+        RefreshJumpHostChoices();
+        RefreshSshMfaProfileChoices();
+        ApplyMultiEditCommand.NotifyCanExecuteChanged();
+        ResetMultiEditCommand.NotifyCanExecuteChanged();
+        StatusMessage = L("StatusMultiEditReset");
+    }
+
+    private bool CanResetMultiEdit() =>
+        ShowMultiConnectionEditor && MultiEditor is { HasPendingChanges: true };
 
     /// <summary>
     /// The nodes a batch-capable command should act on: the multi-selection when
@@ -247,6 +396,10 @@ public partial class MainWindowViewModel : ViewModelBase
     public bool IsRegularConnectionContext =>
         !HasMultiSelection && SelectedNode is { IsRecent: false, IsConnection: true };
 
+    /// <summary>True when the selection can be opened in the Edit tab (one or multiple regular connections).</summary>
+    public bool CanEditSelection =>
+        IsRegularConnectionContext || (HasMultiSelection && _multiEditingNodes.Count >= 2);
+
     public bool IsSshConnectionContext =>
         !HasMultiSelection
         && SelectedNode is { IsConnection: true, Connection: { Type: ConnectionType.Ssh } };
@@ -269,6 +422,12 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(ShowConnectionEditor))]
     [NotifyPropertyChangedFor(nameof(ShowPlaceholder))]
     private ConnectionEditorViewModel? _editor;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowMultiConnectionEditor))]
+    [NotifyPropertyChangedFor(nameof(ShowPlaceholder))]
+    [NotifyPropertyChangedFor(nameof(CanEditSelection))]
+    private MultiConnectionEditorViewModel? _multiEditor;
 
     [ObservableProperty]
     private string _statusMessage = Localizer.Get("StatusReady");
@@ -297,8 +456,12 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowBatchPanel))]
     [NotifyPropertyChangedFor(nameof(ShowConnectionEditor))]
+    [NotifyPropertyChangedFor(nameof(ShowMultiConnectionEditor))]
     [NotifyPropertyChangedFor(nameof(ShowPlaceholder))]
     [NotifyPropertyChangedFor(nameof(EditorTabTitle))]
+    [NotifyCanExecuteChangedFor(nameof(ApplyMultiEditCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResetMultiEditCommand))]
+    [NotifyCanExecuteChangedFor(nameof(BrowseKeyCommand))]
     private BatchScriptPanelViewModel? _batchPanel;
 
     public bool ShowBatchPanel => BatchPanel is not null;
@@ -307,13 +470,11 @@ public partial class MainWindowViewModel : ViewModelBase
     /// the batch script panel has taken the tab over.</summary>
     public string EditorTabTitle => BatchPanel is null ? L("Edit") : L("BatchTabTitle");
 
-    // With a multi-selection the editor is hidden (it would only edit the anchor
-    // node, which reads as "edits apply to all selected") and the placeholder
-    // shows the selection count instead. An open batch script panel takes over
-    // the editor tab entirely.
     public bool ShowConnectionEditor => Editor is not null && !HasMultiSelection && BatchPanel is null;
 
-    public bool ShowPlaceholder => !ShowConnectionEditor && !ShowBatchPanel;
+    public bool ShowMultiConnectionEditor => MultiEditor is not null && HasMultiSelection && BatchPanel is null;
+
+    public bool ShowPlaceholder => !ShowConnectionEditor && !ShowMultiConnectionEditor && !ShowBatchPanel;
 
     /// <summary>Hint line of the editor-tab placeholder: the multi-selection
     /// count while one is active, otherwise the "select a connection" prompt.</summary>
@@ -896,7 +1057,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     internal void RefreshSshMfaProfileChoices()
     {
-        if (Editor is not { } editor)
+        if (Editor is null && MultiEditor is null)
             return;
         IReadOnlyList<SshMfaProfileChoice> profiles;
         try { profiles = _store.SshMfaProfiles.List(); }
@@ -904,7 +1065,8 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             profiles = [];
         }
-        editor.SetSshMfaProfileChoices(profiles);
+        Editor?.SetSshMfaProfileChoices(profiles);
+        MultiEditor?.SetSshMfaProfileChoices(profiles);
     }
 
     private void ScheduleAutoSave()

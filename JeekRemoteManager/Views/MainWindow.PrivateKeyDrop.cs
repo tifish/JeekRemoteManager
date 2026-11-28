@@ -9,7 +9,7 @@ namespace JeekRemoteManager.Views;
 
 public partial class MainWindow
 {
-    private static string? PrivateKeyDropPath(IDataTransfer data)
+    internal static string? PrivateKeyDropPath(IDataTransfer data)
     {
         var files = data.TryGetFiles()?.Take(2).ToArray();
         if (files is not [IStorageFile file])

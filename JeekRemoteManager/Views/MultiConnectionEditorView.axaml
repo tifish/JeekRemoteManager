@@ -1,0 +1,742 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:JeekRemoteManager.ViewModels"
+             xmlns:controls="using:JeekRemoteManager.Controls"
+             xmlns:l="using:Jeek.Avalonia.Localization"
+             x:Class="JeekRemoteManager.Views.MultiConnectionEditorView"
+             x:DataType="vm:MultiConnectionEditorViewModel">
+
+    <Grid RowDefinitions="*,Auto">
+        <ScrollViewer x:Name="MultiEditorScrollViewer"
+                      Grid.Row="0"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="16" Margin="20,16,20,24" MaxWidth="920">
+                <!-- Header -->
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                    <StackPanel Spacing="4">
+                        <TextBlock x:Name="MultiEditTitleText" Classes="page-title" Text="{Binding Title}" />
+                        <TextBlock Classes="hint" Text="{Binding Subtitle}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <Button Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ConnectCommand}"
+                                Classes="accent"
+                                Padding="16,4">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Classes="toolbar-action-icon connect" Text="&#xE768;" />
+                                <TextBlock Text="{l:Localize Connect}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                        <Button Click="OnRunScriptClick"
+                                IsVisible="{Binding SupportsScripts}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Classes="toolbar-action-icon script" Text="&#xE756;" />
+                                <TextBlock Text="{l:Localize RunScript}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+
+                <!-- Connection -->
+                <Border Classes="form-card">
+                    <StackPanel Spacing="12">
+                        <TextBlock Classes="section-title" Text="{l:Localize Connection}" />
+
+                        <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="8">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Classes="label"
+                                       Classes.modified="{Binding IsShortNameModified}"
+                                       Text="{l:Localize ShortName}" />
+                            <TextBox x:Name="MultiShortNameBox" Grid.Row="0" Grid.Column="1"
+                                     Text="{Binding ShortName, Mode=TwoWay}"
+                                     PlaceholderText="{Binding ShortNamePlaceholder}">
+                                <TextBox.InnerRightContent>
+                                    <StackPanel Orientation="Horizontal" Spacing="2" Margin="0,0,4,0" VerticalAlignment="Center">
+                                        <Button Classes="toolbar field-inline-action"
+                                                IsVisible="{Binding CanClearShortName}"
+                                                ToolTip.Tip="{l:Localize MultiEditClearFieldTip}"
+                                                Click="OnClearShortNameClick">
+                                            <TextBlock Classes="icon" FontSize="10" Text="&#xE711;" />
+                                        </Button>
+                                        <Button Classes="toolbar field-inline-action"
+                                                IsVisible="{Binding IsShortNameModified}"
+                                                ToolTip.Tip="{l:Localize MultiEditRevertFieldTip}"
+                                                Click="OnRevertShortNameClick">
+                                            <TextBlock Classes="icon" FontSize="10" Text="&#xE7A7;" />
+                                        </Button>
+                                    </StackPanel>
+                                </TextBox.InnerRightContent>
+                            </TextBox>
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Classes="label"
+                                       Classes.modified="{Binding IsHostModified}"
+                                       Text="{l:Localize Host}"
+                                       IsVisible="{Binding HasHostPort}" />
+                            <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,84,110" ColumnSpacing="8"
+                                  IsVisible="{Binding HasHostPort}">
+                                <TextBox x:Name="MultiHostBox" Grid.Column="0"
+                                         Text="{Binding Host, Mode=TwoWay}"
+                                         PlaceholderText="{Binding HostPlaceholder}">
+                                    <TextBox.InnerRightContent>
+                                        <StackPanel Orientation="Horizontal" Spacing="2" Margin="0,0,4,0" VerticalAlignment="Center">
+                                            <Button Classes="toolbar field-inline-action"
+                                                    IsVisible="{Binding CanClearHost}"
+                                                    ToolTip.Tip="{l:Localize MultiEditClearFieldTip}"
+                                                    Click="OnClearHostClick">
+                                                <TextBlock Classes="icon" FontSize="10" Text="&#xE711;" />
+                                            </Button>
+                                            <Button Classes="toolbar field-inline-action"
+                                                    IsVisible="{Binding IsHostModified}"
+                                                    ToolTip.Tip="{l:Localize MultiEditRevertFieldTip}"
+                                                    Click="OnRevertHostClick">
+                                                <TextBlock Classes="icon" FontSize="10" Text="&#xE7A7;" />
+                                            </Button>
+                                        </StackPanel>
+                                    </TextBox.InnerRightContent>
+                                </TextBox>
+                                <TextBlock Grid.Column="1" Classes="label"
+                                           Classes.modified="{Binding IsPortModified}"
+                                           Text="{l:Localize Port}"
+                                           HorizontalAlignment="Right" />
+                                <TextBox x:Name="MultiPortBox" Grid.Column="2" Classes="mono"
+                                         Text="{Binding PortText, Mode=TwoWay}"
+                                         PlaceholderText="{Binding PortPlaceholder}">
+                                    <TextBox.InnerRightContent>
+                                        <Button Classes="toolbar field-inline-action"
+                                                Margin="0,0,4,0"
+                                                IsVisible="{Binding IsPortModified}"
+                                                ToolTip.Tip="{l:Localize MultiEditRevertFieldTip}"
+                                                Click="OnRevertPortClick">
+                                            <TextBlock Classes="icon" FontSize="10" Text="&#xE7A7;" />
+                                        </Button>
+                                    </TextBox.InnerRightContent>
+                                </TextBox>
+                            </Grid>
+
+                            <TextBlock Grid.Row="2" Grid.Column="1"
+                                       Classes="hint"
+                                       Text="{Binding PortValidationMessage}"
+                                       Foreground="{DynamicResource DangerBrush}"
+                                       IsVisible="{Binding HasPortValidationMessage}" />
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Classes="label"
+                                       Classes.modified="{Binding IsWslDistroModified}"
+                                       Text="{l:Localize WslDistro}"
+                                       IsVisible="{Binding IsAllWsl}" />
+                            <StackPanel Grid.Row="3" Grid.Column="1" Spacing="8"
+                                        IsVisible="{Binding IsAllWsl}">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                    <ComboBox x:Name="MultiWslDistroCombo" Grid.Column="0"
+                                              HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding WslDistroChoices}"
+                                              SelectedItem="{Binding SelectedWslDistro, Mode=TwoWay}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:MultiEditStringOption">
+                                                <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <Button Grid.Column="1" Classes="toolbar compact-icon-button"
+                                            IsVisible="{Binding IsWslDistroModified}"
+                                            ToolTip.Tip="{l:Localize MultiEditRevertFieldTip}"
+                                            Click="OnRevertWslDistroClick">
+                                        <TextBlock Classes="icon" FontSize="11" Text="&#xE7A7;" />
+                                    </Button>
+                                </Grid>
+                                <TextBlock Classes="hint" Text="{l:Localize WslNoDistros}"
+                                           Foreground="{DynamicResource DangerBrush}"
+                                           IsVisible="{Binding ShowNoWslDistrosHint}" />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Credentials -->
+                <Border Classes="form-card">
+                    <StackPanel Spacing="12">
+                        <TextBlock Classes="section-title" Text="{l:Localize Credentials}" />
+
+                        <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto" RowSpacing="12" ColumnSpacing="8">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Classes="label"
+                                       Classes.modified="{Binding IsUsernameModified}"
+                                       Text="{l:Localize Username}" />
+                            <TextBox x:Name="MultiUsernameBox" Grid.Row="0" Grid.Column="1"
+                                     Text="{Binding Username, Mode=TwoWay}"
+                                     PlaceholderText="{Binding UsernamePlaceholder}">
+                                <TextBox.InnerRightContent>
+                                    <StackPanel Orientation="Horizontal" Spacing="2" Margin="0,0,4,0" VerticalAlignment="Center">
+                                        <Button Classes="toolbar field-inline-action"
+                                                IsVisible="{Binding CanClearUsername}"
+                                                ToolTip.Tip="{l:Localize MultiEditClearFieldTip}"
+                                                Click="OnClearUsernameClick">
+                                            <TextBlock Classes="icon" FontSize="10" Text="&#xE711;" />
+                                        </Button>
+                                        <Button Classes="toolbar field-inline-action"
+                                                IsVisible="{Binding IsUsernameModified}"
+                                                ToolTip.Tip="{l:Localize MultiEditRevertFieldTip}"
+                                                Click="OnRevertUsernameClick">
+                                            <TextBlock Classes="icon" FontSize="10" Text="&#xE7A7;" />
+                                        </Button>
+                                    </StackPanel>
+                                </TextBox.InnerRightContent>
+                            </TextBox>
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Classes="label"
+                                       Classes.modified="{Binding IsPasswordModified}"
+                                       Text="{l:Localize Password}"
+                                       IsVisible="{Binding HasPassword}" />
+                            <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8"
+                                  IsVisible="{Binding HasPassword}">
+                                <TextBox Grid.Column="0" x:Name="MultiPasswordBox"
+                                         Text="{Binding Password, Mode=TwoWay}"
+                                         PlaceholderText="{Binding PasswordPlaceholder}"
+                                         PasswordChar="&#x2022;"
+                                         RevealPassword="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ShowPassword}">
+                                    <TextBox.InnerRightContent>
+                                        <StackPanel Orientation="Horizontal" Spacing="2" Margin="0,0,4,0" VerticalAlignment="Center">
+                                            <Button Classes="toolbar field-inline-action"
+                                                    IsVisible="{Binding CanClearPassword}"
+                                                    ToolTip.Tip="{l:Localize MultiEditClearFieldTip}"
+                                                    Click="OnClearPasswordClick">
+                                                <TextBlock Classes="icon" FontSize="10" Text="&#xE711;" />
+                                            </Button>
+                                            <Button Classes="toolbar field-inline-action"
+                                                    IsVisible="{Binding IsPasswordModified}"
+                                                    ToolTip.Tip="{l:Localize MultiEditRevertFieldTip}"
+                                                    Click="OnRevertPasswordClick">
+                                                <TextBlock Classes="icon" FontSize="10" Text="&#xE7A7;" />
+                                            </Button>
+                                        </StackPanel>
+                                    </TextBox.InnerRightContent>
+                                </TextBox>
+                                <CheckBox Grid.Column="1"
+                                          Content="{l:Localize Show}"
+                                          VerticalAlignment="Center"
+                                          IsChecked="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ShowPassword, Mode=OneWay}"
+                                          Click="OnShowPasswordClick" />
+                            </Grid>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- SSH-specific -->
+                <Border Classes="form-card" IsVisible="{Binding IsAllSsh}">
+                    <StackPanel Spacing="12">
+                        <TextBlock Classes="section-title" Text="{l:Localize SshOptions}" />
+                        <Grid ColumnDefinitions="120,*,Auto,Auto" ColumnSpacing="8">
+                            <TextBlock Classes="label"
+                                       Classes.modified="{Binding IsSshMfaModified}"
+                                       Text="{l:Localize SshMfaTitle}" />
+                            <ComboBox x:Name="MultiSshMfaProfileCombo" Grid.Column="1"
+                                      HorizontalAlignment="Stretch"
+                                      ItemsSource="{Binding SshMfaProfileChoices}"
+                                      SelectedItem="{Binding SelectedSshMfaProfile, Mode=TwoWay}"
+                                      DropDownOpened="OnSshMfaProfileDropDownOpened">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:MultiEditSshMfaOption">
+                                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <Button Grid.Column="2" Classes="toolbar compact-icon-button"
+                                    IsVisible="{Binding IsSshMfaModified}"
+                                    ToolTip.Tip="{l:Localize MultiEditRevertFieldTip}"
+                                    Click="OnRevertSshMfaClick">
+                                <TextBlock Classes="icon" FontSize="11" Text="&#xE7A7;" />
+                            </Button>
+                            <Button Grid.Column="3"
+                                    Content="{l:Localize SshMfaManage}"
+                                    Click="OnSshMfaManageClick" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="120,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="8">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Classes="label"
+                                       Classes.modified="{Binding IsTerminalTypeModified}"
+                                       Text="{l:Localize TerminalType}" />
+                            <Grid Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                <ComboBox x:Name="MultiTerminalTypeCombo" Grid.Column="0"
+                                          HorizontalAlignment="Stretch"
+                                          ItemsSource="{Binding TerminalTypeChoices}"
+                                          SelectedItem="{Binding SelectedTerminalType, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:MultiEditStringOption">
+                                            <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                                <Button Grid.Column="1" Classes="toolbar compact-icon-button"
+                                        IsVisible="{Binding IsTerminalTypeModified}"
+                                        ToolTip.Tip="{l:Localize MultiEditRevertFieldTip}"
+                                        Click="OnRevertTerminalTypeClick">
+                                    <TextBlock Classes="icon" FontSize="11" Text="&#xE7A7;" />
+                                </Button>
+                            </Grid>
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Classes="label"
+                                       Classes.modified="{Binding IsTerminalEncodingModified}"
+                                       Text="{l:Localize TerminalEncoding}" />
+                            <Grid Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                <ComboBox x:Name="MultiTerminalEncodingCombo" Grid.Column="0"
+                                          HorizontalAlignment="Stretch"
+                                          ToolTip.Tip="{l:Localize TerminalEncodingTip}"
+                                          ItemsSource="{Binding TerminalEncodingChoices}"
+                                          SelectedItem="{Binding SelectedTerminalEncoding, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:MultiEditStringOption">
+                                            <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                                <Button Grid.Column="1" Classes="toolbar compact-icon-button"
+                                        IsVisible="{Binding IsTerminalEncodingModified}"
+                                        ToolTip.Tip="{l:Localize MultiEditRevertFieldTip}"
+                                        Click="OnRevertTerminalEncodingClick">
+                                    <TextBlock Classes="icon" FontSize="11" Text="&#xE7A7;" />
+                                </Button>
+                            </Grid>
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Classes="label"
+                                       Classes.modified="{Binding IsPrivateKeyPathModified}"
+                                       Text="{l:Localize PrivateKey}" />
+                            <TextBox x:Name="MultiPrivateKeyPathBox" Grid.Row="2" Grid.Column="1"
+                                     Classes="mono"
+                                     Text="{Binding PrivateKeyPath, Mode=TwoWay}"
+                                     DragDrop.AllowDrop="True"
+                                     DragDrop.DragOver="OnPrivateKeyFileDragOver"
+                                     DragDrop.DragLeave="OnPrivateKeyFileDragLeave"
+                                     DragDrop.Drop="OnPrivateKeyFileDrop"
+                                     ToolTip.Tip="{l:Localize PrivateKeyDropTip}"
+                                     PlaceholderText="{Binding PrivateKeyPathPlaceholder}">
+                                <TextBox.InnerRightContent>
+                                    <StackPanel Orientation="Horizontal" Spacing="2" Margin="0,0,4,0" VerticalAlignment="Center">
+                                        <Button Classes="toolbar field-inline-action"
+                                                IsVisible="{Binding CanClearPrivateKeyPath}"
+                                                ToolTip.Tip="{l:Localize MultiEditClearFieldTip}"
+                                                Click="OnClearPrivateKeyPathClick">
+                                            <TextBlock Classes="icon" FontSize="10" Text="&#xE711;" />
+                                        </Button>
+                                        <Button Classes="toolbar field-inline-action"
+                                                IsVisible="{Binding IsPrivateKeyPathModified}"
+                                                ToolTip.Tip="{l:Localize MultiEditRevertFieldTip}"
+                                                Click="OnRevertPrivateKeyPathClick">
+                                            <TextBlock Classes="icon" FontSize="10" Text="&#xE7A7;" />
+                                        </Button>
+                                    </StackPanel>
+                                </TextBox.InnerRightContent>
+                            </TextBox>
+                            <Button Grid.Row="2" Grid.Column="2" Content="{l:Localize Browse}"
+                                    Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).BrowseKeyCommand}" />
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Classes="label"
+                                       Classes.modified="{Binding IsPassphraseModified}"
+                                       Text="{l:Localize Passphrase}" />
+                            <TextBox x:Name="MultiPassphraseBox" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2"
+                                     Text="{Binding PrivateKeyPassphrase, Mode=TwoWay}"
+                                     PasswordChar="&#x2022;"
+                                     RevealPassword="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ShowPassword}"
+                                     PlaceholderText="{Binding PassphrasePlaceholder}">
+                                <TextBox.InnerRightContent>
+                                    <StackPanel Orientation="Horizontal" Spacing="2" Margin="0,0,4,0" VerticalAlignment="Center">
+                                        <Button Classes="toolbar field-inline-action"
+                                                IsVisible="{Binding CanClearPassphrase}"
+                                                ToolTip.Tip="{l:Localize MultiEditClearFieldTip}"
+                                                Click="OnClearPassphraseClick">
+                                            <TextBlock Classes="icon" FontSize="10" Text="&#xE711;" />
+                                        </Button>
+                                        <Button Classes="toolbar field-inline-action"
+                                                IsVisible="{Binding IsPassphraseModified}"
+                                                ToolTip.Tip="{l:Localize MultiEditRevertFieldTip}"
+                                                Click="OnRevertPassphraseClick">
+                                            <TextBlock Classes="icon" FontSize="10" Text="&#xE7A7;" />
+                                        </Button>
+                                    </StackPanel>
+                                </TextBox.InnerRightContent>
+                            </TextBox>
+
+                            <StackPanel Grid.Row="4" Grid.Column="0"
+                                        Orientation="Horizontal" Spacing="6"
+                                        VerticalAlignment="Top" Margin="0,4,0,0">
+                                <TextBlock Classes="label"
+                                           Classes.modified="{Binding IsLoginCommandsModified}"
+                                           Text="{l:Localize LoginCommands}"
+                                           VerticalAlignment="Center" />
+                                <Button Width="24" Height="24"
+                                        MinWidth="0" MinHeight="0" Padding="0"
+                                        HorizontalContentAlignment="Center"
+                                        VerticalContentAlignment="Center"
+                                        Click="OnLoginCommandsHelpClick"
+                                        ToolTip.Tip="{l:Localize LoginCommandsHelpTitle}">
+                                    <TextBlock Text="?"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               TextAlignment="Center" />
+                                </Button>
+                            </StackPanel>
+                            <controls:LoginCommandsTextBox x:Name="MultiLoginCommandsEditor"
+                                     Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2"
+                                     Classes="mono"
+                                     Text="{Binding LoginCommands, Mode=TwoWay}"
+                                     AcceptsReturn="True" TextWrapping="NoWrap" MinHeight="80"
+                                     LostFocus="OnLoginCommandsLostFocus"
+                                     PlaceholderText="{Binding LoginCommandsPlaceholder}">
+                                <TextBox.InnerRightContent>
+                                    <StackPanel Orientation="Horizontal" Spacing="2" Margin="0,6,6,0" VerticalAlignment="Top">
+                                        <Button Classes="toolbar field-inline-action"
+                                                IsVisible="{Binding CanClearLoginCommands}"
+                                                ToolTip.Tip="{l:Localize MultiEditClearFieldTip}"
+                                                Click="OnClearLoginCommandsClick">
+                                            <TextBlock Classes="icon" FontSize="10" Text="&#xE711;" />
+                                        </Button>
+                                        <Button Classes="toolbar field-inline-action"
+                                                IsVisible="{Binding IsLoginCommandsModified}"
+                                                ToolTip.Tip="{l:Localize MultiEditRevertFieldTip}"
+                                                Click="OnRevertLoginCommandsClick">
+                                            <TextBlock Classes="icon" FontSize="10" Text="&#xE7A7;" />
+                                        </Button>
+                                    </StackPanel>
+                                </TextBox.InnerRightContent>
+                            </controls:LoginCommandsTextBox>
+
+                            <TextBlock Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2"
+                                       Classes="hint"
+                                       Text="{Binding LoginCommandsValidationMessage}"
+                                       IsVisible="{Binding HasLoginCommandsValidationMessage}"
+                                       Foreground="{DynamicResource WarningBrush}" />
+
+                            <TextBlock Grid.Row="6" Grid.Column="0" Classes="label"
+                                       Text="{l:Localize AutoOpenPanels}" VerticalAlignment="Top" Margin="0,6,0,0" />
+                            <WrapPanel Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2"
+                                       Orientation="Horizontal" ItemSpacing="16" LineSpacing="8">
+                                <CheckBox x:Name="MultiAutoOpenMonitorCheckBox"
+                                          Content="{l:Localize ServerMonitor}"
+                                          IsThreeState="{Binding AutoOpenMonitorPanelThreeState}"
+                                          IsChecked="{Binding AutoOpenMonitorPanel, Mode=TwoWay}" />
+                                <CheckBox x:Name="MultiAutoOpenFileBrowserCheckBox"
+                                          Content="{l:Localize FileBrowser}"
+                                          IsThreeState="{Binding AutoOpenFileBrowserPanelThreeState}"
+                                          IsChecked="{Binding AutoOpenFileBrowserPanel, Mode=TwoWay}" />
+                                <CheckBox x:Name="MultiAutoLogSessionCheckBox"
+                                          Content="{l:Localize AutoLogSession}"
+                                          IsThreeState="{Binding AutoLogSessionThreeState}"
+                                          IsChecked="{Binding AutoLogSession, Mode=TwoWay}" />
+                            </WrapPanel>
+
+                            <TextBlock Grid.Row="7" Grid.Column="0" Classes="label"
+                                       Classes.modified="{Binding IsJumpHostModified}"
+                                       Text="{l:Localize JumpHost}" />
+                            <StackPanel Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2" Spacing="4">
+                                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+                                    <Border x:Name="MultiJumpHostDropZone" Tag="jump-host-drop" Classes="jump-host-drop"
+                                            ToolTip.Tip="{l:Localize JumpHostTip}">
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Text="{Binding JumpHostDisplay}" IsVisible="{Binding ShowJumpHostSummary}"
+                                                       TextWrapping="Wrap" />
+                                            <TextBlock Text="{l:Localize JumpHostDragHint}" Classes="hint" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Button Grid.Column="1" Classes="toolbar compact-icon-button"
+                                            VerticalAlignment="Center"
+                                            IsVisible="{Binding IsJumpHostModified}"
+                                            ToolTip.Tip="{l:Localize MultiEditRevertFieldTip}"
+                                            Click="OnRevertJumpHostClick">
+                                        <TextBlock Classes="icon" FontSize="11" Text="&#xE7A7;" />
+                                    </Button>
+                                    <Button Grid.Column="2" Content="{l:Localize JumpHostClear}"
+                                            VerticalAlignment="Center"
+                                            IsEnabled="{Binding CanClearJumpHost}" Click="OnClearJumpHostClick" />
+                                </Grid>
+                                <TextBlock Classes="hint"
+                                           Text="{Binding JumpHostValidationMessage}"
+                                           IsVisible="{Binding HasJumpHostValidationMessage}"
+                                           Foreground="{DynamicResource WarningBrush}" />
+                            </StackPanel>
+
+                            <TextBlock Grid.Row="8" Grid.Column="0" Classes="label"
+                                       Classes.modified="{Binding IsPortForwardsModified}"
+                                       Text="{l:Localize PortForwards}" VerticalAlignment="Top" Margin="0,6,0,0" />
+                            <TextBox x:Name="MultiPortForwardsBox"
+                                     Grid.Row="8" Grid.Column="1" Grid.ColumnSpan="2"
+                                     Classes="mono"
+                                     Text="{Binding PortForwards, Mode=TwoWay}"
+                                     AcceptsReturn="True" TextWrapping="NoWrap" MinHeight="64"
+                                     ToolTip.Tip="{l:Localize PortForwardsTip}"
+                                     PlaceholderText="{Binding PortForwardsPlaceholder}">
+                                <TextBox.InnerRightContent>
+                                    <StackPanel Orientation="Horizontal" Spacing="2" Margin="0,6,6,0" VerticalAlignment="Top">
+                                        <Button Classes="toolbar field-inline-action"
+                                                IsVisible="{Binding CanClearPortForwards}"
+                                                ToolTip.Tip="{l:Localize MultiEditClearFieldTip}"
+                                                Click="OnClearPortForwardsClick">
+                                            <TextBlock Classes="icon" FontSize="10" Text="&#xE711;" />
+                                        </Button>
+                                        <Button Classes="toolbar field-inline-action"
+                                                IsVisible="{Binding IsPortForwardsModified}"
+                                                ToolTip.Tip="{l:Localize MultiEditRevertFieldTip}"
+                                                Click="OnRevertPortForwardsClick">
+                                            <TextBlock Classes="icon" FontSize="10" Text="&#xE7A7;" />
+                                        </Button>
+                                    </StackPanel>
+                                </TextBox.InnerRightContent>
+                            </TextBox>
+                            <TextBlock Grid.Row="9" Grid.Column="1" Grid.ColumnSpan="2"
+                                       Classes="hint"
+                                       Text="{Binding PortForwardsValidationMessage}"
+                                       IsVisible="{Binding HasPortForwardsValidationMessage}"
+                                       Foreground="{DynamicResource WarningBrush}" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- WSL-specific -->
+                <Border Classes="form-card" IsVisible="{Binding IsAllWsl}">
+                    <StackPanel Spacing="12">
+                        <TextBlock Classes="section-title" Text="{l:Localize WslOptions}" />
+                        <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="8">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Classes="label"
+                                       Classes.modified="{Binding IsWslStartDirectoryModified}"
+                                       Text="{l:Localize WslStartDirectory}" />
+                            <TextBox Grid.Row="0" Grid.Column="1"
+                                     Classes="mono"
+                                     Text="{Binding WslStartDirectory, Mode=TwoWay}"
+                                     PlaceholderText="{Binding WslStartDirectoryPlaceholder}">
+                                <TextBox.InnerRightContent>
+                                    <StackPanel Orientation="Horizontal" Spacing="2" Margin="0,0,4,0" VerticalAlignment="Center">
+                                        <Button Classes="toolbar field-inline-action"
+                                                IsVisible="{Binding CanClearWslStartDirectory}"
+                                                ToolTip.Tip="{l:Localize MultiEditClearFieldTip}"
+                                                Click="OnClearWslStartDirectoryClick">
+                                            <TextBlock Classes="icon" FontSize="10" Text="&#xE711;" />
+                                        </Button>
+                                        <Button Classes="toolbar field-inline-action"
+                                                IsVisible="{Binding IsWslStartDirectoryModified}"
+                                                ToolTip.Tip="{l:Localize MultiEditRevertFieldTip}"
+                                                Click="OnRevertWslStartDirectoryClick">
+                                            <TextBlock Classes="icon" FontSize="10" Text="&#xE7A7;" />
+                                        </Button>
+                                    </StackPanel>
+                                </TextBox.InnerRightContent>
+                            </TextBox>
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Classes="label"
+                                       Classes.modified="{Binding IsLoginCommandsModified}"
+                                       Text="{l:Localize LoginCommands}"
+                                       VerticalAlignment="Top" Margin="0,6,0,0" />
+                            <controls:LoginCommandsTextBox Grid.Row="1" Grid.Column="1"
+                                     Classes="mono"
+                                     Text="{Binding LoginCommands, Mode=TwoWay}"
+                                     AcceptsReturn="True" TextWrapping="NoWrap" MinHeight="80"
+                                     LostFocus="OnLoginCommandsLostFocus"
+                                     PlaceholderText="{Binding LoginCommandsPlaceholder}">
+                                <TextBox.InnerRightContent>
+                                    <StackPanel Orientation="Horizontal" Spacing="2" Margin="0,6,6,0" VerticalAlignment="Top">
+                                        <Button Classes="toolbar field-inline-action"
+                                                IsVisible="{Binding CanClearLoginCommands}"
+                                                ToolTip.Tip="{l:Localize MultiEditClearFieldTip}"
+                                                Click="OnClearLoginCommandsClick">
+                                            <TextBlock Classes="icon" FontSize="10" Text="&#xE711;" />
+                                        </Button>
+                                        <Button Classes="toolbar field-inline-action"
+                                                IsVisible="{Binding IsLoginCommandsModified}"
+                                                ToolTip.Tip="{l:Localize MultiEditRevertFieldTip}"
+                                                Click="OnRevertLoginCommandsClick">
+                                            <TextBlock Classes="icon" FontSize="10" Text="&#xE7A7;" />
+                                        </Button>
+                                    </StackPanel>
+                                </TextBox.InnerRightContent>
+                            </controls:LoginCommandsTextBox>
+
+                            <TextBlock Grid.Row="2" Grid.Column="1"
+                                       Classes="hint"
+                                       Text="{Binding LoginCommandsValidationMessage}"
+                                       IsVisible="{Binding HasLoginCommandsValidationMessage}"
+                                       Foreground="{DynamicResource WarningBrush}" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- RDP-specific -->
+                <Border Classes="form-card" IsVisible="{Binding IsAllRdp}">
+                    <StackPanel Spacing="12">
+                        <TextBlock Classes="section-title" Text="{l:Localize RdpOptions}" />
+                        <WrapPanel Orientation="Horizontal" ItemSpacing="16" LineSpacing="8">
+                            <CheckBox Content="{l:Localize FullScreen}"
+                                      IsThreeState="{Binding RdpFullScreenThreeState}"
+                                      IsChecked="{Binding RdpFullScreen, Mode=TwoWay}" />
+                            <CheckBox Content="{l:Localize UseAllMonitors}"
+                                      IsThreeState="{Binding RdpUseAllMonitorsThreeState}"
+                                      IsChecked="{Binding RdpUseAllMonitors, Mode=TwoWay}"
+                                      IsVisible="{Binding ShowRdpUseAllMonitors}" />
+                        </WrapPanel>
+
+                        <StackPanel Spacing="6" IsVisible="{Binding ShowRdpDimensions}">
+                            <Grid ColumnDefinitions="120,*,84,*" ColumnSpacing="8">
+                                <TextBlock Grid.Column="0" Classes="label"
+                                           Classes.modified="{Binding IsRdpWidthModified}"
+                                           Text="{l:Localize Width}" />
+                                <TextBox Grid.Column="1" Classes="mono"
+                                         Text="{Binding RdpWidthText, Mode=TwoWay}"
+                                         PlaceholderText="{Binding RdpWidthPlaceholder}">
+                                    <TextBox.InnerRightContent>
+                                        <Button Classes="toolbar field-inline-action"
+                                                Margin="0,0,4,0"
+                                                IsVisible="{Binding IsRdpWidthModified}"
+                                                ToolTip.Tip="{l:Localize MultiEditRevertFieldTip}"
+                                                Click="OnRevertRdpWidthClick">
+                                            <TextBlock Classes="icon" FontSize="10" Text="&#xE7A7;" />
+                                        </Button>
+                                    </TextBox.InnerRightContent>
+                                </TextBox>
+                                <TextBlock Grid.Column="2" Classes="label"
+                                           Classes.modified="{Binding IsRdpHeightModified}"
+                                           Text="{l:Localize Height}"
+                                           HorizontalAlignment="Right" />
+                                <TextBox Grid.Column="3" Classes="mono"
+                                         Text="{Binding RdpHeightText, Mode=TwoWay}"
+                                         PlaceholderText="{Binding RdpHeightPlaceholder}">
+                                    <TextBox.InnerRightContent>
+                                        <Button Classes="toolbar field-inline-action"
+                                                Margin="0,0,4,0"
+                                                IsVisible="{Binding IsRdpHeightModified}"
+                                                ToolTip.Tip="{l:Localize MultiEditRevertFieldTip}"
+                                                Click="OnRevertRdpHeightClick">
+                                            <TextBlock Classes="icon" FontSize="10" Text="&#xE7A7;" />
+                                        </Button>
+                                    </TextBox.InnerRightContent>
+                                </TextBox>
+                            </Grid>
+                            <TextBlock Classes="hint"
+                                       Margin="128,0,0,0"
+                                       Text="{Binding RdpDimensionsValidationMessage}"
+                                       Foreground="{DynamicResource DangerBrush}"
+                                       IsVisible="{Binding HasRdpDimensionsValidationMessage}" />
+                        </StackPanel>
+
+                        <TextBlock Classes="section-title" Text="{l:Localize LocalResources}" Margin="0,4,0,0" />
+                        <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" RowSpacing="8" ColumnSpacing="16">
+                            <CheckBox Grid.Row="0" Grid.Column="0" Content="{l:Localize ShareClipboard}"
+                                      IsThreeState="{Binding RdpRedirectClipboardThreeState}"
+                                      IsChecked="{Binding RdpRedirectClipboard, Mode=TwoWay}" />
+                            <CheckBox Grid.Row="0" Grid.Column="1" Content="{l:Localize ShareDrives}"
+                                      IsThreeState="{Binding RdpRedirectDrivesThreeState}"
+                                      IsChecked="{Binding RdpRedirectDrives, Mode=TwoWay}" />
+                            <CheckBox Grid.Row="1" Grid.Column="0" Content="{l:Localize PlayRemoteAudio}"
+                                      IsThreeState="{Binding RdpRedirectAudioPlaybackThreeState}"
+                                      IsChecked="{Binding RdpRedirectAudioPlayback, Mode=TwoWay}" />
+                            <CheckBox Grid.Row="1" Grid.Column="1" Content="{l:Localize ShareMicrophone}"
+                                      IsThreeState="{Binding RdpRedirectMicrophoneThreeState}"
+                                      IsChecked="{Binding RdpRedirectMicrophone, Mode=TwoWay}" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- VNC-specific -->
+                <Border Classes="form-card" IsVisible="{Binding IsAllVnc}">
+                    <StackPanel Spacing="12">
+                        <TextBlock Classes="section-title" Text="{l:Localize VncOptions}" />
+                        <WrapPanel Orientation="Horizontal" ItemSpacing="16" LineSpacing="8">
+                            <CheckBox Content="{l:Localize FullScreen}"
+                                      IsThreeState="{Binding VncFullScreenThreeState}"
+                                      IsChecked="{Binding VncFullScreen, Mode=TwoWay}" />
+                            <CheckBox Content="{l:Localize VncViewOnly}"
+                                      IsThreeState="{Binding VncViewOnlyThreeState}"
+                                      IsChecked="{Binding VncViewOnly, Mode=TwoWay}" />
+                            <CheckBox Content="{l:Localize VncShared}"
+                                      ToolTip.Tip="{l:Localize VncSharedTip}"
+                                      IsThreeState="{Binding VncSharedThreeState}"
+                                      IsChecked="{Binding VncShared, Mode=TwoWay}" />
+                        </WrapPanel>
+
+                        <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto" RowSpacing="12" ColumnSpacing="8">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Classes="label"
+                                       Classes.modified="{Binding IsJumpHostModified}"
+                                       Text="{l:Localize VncTunnel}" />
+                            <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+                                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+                                    <Border x:Name="MultiVncJumpHostDropZone" Tag="jump-host-drop" Classes="jump-host-drop"
+                                            ToolTip.Tip="{l:Localize VncTunnelTip}">
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Text="{Binding JumpHostDisplay}" IsVisible="{Binding ShowJumpHostSummary}"
+                                                       TextWrapping="Wrap" />
+                                            <TextBlock Text="{l:Localize JumpHostDragHint}" Classes="hint" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Button Grid.Column="1" Classes="toolbar compact-icon-button"
+                                            VerticalAlignment="Center"
+                                            IsVisible="{Binding IsJumpHostModified}"
+                                            ToolTip.Tip="{l:Localize MultiEditRevertFieldTip}"
+                                            Click="OnRevertJumpHostClick">
+                                        <TextBlock Classes="icon" FontSize="11" Text="&#xE7A7;" />
+                                    </Button>
+                                    <Button Grid.Column="2" Content="{l:Localize JumpHostClear}"
+                                            VerticalAlignment="Center"
+                                            IsEnabled="{Binding CanClearJumpHost}" Click="OnClearJumpHostClick" />
+                                </Grid>
+                                <TextBlock Classes="hint"
+                                           Text="{Binding JumpHostValidationMessage}"
+                                           IsVisible="{Binding HasJumpHostValidationMessage}"
+                                           Foreground="{DynamicResource WarningBrush}" />
+                            </StackPanel>
+                            <TextBlock Grid.Row="1" Grid.Column="1" Classes="hint"
+                                       Text="{l:Localize VncCredentialsHint}" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Notes -->
+                <Border Classes="form-card">
+                    <Grid ColumnDefinitions="120,*" ColumnSpacing="8">
+                        <TextBlock Grid.Column="0" Classes="label"
+                                   Classes.modified="{Binding IsNotesModified}"
+                                   Text="{l:Localize Notes}"
+                                   VerticalAlignment="Top" Margin="0,6,0,0" />
+                        <TextBox x:Name="MultiNotesBox" Grid.Column="1"
+                                 Text="{Binding Notes, Mode=TwoWay}"
+                                 PlaceholderText="{Binding NotesPlaceholder}"
+                                 AcceptsReturn="True" TextWrapping="Wrap" MinHeight="80">
+                            <TextBox.InnerRightContent>
+                                <StackPanel Orientation="Horizontal" Spacing="2" Margin="0,6,6,0" VerticalAlignment="Top">
+                                    <Button Classes="toolbar field-inline-action"
+                                            IsVisible="{Binding CanClearNotes}"
+                                            ToolTip.Tip="{l:Localize MultiEditClearFieldTip}"
+                                            Click="OnClearNotesClick">
+                                        <TextBlock Classes="icon" FontSize="10" Text="&#xE711;" />
+                                    </Button>
+                                    <Button Classes="toolbar field-inline-action"
+                                            IsVisible="{Binding IsNotesModified}"
+                                            ToolTip.Tip="{l:Localize MultiEditRevertFieldTip}"
+                                            Click="OnRevertNotesClick">
+                                        <TextBlock Classes="icon" FontSize="10" Text="&#xE7A7;" />
+                                    </Button>
+                                </StackPanel>
+                            </TextBox.InnerRightContent>
+                        </TextBox>
+                    </Grid>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Fixed bottom action bar -->
+        <Border Grid.Row="1"
+                Padding="20,10"
+                Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource DividerBrush}"
+                BorderThickness="0,1,0,0">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <TextBlock x:Name="MultiEditSummaryText"
+                           Grid.Column="0"
+                           Classes="hint"
+                           Text="{Binding ModifiedSummaryText}"
+                           VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button x:Name="MultiEditResetButton"
+                            Content="{l:Localize MultiEditReset}"
+                            Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ResetMultiEditCommand}" />
+                    <Button x:Name="MultiEditApplyButton"
+                            Classes="accent"
+                            Padding="16,4"
+                            Content="{Binding ApplyButtonText}"
+                            Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).ApplyMultiEditCommand}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

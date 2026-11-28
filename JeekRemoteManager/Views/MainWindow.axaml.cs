@@ -624,16 +624,24 @@ public partial class MainWindow : Window
         return (view, tab);
     }
 
-    // The right-click already selected the connection, which binds its editor.
-    // Bring the editor tab to the front so the editor is visible even when a
-    // terminal tab is currently active.
+    // The right-click already selected the connection(s), which binds the single
+    // or multi-connection editor. Bring the editor tab to the front so the editor
+    // is visible even when a terminal tab is currently active.
     private void OnEditMenuClick(object? sender, RoutedEventArgs e)
     {
-        if (DataContext is not MainWindowViewModel { SelectedNode: { IsConnection: true } })
+        if (DataContext is not MainWindowViewModel { CanEditSelection: true } vm)
             return;
 
+        if (vm.BatchPanel is { IsRunning: false })
+            vm.BatchPanel = null;
         RightTabs.SelectedItem = EditorTab;
     }
+
+    internal void HandleRunScriptFromEditor(object? sender, RoutedEventArgs e) =>
+        OnRunScriptMenuClick(sender, e);
+
+    internal void HandleShowPasswordClick(object? sender, RoutedEventArgs e) =>
+        OnShowPasswordClick(sender, e);
 
     private void OnRunScriptTerminalToolbarClick(object? sender, RoutedEventArgs e)
     {

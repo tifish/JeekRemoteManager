@@ -533,6 +533,9 @@ public partial class MainWindowViewModel
             // Drop the editor binding to the doomed node BEFORE we touch disk or
             // reload the tree — otherwise the selection change triggered by the
             // reload would flush a stale auto-save and resurrect the deleted file.
+            if (_multiEditingNodes.Any(n => ConnectionStore.IsSameOrInside(deletedPath, n.FullPath)))
+                ClearMultiEditor();
+
             if (_editingNode != null &&
                 ConnectionStore.IsSameOrInside(deletedPath, _editingNode.FullPath))
             {
@@ -998,8 +1001,19 @@ public partial class MainWindowViewModel
     [RelayCommand(CanExecute = nameof(CanBrowseKey))]
     private async Task BrowseKey()
     {
+        if (PickKeyFileAsync is null)
+            return;
+
+        if (ShowMultiConnectionEditor && MultiEditor is { IsAllSsh: true } multiEditor)
+        {
+            var multiPath = await PickKeyFileAsync();
+            if (!string.IsNullOrEmpty(multiPath) && ReferenceEquals(MultiEditor, multiEditor))
+                multiEditor.PrivateKeyPath = multiPath;
+            return;
+        }
+
         var editor = Editor;
-        if (editor is null || PickKeyFileAsync is null)
+        if (editor is null)
             return;
 
         var path = await PickKeyFileAsync();
@@ -1010,5 +1024,6 @@ public partial class MainWindowViewModel
     // The Browse button is only visible in the SSH section, so gating on a
     // non-null editor is enough (and avoids a stale-disabled button when the
     // editor's Type is switched to SSH without re-selecting the node).
-    private bool CanBrowseKey() => Editor is not null;
+    private bool CanBrowseKey() =>
+        Editor is not null || (ShowMultiConnectionEditor && MultiEditor is { IsAllSsh: true });
 }

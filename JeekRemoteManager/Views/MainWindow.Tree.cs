@@ -491,7 +491,7 @@ public partial class MainWindow
         // A plain click still selects it on release; a drag links it to the open editor.
         if (hitNode is { IsRecent: false, IsConnection: true }
             && e.GetCurrentPoint(Tree).Properties.IsLeftButtonPressed
-            && vm.ShowConnectionEditor && EditorTab.IsSelected)
+            && (vm.ShowConnectionEditor || vm.ShowMultiConnectionEditor) && EditorTab.IsSelected)
         {
             _deferredTreeClick = hitNode;
             e.Pointer.Capture(Tree);
@@ -506,7 +506,7 @@ public partial class MainWindow
             // editor. Clicking the folder row still selects it as before.
             var expanderClick = e.Source is Visual visual
                 && visual.FindAncestorOfType<ToggleButton>(includeSelf: true) is not null;
-            if (!expanderClick || !vm.ShowConnectionEditor || !EditorTab.IsSelected)
+            if (!expanderClick || (!vm.ShowConnectionEditor && !vm.ShowMultiConnectionEditor) || !EditorTab.IsSelected)
             {
                 vm.SelectedNode = toggledNode;
                 // This tunnel handler consumes the press, so TreeViewItem's

@@ -179,6 +179,7 @@ internal static partial class DebugMcpServer
         host.AddTool("window_close_reason_check", _ => WindowCloseReasonCheckAsync());
         host.AddTool("window_position_check", _ => WindowPositionCheckAsync());
         host.AddTool("connection_editor_switch_check", _ => ConnectionEditorSwitchCheckAsync());
+        host.AddTool("multi_connection_editor_check", _ => MultiConnectionEditorCheckAsync());
         host.AddTool("wsl_editor_selection_check", _ => WslEditorSelectionCheckAsync());
         host.AddTool("editor_reload_focus_check", _ => EditorReloadFocusCheckAsync());
         host.AddTool("login_menu_select_probe", LoginMenuSelectProbeAsync);

@@ -7,11 +7,23 @@ using JeekRemoteManager.Services;
 namespace JeekRemoteManager.ViewModels;
 
 /// <summary>
+/// Shared jump-host drop contract implemented by both the single-connection and
+/// multi-connection editors so tree drag-and-drop handles them uniformly.
+/// </summary>
+public interface IJumpHostDropTarget
+{
+    string ValidateJumpHostDrop(string path);
+    bool TrySetJumpHostFromTree(string path);
+    void ReportJumpHostDropError(string error);
+    void ClearJumpHost();
+}
+
+/// <summary>
 /// Editable view of a single connection. Loaded from a <see cref="Connection"/>
 /// and applied back to it on save. The password is held in clear text only in
 /// memory while editing.
 /// </summary>
-public partial class ConnectionEditorViewModel : ViewModelBase
+public partial class ConnectionEditorViewModel : ViewModelBase, IJumpHostDropTarget
 {
     private BastionLoginProfileStore? _bastionProfiles;
 

@@ -169,7 +169,7 @@ public partial class MainWindowViewModel
 
     private void RefreshJumpHostChoices()
     {
-        if (Editor is null)
+        if (Editor is null && MultiEditor is null)
             return;
         IEnumerable<KeyValuePair<string, Connection>> Enumerate(IEnumerable<TreeNodeViewModel> nodes)
         {
@@ -186,7 +186,9 @@ public partial class MainWindowViewModel
                     yield return pair;
             }
         }
-        Editor.SetJumpHostConnections(Enumerate(Nodes));
+        var snapshot = Enumerate(Nodes).ToArray();
+        Editor?.SetJumpHostConnections(snapshot);
+        MultiEditor?.SetJumpHostConnections(snapshot);
     }
 
     /// <summary>True while <see cref="ReloadTree"/> swaps the nodes out, so the
@@ -602,6 +604,9 @@ public partial class MainWindowViewModel
 
     private void DetachEditorIfEditingPath(string path)
     {
+        if (_multiEditingNodes.Any(node => ConnectionStore.IsSameOrInside(path, node.FullPath)))
+            ClearMultiEditor();
+
         if (_editingNode == null || !ConnectionStore.IsSameOrInside(path, _editingNode.FullPath))
             return;
 

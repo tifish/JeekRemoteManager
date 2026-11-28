@@ -501,6 +501,48 @@ public class ConnectionStore
         }
     }
 
+    /// <summary>
+    /// Saves several in-place connection edits in one batch, preserving each file's path.
+    /// Adopts the post-write fingerprint when the tree was in sync beforehand and only the
+    /// written files changed on disk, so the watcher skips a redundant full-tree reload.
+    /// </summary>
+    public int SaveEdits(IReadOnlyList<(Connection Connection, string FilePath)> edits)
+    {
+        if (edits.Count == 0)
+            return 0;
+
+        lock (_ownWriteGate)
+        {
+            var known = KnownSignature;
+            var before = known is null ? null : ComputeSignatureEntries();
+            var savedEntries = new HashSet<string>(StringComparer.Ordinal);
+            var savedCount = 0;
+
+            OwnWrite(() =>
+            {
+                foreach (var (connection, filePath) in edits)
+                {
+                    WriteInPlace(connection, filePath);
+                    savedEntries.Add(Path.GetRelativePath(RootPath, filePath) + "|");
+                    savedCount++;
+                }
+            });
+
+            if (before is null || HashSignature(before) != known)
+                return savedCount;
+
+            var after = ComputeSignatureEntries();
+            if (before.Except(after).Concat(after.Except(before))
+                .All(entry => savedEntries.Any(prefix => entry.StartsWith(prefix, StringComparison.Ordinal))))
+            {
+                KnownSignature = HashSignature(after);
+                OwnEditsAdoptedForDebug++;
+            }
+
+            return savedCount;
+        }
+    }
+
     /// <summary>Debug MCP only: <see cref="SaveEdit"/> calls whose write was adopted
     /// without leaving the watcher a reload to do.</summary>
     internal long OwnEditsAdoptedForDebug { get; private set; }
