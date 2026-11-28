@@ -433,4 +433,51 @@ public sealed class AuditRegressionTests
             Directory.Delete(root, recursive: true);
         }
     }
+
+    [Fact]
+    public void Supported_agents_exclude_removed_tools_and_are_sorted_alphabetically()
+    {
+        var providerLabels = AgentCliCatalog.Discover().Select(p => p.Label).ToArray();
+        Assert.Equal(
+            [
+                "Antigravity",
+                "Claude",
+                "Codex",
+                "Cursor",
+                "GitHub Copilot",
+                "Grok",
+                "OpenCode",
+                "Pi",
+                "T3 Code",
+            ],
+            providerLabels);
+
+        var configLabels = AgentMcpConfigCatalog.All.Select(t => t.Label).ToArray();
+        Assert.Equal(
+            configLabels.OrderBy(label => label, StringComparer.OrdinalIgnoreCase).ToArray(),
+            configLabels);
+        Assert.DoesNotContain(AgentMcpConfigCatalog.All, t =>
+            t.RelativePath is ".omp/mcp.json" or ".vscode/mcp.json" or ".zed/settings.json");
+
+        var root = Path.Combine(Path.GetTempPath(), "jrm-agent-cleanup-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, ".omp"));
+            Directory.CreateDirectory(Path.Combine(root, ".vscode"));
+            Directory.CreateDirectory(Path.Combine(root, ".zed"));
+            File.WriteAllText(Path.Combine(root, ".omp", "mcp.json"), "{}");
+            File.WriteAllText(Path.Combine(root, ".vscode", "mcp.json"), "{}");
+            File.WriteAllText(Path.Combine(root, ".zed", "settings.json"), "{}");
+
+            AgentCliWorkspace.WriteProjectMcpConfigs(root, "vps/bwg");
+
+            Assert.False(Directory.Exists(Path.Combine(root, ".omp")));
+            Assert.False(Directory.Exists(Path.Combine(root, ".vscode")));
+            Assert.False(Directory.Exists(Path.Combine(root, ".zed")));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 }

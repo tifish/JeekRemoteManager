@@ -17,7 +17,6 @@ public static class AgentCliInstaller
     private const string AntigravityDownload = "https://antigravity.google/download";
     private const string ClaudeDownload = "https://claude.com/download";
     private const string CursorDownload = "https://cursor.com/download";
-    private const string VsCodeDownload = "https://code.visualstudio.com/Download";
     private const string T3CodeDownload = "https://t3.codes/download";
 
     /// <summary>
@@ -28,31 +27,27 @@ public static class AgentCliInstaller
     public static string GetInstallCommandSummary(AgentCliKind kind, AgentSurfaceKind surface) =>
         (kind, surface) switch
         {
-            (AgentCliKind.Claude, AgentSurfaceKind.Desktop) => ClaudeDownload,
-            (AgentCliKind.Claude, _) => "irm https://claude.ai/install.ps1 | iex",
-            (AgentCliKind.Codex, _) =>
-                "irm https://chatgpt.com/codex/install.ps1 | iex",
-            (AgentCliKind.Grok, _) => "irm https://x.ai/cli/install.ps1 | iex",
-            (AgentCliKind.Copilot, AgentSurfaceKind.Terminal) =>
-                "winget install GitHub.Copilot",
-            (AgentCliKind.Copilot, AgentSurfaceKind.Desktop) =>
-                "https://github.com/copilot/app",
-            (AgentCliKind.OpenCode, _) => "npm install -g opencode-ai",
-            (AgentCliKind.Pi, _) =>
-                "npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
-            (AgentCliKind.Omp, _) => "irm https://omp.sh/install.ps1 | iex",
             (AgentCliKind.Antigravity, AgentSurfaceKind.Terminal) =>
                 "irm https://antigravity.google/cli/install.ps1 | iex",
             // The 2.0 desktop app and the IDE are downloads, not winget packages.
             (AgentCliKind.Antigravity, _) => AntigravityDownload,
+            (AgentCliKind.Claude, AgentSurfaceKind.Desktop) => ClaudeDownload,
+            (AgentCliKind.Claude, _) => "irm https://claude.ai/install.ps1 | iex",
+            (AgentCliKind.Codex, _) =>
+                "irm https://chatgpt.com/codex/install.ps1 | iex",
             // The Cursor CLI has an official PowerShell installer of its own; the editor is a
             // graphical download, so the two surfaces do not share an install action.
             (AgentCliKind.Cursor, AgentSurfaceKind.Terminal) =>
                 "irm 'https://cursor.com/install?win32=true' | iex",
             (AgentCliKind.Cursor, _) => CursorDownload,
-            // VS Code recommends its graphical Windows user installer; Zed publishes a winget package.
-            (AgentCliKind.VsCode, _) => VsCodeDownload,
-            (AgentCliKind.Zed, _) => "winget install -e --id ZedIndustries.Zed",
+            (AgentCliKind.Copilot, AgentSurfaceKind.Terminal) =>
+                "winget install GitHub.Copilot",
+            (AgentCliKind.Copilot, AgentSurfaceKind.Desktop) =>
+                "https://github.com/copilot/app",
+            (AgentCliKind.Grok, _) => "irm https://x.ai/cli/install.ps1 | iex",
+            (AgentCliKind.OpenCode, _) => "npm install -g opencode-ai",
+            (AgentCliKind.Pi, _) =>
+                "npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
             (AgentCliKind.T3Code, _) => T3CodeDownload,
             _ => "",
         };
@@ -142,21 +137,18 @@ public static class AgentCliInstaller
     /// <summary>Resolves the executable behind one surface of an agent.</summary>
     public static string? Locate(AgentCliKind kind, AgentSurfaceKind surface) => (kind, surface) switch
     {
-        (AgentCliKind.Claude, AgentSurfaceKind.Terminal) => AgentCliLocator.FindClaude(),
-        (AgentCliKind.Claude, AgentSurfaceKind.Desktop) => AgentCliLocator.FindProtocolHandler("claude"),
-        (AgentCliKind.Codex, _) => AgentCliLocator.FindCodex(),
-        (AgentCliKind.Grok, _) => AgentCliLocator.FindGrok(),
-        (AgentCliKind.Copilot, AgentSurfaceKind.Terminal) => AgentCliLocator.FindCopilot(),
-        (AgentCliKind.OpenCode, _) => AgentCliLocator.FindOpenCode(),
-        (AgentCliKind.Pi, _) => AgentCliLocator.FindPi(),
-        (AgentCliKind.Omp, _) => AgentCliLocator.FindOmp(),
         (AgentCliKind.Antigravity, AgentSurfaceKind.Terminal) => AgentCliLocator.FindAntigravityCli(),
         (AgentCliKind.Antigravity, AgentSurfaceKind.Desktop) => AgentCliLocator.FindAntigravityDesktop(),
         (AgentCliKind.Antigravity, AgentSurfaceKind.Ide) => AgentCliLocator.FindAntigravityIde(),
+        (AgentCliKind.Claude, AgentSurfaceKind.Terminal) => AgentCliLocator.FindClaude(),
+        (AgentCliKind.Claude, AgentSurfaceKind.Desktop) => AgentCliLocator.FindProtocolHandler("claude"),
+        (AgentCliKind.Codex, _) => AgentCliLocator.FindCodex(),
         (AgentCliKind.Cursor, AgentSurfaceKind.Terminal) => AgentCliLocator.FindCursorCli(),
         (AgentCliKind.Cursor, _) => AgentCliLocator.FindCursor(),
-        (AgentCliKind.VsCode, _) => AgentCliLocator.FindVsCode(),
-        (AgentCliKind.Zed, _) => AgentCliLocator.FindZed(),
+        (AgentCliKind.Copilot, AgentSurfaceKind.Terminal) => AgentCliLocator.FindCopilot(),
+        (AgentCliKind.Grok, _) => AgentCliLocator.FindGrok(),
+        (AgentCliKind.OpenCode, _) => AgentCliLocator.FindOpenCode(),
+        (AgentCliKind.Pi, _) => AgentCliLocator.FindPi(),
         (AgentCliKind.T3Code, _) => AgentCliLocator.FindT3CodeCli() ?? AgentCliLocator.FindT3CodeDesktop(),
         _ => null,
     };

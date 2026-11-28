@@ -18,8 +18,7 @@ public enum AgentCliRunMode
     WindowsTerminal = 1,
 
     /// <summary>
-    /// Open the workspace folder in an editor (VS Code, Cursor). The only mode those agents
-    /// offer, so it is never a choice the user makes or one worth persisting.
+    /// Open the workspace folder in an IDE (Antigravity, Cursor).
     /// </summary>
     Ide = 3,
 
@@ -121,8 +120,8 @@ public class AppSettings
     /// Null/blank = open with the system file association.</summary>
     public string? FileBrowserEditorPath { get; set; }
 
-    /// <summary>AI panel: last-used provider label, as shown in the picker ("Claude", "Antigravity",
-    /// "VS Code", …). Null = first available.</summary>
+    /// <summary>AI panel: last-used provider label, as shown in the picker ("Antigravity",
+    /// "Claude", "Codex", …). Null = first available.</summary>
     public string? AiProvider { get; set; }
 
     /// <summary>

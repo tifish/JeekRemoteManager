@@ -639,7 +639,7 @@ internal static partial class DebugMcpServer
                 && !projectLauncher.Contains(Environment.UserName, StringComparison.Ordinal));
 
             // Every catalog config must be written, and each JSON one under the root key its
-            // agent actually reads — VS Code ignores "mcpServers" without reporting anything.
+            // agent actually reads.
             foreach (var target in AgentMcpConfigCatalog.All)
             {
                 var targetPath = target.ResolvePath(project);
@@ -668,7 +668,7 @@ internal static partial class DebugMcpServer
                 "selective write keeps only chosen connection agents",
                 AgentProjectLink.ListWrittenTargetPaths(project, server).SequenceEqual(subset)
                 && !Directory.Exists(Path.Combine(project, ".cursor"))
-                && !Directory.Exists(Path.Combine(project, ".vscode")));
+                && !Directory.Exists(Path.Combine(project, ".agents")));
             AgentProjectLink.WriteInto(link, project);
 
             Check("rewriting does not duplicate the markdown block", CountOccurrences(agentsMd, "BEGIN JeekRemoteManager link: vps/bwg") == 1);
@@ -979,7 +979,7 @@ internal static partial class DebugMcpServer
                 && File.Exists(Path.Combine(project, ".mcp.json"))
                 && File.Exists(Path.Combine(project, ".grok", "config.toml"))
                 && !Directory.Exists(Path.Combine(project, ".cursor"))
-                && !Directory.Exists(Path.Combine(project, ".vscode")));
+                && !Directory.Exists(Path.Combine(project, ".agents")));
             Check(
                 "Write button reports success",
                 afterSubset.Status.Contains(project, StringComparison.Ordinal));
@@ -1402,7 +1402,18 @@ internal static partial class DebugMcpServer
         // installed but not its desktop app or IDE.
         // Rediscover, not Discover: this check exists to report what is actually on disk
         // right now, so it must not be answered from the process-lifetime cache.
-        foreach (var descriptor in AgentCliCatalog.Rediscover())
+        var providers = AgentCliCatalog.Rediscover();
+        var providerLabels = providers.Select(d => d.Label).ToArray();
+        var sortedAlphabetically = providerLabels.SequenceEqual(
+            providerLabels.OrderBy(label => label, StringComparer.OrdinalIgnoreCase));
+        var excludesRemoved = !providerLabels.Any(label =>
+            label.Equals("OMP", StringComparison.OrdinalIgnoreCase)
+            || label.Equals("VS Code", StringComparison.OrdinalIgnoreCase)
+            || label.Equals("Zed", StringComparison.OrdinalIgnoreCase));
+        sb.AppendLine($"providers={string.Join(", ", providerLabels)}");
+        sb.AppendLine($"sortedAlphabetically={sortedAlphabetically}");
+        sb.AppendLine($"excludesRemoved={excludesRemoved}");
+        foreach (var descriptor in providers)
         {
             var surfaceKinds = AgentCliCatalog.RunModesFor(descriptor.Kind)
                 .Select(AgentCliCatalog.SurfaceKindFor)
@@ -1647,6 +1658,9 @@ internal static partial class DebugMcpServer
                                    ", ",
                                    expectedArguments.Select(value => $"\"{EscapeTomlValue(value)}\""))
                                + "]";
+        var catalogLabels = AgentMcpConfigCatalog.All.Select(t => t.Label).ToArray();
+        var catalogSorted = catalogLabels.SequenceEqual(
+            catalogLabels.OrderBy(label => label, StringComparer.OrdinalIgnoreCase));
         var checks = new List<(string Name, bool Ok)>
         {
             ("adapter", File.Exists(adapter)),
@@ -1657,6 +1671,11 @@ internal static partial class DebugMcpServer
                 "Pi",
                 "jrm-mcp.ts"))),
             ("instance registration", McpAdapterRegistration.IsCurrentInstanceRegistered()),
+            ("catalog sorted", catalogSorted),
+            ("obsolete agent configs absent",
+                !Directory.Exists(Path.Combine(workspace, ".omp"))
+                && !Directory.Exists(Path.Combine(workspace, ".vscode"))
+                && !Directory.Exists(Path.Combine(workspace, ".zed"))),
             ("AGENTS.md", agents.Contains($"**Adapter:** `{adapter}`", StringComparison.Ordinal)
                           && agents.Contains(
                               $"**Pinned connection:** `{connection}`",
@@ -1688,20 +1707,6 @@ internal static partial class DebugMcpServer
                         && entry["enabled"]?.GetValue<bool>() == true
                         && jsonRoot?["permission"]?[$"{AgentCliWorkspace.McpServerName}_*"]
                             ?.GetValue<string>() == "allow",
-                    // Zed picks the transport by shape, so a "type" key would not be schema-valid,
-                    // and it approves per tool because it has no per-server wildcard.
-                    AgentMcpConfigCatalog.JsonEntryStyle.ZedContextServer =>
-                        entry?["command"]?.GetValue<string>() == adapter
-                        && entry["type"] is null
-                        && entry["args"] is JsonArray zedArgs
-                        && zedArgs.Select(node => node?.GetValue<string>())
-                            .SequenceEqual(expectedArguments)
-                        && AgentCliCatalog.RemoteToolNames.All(tool =>
-                            jsonRoot?["agent"]?["tool_permissions"]?["tools"]?[
-                                    AgentMcpConfigCatalog.ZedToolKey(
-                                        AgentCliWorkspace.McpServerName,
-                                        tool)]
-                                ?["default"]?.GetValue<string>() == "allow"),
                     _ => entry?["command"]?.GetValue<string>() == adapter
                          && entry["args"] is JsonArray entryArgs
                          && entryArgs.Select(node => node?.GetValue<string>())

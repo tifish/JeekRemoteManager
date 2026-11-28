@@ -139,18 +139,6 @@ public static class AgentCliLocator
 
     public static string? FindPi() => FindNpmOrPathCommand("pi");
 
-    public static string? FindOmp()
-    {
-        // The recommended Windows installer places its standalone binary here when Bun is not
-        // already available. Probe it directly because the child installer cannot update this
-        // running app's inherited PATH.
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var native = Path.Combine(localAppData, "omp", "omp.exe");
-        return File.Exists(native)
-            ? ResolveRealPath(native)
-            : FindNpmOrPathCommand("omp");
-    }
-
     /// <summary>
     /// Returns the full path to <c>agy.exe</c> (Antigravity CLI), or <c>null</c> if it is not
     /// installed. The installer drops it under <c>%LOCALAPPDATA%\agy\bin</c>.
@@ -194,25 +182,8 @@ public static class AgentCliLocator
     }
 
     /// <summary>
-    /// Returns the full path to <c>Code.exe</c> (Visual Studio Code), or <c>null</c> if it is not
-    /// installed. Prefers the real executable over the <c>code.cmd</c> shim on PATH so the folder
-    /// can be passed as a plain argument.
-    /// </summary>
-    public static string? FindVsCode()
-    {
-        foreach (var candidate in EnumerateVsCodeCandidates())
-        {
-            if (File.Exists(candidate))
-                return ResolveRealPath(candidate);
-        }
-
-        var found = FindOnPath("Code.exe") ?? FindOnPath("code.cmd");
-        return found is null ? null : ResolveRealPath(found);
-    }
-
-    /// <summary>
     /// Returns the full path to <c>Cursor.exe</c>, or <c>null</c> if it is not installed.
-    /// Same layout as VS Code — Cursor ships as a per-user Programs install by default.
+    /// Cursor ships as a per-user Programs install by default.
     /// </summary>
     public static string? FindCursor()
     {
@@ -243,24 +214,6 @@ public static class AgentCliLocator
         }
 
         var found = FindOnPath("cursor-agent.cmd");
-        return found is null ? null : ResolveRealPath(found);
-    }
-
-    /// <summary>
-    /// Returns the full path to <c>Zed.exe</c>, or <c>null</c> if it is not installed. Prefers the
-    /// GUI executable, which the installer also registers as the shell open command for a folder:
-    /// the <c>bin\zed.exe</c> CLI shim is only added to PATH when the user ticks that optional
-    /// install task, so it cannot be relied on.
-    /// </summary>
-    public static string? FindZed()
-    {
-        foreach (var candidate in EnumerateZedCandidates())
-        {
-            if (File.Exists(candidate))
-                return ResolveRealPath(candidate);
-        }
-
-        var found = FindOnPath("zed.exe");
         return found is null ? null : ResolveRealPath(found);
     }
 
@@ -390,22 +343,6 @@ public static class AgentCliLocator
         yield return Path.Combine(appData, "npm", "codex.exe");
     }
 
-    private static System.Collections.Generic.IEnumerable<string> EnumerateVsCodeCandidates()
-    {
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        yield return Path.Combine(localAppData, "Programs", "Microsoft VS Code", "Code.exe");
-
-        // System-wide setup.
-        yield return Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-            "Microsoft VS Code",
-            "Code.exe");
-        yield return Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-            "Microsoft VS Code",
-            "Code.exe");
-    }
-
     private static System.Collections.Generic.IEnumerable<string> EnumerateCursorCandidates()
     {
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -422,21 +359,6 @@ public static class AgentCliLocator
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         yield return Path.Combine(localAppData, "cursor-agent", "agent.cmd");
         yield return Path.Combine(localAppData, "cursor-agent", "cursor-agent.cmd");
-    }
-
-    private static System.Collections.Generic.IEnumerable<string> EnumerateZedCandidates()
-    {
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        // The installer requires no elevation, so the per-user layout is the common one.
-        yield return Path.Combine(localAppData, "Programs", "Zed", "Zed.exe");
-        yield return Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-            "Zed",
-            "Zed.exe");
-        // Preview and nightly channels install beside stable under their own product names.
-        yield return Path.Combine(localAppData, "Programs", "Zed Preview", "Zed.exe");
-        // Last resort: the CLI shim, which also opens a folder and lives inside the same install.
-        yield return Path.Combine(localAppData, "Programs", "Zed", "bin", "zed.exe");
     }
 
     private static System.Collections.Generic.IEnumerable<string> EnumerateAntigravityCliCandidates()

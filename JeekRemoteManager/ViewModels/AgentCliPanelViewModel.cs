@@ -244,10 +244,6 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
         AgentCliRunMode.Desktop when SelectedProvider.Kind == AgentCliKind.Copilot =>
             L("AiCliCopilotDesktopHint", _workingDirectory),
         AgentCliRunMode.Desktop => L("AiCliDesktopHint"),
-        // Zed keeps a new folder in restricted mode, where .zed/settings.json — and with it our
-        // MCP server — is not loaded until the user trusts it.
-        AgentCliRunMode.Ide when SelectedProvider.Kind == AgentCliKind.Zed =>
-            L("AiCliZedIdeHint"),
         AgentCliRunMode.Ide => L("AiCliIdeHint"),
         _ => L("AiCliExternalHint"),
     };
@@ -269,7 +265,7 @@ public sealed partial class AgentCliPanelViewModel : ViewModelBase, IAsyncDispos
             return;
 
         // Rebuild options for the new provider and restore that family's stored mode
-        // (e.g. Grok CLI/WT → Claude Desktop → VS Code's single IDE mode).
+        // (e.g. Grok CLI/WT → Claude Desktop → T3 Code's single Desktop mode).
         if (SyncRunModeOptions(value.Kind, _resolvePreferredRunMode?.Invoke(value.Kind) ?? RunMode))
             return; // The run-mode change already requested a start.
 

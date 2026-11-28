@@ -33,19 +33,13 @@ public static class AgentMcpConfigCatalog
         Stdio,
         /// <summary>OpenCode's <c>{ type: "local", command: [exe, ...args] }</c>.</summary>
         OpenCodeLocal,
-        /// <summary>
-        /// Zed's <c>context_servers</c> entry: <c>{ command, args }</c> with no discriminator —
-        /// the variant is chosen by shape, and <c>type</c> is not part of the settings schema.
-        /// </summary>
-        ZedContextServer,
     }
 
     /// <param name="Label">Agent names shown in the generated AGENTS.md table.</param>
     /// <param name="RelativePath">Config path relative to the project/workspace root, forward-slashed.</param>
     /// <param name="JsonRootKey">
-    /// Root key holding the server map, for <see cref="ConfigFormat.Json"/> only. Claude, Copilot
-    /// CLI and Cursor read <c>mcpServers</c>; VS Code reads <c>servers</c> and silently ignores a
-    /// file that uses the other spelling — no error, the tools just never appear.
+    /// Root key holding the server map, for <see cref="ConfigFormat.Json"/> only. Antigravity,
+    /// Claude, Copilot CLI and Cursor read <c>mcpServers</c>; OpenCode reads <c>mcp</c>.
     /// </param>
     /// <param name="SupportsApprovalMode">
     /// Codex only: <c>default_tools_approval_mode</c> must live in this file rather than a
@@ -70,23 +64,19 @@ public static class AgentMcpConfigCatalog
     }
 
     /// <summary>
-    /// Every config written for a workspace or a linked project. Claude and Copilot CLI share
-    /// <c>.mcp.json</c>; VS Code needs its own file only because of the root key name.
+    /// Every config written for a workspace or a linked project, sorted alphabetically by label.
+    /// Claude, Copilot CLI/Desktop, and the Pi extension share <c>.mcp.json</c>.
     /// </summary>
     public static IReadOnlyList<Target> All { get; } =
     [
+        new("Antigravity (CLI / 2.0 / IDE)", ".agents/mcp_config.json", ConfigFormat.Json, "mcpServers"),
         new("Claude Code / Desktop, Copilot CLI / Desktop, Pi extension", ".mcp.json",
             ConfigFormat.Json, "mcpServers", IncludeAllTools: true),
+        new("Codex", ".codex/config.toml", ConfigFormat.Toml, SupportsApprovalMode: true),
+        new("Cursor (IDE / CLI)", ".cursor/mcp.json", ConfigFormat.Json, "mcpServers"),
+        new("Grok", ".grok/config.toml", ConfigFormat.Toml),
         new("OpenCode", "opencode.json", ConfigFormat.Json, "mcp",
             JsonStyle: JsonEntryStyle.OpenCodeLocal),
-        new("OMP", ".omp/mcp.json", ConfigFormat.Json, "mcpServers"),
-        new("VS Code (Copilot)", ".vscode/mcp.json", ConfigFormat.Json, "servers"),
-        new("Cursor (IDE / CLI)", ".cursor/mcp.json", ConfigFormat.Json, "mcpServers"),
-        new("Zed", ".zed/settings.json", ConfigFormat.Json, "context_servers",
-            JsonStyle: JsonEntryStyle.ZedContextServer),
-        new("Antigravity (CLI / 2.0 / IDE)", ".agents/mcp_config.json", ConfigFormat.Json, "mcpServers"),
-        new("Codex", ".codex/config.toml", ConfigFormat.Toml, SupportsApprovalMode: true),
-        new("Grok", ".grok/config.toml", ConfigFormat.Toml),
     ];
 
     /// <summary>
@@ -217,14 +207,6 @@ public static class AgentMcpConfigCatalog
             return entry;
         }
 
-        if (target.JsonStyle == JsonEntryStyle.ZedContextServer)
-        {
-            var entry = new JsonObject { ["command"] = launch.Command };
-            ApplyArguments(entry, launch);
-            ApplyWorkingDirectory(entry, launch);
-            return entry;
-        }
-
         var command = new JsonArray { launch.Command };
         foreach (var argument in launch.Arguments)
             command.Add(argument);
@@ -240,34 +222,16 @@ public static class AgentMcpConfigCatalog
 
     /// <summary>
     /// Adds target-specific root settings without widening approval to the agent's local tools.
-    /// OpenCode prefixes MCP tools with the server name, so only that prefix is allowed; Zed has
-    /// no per-server wildcard, so its remote tools are listed one by one.
+    /// OpenCode prefixes MCP tools with the server name, so only that prefix is allowed.
     /// </summary>
     public static void ApplyJsonRootSettings(
         Target target,
         JsonObject root,
         string serverName)
     {
-        switch (target.JsonStyle)
+        if (target.JsonStyle == JsonEntryStyle.OpenCodeLocal)
         {
-            case JsonEntryStyle.OpenCodeLocal:
-                EnsureObject(root, "permission")[$"{serverName}_*"] =
-                    "allow";
-                break;
-
-            case JsonEntryStyle.ZedContextServer:
-                var tools = EnsureObject(
-                    EnsureObject(EnsureObject(root, "agent"), "tool_permissions"),
-                    "tools");
-                var zedTools = string.Equals(serverName, AgentProjectLink.ApplicationMcpServerName, StringComparison.Ordinal)
-                    ? ProductMcpContract.ToolNames
-                    : AgentCliCatalog.RemoteToolNames;
-                foreach (var tool in zedTools)
-                {
-                    EnsureObject(tools, ZedToolKey(serverName, tool))["default"] =
-                        "allow";
-                }
-                break;
+            EnsureObject(root, "permission")[$"{serverName}_*"] = "allow";
         }
     }
 
@@ -277,44 +241,15 @@ public static class AgentMcpConfigCatalog
         JsonObject root,
         string serverName)
     {
-        switch (target.JsonStyle)
+        if (target.JsonStyle == JsonEntryStyle.OpenCodeLocal)
         {
-            case JsonEntryStyle.OpenCodeLocal:
-                if (root["permission"] is not JsonObject permission)
-                    return;
-                permission.Remove($"{serverName}_*");
-                if (permission.Count == 0)
-                    root.Remove("permission");
-                break;
-
-            case JsonEntryStyle.ZedContextServer:
-                if (root["agent"] is not JsonObject agent
-                    || agent["tool_permissions"] is not JsonObject permissions
-                    || permissions["tools"] is not JsonObject tools)
-                {
-                    return;
-                }
-
-                var prefix = $"mcp:{serverName}:";
-                foreach (var key in tools.Select(pair => pair.Key)
-                             .Where(key => key.StartsWith(prefix, StringComparison.Ordinal))
-                             .ToArray())
-                {
-                    tools.Remove(key);
-                }
-                if (tools.Count == 0)
-                    permissions.Remove("tools");
-                if (permissions.Count == 0)
-                    agent.Remove("tool_permissions");
-                if (agent.Count == 0)
-                    root.Remove("agent");
-                break;
+            if (root["permission"] is not JsonObject permission)
+                return;
+            permission.Remove($"{serverName}_*");
+            if (permission.Count == 0)
+                root.Remove("permission");
         }
     }
-
-    /// <summary>Zed's per-tool approval key for one MCP server tool.</summary>
-    public static string ZedToolKey(string serverName, string toolName) =>
-        $"mcp:{serverName}:{toolName}";
 
     private static JsonObject EnsureObject(JsonObject parent, string key)
     {

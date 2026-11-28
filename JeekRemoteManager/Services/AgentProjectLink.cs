@@ -277,7 +277,7 @@ public static class AgentProjectLink
             if (target.Format == AgentMcpConfigCatalog.ConfigFormat.Json)
             {
                 // Drops the file itself when our entry was all it held; the folder may still
-                // be the project's own (.vscode), so only remove it once it is empty.
+                // be the project's own (e.g. .cursor), so only remove it once it is empty.
                 RemoveMcpJsonServer(path, target, serverName);
                 if (target.HasOwnFolder)
                     TryDeleteEmptyFolder(path);

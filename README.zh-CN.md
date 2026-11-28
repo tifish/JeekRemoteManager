@@ -14,7 +14,7 @@
 - 支持 SSH 跳板机、本地/远程/动态端口转发，以及独立的后台环回端口转发管理
 - 支持堡垒机共享登录模板与会话复用，以及在连接面板维护共享 SSH 二次验证配置（支持导入 Google Authenticator 二维码并自动填写 TOTP 验证码）
 - 内置 SSH 实时服务器监控面板（CPU、内存、磁盘、网络）
-- 集成 AI Agent，支持使用 Claude/Codex/Grok/GitHub Copilot/OpenCode/Pi/OMP/Cursor CLI/Antigravity 操作当前 SSH 终端，也可通过全局 AI Agent 管理整个软件并操作多个连接；Copilot 同时支持 Desktop，也可将生成的工作区在 VS Code、Cursor、Zed 或 Antigravity IDE 中打开
+- 集成 AI Agent，支持使用 Antigravity/Claude/Codex/Cursor/GitHub Copilot/Grok/OpenCode/Pi/T3 Code 操作当前 SSH 终端，也可通过全局 AI Agent 管理整个软件并操作多个连接；支持通过桌面应用或 IDE（Antigravity、Claude、Codex、Cursor、GitHub Copilot、T3 Code）直接打开准备好的工作区
 - SFTP 远程文件浏览器，支持本地编辑器远程直编与自动回传
 - 支持 WSL：可打开本地 WSL 发行版的终端并浏览其文件
 - 远程脚本：定义带参数的可复用脚本，在连接上一键执行

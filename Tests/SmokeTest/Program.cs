@@ -1637,8 +1637,6 @@ try
         : "";
     var openCodeJson = JsonNode.Parse(
         File.ReadAllText(Path.Combine(workspace, "opencode.json"))) as JsonObject;
-    var ompJson = JsonNode.Parse(
-        File.ReadAllText(Path.Combine(workspace, ".omp", "mcp.json"))) as JsonObject;
     var expectedOpenCodeCommand = new List<string> { AgentWorkspaceLink.AdapterPath };
     if (AgentWorkspaceLink.AdapterInstanceId is { } smokeInstanceId)
     {
@@ -1682,8 +1680,9 @@ try
           && openCodeCommand.Select(node => node?.GetValue<string>())
               .SequenceEqual(expectedOpenCodeCommand)
           && openCodeJson["permission"]?["jrm-remote_*"]?.GetValue<string>() == "allow"
-          && ompJson?["mcpServers"]?["jrm-remote"]?["command"]?.GetValue<string>()
-              == AgentWorkspaceLink.AdapterPath,
+          && !Directory.Exists(Path.Combine(workspace, ".omp"))
+          && !Directory.Exists(Path.Combine(workspace, ".vscode"))
+          && !Directory.Exists(Path.Combine(workspace, ".zed")),
           "AI workspace writes shared context and native MCP configs for every supported agent");
 
     File.WriteAllText(
@@ -1835,6 +1834,12 @@ try
     var preferredAgentInstallActions =
         new Dictionary<(AgentCliKind Kind, AgentSurfaceKind Surface), string>
         {
+            [(AgentCliKind.Antigravity, AgentSurfaceKind.Terminal)] =
+                "irm https://antigravity.google/cli/install.ps1 | iex",
+            [(AgentCliKind.Antigravity, AgentSurfaceKind.Desktop)] =
+                "https://antigravity.google/download",
+            [(AgentCliKind.Antigravity, AgentSurfaceKind.Ide)] =
+                "https://antigravity.google/download",
             [(AgentCliKind.Claude, AgentSurfaceKind.Terminal)] =
                 "irm https://claude.ai/install.ps1 | iex",
             [(AgentCliKind.Claude, AgentSurfaceKind.Desktop)] =
@@ -1843,28 +1848,18 @@ try
                 "irm https://chatgpt.com/codex/install.ps1 | iex",
             [(AgentCliKind.Codex, AgentSurfaceKind.Desktop)] =
                 "irm https://chatgpt.com/codex/install.ps1 | iex",
-            [(AgentCliKind.Grok, AgentSurfaceKind.Terminal)] =
-                "irm https://x.ai/cli/install.ps1 | iex",
+            [(AgentCliKind.Cursor, AgentSurfaceKind.Ide)] =
+                "https://cursor.com/download",
             [(AgentCliKind.Copilot, AgentSurfaceKind.Terminal)] =
                 "winget install GitHub.Copilot",
             [(AgentCliKind.Copilot, AgentSurfaceKind.Desktop)] =
                 "https://github.com/copilot/app",
+            [(AgentCliKind.Grok, AgentSurfaceKind.Terminal)] =
+                "irm https://x.ai/cli/install.ps1 | iex",
             [(AgentCliKind.OpenCode, AgentSurfaceKind.Terminal)] =
                 "npm install -g opencode-ai",
             [(AgentCliKind.Pi, AgentSurfaceKind.Terminal)] =
                 "npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
-            [(AgentCliKind.Omp, AgentSurfaceKind.Terminal)] =
-                "irm https://omp.sh/install.ps1 | iex",
-            [(AgentCliKind.Antigravity, AgentSurfaceKind.Terminal)] =
-                "irm https://antigravity.google/cli/install.ps1 | iex",
-            [(AgentCliKind.Antigravity, AgentSurfaceKind.Desktop)] =
-                "https://antigravity.google/download",
-            [(AgentCliKind.Antigravity, AgentSurfaceKind.Ide)] =
-                "https://antigravity.google/download",
-            [(AgentCliKind.VsCode, AgentSurfaceKind.Ide)] =
-                "https://code.visualstudio.com/Download",
-            [(AgentCliKind.Cursor, AgentSurfaceKind.Ide)] =
-                "https://cursor.com/download",
             [(AgentCliKind.T3Code, AgentSurfaceKind.Desktop)] =
                 "https://t3.codes/download",
         };
@@ -1884,13 +1879,20 @@ try
                    && startInfo.Arguments.Contains(pair.Value, StringComparison.Ordinal);
         });
     Check(
-        new[]
-        {
-            AgentCliKind.Copilot,
-            AgentCliKind.OpenCode,
-            AgentCliKind.Pi,
-            AgentCliKind.Omp,
-        }.All(kind => providers.Any(provider => provider.Kind == kind))
+        providers.Select(provider => provider.Label).SequenceEqual([
+            "Antigravity",
+            "Claude",
+            "Codex",
+            "Cursor",
+            "GitHub Copilot",
+            "Grok",
+            "OpenCode",
+            "Pi",
+            "T3 Code",
+        ])
+        && AgentMcpConfigCatalog.All.Select(target => target.Label).SequenceEqual(
+            AgentMcpConfigCatalog.All.Select(target => target.Label)
+                .OrderBy(label => label, StringComparer.OrdinalIgnoreCase))
         && AgentCliCatalog.RunModesFor(AgentCliKind.Copilot)
             .SequenceEqual([
                 AgentCliRunMode.Cli,

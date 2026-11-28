@@ -14,7 +14,7 @@ Built with .NET 10 and Avalonia. Windows only.
 - SSH jump hosts, local/remote/dynamic port forwarding, and managed background loopback port forwards
 - Bastion login templates with automatic session reuse and shared SSH MFA profiles (Google Authenticator QR import and automatic TOTP entry)
 - Built-in live server monitor panel (CPU, memory, disk, network) over SSH
-- Integrated AI agents: use Claude, Codex, Grok, GitHub Copilot, OpenCode, Pi, OMP, Cursor CLI, or Antigravity to operate the current SSH terminal, or use the global AI Agent to manage the application and work across multiple connections; Copilot also supports its desktop app, and generated workspaces open in VS Code, Cursor, Zed, or Antigravity IDE
+- Integrated AI agents: use Antigravity, Claude, Codex, Cursor, GitHub Copilot, Grok, OpenCode, Pi, or T3 Code to operate the current SSH terminal, or use the global AI Agent to manage the application and work across multiple connections; desktop apps and IDEs (Antigravity, Claude, Codex, Cursor, GitHub Copilot, T3 Code) open the prepared workspace directly
 - SFTP file browser with remote editing for remote hosts
 - WSL support: open terminals and browse files in local WSL distros
 - Remote scripts: define reusable scripts with parameters and run them on connections

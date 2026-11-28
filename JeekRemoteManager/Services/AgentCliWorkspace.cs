@@ -95,6 +95,7 @@ public static class AgentCliWorkspace
         var absolute = Path.GetFullPath(Path.Combine(root, ApplicationWorkspaceFolderName));
 
         Directory.CreateDirectory(absolute);
+        CleanupObsoleteGeneratedConfigs(absolute);
         AgentProjectLink.WriteApplicationWorkspace(absolute);
         var utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
         WriteClaudeMcpApproval(absolute, utf8, AgentProjectLink.ApplicationMcpServerName);
@@ -249,11 +250,7 @@ public static class AgentCliWorkspace
         // Legacy registry of linked projects, kept when project configs still held an
         // expiring URL. Writing into a project folder is a one-shot action now.
         TryDelete(Path.Combine(workspaceDir, "linked-projects.json"));
-        // Gemini CLI stopped serving individual accounts in June 2026 and was replaced by
-        // Antigravity, which reads .agents/mcp_config.json and AGENTS.md. Drop what we used to
-        // write for it so a stale config cannot point an agent at a dead CLI.
-        TryDelete(Path.Combine(workspaceDir, "GEMINI.md"));
-        TryDeleteFolder(Path.Combine(workspaceDir, ".gemini"));
+        CleanupObsoleteGeneratedConfigs(workspaceDir);
 
         foreach (var target in AgentMcpConfigCatalog.All)
         {
@@ -598,6 +595,17 @@ public static class AgentCliWorkspace
         {
             // Best-effort cleanup of obsolete sidecar files.
         }
+    }
+
+    private static void CleanupObsoleteGeneratedConfigs(string workspaceDir)
+    {
+        // Drop config files/folders for agents we no longer support so existing generated
+        // workspaces do not carry stale MCP entries.
+        TryDelete(Path.Combine(workspaceDir, "GEMINI.md"));
+        TryDeleteFolder(Path.Combine(workspaceDir, ".gemini"));
+        TryDeleteFolder(Path.Combine(workspaceDir, ".omp"));
+        TryDeleteFolder(Path.Combine(workspaceDir, ".vscode"));
+        TryDeleteFolder(Path.Combine(workspaceDir, ".zed"));
     }
 
     /// <summary>

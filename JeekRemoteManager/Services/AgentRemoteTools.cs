@@ -65,20 +65,16 @@ public interface IAgentRemoteTools
 /// <summary>Identity of a local agent the AI panel can launch.</summary>
 public enum AgentCliKind
 {
-    Claude,
-    Codex,
-    Grok,
-    Copilot,
-    OpenCode,
-    Pi,
-    Omp,
-
     /// <summary>
     /// Google's replacement for Gemini CLI. One agent shipping three programs — the
     /// <c>agy</c> terminal agent, the 2.0 desktop app, and the IDE — so it is one provider
     /// whose run mode picks the surface.
     /// </summary>
     Antigravity,
+
+    Claude,
+    Codex,
+    Copilot,
 
     /// <summary>
     /// Cursor ships a terminal agent (<c>agent</c>, formerly <c>cursor-agent</c>) beside the
@@ -87,15 +83,15 @@ public enum AgentCliKind
     /// </summary>
     Cursor,
 
+    Grok,
+    OpenCode,
+    Pi,
+
     /// <summary>
     /// T3 Code: a desktop host that runs Claude, Codex, Cursor, and others on a project folder.
     /// It has no terminal surface of its own, so it is offered in Desktop mode only.
     /// </summary>
     T3Code,
-
-    /// <summary>Editors opened on the workspace folder rather than run as a CLI.</summary>
-    VsCode,
-    Zed,
 }
 
 /// <summary>
@@ -238,6 +234,18 @@ public static class AgentCliCatalog
         var codexPath = AgentCliLocator.FindCodex();
         return
         [
+            new(AgentCliKind.Antigravity, "Antigravity", new Dictionary<AgentSurfaceKind, AgentSurface>
+            {
+                [AgentSurfaceKind.Terminal] = Surface(
+                    AgentCliKind.Antigravity, AgentSurfaceKind.Terminal,
+                    AgentCliLocator.FindAntigravityCli()),
+                [AgentSurfaceKind.Desktop] = Surface(
+                    AgentCliKind.Antigravity, AgentSurfaceKind.Desktop,
+                    AgentCliLocator.FindAntigravityDesktop()),
+                [AgentSurfaceKind.Ide] = Surface(
+                    AgentCliKind.Antigravity, AgentSurfaceKind.Ide,
+                    AgentCliLocator.FindAntigravityIde()),
+            }),
             new(AgentCliKind.Claude, "Claude", new Dictionary<AgentSurfaceKind, AgentSurface>
             {
                 [AgentSurfaceKind.Terminal] = Surface(
@@ -261,49 +269,34 @@ public static class AgentCliCatalog
                     AgentCliKind.Codex, AgentSurfaceKind.Desktop, codexPath,
                     isAvailableWithoutExecutable: AgentCliLocator.IsUriSchemeRegistered("codex")),
             }),
-        Terminal(AgentCliKind.Grok, "Grok", AgentCliLocator.FindGrok()),
-        new(AgentCliKind.Copilot, "GitHub Copilot", new Dictionary<AgentSurfaceKind, AgentSurface>
-        {
-            [AgentSurfaceKind.Terminal] = Surface(
-                AgentCliKind.Copilot, AgentSurfaceKind.Terminal, AgentCliLocator.FindCopilot()),
-            // GitHub's hosted launcher opens the app when installed and otherwise presents the
-            // download page, so this surface is useful without a locally discoverable binary.
-            [AgentSurfaceKind.Desktop] = Surface(
-                AgentCliKind.Copilot, AgentSurfaceKind.Desktop, path: null,
-                isAvailableWithoutExecutable: true),
-        }),
-        Terminal(AgentCliKind.OpenCode, "OpenCode", AgentCliLocator.FindOpenCode()),
-        Terminal(AgentCliKind.Pi, "Pi", AgentCliLocator.FindPi()),
-        Terminal(AgentCliKind.Omp, "OMP", AgentCliLocator.FindOmp()),
-        new(AgentCliKind.Antigravity, "Antigravity", new Dictionary<AgentSurfaceKind, AgentSurface>
-        {
-            [AgentSurfaceKind.Terminal] = Surface(
-                AgentCliKind.Antigravity, AgentSurfaceKind.Terminal,
-                AgentCliLocator.FindAntigravityCli()),
-            [AgentSurfaceKind.Desktop] = Surface(
-                AgentCliKind.Antigravity, AgentSurfaceKind.Desktop,
-                AgentCliLocator.FindAntigravityDesktop()),
-            [AgentSurfaceKind.Ide] = Surface(
-                AgentCliKind.Antigravity, AgentSurfaceKind.Ide,
-                AgentCliLocator.FindAntigravityIde()),
-        }),
-        new(AgentCliKind.Cursor, "Cursor", new Dictionary<AgentSurfaceKind, AgentSurface>
-        {
-            [AgentSurfaceKind.Terminal] = Surface(
-                AgentCliKind.Cursor, AgentSurfaceKind.Terminal, AgentCliLocator.FindCursorCli()),
-            [AgentSurfaceKind.Ide] = Surface(
-                AgentCliKind.Cursor, AgentSurfaceKind.Ide, AgentCliLocator.FindCursor()),
-        }),
-        new(AgentCliKind.T3Code, "T3 Code", new Dictionary<AgentSurfaceKind, AgentSurface>
-        {
-            // The t3 launcher is written by the app on its first start, so the app alone is
-            // enough: opening the workspace starts it, and the launcher appears.
-            [AgentSurfaceKind.Desktop] = Surface(
-                AgentCliKind.T3Code, AgentSurfaceKind.Desktop,
-                AgentCliLocator.FindT3CodeCli() ?? AgentCliLocator.FindT3CodeDesktop()),
-        }),
-        Editor(AgentCliKind.VsCode, "VS Code", AgentCliLocator.FindVsCode()),
-        Editor(AgentCliKind.Zed, "Zed", AgentCliLocator.FindZed()),
+            new(AgentCliKind.Cursor, "Cursor", new Dictionary<AgentSurfaceKind, AgentSurface>
+            {
+                [AgentSurfaceKind.Terminal] = Surface(
+                    AgentCliKind.Cursor, AgentSurfaceKind.Terminal, AgentCliLocator.FindCursorCli()),
+                [AgentSurfaceKind.Ide] = Surface(
+                    AgentCliKind.Cursor, AgentSurfaceKind.Ide, AgentCliLocator.FindCursor()),
+            }),
+            new(AgentCliKind.Copilot, "GitHub Copilot", new Dictionary<AgentSurfaceKind, AgentSurface>
+            {
+                [AgentSurfaceKind.Terminal] = Surface(
+                    AgentCliKind.Copilot, AgentSurfaceKind.Terminal, AgentCliLocator.FindCopilot()),
+                // GitHub's hosted launcher opens the app when installed and otherwise presents the
+                // download page, so this surface is useful without a locally discoverable binary.
+                [AgentSurfaceKind.Desktop] = Surface(
+                    AgentCliKind.Copilot, AgentSurfaceKind.Desktop, path: null,
+                    isAvailableWithoutExecutable: true),
+            }),
+            Terminal(AgentCliKind.Grok, "Grok", AgentCliLocator.FindGrok()),
+            Terminal(AgentCliKind.OpenCode, "OpenCode", AgentCliLocator.FindOpenCode()),
+            Terminal(AgentCliKind.Pi, "Pi", AgentCliLocator.FindPi()),
+            new(AgentCliKind.T3Code, "T3 Code", new Dictionary<AgentSurfaceKind, AgentSurface>
+            {
+                // The t3 launcher is written by the app on its first start, so the app alone is
+                // enough: opening the workspace starts it, and the launcher appears.
+                [AgentSurfaceKind.Desktop] = Surface(
+                    AgentCliKind.T3Code, AgentSurfaceKind.Desktop,
+                    AgentCliLocator.FindT3CodeCli() ?? AgentCliLocator.FindT3CodeDesktop()),
+            }),
         ];
     }
 
@@ -311,12 +304,6 @@ public static class AgentCliCatalog
         new(kind, label, new Dictionary<AgentSurfaceKind, AgentSurface>
         {
             [AgentSurfaceKind.Terminal] = Surface(kind, AgentSurfaceKind.Terminal, path),
-        });
-
-    private static AgentCliDescriptor Editor(AgentCliKind kind, string label, string? path) =>
-        new(kind, label, new Dictionary<AgentSurfaceKind, AgentSurface>
-        {
-            [AgentSurfaceKind.Ide] = Surface(kind, AgentSurfaceKind.Ide, path),
         });
 
     private static AgentSurface Surface(
@@ -344,7 +331,6 @@ public static class AgentCliCatalog
     /// </summary>
     public static IReadOnlyList<AgentCliRunMode> RunModesFor(AgentCliKind kind) => kind switch
     {
-        AgentCliKind.VsCode or AgentCliKind.Zed => [AgentCliRunMode.Ide],
         AgentCliKind.T3Code => [AgentCliRunMode.Desktop],
         AgentCliKind.Cursor =>
             [AgentCliRunMode.Cli, AgentCliRunMode.WindowsTerminal, AgentCliRunMode.Ide],

@@ -36,10 +36,9 @@ AI 面板的选项菜单既能在资源管理器中打开工作区，也能复�
 
 一些各家 agent 的具体差异必须记在这里，否则很容易踩：
 
-- **根键名不同**：Claude / Copilot CLI / Cursor 读 `mcpServers`，VS Code 读 `servers`。VS Code 遇到另一种拼法会**静默忽略整个文件**——不报错，工具就是不出现。
+- **按字母排序**：`AgentCliCatalog` 里的 agent 列表与 `AgentMcpConfigCatalog.All` 都按显示名（`Label`）字母序排列。已移除的 agent（如 Gemini CLI、OMP、VS Code、Zed）在生成的工作区刷新时会顺手删掉旧配置目录，但**绝不动**用户项目目录里可能属于用户自己的同名文件夹。
 - **Codex 的 `default_tools_approval_mode` 必须写在配置文件里**，不能用 `codex -c` 覆盖。没有 `url`/`command` 的部分 `mcp_servers.*` 补丁会以 "invalid transport" 加载失败。
-- **OpenCode** 的条目形状是 `{ type: "local", command: [exe, ...args] }`。
-- **Zed** 的 `context_servers` 条目是 `{ command, args }`，没有类型判别字段——变体按形状选择，`type` 根本不在它的 schema 里。
+- **OpenCode** 的条目形状是 `{ type: "local", command: [exe, ...args] }`，根键名为 `mcp`（其余 JSON 配置均为 `mcpServers`）。
 - **Claude** 把项目级 `.mcp.json` 的服务器视为未受信任，直到用户批准。工作区是 JRM 自己生成的且适配器已钉在当前连接上，所以在项目局部设置里**只批准我们这一个服务器**。不这么做的话，新连接会静默地在没有任何 `jrm-remote` 工具的情况下启动 Claude，即使 `--allowedTools` 里写了这些工具名。
 - **Cursor CLI** 没有"授予某一个 MCP 服务器的工具"的命令行开关，项目级服务器也不像用户级那样自动批准。所以用它的项目权限文件同时覆盖这两件事，比 `--force` 那种一揽子 shell 权限窄得多。
 - **Antigravity** 的 `.agents/mcp_config.json` 没有文档化的按服务器自动批准；它的一揽子自动批准会连本地 shell 和文件写入一起覆盖，比其它 agent 在这里被授予的远程工具宽太多。**所以对 Antigravity 不加授权参数**，由用户在 agent 里自己确认。

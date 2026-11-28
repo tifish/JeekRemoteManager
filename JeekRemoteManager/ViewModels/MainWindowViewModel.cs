@@ -500,7 +500,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>
     /// Shared launch mode for providers with CLI / Windows Terminal only.
-    /// The persisted name predates OpenCode, Pi, and OMP.
+    /// The persisted name predates OpenCode and Pi.
     /// </summary>
     public AgentCliRunMode AiGrokRunMode
     {
